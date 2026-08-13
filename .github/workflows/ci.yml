@@ -16,6 +16,11 @@ jobs:
   test:
     name: test and coverage
     runs-on: ubuntu-latest
+    env:
+      # A step-level `if:` may not read the `secrets` context — a job-level `env:` may.
+      # So the one question the codecov steps ask about the token is answered once,
+      # here, and travels as an ordinary string ("true" / "false").
+      HAS_CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,10 +85,10 @@ jobs:
           disable_search: true # exactly the profile above; nothing is guessed
           flags: unit # a second lane (another OS, another Go) gets its own
           name: ubuntu-go${{ steps.go.outputs.go-version }}
-          fail_ci_if_error: ${{ secrets.CODECOV_TOKEN != '' }}
+          fail_ci_if_error: ${{ env.HAS_CODECOV_TOKEN }}
 
       - name: note a missing codecov token
-        if: ${{ secrets.CODECOV_TOKEN == '' }}
+        if: env.HAS_CODECOV_TOKEN == 'false'
         run: |
           msg="CODECOV_TOKEN is not set, so the profile was measured but not uploaded."
           msg="$msg Its total is in the run summary. Add the secret in Settings →"
