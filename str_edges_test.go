@@ -100,27 +100,42 @@ func TestStringCountsClampAndPadRefuses(t *testing.T) {
 	})
 }
 
-// A pattern that cannot compile is a regex diagnostic pointing at the row that took it,
-// not a panic out of the backend (§11.4).
-func TestStringRowsReportABadPattern(t *testing.T) {
+// A string argument is quoted and matched literally (§12.2), so "(" is a needle and
+// not a broken pattern. Reaching a pattern that cannot compile takes `regex(…)`, and
+// then the diagnostic is a regex error rather than a panic out of the backend (§11.4).
+func TestPatternArgumentsLiteralAndCompiled(t *testing.T) {
 	c := stdCtx(DefaultOptions())
-	bad := Str("(")
 
-	for _, method := range []string{"split", "count", "index", "last_index"} {
-		t.Run(method, func(t *testing.T) {
-			// A plain string argument is quoted and matches literally (§12.2), so the
-			// only way to a bad pattern is a regex built at run time.
-			re, err := c.Regex("(", "")
-			if err == nil {
-				t.Fatalf("Regex(%q) compiled; the fixture needs a pattern that cannot", "(")
+	for _, tt := range []struct {
+		method string
+		want   string
+	}{
+		{"split", `["a","b"]`},
+		{"count", "1"},
+		{"index", "1"},
+		{"last_index", "1"},
+	} {
+		t.Run(tt.method+" takes a string literally", func(t *testing.T) {
+			got, err := stdCall(t, c, Str("a(b"), tt.method, Str("("))
+			if err != nil {
+				t.Fatalf("%s error = %v; a string argument is a needle, not a pattern", tt.method, err)
 			}
-			_ = re
-			// The literal string form must still work — "(" is not a pattern here.
-			if _, err := stdCall(t, c, Str("a(b"), method, bad); err != nil {
-				t.Errorf("%s with a literal %q = %v; a string argument matches literally", method, "(", err)
+			if got.Inspect() != tt.want {
+				t.Errorf("%s = %s; want %s", tt.method, got.Inspect(), tt.want)
 			}
 		})
 	}
+
+	t.Run("a runtime pattern that cannot compile is a regex error", func(t *testing.T) {
+		_, err := stdBuiltin(t, c, "regex", Str("("))
+		var e *Error
+		if !errors.As(err, &e) {
+			t.Fatalf("regex(\"(\") = %v; want an *Error", err)
+		}
+		if e.Kind != ErrKindRegex {
+			t.Errorf("kind = %q; want %q", e.Kind, ErrKindRegex)
+		}
+	})
 }
 
 // The set `squeeze` takes is small but has three shapes, and only the first is obvious.
@@ -207,7 +222,7 @@ func TestSplitLimit(t *testing.T) {
 		{"a limit keeps the rest whole", "а:б:в", []Value{Str(":"), Int(2)}, `["а","б:в"]`},
 		{"a limit of one is the whole string", "а:б:в", []Value{Str(":"), Int(1)}, `["а:б:в"]`},
 		{"a negative limit is no limit", "а:б:в", []Value{Str(":"), Int(-1)}, `["а","б","в"]`},
-		{"a regex separator with a limit", "а1б2в", []Value{MustRegex(t, `\d`), Int(2)}, `["а","б2в"]`},
+		{"a regex separator with a limit", "а1б2в", []Value{mustRegex(t, `\d`), Int(2)}, `["а","б2в"]`},
 		{"an empty separator splits into runes", "аб", []Value{Str("")}, `["а","б"]`},
 		{"whitespace splits on runs", " а  б ", nil, `["а","б"]`},
 	}
@@ -225,8 +240,8 @@ func TestSplitLimit(t *testing.T) {
 	}
 }
 
-// MustRegex compiles a pattern for a table, failing the test rather than the row.
-func MustRegex(t *testing.T, pattern string) Value {
+// mustRegex compiles a pattern for a table, failing the test rather than the row.
+func mustRegex(t *testing.T, pattern string) Value {
 	t.Helper()
 	c := stdCtx(DefaultOptions())
 	v, err := c.Regex(pattern, "")

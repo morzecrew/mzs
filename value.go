@@ -1208,7 +1208,7 @@ func From(x any) (Value, error) {
 	case int64:
 		return Int(t), nil
 	case uint:
-		return Int(int64(t)), nil
+		return fromUint64(uint64(t)), nil
 	case uint8:
 		return Int(int64(t)), nil
 	case uint16:
@@ -1216,7 +1216,7 @@ func From(x any) (Value, error) {
 	case uint32:
 		return Int(int64(t)), nil
 	case uint64:
-		return Int(int64(t)), nil
+		return fromUint64(t), nil
 	case float32:
 		return Float(float64(t)), nil
 	case float64:
@@ -1287,6 +1287,18 @@ func From(x any) (Value, error) {
 		return decodeJSON(b)
 	}
 	return Nil(), fmt.Errorf("mzs: cannot convert %T to a value", x)
+}
+
+// fromUint64 lifts an unsigned Go integer, which is the one Go number that does not fit
+// the value model: above math.MaxInt64 there is no Int for it. D9's rule decides what
+// happens — an Int that would overflow becomes a Float rather than wrapping — so a host
+// handing over a large unsigned id gets an approximate positive number instead of a
+// silent negative one. uint8/16/32 always fit and take the direct path.
+func fromUint64(n uint64) Value {
+	if n > math.MaxInt64 {
+		return Float(float64(n))
+	}
+	return Int(int64(n))
 }
 
 // fromStringMap converts a Go map into a dict deterministically: Go map iteration is

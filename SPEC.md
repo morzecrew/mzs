@@ -2104,6 +2104,11 @@ func (v Value) MarshalJSON() ([]byte, error)
 func (v *Value) UnmarshalJSON(b []byte) error
 ```
 
+`From` maps every Go integer kind to `Int`, with one exception that D9 decides: a `uint`
+or `uint64` above `math.MaxInt64` has no `Int`, so it becomes a `Float` — the same
+promotion an overflowing `+` performs, and never a wrap into a negative. `uint8`,
+`uint16` and `uint32` always fit.
+
 ### 13.2 Options
 
 ```go

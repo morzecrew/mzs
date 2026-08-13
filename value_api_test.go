@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ func TestFromEveryGoScalar(t *testing.T) {
 		{"uint16", uint16(7), Int(7)},
 		{"uint32", uint32(7), Int(7)},
 		{"uint64", uint64(7), Int(7)},
+		{"the largest uint64 that still fits", uint64(math.MaxInt64), Int(math.MaxInt64)},
 		{"float32", float32(1.5), Float(1.5)},
 		{"float64", float64(1.5), Float(1.5)},
 		{"string", "привет", Str("привет")},
@@ -50,6 +52,50 @@ func TestFromEveryGoScalar(t *testing.T) {
 				t.Errorf("From(%#v) = %s; want %s", tt.in, got.Inspect(), tt.want.Inspect())
 			}
 		})
+	}
+}
+
+// The one Go number the value model has no room for: above math.MaxInt64 there is no
+// Int, so D9 decides — it promotes to Float, exactly as an overflowing `+` does, rather
+// than wrapping into a negative. A host counter or an unsigned id must not arrive as a
+// negative number that every later comparison then reads backwards.
+func TestFromLargeUnsignedPromotesInsteadOfWrapping(t *testing.T) {
+	tests := []struct {
+		name string
+		in   any
+		want float64
+	}{
+		{"one past the largest int64", uint64(math.MaxInt64) + 1, float64(uint64(math.MaxInt64) + 1)},
+		{"the largest uint64", uint64(math.MaxUint64), float64(uint64(math.MaxUint64))},
+		{"a uint of the same magnitude", uint(math.MaxUint64), float64(uint64(math.MaxUint64))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := From(tt.in)
+			if err != nil {
+				t.Fatalf("From(%v) error = %v", tt.in, err)
+			}
+			if got.Kind() != KFloat {
+				t.Fatalf("From(%v) = %s (%s); want a float, since no int64 holds it",
+					tt.in, got.Inspect(), got.Kind())
+			}
+			if got.Float() != tt.want {
+				t.Errorf("From(%v) = %s; want %g", tt.in, got.Inspect(), tt.want)
+			}
+			if got.Float() < 0 {
+				t.Errorf("From(%v) = %s; a positive host number must never arrive negative",
+					tt.in, got.Inspect())
+			}
+		})
+	}
+
+	// The smaller unsigned kinds always fit, so they stay Ints.
+	for _, in := range []any{uint8(math.MaxUint8), uint16(math.MaxUint16), uint32(math.MaxUint32)} {
+		got, err := From(in)
+		if err != nil || got.Kind() != KInt {
+			t.Errorf("From(%T %v) = %s, %v; want an int", in, in, got.Inspect(), err)
+		}
 	}
 }
 
@@ -311,13 +357,13 @@ func TestStringEscaping(t *testing.T) {
 
 	insp := s.Inspect()
 	for _, want := range []string{`\\`, `\"`, `\n`, `\r`, `\t`, `\u0001`} {
-		if !contains(insp, want) {
+		if !strings.Contains(insp, want) {
 			t.Errorf("Inspect() = %s; want it to contain %s", insp, want)
 		}
 	}
 	js := encodeJSON(s, "")
 	for _, want := range []string{`\\`, `\"`, `\n`, `\r`, `\t`, `\u0001`} {
-		if !contains(js, want) {
+		if !strings.Contains(js, want) {
 			t.Errorf("json = %s; want it to contain %s", js, want)
 		}
 	}
@@ -327,13 +373,4 @@ func TestStringEscaping(t *testing.T) {
 	if !json.Valid([]byte(bad)) {
 		t.Errorf("json of an invalid UTF-8 string = %s; want valid JSON", bad)
 	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
