@@ -180,6 +180,17 @@ function methodItems(recv) {
       seen.set(name, item);
     }
   }
+  // UFCS (D18): `x.f` *is* `f(x)`, so every global function is a method spelling too —
+  // `x.dup`, `xs.sum`, `flags.band(0xff)`. The registry keeps them as builtins rather
+  // than as a row per kind, so completion has to union them in or the dot hides them.
+  for (const [name, doc] of Object.entries(API.builtins)) {
+    if (seen.has(name)) continue;
+    const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Method);
+    item.documentation = docFor(name, doc, null);
+    if (doc && doc.sig) item.detail = doc.sig;
+    item.sortText = '2' + name;
+    seen.set(name, item);
+  }
   return [...seen.values()];
 }
 
@@ -282,6 +293,11 @@ const hoverProvider = {
       const recvKinds = inferReceiver(head);
       const own = (recvKinds || []).find(k => API.methods[k] && API.methods[k][word]);
       const kinds = own ? [own] : kindsWith(word);
+      // No kind registers it, but a global function of that name is reachable here all
+      // the same — that is UFCS (D18), and `flags.band(0xff)` must hover like `band`.
+      if (!kinds.length && API.builtins[word]) {
+        return new vscode.Hover(docFor(word, API.builtins[word], null), range);
+      }
       if (!kinds.length) return null;
       const doc = API.methods[kinds[0]][word];
       const md = docFor(word, doc, kinds.length === 1 ? kinds[0] : null);
