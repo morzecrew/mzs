@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          # go.mod has no `require` and there is no go.sum (I1), so there is nothing
+          # to cache and nothing for the cache key to hash.
+          cache: false
+
+      # The four checks of README "Verification", in the same order.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test -race
+        run: go test -race ./...
+
+      # Coverage runs separately and without -race: the acceptance corpus gives each
+      # example a 2 s Run deadline (corpus_test.go), and race detection on top of
+      # coverage instrumentation is slow enough to trip it on a shared runner.
+      # -coverpkg=./... credits the library for what the cmd/mzs and engine tests
+      # exercise in it; drop it if the examples ever start timing out here too.
+      - name: coverage profile
+        run: go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+
+      - name: coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: upload to codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          fail_ci_if_error: true
+
+  cli:
+    name: cli smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Every shipped example must still compile under the real CLI, which is the one
+      # check corpus_test.go cannot make: it runs them through the library. One file per
+      # invocation — the CLI takes a single program and turns the rest into $ARGV — and
+      # with --time, because 29_time_scheduling.mzs includes a gated module and --check
+      # resolves modules at compile time.
+      - name: mzs --check examples
+        run: |
+          go build -o /tmp/mzs ./cmd/mzs
+          status=0
+          for f in examples/*.mzs; do
+            /tmp/mzs --check --time "$f" || status=1
+          done
+          exit $status

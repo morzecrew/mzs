@@ -2,6 +2,9 @@
 
 **A small scripting language for Morze Assistant**
 
+[![CI](https://github.com/morzecrew/mzs/actions/workflows/ci.yml/badge.svg)](https://github.com/morzecrew/mzs/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/morzecrew/mzs/graph/badge.svg)](https://codecov.io/gh/morzecrew/mzs)
+
 ```sh
 mzs -e '"  ОПЕРАТОР ".lower.trim == "оператор"'          # true
 mzs -e '"привет".index(/вет/)'                           # 3   (the index is in RUNES)
@@ -992,6 +995,15 @@ The acceptance suite is [`corpus_test.go`](corpus_test.go): real conditions from
 flows after the migration ([`SPEC.md` §16.1](SPEC.md)), the regex corpus (§16.2), the
 author's own files (§16.3), a test for every known gotcha (§16.4) and for every diagnostic
 of §5.6.
+
+The same four commands run on every push and pull request
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), and the coverage profile goes to
+[Codecov](https://codecov.io/gh/morzecrew/mzs). Locally:
+
+```sh
+go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
 
 Examples: thirty-four complete programs in [`examples/`](examples/README.md) — from the
 value model and `match` to BFS through a maze, a FIFO warehouse, `async fn` and an HTTP
