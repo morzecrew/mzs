@@ -80,7 +80,9 @@ type Options struct {
 	RegexSteps int
 	// RegexCacheSize bounds the runtime regex compile cache, shared per *Interp.
 	RegexCacheSize int
-	// ProgramCache bounds the compiled-source cache used by Eval. 0 disables it.
+	// ProgramCache bounds the compiled-source cache used by Eval. 0 is the zero value
+	// and therefore means "the default" (DefaultProgramCache), like every other bound
+	// here; pass a negative size to turn caching off. normalize maps the two.
 	ProgramCache int
 
 	// Stdout receives print/say/debug. nil discards.

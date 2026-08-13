@@ -1147,3 +1147,48 @@ func TestCompileRejectsUnresolvedNames(t *testing.T) {
 		})
 	}
 }
+
+// TestProgramCacheContract pins what Options.ProgramCache means, because the field is
+// the one bound whose zero value could plausibly read either way. It follows the rest of
+// Options: 0 is "unset, use the default", and turning the cache off takes a negative
+// size. Compile is keyed on (name, src), so an enabled cache hands back the identical
+// *Program and a disabled one compiles afresh — which is what makes the two observable.
+func TestProgramCacheContract(t *testing.T) {
+	compileTwice := func(t *testing.T, o Options) (*Program, *Program) {
+		t.Helper()
+		in := New(o)
+		a, err := in.Compile("p", `1 + 1`)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		b, err := in.Compile("p", `1 + 1`)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		return a, b
+	}
+
+	t.Run("the zero value is the default, not disabled", func(t *testing.T) {
+		if got := (Options{}).normalize().ProgramCache; got != DefaultProgramCache {
+			t.Errorf("ProgramCache 0 normalized to %d; want the default %d", got, DefaultProgramCache)
+		}
+		if a, b := compileTwice(t, Options{}); a != b {
+			t.Error("zero Options recompiled the same (name, src); want the cached *Program")
+		}
+	})
+
+	t.Run("a negative size disables the cache", func(t *testing.T) {
+		if got := (Options{ProgramCache: -1}).normalize().ProgramCache; got != 0 {
+			t.Errorf("ProgramCache -1 normalized to %d; want 0", got)
+		}
+		if a, b := compileTwice(t, Options{ProgramCache: -1}); a == b {
+			t.Error("ProgramCache -1 still cached; want a fresh *Program each Compile")
+		}
+	})
+
+	t.Run("an explicit size is kept", func(t *testing.T) {
+		if got := (Options{ProgramCache: 7}).normalize().ProgramCache; got != 7 {
+			t.Errorf("ProgramCache 7 normalized to %d; want 7", got)
+		}
+	})
+}
