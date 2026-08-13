@@ -1091,3 +1091,225 @@ func itoa(n int) string {
 	}
 	return itoa(n/10) + string(rune('0'+n%10))
 }
+
+// TestCLIArgumentErrors is the other half of the flag table (§15): every flag that takes
+// a value has three ways to be wrong — no value at all, a value of the wrong shape, and
+// a file that is not there — and each must be exit code 2 with a message that names the
+// flag, never a panic or a silent default.
+func TestCLIArgumentErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		argv   []string
+		errHas string
+	}{
+		{"-e with no value", []string{"-e"}, "needs a value"},
+		{"--in with no value", []string{"--in"}, "needs a value"},
+		{"-v with no value", []string{"-v"}, "needs a value"},
+		{"-v without an =", []string{"-v", "price", "-e", "1"}, "name=value"},
+		{"--vars with no value", []string{"--vars"}, "needs a value"},
+		{"--vars with broken json", []string{"--vars", "{oops", "-e", "1"}, "vars"},
+		{"--vars with a non-object", []string{"--vars", "[1,2]", "-e", "1"}, "vars"},
+		{"--vars-file that is not there", []string{"--vars-file", "нет-такого.json", "-e", "1"}, "нет-такого.json"},
+		{"-t with no value", []string{"-t"}, "needs a value"},
+		{"-t with a bad duration", []string{"-t", "вчера", "-e", "1"}, "вчера"},
+		{"--steps with a non-number", []string{"--steps", "много", "-e", "1"}, "--steps"},
+		{"--tasks with a non-number", []string{"--tasks", "много", "-e", "1"}, "--tasks"},
+		{"--tasks with a negative count", []string{"--tasks", "-1", "-e", "1"}, "--tasks"},
+		{"--rand with a bad seed", []string{"--rand=завтра", "-e", "1"}, "seed"},
+		{"an unknown flag", []string{"--нетакого", "-e", "1"}, "нетакого"},
+		{"-n with no data", []string{"-n"}, "--in"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			code, out, errOut := exec(tt.argv, "")
+			if code != exitUsage {
+				t.Errorf("exit = %d, want %d (stdout %q, stderr %q)", code, exitUsage, out, errOut)
+			}
+			if !strings.Contains(errOut, tt.errHas) {
+				t.Errorf("stderr = %q; want it to mention %q", errOut, tt.errHas)
+			}
+		})
+	}
+}
+
+// The flags that change how a run is set up rather than what it computes.
+func TestCLIRunOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		argv     []string
+		stdin    string
+		wantCode int
+		outHas   []string
+		errHas   []string
+	}{
+		{
+			name:   "--stats reports steps and elapsed time on stderr",
+			argv:   []string{"--stats", "-e", "(1..100).sum"},
+			outHas: []string{"5050"},
+			errHas: []string{"steps"},
+		},
+		{
+			// A constant fold would turn `1 + 2` into an Int before the dump, so the
+			// expression has to be one the compile step cannot fold.
+			name:   "--ast dumps the tree and stops",
+			argv:   []string{"--ast", "-e", "x = 1; x + 2"},
+			outHas: []string{"Program", "Binary +"},
+		},
+		{
+			name:   "--tokens dumps the token stream and stops",
+			argv:   []string{"--tokens", "-e", "1 + 2"},
+			outHas: []string{"INT(1)", "EOF"},
+		},
+		{
+			name:   "--check reports a regex the backtracking engine only approximates",
+			argv:   []string{"--check", "-e", `"a" ~ /(?<=a)b/`},
+			outHas: []string{"ok"},
+		},
+		{
+			name:     "--timeout 0 removes the deadline",
+			argv:     []string{"-t", "0", "-e", "1"},
+			outHas:   []string{"1"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "--steps 0 removes the budget",
+			argv:     []string{"--steps", "0", "-e", "(1..1000).sum"},
+			outHas:   []string{"500500"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "--tasks 0 forbids async",
+			argv:     []string{"--tasks", "0", "-e", "async fn f() { 1 }; f()"},
+			wantCode: exitLimit,
+			errHas:   []string{"tasks are disabled"},
+		},
+		{
+			name:     "an exhausted budget is exit 3",
+			argv:     []string{"--steps", "1000", "-e", "while true { }"},
+			wantCode: exitLimit,
+		},
+		{
+			name:     "a timeout is exit 3",
+			argv:     []string{"-t", "50ms", "--steps", "0", "-e", "while true { }"},
+			wantCode: exitLimit,
+		},
+		{
+			name:     "--vars binds typed values from JSON",
+			argv:     []string{"--vars", `{"qty": 3, "name": "гель"}`, "-e", `"${$name}: ${$qty * 2}"`},
+			outHas:   []string{"гель: 6"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "-v binds a string",
+			argv:     []string{"-v", "price=1500", "-e", `$price.int + 1`},
+			outHas:   []string{"1501"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "--rand with a seed is reproducible",
+			argv:     []string{"--rand=1", "-e", "rand(1000)"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "--no-io withholds the module",
+			argv:     []string{"--no-io", "-e", "include io; io.stdin"},
+			wantCode: exitError,
+			errHas:   []string{"io"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			code, out, errOut := exec(tt.argv, tt.stdin)
+			if code != tt.wantCode {
+				t.Errorf("exit = %d, want %d (stdout %q, stderr %q)", code, tt.wantCode, out, errOut)
+			}
+			for _, want := range tt.outHas {
+				if !strings.Contains(out, want) {
+					t.Errorf("stdout = %q; want it to contain %q", out, want)
+				}
+			}
+			for _, want := range tt.errHas {
+				if !strings.Contains(errOut, want) {
+					t.Errorf("stderr = %q; want it to contain %q", errOut, want)
+				}
+			}
+		})
+	}
+}
+
+// `--` ends the flags, so a script may be handed arguments that look like flags. It
+// needs a file: a one-liner and a script file are mutually exclusive (§15).
+func TestCLIEndOfFlags(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := filepath.Join(dir, "argv.mzs")
+	if err := os.WriteFile(script, []byte("$ARGV.json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A script file does not print its value on its own — that is the -e shape — so
+	// -p is what makes the run observable here (§15).
+	code, out, errOut := exec([]string{"-p", script, "--", "--not-a-flag"}, "")
+	if code != exitOK {
+		t.Fatalf("exit = %d (stdout %q, stderr %q)", code, out, errOut)
+	}
+	if !strings.Contains(out, "--not-a-flag") {
+		t.Errorf("stdout = %q; want the argument in $ARGV", out)
+	}
+}
+
+// A script may only include a file under the root of the program that ran it (§12.8,
+// §14.3): the CLI is the host here, and the path policy is the host's.
+func TestCLIIncludeRootIsEnforced(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "lib.mzs")
+	if err := os.WriteFile(lib, []byte("export fn one() { 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := filepath.Join(dir, "main.mzs")
+	if err := os.WriteFile(main, []byte(`include lib from "./lib.mzs"`+"\nlib.one()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a sibling include works", func(t *testing.T) {
+		code, out, errOut := exec([]string{main}, "")
+		if code != exitOK {
+			t.Fatalf("exit = %d (stdout %q, stderr %q)", code, out, errOut)
+		}
+	})
+
+	t.Run("an include above the root is refused", func(t *testing.T) {
+		escaping := filepath.Join(dir, "escape.mzs")
+		if err := os.WriteFile(escaping, []byte(`include x from "../../../etc/passwd"`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, _, errOut := exec([]string{escaping}, "")
+		if code == exitOK {
+			t.Error("an include outside the root was allowed")
+		}
+		if errOut == "" {
+			t.Error("no diagnostic for an include outside the root")
+		}
+	})
+
+	t.Run("a one-liner has no root to include from", func(t *testing.T) {
+		code, _, errOut := exec([]string{"-e", `include lib from "./lib.mzs"`}, "")
+		if code == exitOK {
+			t.Error("a -e program included a file; it has no directory to resolve against")
+		}
+		if errOut == "" {
+			t.Error("no diagnostic for an include with no root")
+		}
+	})
+}

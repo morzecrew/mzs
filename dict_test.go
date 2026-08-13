@@ -1,6 +1,10 @@
 package mzs
 
-import "testing"
+import (
+	"errors"
+	"strconv"
+	"testing"
+)
 
 // The data structure is a **dict**, never a "map": `map` is the higher-order function of
 // §12.3 and one name may not mean two things (D17). A dict literal is written `[a: 1]`
@@ -268,6 +272,103 @@ func TestDictHasNoOldNames(t *testing.T) {
 		t.Run(tt.old, func(t *testing.T) {
 			if HasMethod(KDict, tt.old) {
 				t.Errorf("dict answers %q; D17 allows only %q", tt.old, tt.use)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Every row, one property at a time
+// ---------------------------------------------------------------------------
+//
+// Walked from the registry, like the array tables in array_test.go: a row added to
+// §12.4 is covered as soon as it is registered, and one missing from dictRowArgs fails
+// the first test rather than being quietly skipped.
+
+var dictRowArgs = map[string][]Value{
+	"array": nil, "empty": nil, "invert": nil, "json": nil, "keys": nil,
+	"len": nil, "values": nil,
+	"all": {colIdentity}, "any": {colIdentity}, "each": {colIdentity},
+	"filter": {colIdentity}, "find": {colIdentity}, "map": {colIdentity},
+	"reject": {colIdentity}, "sort_by": {colIdentity},
+	"delete": {Str("k1")}, "dig": {Str("k1")}, "fetch": {Str("k1")},
+	"get": {Str("k1")}, "has": {Str("k1")}, "has_val": {Int(1)},
+	"merge": {Dict(Str("z"), Int(0))}, "merge_in_place": {Dict(Str("z"), Int(0))},
+	"set": {Str("k1"), Int(2)},
+}
+
+func TestDictRowArgsTableIsComplete(t *testing.T) {
+	for _, name := range MethodNames(KDict) {
+		if _, ok := dictRowArgs[name]; !ok {
+			t.Errorf("no arguments listed for the %q row; add it to dictRowArgs", name)
+		}
+	}
+}
+
+// A7: a host reaching a dict row through LookupMethod with the wrong receiver gets a
+// diagnostic, not a panic.
+func TestDictRowsRefuseANonDictReceiver(t *testing.T) {
+	c := colCtx(t, DefaultOptions())
+
+	for _, name := range MethodNames(KDict) {
+		t.Run(name, func(t *testing.T) {
+			_, err := colInvoke(c, KDict, name, colInts(1, 2), dictRowArgs[name]...)
+			if err == nil {
+				t.Fatalf("%q accepted an array receiver; want a type error", name)
+			}
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("%q returned %T (%v); every failure is an *Error (§17)", name, err, err)
+			}
+			if e.Kind != ErrKindType && e.Kind != ErrKindArgument {
+				t.Errorf("%q reported kind %q; a wrong receiver is %q", name, e.Kind, ErrKindType)
+			}
+		})
+	}
+}
+
+// §14.1 for §12.4: a row that walks the dict charges the step budget for it, so a big
+// dict cannot outrun the interruption point. The two lists below are the assertion, and
+// they say something the code alone does not: which rows answer in constant time, and
+// which walk the receiver today **without** charging. The second list is not an
+// exemption — those rows are bounded by the receiver's own size, which MaxCollection
+// already capped when the dict was built — but if §14.1 is ever tightened, this is the
+// list that moves.
+func TestDictRowsChargeTheStepBudget(t *testing.T) {
+	constantTime := map[string]bool{
+		"len": true, "empty": true, "has": true, "get": true, "fetch": true,
+		"set": true, "delete": true, "dig": true,
+	}
+	unchargedCopy := map[string]bool{
+		"keys": true, "values": true, "merge": true, "merge_in_place": true,
+	}
+
+	opts := DefaultOptions()
+	opts.StepBudget = 1
+
+	d := NewOrderedDictCap(4 * stepCheckInterval)
+	for i := 0; i < 4*stepCheckInterval; i++ {
+		if err := d.Set(Str("k"+strconv.Itoa(i)), Int(int64(i))); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+	}
+	big := dictOf(d)
+
+	for _, name := range MethodNames(KDict) {
+		t.Run(name, func(t *testing.T) {
+			c := colCtx(t, opts)
+			_, err := colInvoke(c, KDict, name, big, dictRowArgs[name]...)
+			if constantTime[name] || unchargedCopy[name] {
+				if errors.Is(err, ErrBudget) {
+					t.Errorf("%q spent the budget on a %d-key dict; it is listed as not charging",
+						name, big.Len())
+				}
+				return
+			}
+			if !errors.Is(err, ErrBudget) {
+				t.Errorf("%q walked %d keys on a budget of one step and returned %v; "+
+					"either it charges nothing (§14.1) or it belongs in one of the lists above",
+					name, big.Len(), err)
 			}
 		})
 	}

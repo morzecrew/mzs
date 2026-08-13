@@ -2,7 +2,9 @@ package mzs
 
 import (
 	"context"
+	"errors"
 	"math/rand"
+	"sort"
 	"testing"
 
 	"mzs/internal/token"
@@ -685,6 +687,270 @@ func TestArrayHasNoOldNames(t *testing.T) {
 		t.Run("range has no "+name, func(t *testing.T) {
 			if HasMethod(KRange, name) {
 				t.Errorf("range answers %q; §12.10 lists only the reading rows", name)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Every row, one property at a time
+// ---------------------------------------------------------------------------
+//
+// The two tables below walk the *registry* rather than a list written by hand, so a row
+// added to §12.3 tomorrow is covered the moment it is registered — and a row missing
+// from arrayRowArgs fails the test instead of being silently skipped.
+
+// arrayRowArgs is a working argument list for every array row: what the row needs in
+// order to actually do its job on the receiver. Rows whose argument is optional get the
+// spelling that makes them iterate, because that is the interesting case for a limit.
+var arrayRowArgs = map[string][]Value{
+	"all": {colIsEven}, "any": {colIsEven}, "none": {colIsEven},
+	"array": nil, "compact": nil, "dict": nil, "empty": nil, "json": nil,
+	"len": nil, "pack_bytes": nil, "pop": nil, "reverse": nil, "shift": nil,
+	"tally": nil, "uniq": nil, "sample": nil, "shuffle": nil,
+	"count": {colIsEven}, "find": {colIsEven}, "filter": {colIsEven}, "reject": {colIsEven},
+	"take_while": {colIsEven}, "drop_while": {colIsEven},
+	"each": {colIdentity}, "each_with_index": {colIdentity}, "map": {colIdentity},
+	"flat_map": {colIdentity}, "group_by": {colIsEven}, "partition": {colIsEven},
+	"min_by": {colIdentity}, "max_by": {colIdentity}, "sort_by": {colIdentity},
+	"min": nil, "max": nil, "sum": nil, "sort": nil, "sort_in_place": nil,
+	"reverse_in_place": nil, "flatten": nil, "first": nil, "last": nil,
+	"reduce":     {colSumPair},
+	"each_slice": {Int(2)}, "each_cons": {Int(2)}, "step": {Int(2)},
+	"slice": {Int(0), Int(2)}, "take": {Int(2)}, "drop": {Int(2)},
+	"has": {Int(5)}, "index": {Int(5)}, "delete": {Int(5)}, "delete_at": {Int(0)},
+	"dig": {Int(0)}, "insert": {Int(0), Int(9)}, "push": {Int(9)}, "unshift": {Int(9)},
+	"concat": {colInts(7, 8)}, "zip": {colInts(7, 8)},
+	"join": {Str("-")},
+}
+
+// arrayRowNames is every row registered for arrays and ranges, deduplicated.
+func arrayRowNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range []Kind{KArray, KRange} {
+		for _, n := range MethodNames(k) {
+			if !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// arrayRowKind is the kind that registers the row: everything is on KArray except the
+// one row §12.10 gives a range alone.
+func arrayRowKind(name string) Kind {
+	if HasMethod(KArray, name) {
+		return KArray
+	}
+	return KRange
+}
+
+func TestArrayRowArgsTableIsComplete(t *testing.T) {
+	for _, name := range arrayRowNames() {
+		if _, ok := arrayRowArgs[name]; !ok {
+			t.Errorf("no arguments listed for the %q row; add it to arrayRowArgs so the "+
+				"property tests below cover it", name)
+		}
+	}
+}
+
+// A7 in the small: a receiver of the wrong kind is a diagnostic, never a panic. Only a
+// host can produce this — dispatch inside a script finds the row by the receiver's kind
+// — but LookupMethod is exported (§13), so the guard has to hold anyway.
+func TestArrayRowsRefuseANonArrayReceiver(t *testing.T) {
+	c := colCtx(t, optsWithRand())
+
+	for _, name := range arrayRowNames() {
+		t.Run(name, func(t *testing.T) {
+			_, err := colInvoke(c, arrayRowKind(name), name, Str("не массив"), arrayRowArgs[name]...)
+			if err == nil {
+				t.Fatalf("%q accepted a string receiver; want a type error", name)
+			}
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("%q returned %T (%v); every failure is an *Error (§17)", name, err, err)
+			}
+			if e.Kind != ErrKindType && e.Kind != ErrKindArgument {
+				t.Errorf("%q reported kind %q; a wrong receiver is %q", name, e.Kind, ErrKindType)
+			}
+		})
+	}
+}
+
+// §14.1: a row that walks the receiver charges the step budget for it, so a big array
+// cannot outrun the interruption point. The budget is sampled every stepCheckInterval
+// steps, which is why the receiver here is longer than that.
+//
+// The two lists are the assertion, and they record something the code alone does not:
+// which rows answer in constant time, and which copy a bounded slice of the receiver
+// today **without** charging for it. The second list is not an exemption — the work is
+// bounded by the receiver, which MaxCollection already capped — but if §14.1 is ever
+// tightened, that is the list that moves. Everything else must come back with ErrBudget.
+func TestArrayRowsChargeTheStepBudget(t *testing.T) {
+	constantTime := map[string]bool{
+		"len": true, "empty": true, "first": true, "last": true, "dig": true,
+		"push": true, "pop": true, "shift": true, "unshift": true, "insert": true,
+		"delete_at": true, "sample": true, "array": true,
+	}
+	unchargedCopy := map[string]bool{
+		"slice": true, "take": true, "drop": true, "concat": true, "step": true,
+	}
+
+	opts := optsWithRand()
+	opts.StepBudget = 1
+
+	const n = 4 * stepCheckInterval
+	ints := make([]Value, n)
+	pairs := make([]Value, n)
+	bytes := make([]Value, n)
+	for i := range ints {
+		ints[i] = Int(int64(i))
+		pairs[i] = Array(Int(int64(i)), Int(int64(i)))
+		bytes[i] = Int(int64(i % 256))
+	}
+	// Two rows need a receiver of their own shape, or they would fail on the element
+	// type before reaching the walk this test is about.
+	recv := map[string]Value{"dict": Array(pairs...), "pack_bytes": Array(bytes...)}
+
+	for _, name := range arrayRowNames() {
+		t.Run(name, func(t *testing.T) {
+			c := colCtx(t, opts)
+			xs, ok := recv[name]
+			if !ok {
+				xs = Array(ints...)
+			}
+			_, err := colInvoke(c, arrayRowKind(name), name, xs, arrayRowArgs[name]...)
+			if constantTime[name] || unchargedCopy[name] {
+				if errors.Is(err, ErrBudget) {
+					t.Errorf("%q spent the budget on a %d-element array; it is listed as not charging", name, n)
+				}
+				return
+			}
+			if !errors.Is(err, ErrBudget) {
+				t.Errorf("%q walked %d elements on a budget of one step and returned %v; "+
+					"either it charges nothing (§14.1) or it belongs in one of the lists above", name, n, err)
+			}
+		})
+	}
+}
+
+// optsWithRand is the full-capability Options these property tables need: `sample` and
+// `shuffle` are gated on a random source and would otherwise be skipped as absent.
+func optsWithRand() Options {
+	o := DefaultOptions()
+	o.Rand = colRand()
+	return o
+}
+
+// colBoom is a closure that always raises, for the rows that take one.
+var colBoom = colBlock(func(c *Ctx, args []Value) (Value, error) {
+	return Nil(), c.Errorf("boom")
+})
+
+// A closure is script code, and script code raises. Every row that calls one has to
+// stop there and hand the error up, rather than treating the failure as a value —
+// which is what makes `xs.map { raise("…") }` land where it was written (§8.11).
+func TestArrayRowsPropagateFromTheirClosure(t *testing.T) {
+	c := colCtx(t, optsWithRand())
+
+	ran := 0
+	for _, name := range arrayRowNames() {
+		args := make([]Value, len(arrayRowArgs[name]))
+		copy(args, arrayRowArgs[name])
+		takesClosure := false
+		for i, a := range args {
+			if a.Kind() == KFunc {
+				args[i] = colBoom
+				takesClosure = true
+			}
+		}
+		if !takesClosure {
+			continue
+		}
+		ran++
+		t.Run(name, func(t *testing.T) {
+			_, err := colInvoke(c, arrayRowKind(name), name, colInts(1, 2, 3), args...)
+			if err == nil {
+				t.Fatalf("%q swallowed the error its closure raised", name)
+			}
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("%q returned %T (%v); want the *Error the closure raised", name, err, err)
+			}
+			if e.Msg != "boom" {
+				t.Errorf("%q reported %q; want the closure's own message", name, e.Msg)
+			}
+		})
+	}
+	if ran < 15 {
+		t.Errorf("only %d rows were exercised; arrayRowArgs seems to have lost its closures", ran)
+	}
+}
+
+// A row that needs a closure says so when it is handed something else. The three rows
+// that accept *either* a value or a closure are excluded by name, because for them a
+// value is the other half of the contract, not a mistake (§12.3).
+func TestArrayRowsNeedingAClosureRefuseAValue(t *testing.T) {
+	valueOrClosure := map[string]bool{"count": true, "index": true, "has": true}
+	c := colCtx(t, optsWithRand())
+
+	for _, name := range arrayRowNames() {
+		if valueOrClosure[name] {
+			continue
+		}
+		args := make([]Value, len(arrayRowArgs[name]))
+		copy(args, arrayRowArgs[name])
+		takesClosure := false
+		for i, a := range args {
+			if a.Kind() == KFunc {
+				args[i] = Int(1)
+				takesClosure = true
+			}
+		}
+		if !takesClosure {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			if _, err := colInvoke(c, arrayRowKind(name), name, colInts(1, 2, 3), args...); err == nil {
+				t.Errorf("%q accepted an int where it needs a closure", name)
+			}
+		})
+	}
+}
+
+// each_slice and each_cons have two shapes: without a closure they return the chunks,
+// with one they iterate and return the receiver (§12.3). The second shape is the one a
+// script uses on a big array, and it is the one that has to stop on a raise.
+func TestChunkingRowsWithAClosure(t *testing.T) {
+	c := colCtx(t, DefaultOptions())
+
+	for _, name := range []string{"each_slice", "each_cons"} {
+		t.Run(name+" iterates and returns the receiver", func(t *testing.T) {
+			seen := 0
+			count := colBlock(func(c *Ctx, args []Value) (Value, error) {
+				seen++
+				return Nil(), nil
+			})
+			got, err := colInvoke(c, KArray, name, colInts(1, 2, 3, 4), Int(2), count)
+			if err != nil {
+				t.Fatalf("%s error = %v", name, err)
+			}
+			if got.Inspect() != "[1,2,3,4]" {
+				t.Errorf("%s returned %s; want the receiver", name, got.Inspect())
+			}
+			if seen == 0 {
+				t.Errorf("%s never called its closure", name)
+			}
+		})
+
+		t.Run(name+" stops on a raise", func(t *testing.T) {
+			_, err := colInvoke(c, KArray, name, colInts(1, 2, 3, 4), Int(2), colBoom)
+			if err == nil {
+				t.Errorf("%s swallowed the error its closure raised", name)
 			}
 		})
 	}
