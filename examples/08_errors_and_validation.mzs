@@ -14,7 +14,7 @@ fn kind_of(f) { try (f.call(); "no error") else (e) -> "${e["kind"]}: ${e["messa
 say("what the runtime raises")
 [
   ["a type mismatch",  { 1 + "two" }],
-  ["a bad index",      { [a: 1].fetch("b") }],
+  ["a bad index",      { {a: 1}.fetch("b") }],
   ["division by zero", { 7 / 0 }],
   ["your own raise",   { raise("out of stock") }],
   ["a bad argument",   { "abc".slice("x") }],
@@ -29,15 +29,15 @@ say("  ${"float division".ljust(20)}7.0 / 0 = ${7.0 / 0}")
 # e["data"], which is how a failure crosses a call boundary without being re-parsed.
 
 fn charge(order) {
-  raise([code: "no_items", order: order["id"]]) if order["items"].empty
-  raise([code: "limit", order: order["id"], amount: order["amount"]]) if order["amount"] > 100000
+  raise({code: "no_items", order: order["id"]}) if order["items"].empty
+  raise({code: "limit", order: order["id"], amount: order["amount"]}) if order["amount"] > 100000
   "charged ${order["amount"]} ₽"
 }
 
 orders = [
-  [id: "A-1", items: ["cut"], amount: 1500],
-  [id: "A-2", items: [], amount: 0],
-  [id: "A-3", items: ["colour"], amount: 250000],
+  {id: "A-1", items: ["cut"], amount: 1500},
+  {id: "A-2", items: [], amount: 0},
+  {id: "A-3", items: ["colour"], amount: 250000},
 ]
 
 say("")
@@ -61,7 +61,7 @@ fn strict_int(s) {
 
 # --- the two ways to be defensive, and when each is right ---------------------
 
-cfg = [http: [port: 8080]]
+cfg = {http: {port: 8080}}
 say("")
 say("?? for an absent value:  ${cfg.dig("http", "host") ?? "0.0.0.0"}")
 say("?. for an absent chain:  ${inspect(cfg["proxy"]?.len)}")
@@ -73,10 +73,10 @@ say("try for a failing call:  ${try cfg.fetch("proxy") else "(no proxy configure
 # invariant that must hold; a report is for the input someone typed.
 
 rules = [
-  [field: "name",  message: "must not be empty",        test: { (r) -> !(r["name"] ?? "").blank }],
-  [field: "email", message: "must look like an email",  test: { (r) -> (r["email"] ?? "") ~ /^\S+@\S+\.\S+$/ }],
-  [field: "age",   message: "must be 18..120",          test: { (r) -> (r["age"] ?? "").int >= 18 && (r["age"] ?? "").int <= 120 }],
-  [field: "phone", message: "must have 11 digits",      test: { (r) -> (r["phone"] ?? "").replace(/\D/, "").len == 11 }],
+  {field: "name",  message: "must not be empty",        test: { (r) -> !(r["name"] ?? "").blank }},
+  {field: "email", message: "must look like an email",  test: { (r) -> (r["email"] ?? "") ~ /^\S+@\S+\.\S+$/ }},
+  {field: "age",   message: "must be 18..120",          test: { (r) -> (r["age"] ?? "").int >= 18 && (r["age"] ?? "").int <= 120 }},
+  {field: "phone", message: "must have 11 digits",      test: { (r) -> (r["phone"] ?? "").replace(/\D/, "").len == 11 }},
 ]
 
 fn check(record) {
@@ -84,9 +84,9 @@ fn check(record) {
 }
 
 forms = [
-  [name: "Ann",  email: "ann@example.com", age: "34", phone: "+7 999 123-45-67"],
-  [name: "",     email: "bob(at)example",  age: "12", phone: "123"],
-  [name: "Cleo", email: "cleo@example.io", age: "",   phone: "89161112233"],
+  {name: "Ann",  email: "ann@example.com", age: "34", phone: "+7 999 123-45-67"},
+  {name: "",     email: "bob(at)example",  age: "12", phone: "123"},
+  {name: "Cleo", email: "cleo@example.io", age: "",   phone: "89161112233"},
 ]
 
 say("")

@@ -34,9 +34,9 @@ say("     the same call: ${truncate("a long sentence that will not fit", 20)}")
 fn make_counter(start = 0, step = 1) {
   n = start
   # Two closures over one binding: the state lives in the scope, not in either of them.
-  [ tick:  { n += step; n },
+  { tick:  { n += step; n },
     peek:  { n },
-    reset: { n = start; n } ]
+    reset: { n = start; n } }
 }
 
 c = make_counter(100, 5)
@@ -70,10 +70,10 @@ say("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it *
 # --- a validation chain: a list of closures, run in order ---------------------
 
 checks = [
-  [name: "not empty",  test: { (s) -> !s.blank }],
-  [name: "min length", test: { (s) -> s.len >= 3 }],
-  [name: "no digits",  test: { (s) -> s !~ /\d/ }],
-  [name: "ascii only", test: { (s) -> s.len == s.bytes.len }],
+  {name: "not empty",  test: { (s) -> !s.blank }},
+  {name: "min length", test: { (s) -> s.len >= 3 }},
+  {name: "no digits",  test: { (s) -> s !~ /\d/ }},
+  {name: "ascii only", test: { (s) -> s.len == s.bytes.len }},
 ]
 
 fn validate(value) {

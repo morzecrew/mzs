@@ -42,7 +42,7 @@ async fn refresh(url, *rest) { url }
 
 $greeting = "привет, ${name.upper}!"
 prices = [100, 200.5, nil, true]
-order = [name: "гель", qty: 3]
+order = {name: "гель", qty: 3}
 first, second = prices
 [a, b] = [1, 2]
 n = -prices.len

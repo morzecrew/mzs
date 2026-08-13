@@ -54,13 +54,13 @@ say("  \${\$price} inside text →  the price is ${$price ?? "unset"}")
 s = sent.str.lower.trim
 
 conditions = [
-  [name: "confirm",     value: s == "yes" || s ~ /^(yeah|sure|ok|y)$/],
-  [name: "handoff",     value: s ~ /operator|real person|manager|support/],
-  [name: "menu",        value: s ~ /all topics|main menu|\bmenu\b|show everything/],
-  [name: "cancel",      value: s ~ /^(cancel|stop|abort)$/ || s.starts_with("❌")],
-  [name: "big spender", value: price.int >= 1000],
-  [name: "is vip",      value: is(tags, "array") && tags.has("vip")],
-  [name: "not empty",   value: !s.blank],
+  {name: "confirm",     value: s == "yes" || s ~ /^(yeah|sure|ok|y)$/},
+  {name: "handoff",     value: s ~ /operator|real person|manager|support/},
+  {name: "menu",        value: s ~ /all topics|main menu|\bmenu\b|show everything/},
+  {name: "cancel",      value: s ~ /^(cancel|stop|abort)$/ || s.starts_with("❌")},
+  {name: "big spender", value: price.int >= 1000},
+  {name: "is vip",      value: is(tags, "array") && tags.has("vip")},
+  {name: "not empty",   value: !s.blank},
 ]
 
 say("")
@@ -108,7 +108,7 @@ reply = match $intent {
 
 say("")
 say("reply: ${reply}")
-say("payload: ${[intent: $intent, score: $score, vip: is(tags, "array") && tags.has("vip")].json}")
+say("payload: ${{intent: $intent, score: $score, vip: is(tags, "array") && tags.has("vip")}.json}")
 
 # The value of the whole program is its last expression — `mzs --bool` turns that into
 # an exit code, which is how a condition becomes a branch in the flow engine.

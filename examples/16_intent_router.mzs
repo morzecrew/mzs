@@ -11,22 +11,22 @@
 # --- rules: a name, a weight, and a test that is a closure --------------------
 
 RULES = [
-  [intent: "greeting",  weight: 2, test: { (s) -> s ~ /^(hi|hello|hey|good (morning|afternoon|evening))\b/ }],
-  [intent: "booking",   weight: 5, test: { (s) -> s ~ /book|appointment|reserve|sign me up/ }],
-  [intent: "booking",   weight: 3, test: { (s) -> s ~ /\b(on|for) (today|tomorrow|mon|tue|wed|thu|fri|sat|sun)\w*\b/ }],
-  [intent: "cancel",    weight: 6, test: { (s) -> s ~ /cancel|call it off|not coming|reschedule/ }],
-  [intent: "price",     weight: 4, test: { (s) -> s ~ /how much|price|pricing|cost|rates/ }],
-  [intent: "hours",     weight: 4, test: { (s) -> s ~ /what time|opening hours|when.{0,12}open|\bhours\b/ }],
-  [intent: "handoff",   weight: 8, test: { (s) -> s ~ /operator|real person|human being|manager|complaint/ }],
-  [intent: "thanks",    weight: 2, test: { (s) -> s ~ /thanks|thank you|cheers|appreciate/ }],
-  [intent: "confirm",   weight: 3, test: { (s) -> s ~ /^(yes|yeah|sure|ok|confirm)\b/ }],
-  [intent: "decline",   weight: 3, test: { (s) -> s ~ /^(no|nope|not now)\b/ }],
+  {intent: "greeting",  weight: 2, test: { (s) -> s ~ /^(hi|hello|hey|good (morning|afternoon|evening))\b/ }},
+  {intent: "booking",   weight: 5, test: { (s) -> s ~ /book|appointment|reserve|sign me up/ }},
+  {intent: "booking",   weight: 3, test: { (s) -> s ~ /\b(on|for) (today|tomorrow|mon|tue|wed|thu|fri|sat|sun)\w*\b/ }},
+  {intent: "cancel",    weight: 6, test: { (s) -> s ~ /cancel|call it off|not coming|reschedule/ }},
+  {intent: "price",     weight: 4, test: { (s) -> s ~ /how much|price|pricing|cost|rates/ }},
+  {intent: "hours",     weight: 4, test: { (s) -> s ~ /what time|opening hours|when.{0,12}open|\bhours\b/ }},
+  {intent: "handoff",   weight: 8, test: { (s) -> s ~ /operator|real person|human being|manager|complaint/ }},
+  {intent: "thanks",    weight: 2, test: { (s) -> s ~ /thanks|thank you|cheers|appreciate/ }},
+  {intent: "confirm",   weight: 3, test: { (s) -> s ~ /^(yes|yeah|sure|ok|confirm)\b/ }},
+  {intent: "decline",   weight: 3, test: { (s) -> s ~ /^(no|nope|not now)\b/ }},
 ]
 
 # --- entities: what the message says, not just what it means ------------------
 
 fn entities(s) {
-  found = [:]
+  found = {}
   time = s.captures(/\b(\d{1,2})[:.](\d{2})\b/)
   found.set("time", "${time[1].rjust(2, "0")}:${time[2]}") if time != nil
   day = s.captures(/\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/)
@@ -46,24 +46,24 @@ fn entities(s) {
 
 fn route(raw) {
   s = raw.lower.trim.squeeze(" ")
-  return [intent: "empty", score: 0, confidence: 0.0, entities: [:], normalized: s] if s.blank
+  return {intent: "empty", score: 0, confidence: 0.0, entities: {}, normalized: s} if s.blank
 
   hits = RULES.filter { it["test"].call(s) }
-  scores = hits.reduce([:]) { (acc, r) -> acc.set(r["intent"], (acc[r["intent"]] ?? 0) + r["weight"]) }
+  scores = hits.reduce({}) { (acc, r) -> acc.set(r["intent"], (acc[r["intent"]] ?? 0) + r["weight"]) }
   best = scores.sort_by { (_, w) -> -w }.first
   total = scores.values.sum
 
-  [ intent:     best == nil ? "unknown" : best[0],
+  { intent:     best == nil ? "unknown" : best[0],
     score:      best == nil ? 0 : best[1],
     confidence: best == nil ? 0.0 : (best[1] * 100 / total).float / 100,
     competing:  scores.len > 1 ? scores.keys.reject { it == best[0] } : [],
     entities:   entities(s),
-    normalized: s ]
+    normalized: s }
 }
 
 # --- replies: one place, so the wording is reviewable -------------------------
 
-REPLIES = [
+REPLIES = {
   greeting: "Hello! How can I help — book you in, quote a price or show our hours?",
   booking:  "Booking you in. Tell me the service and the time if you have not yet.",
   cancel:   "Appointment cancelled. Would you like another time?",
@@ -75,7 +75,7 @@ REPLIES = [
   decline:  "Understood, nothing changed.",
   empty:    "Send me a message and I will help.",
   unknown:  "I did not get that. I can book you in, quote a price or show our hours.",
-]
+}
 
 fn keyboard(intent) {
   match intent {
@@ -88,8 +88,8 @@ fn keyboard(intent) {
 
 fn answer(raw) {
   r = route(raw)
-  buttons = keyboard(r["intent"]).map { (b) -> [text: b[0], data: b[1]] }
-  r.merge([reply: REPLIES[r["intent"]], keyboard: buttons])
+  buttons = keyboard(r["intent"]).map { (b) -> {text: b[0], data: b[1]} }
+  r.merge({reply: REPLIES[r["intent"]], keyboard: buttons})
 }
 
 # --- a batch, so the table shows the routing at a glance ----------------------
@@ -135,7 +135,7 @@ $slot_time = full["entities"]["time"] ?? ""
 $needs_operator = full["intent"] == "handoff"
 
 say("")
-say("host variables: ${[intent: $intent, day: $slot_day, time: $slot_time, operator: $needs_operator].json}")
+say("host variables: ${{intent: $intent, day: $slot_day, time: $slot_time, operator: $needs_operator}.json}")
 
 # The value of the program is the branch a flow engine takes next.
 $intent

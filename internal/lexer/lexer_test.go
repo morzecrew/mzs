@@ -154,8 +154,8 @@ func TestLexTokens(t *testing.T) {
 		{"fat arrow is assign and greater", "x => 1", "IDENT(x) = > INT(1)"},
 		{"percent w is modulo", "%w[a b]", "% IDENT(w) [ IDENT(a) IDENT(b) ]"},
 		{"a colon name is a colon and a name", ":name", ": IDENT(name)"},
-		{"dict literal", "[a: 1, b: 2]", "[ IDENT(a) : INT(1) , IDENT(b) : INT(2) ]"},
-		{"empty dict", "[:]", "[ : ]"},
+		{"dict literal", "{a: 1, b: 2}", "{ IDENT(a) : INT(1) , IDENT(b) : INT(2) }"},
+		{"empty dict", "{}", "{ }"},
 		{"ternary", "x ? y : z", "IDENT(x) ? IDENT(y) : IDENT(z)"},
 
 		// §3.10 termination and continuation.
@@ -424,7 +424,7 @@ func FuzzLex(f *testing.F) {
 		"", " ", "\n", ";", "#", "//", "@", "$", "/re", "~", "!~", "??=", "..<",
 		`s := $__sent.lower.trim; s == "да" || s ~ /^ага|конечно/`,
 		`"a${b}c"`, `"$a$b"`, `"$"`, `"\$"`, `'raw\n'`, "1.2.3", "0x", "1e", "1_",
-		"[a: 1]", "x ? y : z", "match x { 1 -> 2 }", "привет", "🌲", "\u00a0",
+		"{a: 1}", "x ? y : z", "match x { 1 -> 2 }", "привет", "🌲", "\u00a0",
 		"\ufeffx = 1", "\"\\u{110000}\"", "\"\\x\"", strings.Repeat("(", 100),
 	}
 	for _, s := range seeds {

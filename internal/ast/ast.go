@@ -341,7 +341,7 @@ type ArrayLit struct {
 }
 
 // DictLit keeps Keys and Vals parallel so insertion order (D11) is the source order.
-// `[a: 1]` gives a StrLit key, `[:]` gives an empty DictLit (D3).
+// `{a: 1}` gives a StrLit key, `{}` gives an empty DictLit (D3).
 type DictLit struct {
 	Keys   []Expr
 	Vals   []Expr

@@ -20,10 +20,10 @@ include http
 include json
 
 CATALOG = [
-  [id: 1, name: "Signature haircut", price: 1500, minutes: 60],
-  [id: 2, name: "Beard trim",        price: 800,  minutes: 30],
-  [id: 3, name: "Premium colour",    price: 3200, minutes: 120],
-  [id: 4, name: "Hot towel shave",   price: 700,  minutes: 45],
+  {id: 1, name: "Signature haircut", price: 1500, minutes: 60},
+  {id: 2, name: "Beard trim",        price: 800,  minutes: 30},
+  {id: 3, name: "Premium colour",    price: 3200, minutes: 120},
+  {id: 4, name: "Hot towel shave",   price: 700,  minutes: 45},
 ]
 
 # --- the client half ------------------------------------------------------------
@@ -34,7 +34,7 @@ CATALOG = [
 
 probe = $probe ?? "https://example.com"
 say("probing ${probe}")
-answer = try http.get(probe, [timeout: 5]) else (e) -> [status: 0, error: e["message"]]
+answer = try http.get(probe, {timeout: 5}) else (e) -> {status: 0, error: e["message"]}
 
 if answer["status"] == 0 {
   say("  unreachable: ${answer["error"]}")
@@ -47,7 +47,7 @@ if answer["status"] == 0 {
 # --- state the handlers share ---------------------------------------------------
 
 bookings = []
-hits = [:]
+hits = {}
 
 fn count(path) { hits.set(path, (hits[path] ?? 0) + 1) }
 fn find_item(id) { CATALOG.find { it["id"] == id } }
@@ -58,21 +58,21 @@ fn find_item(id) { CATALOG.find { it["id"] == id } }
 # returns is what the client gets: a string is text, a dict or array is JSON, and
 # http.json(body, status) is the form that sets a code.
 
-http.serve(":8080", [
+http.serve(":8080", {
 
   "GET /catalog": { (req) ->
     count("catalog")
     max = (req["query"]["max"] ?? "").int
     items = max > 0 ? CATALOG.filter { it["price"] <= max } : CATALOG
-    [count: items.len, filter: max > 0 ? "price <= ${max}" : "none", items: items]
+    {count: items.len, filter: max > 0 ? "price <= ${max}" : "none", items: items}
   },
 
   "GET /item/{id}": { (req) ->
     count("item")
     raw = req["params"]["id"]
     match {
-      raw !~ /^\d+$/       -> http.json([error: "id must be a number, got ${inspect(raw)}"], 400)
-      find_item(raw.int) == nil -> http.json([error: "no item ${raw}"], 404)
+      raw !~ /^\d+$/       -> http.json({error: "id must be a number, got ${inspect(raw)}"}, 400)
+      find_item(raw.int) == nil -> http.json({error: "no item ${raw}"}, 404)
       else                 -> find_item(raw.int)
     }
   },
@@ -90,28 +90,28 @@ http.serve(":8080", [
     }
 
     if !problems.empty {
-      return http.json([error: "validation failed", problems: problems], 422)
+      return http.json({error: "validation failed", problems: problems}, 422)
     }
 
     item = find_item(body["item_id"].int)
-    booking = [
+    booking = {
       id: "B-${(bookings.len + 1).str.rjust(3, "0")}",
       who: str(body["who"]).trim,
       item: item["name"],
       price: item["price"],
-    ]
+    }
     bookings.push(booking)
-    http.json(booking, 201, [location: "/booking/${booking["id"]}"])
+    http.json(booking, 201, {location: "/booking/${booking["id"]}"})
   },
 
   "GET /booking": { (_) ->
     count("booking-list")
-    [count: bookings.len, revenue: bookings.sum { it["price"] }, bookings: bookings]
+    {count: bookings.len, revenue: bookings.sum { it["price"] }, bookings: bookings}
   },
 
   "GET /stats": { (_) ->
     count("stats")
-    [requests: hits, bookings: bookings.len, catalog: CATALOG.len]
+    {requests: hits, bookings: bookings.len, catalog: CATALOG.len}
   },
 
   "GET /health": { (_) -> "ok" },
@@ -121,7 +121,7 @@ http.serve(":8080", [
     "bye — ${bookings.len} booking(s) made, ${hits.values.sum} request(s) served"
   },
 
-], { (url) ->
+}, { (url) ->
   say("")
   say("listening on ${url}")
   say("  GET  ${url}/catalog?max=1000")

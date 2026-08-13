@@ -47,14 +47,14 @@ LINE = /^(?<ts>\S+) (?<level>\w+)\s+(?<svc>\w+)\s+(?<method>\w+)\s+(?<path>\S+)\
 parsed = log.lines.map { it.trim }.reject { it.blank }.map { (l) -> l.captures(LINE) }
 bad = parsed.count { it == nil }
 rows = parsed.compact.map { (m) ->
-  [ time:   m["ts"].last(8),
+  { time:   m["ts"].last(8),
     minute: m["ts"].last(8).first(5),
     level:  m["level"],
     method: m["method"],
     path:   m["path"],
     status: m["status"].int,
     ms:     m["ms"].int,
-    ip:     m["ip"] ]
+    ip:     m["ip"] }
 }
 
 say("parsed ${rows.len} entries, skipped ${bad} unparsable line(s)")
@@ -97,7 +97,7 @@ rows.group_by { "${it["method"]} ${it["path"].replace(/\/\d+$/, "/{id}")}" }
 say("")
 say("by client")
 rows.group_by { it["ip"] }
-    .map { (ip, rs) -> [ip: ip, n: rs.len, errs: rs.count { it["status"] >= 400 }] }
+    .map { (ip, rs) -> {ip: ip, n: rs.len, errs: rs.count { it["status"] >= 400 }} }
     .sort_by { -it["errs"] }
     .each { (c) ->
       share = c["errs"] * 100 / c["n"]

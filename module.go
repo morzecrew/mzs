@@ -213,7 +213,7 @@ func unknownModuleMessage(in *Interp, name string) string {
 		name, name, name)
 }
 
-// moduleNotCallableMessage is what `json([total: 1])` says after `include json` (§12.8).
+// moduleNotCallableMessage is what `json({total: 1})` says after `include json` (§12.8).
 // A module is a dict of names: what a program calls is always one of them, so the fix is
 // to name the member. When the same spelling is also a §12.1 function, UFCS already
 // gives that function a spelling no one can read as the module — `x.json` — and the

@@ -287,7 +287,7 @@ func nearest(name string, candidates []string) string {
 // spellable rejects the rows a script cannot name. §12.9 registers `&`, `|` and `^` on
 // bool, but §3.9 has no such lexeme and §3.4 no such identifier, so they are reachable
 // only through the Go API — and one rune away from every one-letter typo, which made
-// `[a: 1].a` suggest `'&'`. A suggestion nobody can type is worse than none.
+// `{a: 1}.a` suggest `'&'`. A suggestion nobody can type is worse than none.
 func spellable(name string) bool {
 	if name == "" {
 		return false

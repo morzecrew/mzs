@@ -49,7 +49,7 @@ say("")
 say("cleaned records")
 cards = raw.map { (line) ->
   f = line.split("|")
-  [name: clean_name(f[0]), email: mask_email(f[1]), phone: clean_phone(f[2])]
+  {name: clean_name(f[0]), email: mask_email(f[1]), phone: clean_phone(f[2])}
 }
 cards.each { (c) ->
   say("  ${c["name"].ljust(18)}${c["email"].ljust(26)}${c["phone"]}")
@@ -73,7 +73,7 @@ say("  starts_with         ${s.starts_with("привет", "hello")}")
 # --- replacing: a string, a pattern, or a closure over the match --------------
 
 template = "Dear {{name}}, your order {{id}} ships on {{date}}."
-values = [name: "Иван", id: "A-1043", date: "2026-03-05"]
+values = {name: "Иван", id: "A-1043", date: "2026-03-05"}
 
 filled = template.replace(/\{\{(\w+)\}\}/) { (whole, key) ->
   values[key] ?? whole

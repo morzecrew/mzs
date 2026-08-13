@@ -7,7 +7,7 @@ import (
 )
 
 // The data structure is a **dict**, never a "map": `map` is the higher-order function of
-// §12.3 and one name may not mean two things (D17). A dict literal is written `[a: 1]`
+// §12.3 and one name may not mean two things (D17). A dict literal is written `{a: 1}`
 // (D3) and is insertion-ordered (D11).
 
 func TestDictMethods(t *testing.T) {

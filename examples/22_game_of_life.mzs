@@ -66,7 +66,7 @@ say("generation 0 — population ${population(start)}")
 render(start).each { (line) -> say("  ${line}") }
 
 grid = start
-seen = [:]
+seen = {}
 seen.set(grid.json, 0)
 history = [population(grid)]
 cycle = nil
@@ -76,7 +76,7 @@ cycle = nil
   history.push(population(grid))
   key = grid.json
   if seen.has(key) {
-    cycle = [at: gen, since: seen[key]]
+    cycle = {at: gen, since: seen[key]}
     break
   }
   seen.set(key, gen)

@@ -59,7 +59,7 @@ func TestAsyncBasics(t *testing.T) {
 		{"a task may start a task", "async fn inner() { 20 }\nasync fn outer() { inner().await + 1 }\nouter().await", "21"},
 		{"many tasks fan out", "async fn f(n) { n * n }\n(1..4).map { f(it) }.map { it.await }.json", "[1,4,9,16]"},
 		{"str of a task says what it is", "async fn f() { 1 }\nt = f()\nt.await\nstr(t)", "#<task f done>"},
-		{"a task is not JSON data", "async fn f() { 1 }\n[a: f()].json", `{"a":null}`},
+		{"a task is not JSON data", "async fn f() { 1 }\n{a: f()}.json", `{"a":null}`},
 		{"identity, not equality of results", "async fn f() { 1 }\nt = f()\n[t == t, t == f()].json", "[true,false]"},
 	}
 
@@ -417,10 +417,10 @@ func TestAsyncWithServe(t *testing.T) {
 	s := startServer(t, `include http
 async fn work() { 21 * 2 }
 t = work()
-http.serve(":0", [
+http.serve(":0", {
   "GET /":     { (req) -> "ответ ${t.await}" },
   "GET /stop": { (req) -> http.stop(); "пока" },
-], { (u) -> __ready(u) })`, netOpts())
+}, { (u) -> __ready(u) })`, netOpts())
 
 	if code, body, _ := do(t, "GET", s.url+"/", ""); code != 200 || body != "ответ 42" {
 		t.Fatalf("GET / = %d %q; want 200 and the task's value", code, body)

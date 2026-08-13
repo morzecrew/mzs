@@ -139,7 +139,7 @@ func TestArithmetic(t *testing.T) {
 		{"unary minus", `-(2 ** 2)`, "-4"},
 		{"string concatenation", `"a" + "b"`, "ab"},
 		{"array concatenation", `([1, 2] + [3]).json`, "[1,2,3]"},
-		{"dict merge, right side wins", `([a: 1, b: 1] + [b: 2]).json`, `{"a":1,"b":2}`},
+		{"dict merge, right side wins", `({a: 1, b: 1} + {b: 2}).json`, `{"a":1,"b":2}`},
 		{"string repetition", `"ab" * 3`, "ababab"},
 		{"array repetition", `([1] * 3).json`, "[1,1,1]"},
 		{"format with an array", `"%s-%d" % ["a", 1]`, "a-1"},
@@ -214,7 +214,7 @@ func TestEqualityAndOrdering(t *testing.T) {
 		{"strings are byte exact", `"Да" == "да"`, "false"},
 		{"arrays compare deeply", `[1, [2]] == [1, [2]]`, "true"},
 		{"array order matters", `[1, 2] == [2, 1]`, "false"},
-		{"dict insertion order does not matter", `[a: 1, b: 2] == [b: 2, a: 1]`, "true"},
+		{"dict insertion order does not matter", `{a: 1, b: 2} == {b: 2, a: 1}`, "true"},
 		{"functions compare by identity", `f = { it }; g = { it }; f == f && !(f == g)`, "true"},
 		{"spaceship orders numbers", `5 <=> 3`, "1"},
 		{"spaceship orders strings", `"a" <=> "b"`, "-1"},
@@ -463,7 +463,7 @@ func TestCallErrors(t *testing.T) {
 	}{
 		{"calling a number", `5(1)`, ErrKindType, "not a function: int"},
 		{"an unknown method", `"a".нетакого`, ErrKindName, "undefined method"},
-		{"a dict key is not a method", `d = [a: 1]; d.a`, ErrKindName, "undefined method 'a'"},
+		{"a dict key is not a method", `d = {a: 1}; d.a`, ErrKindName, "undefined method 'a'"},
 		{"an unresolved bare identifier", `нетакой`, ErrKindName, "undefined variable"},
 		{"too many arguments", `fn f(a) { a }; f(1, 2, 3)`, ErrKindArgument, "argument"},
 	}
@@ -498,11 +498,11 @@ func TestIndexing(t *testing.T) {
 		{"a negative array index", `[1, 2, 3][-1]`, "3"},
 		{"an array index out of range is nil", `[1, 2, 3][9]`, ""},
 		{"a sub-array", `[1, 2, 3][0, 2].json`, "[1,2]"},
-		{"a dict value", `[a: 1]["a"]`, "1"},
-		{"a missing dict key is nil", `[a: 1]["b"]`, ""},
+		{"a dict value", `{a: 1}["a"]`, "1"},
+		{"a missing dict key is nil", `{a: 1}["b"]`, ""},
 		{"array assignment", `x = [1]; x[0] = 9; x.json`, "[9]"},
 		{"array assignment extends with nils", `x = [1]; x[3] = 9; x.json`, "[1,null,null,9]"},
-		{"dict assignment appends at the end", `d = [a: 1]; d["b"] = 2; d.json`, `{"a":1,"b":2}`},
+		{"dict assignment appends at the end", `d = {a: 1}; d["b"] = 2; d.json`, `{"a":1,"b":2}`},
 		{"compound assignment evaluates the target once",
 			`$n = 0; fn k() { $n = $n + 1; 0 }; x = [1]; x[k()] += 10; x.json + "/" + $n.str`, "[11]/1"},
 		{"dig walks a nil-safe path", "include json\n" + `json.parse("{\"a\":{\"b\":1}}").dig("a", "b")`, "1"},
@@ -530,7 +530,7 @@ func TestIndexingErrors(t *testing.T) {
 		{"a string is immutable", `x = "abc"; x[0] = "z"`, "cannot assign to an index of string"},
 		{"indexing a regex", `/re/[0]`, "cannot index regex"},
 		{"indexing a function", `fn f() { 1 }; f[0]`, "cannot index function"},
-		{"a dict has no two-argument form", `[a: 1]["a", 2]`, "dict"},
+		{"a dict has no two-argument form", `{a: 1}["a", 2]`, "dict"},
 	}
 
 	in := evInterp()
@@ -556,7 +556,7 @@ func TestClosuresAndIt(t *testing.T) {
 		{"the two forms agree", `[1, 2, 3].map { it * 2 } == [1, 2, 3].map { (x) -> x * 2 }`, "true"},
 		{"an explicit parameter shadows it", `[1, 2].map { (it) -> it + 1 }.json`, "[2,3]"},
 		{"two parameters", `[1, 2, 3].reduce(0) { (acc, x) -> acc + x }`, "6"},
-		{"a dict block takes key and value", `[a: 1, b: 2].map { (k, v) -> "${k}=${v}" }.join("&")`, "a=1&b=2"},
+		{"a dict block takes key and value", `{a: 1, b: 2}.map { (k, v) -> "${k}=${v}" }.join("&")`, "a=1&b=2"},
 		{"a closure is a value", `f = { it + 1 }; f.call(1)`, "2"},
 		{"arity of an implicit closure", `f = { it }; f.arity`, "1"},
 		{"a closure closes over a local", `fn adder(n) { { it + n } }; adder(10).call(1)`, "11"},
@@ -621,7 +621,7 @@ func TestTryElse(t *testing.T) {
 		{"the closure form binds a message", `try (1 / 0) else (e) -> e["message"]`, "divided by 0"},
 		{"the closure form binds a kind", `try raise("boom") else (e) -> e["kind"]`, "raise"},
 		{"the closure form binds a line", `try (1 / 0) else (e) -> e["line"]`, "1"},
-		{"raise carries a dict payload", `try raise([code: 5]) else (e) -> e["data"]["code"]`, "5"},
+		{"raise carries a dict payload", `try raise({code: 5}) else (e) -> e["data"]["code"]`, "5"},
 		{"a group guards several statements", `try (x = 1; raise("e"); x) else "-"`, "-"},
 		{"try is right associative", `try (try raise("a") else raise("b")) else "outer"`, "outer"},
 		{"a caught error does not poison what follows", `v = try (1 / 0) else 0; v + 1`, "1"},
@@ -682,7 +682,7 @@ func TestStringInterpolation(t *testing.T) {
 		{"a float keeps its point", `"${2.0}"`, "2.0"},
 		{"a float round-trips", `"${1.5}"`, "1.5"},
 		{"an array renders as json", `"${[1, 2]}"`, "[1,2]"},
-		{"a dict renders as json", `"${[a: 1]}"`, `{"a":1}`},
+		{"a dict renders as json", `"${{a: 1}}"`, `{"a":1}`},
 		{"a regex renders as a literal", `"${/re/i}"`, "/re/i"},
 		{"a function renders as a name", `fn g() { 1 }; "${g}"`, "#<fn g>"},
 		{"single quotes do not interpolate", `'$__sent ${1}'`, `$__sent ${1}`},
@@ -770,7 +770,7 @@ func TestDestructuring(t *testing.T) {
 		{name: "the right side is evaluated once",
 			src: `n = 0; f = { n += 1; [1, 2] }; a, b = f.call(0); n`, want: "1"},
 		{name: "a swap needs no temporary", src: `a = 1; b = 2; a, b = [b, a]; "${a}${b}"`, want: "21"},
-		{name: "an index is a target", src: `d = [x: 0, y: 0]; d["x"], d["y"] = [1, 2]; d["x"] + d["y"]`, want: "3"},
+		{name: "an index is a target", src: `d = {x: 0, y: 0}; d["x"], d["y"] = [1, 2]; d["x"] + d["y"]`, want: "3"},
 		{name: "a target may write into the array being taken apart",
 			src: `xs = [1, 2]; xs[1], xs[0] = xs; str(xs)`, want: "[2,1]"},
 		{name: "a $var is a target", src: `$a, $b = [1, 2]; $a + $b`, want: "3"},
@@ -786,7 +786,7 @@ func TestDestructuring(t *testing.T) {
 			err: "destructuring expects 2 values, got 1"},
 		{name: "a right side that is not an array raises", src: `a, b = 1`,
 			err: "cannot destructure int: the right side must be an array"},
-		{name: "a dict is not positional", src: `a, b = [x: 1, y: 2]`,
+		{name: "a dict is not positional", src: `a, b = {x: 1, y: 2}`,
 			err: "cannot destructure dict: the right side must be an array"},
 
 		{name: "an array pattern binds in a match arm",
@@ -813,7 +813,7 @@ func TestDestructuring(t *testing.T) {
 			src: `match [1, 2] { [x, y] -> x }; x`, err: "undefined variable 'x'"},
 
 		{name: "for over a dict takes the pair apart",
-			src: `out = ""; for k, v in [a: 1, b: 2] { out += "${k}${v}" }; out`, want: "a1b2"},
+			src: `out = ""; for k, v in {a: 1, b: 2} { out += "${k}${v}" }; out`, want: "a1b2"},
 		{name: "for over pairs of its own", src: `n = 0; for a, b in [[1, 2], [3, 4]] { n += a * b }; n`, want: "14"},
 		{name: "for over items that are not pairs raises", src: `for a, b in [1, 2] { a }`,
 			err: "cannot destructure int: a two-variable 'for' takes an array of two per item"},
@@ -914,7 +914,7 @@ func TestGlobals(t *testing.T) {
 func TestDeterminism(t *testing.T) {
 	in := evInterp()
 
-	const src = `d = [z: 1, a: 2]; d["m"] = 3; d.keys.join(",") + "|" + d.json`
+	const src = `d = {z: 1, a: 2}; d["m"] = 3; d.keys.join(",") + "|" + d.json`
 	first := evStr(t, in, src)
 	for i := 0; i < 8; i++ {
 		if got := evStr(t, in, src); got != first {

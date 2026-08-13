@@ -6,18 +6,18 @@
 # want. This is the whole path — reject what is broken, price what is left through a
 # table of rules, and produce both the customer's receipt and the manager's summary.
 
-PRICES = [haircut: 1500, beard: 800, colour: 3200, care: 600, shave: 700]
+PRICES = {haircut: 1500, beard: 800, colour: 3200, care: 600, shave: 700}
 VAT = 20
 
 orders = [
-  [id: "A-1001", client: "Ivan Petrov",  promo: "",        items: [[sku: "haircut", qty: 2], [sku: "beard", qty: 1]]],
-  [id: "A-1002", client: "Anna Smith",   promo: "SPRING",  items: [[sku: "colour", qty: 1], [sku: "care", qty: 2]]],
-  [id: "A-1003", client: "Ivan Petrov",  promo: "",        items: []],
-  [id: "A-1004", client: "",             promo: "",        items: [[sku: "shave", qty: 1]]],
-  [id: "A-1005", client: "Li Ming",      promo: "VIP20",   items: [[sku: "haircut", qty: 1], [sku: "colour", qty: 1], [sku: "care", qty: 1]]],
-  [id: "A-1006", client: "Sean O'Brien", promo: "",        items: [[sku: "massage", qty: 1]]],
-  [id: "A-1007", client: "Anna Smith",   promo: "",        items: [[sku: "beard", qty: 3]]],
-  [id: "A-1008", client: "Li Ming",      promo: "NOPE",    items: [[sku: "shave", qty: 2], [sku: "care", qty: -1]]],
+  {id: "A-1001", client: "Ivan Petrov",  promo: "",        items: [{sku: "haircut", qty: 2}, {sku: "beard", qty: 1}]},
+  {id: "A-1002", client: "Anna Smith",   promo: "SPRING",  items: [{sku: "colour", qty: 1}, {sku: "care", qty: 2}]},
+  {id: "A-1003", client: "Ivan Petrov",  promo: "",        items: []},
+  {id: "A-1004", client: "",             promo: "",        items: [{sku: "shave", qty: 1}]},
+  {id: "A-1005", client: "Li Ming",      promo: "VIP20",   items: [{sku: "haircut", qty: 1}, {sku: "colour", qty: 1}, {sku: "care", qty: 1}]},
+  {id: "A-1006", client: "Sean O'Brien", promo: "",        items: [{sku: "massage", qty: 1}]},
+  {id: "A-1007", client: "Anna Smith",   promo: "",        items: [{sku: "beard", qty: 3}]},
+  {id: "A-1008", client: "Li Ming",      promo: "NOPE",    items: [{sku: "shave", qty: 2}, {sku: "care", qty: -1}]},
 ]
 
 # --- validation: every problem, not just the first ---------------------------
@@ -34,7 +34,7 @@ fn problems(o) {
   found
 }
 
-checked = orders.map { (o) -> o.merge([problems: problems(o)]) }
+checked = orders.map { (o) -> o.merge({problems: problems(o)}) }
 parts = checked.partition { it["problems"].empty }
 good = parts[0]
 bad = parts[1]
@@ -48,17 +48,17 @@ bad.each { (o) -> say("  ✗ ${o["id"]}  ${o["problems"].join("; ")}") }
 # of application is visible — which is the part that gets argued about in a meeting.
 
 RULES = [
-  [name: "volume 10%",  when: { (o, _) -> o["items"].sum { it["qty"] } >= 4 },
-                        cut:  { (sub) -> sub * 10 / 100 }],
-  [name: "SPRING 500",  when: { (o, sub) -> o["promo"] == "SPRING" && sub >= 3000 },
-                        cut:  { (_) -> 500 }],
-  [name: "VIP20",       when: { (o, _) -> o["promo"] == "VIP20" },
-                        cut:  { (sub) -> sub * 20 / 100 }],
+  {name: "volume 10%",  when: { (o, _) -> o["items"].sum { it["qty"] } >= 4 },
+                        cut:  { (sub) -> sub * 10 / 100 }},
+  {name: "SPRING 500",  when: { (o, sub) -> o["promo"] == "SPRING" && sub >= 3000 },
+                        cut:  { (_) -> 500 }},
+  {name: "VIP20",       when: { (o, _) -> o["promo"] == "VIP20" },
+                        cut:  { (sub) -> sub * 20 / 100 }},
 ]
 
 fn price(o) {
   lines = o["items"].map { (i) ->
-    [sku: i["sku"], qty: i["qty"], unit: PRICES[i["sku"]], sum: i["qty"] * PRICES[i["sku"]]]
+    {sku: i["sku"], qty: i["qty"], unit: PRICES[i["sku"]], sum: i["qty"] * PRICES[i["sku"]]}
   }
   subtotal = lines.sum { it["sum"] }
 
@@ -71,7 +71,7 @@ fn price(o) {
 
   net = subtotal - discount
   vat = net * VAT / (100 + VAT)
-  o.merge([lines: lines, subtotal: subtotal, discount: discount, applied: applied, total: net, vat: vat])
+  o.merge({lines: lines, subtotal: subtotal, discount: discount, applied: applied, total: net, vat: vat})
 }
 
 priced = good.map { (o) -> price(o) }
@@ -109,14 +109,14 @@ say("")
 say("by service")
 priced.flat_map { it["lines"] }
       .group_by { it["sku"] }
-      .map { (sku, ls) -> [sku: sku, qty: ls.sum { it["qty"] }, sum: ls.sum { it["sum"] }] }
+      .map { (sku, ls) -> {sku: sku, qty: ls.sum { it["qty"] }, sum: ls.sum { it["sum"] }} }
       .sort_by { -it["sum"] }
       .each { (r) -> say("  ${r["sku"].ljust(10)}${r["qty"].str.rjust(3)} ×  ${(r["sum"].str + " ₽").rjust(9)}  ${"▇" * (r["sum"] / 500)}") }
 
 say("")
 say("by client")
 priced.group_by { it["client"] }
-      .map { (c, os) -> [client: c, orders: os.len, spent: os.sum { it["total"] }] }
+      .map { (c, os) -> {client: c, orders: os.len, spent: os.sum { it["total"] }} }
       .sort_by { -it["spent"] }
       .each { (c) ->
         loyal = c["orders"] > 1 ? "  ★ repeat customer" : ""

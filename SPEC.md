@@ -95,11 +95,11 @@ These are decided. No alternatives are offered anywhere in this document.
 | # | Decision |
 |---|---|
 | D1 | Newline **and** `;` both terminate a statement. Newlines are suppressed after an operator, comma, opening bracket, `->`, `?`, `:`, and before a leading `.`/`?.`/`else`/`)`/`]`/`}`/`->`. |
-| D2 | `{ … }` is **always a closure literal**. Constructs that take a body (`if`, `while`, `for`, `fn`, `match` arms) invoke it immediately with no arguments; everywhere else it is a value; after a call it is appended as the last argument. There is no other meaning of `{`. |
-| D3 | `[ … ]` is **always a collection literal**. `[1,2]` is an array, `[a: 1]` is a dict, `[]` is the empty array, `[:]` is the empty dict. There is no other meaning of `[`. |
+| D2 | `{ … }` is a **closure literal** everywhere except operand position, where the §3.12 lookahead may read it as a **dict**. Constructs that take a body (`if`, `while`, `for`, `fn`, `match` arms) invoke it immediately with no arguments; after a call it is appended as the last argument. A closure body can never begin with `name :`, so the two readings never overlap and the parser still carries no state. |
+| D3 | `[ … ]` is **always an array literal**; `[]` is the empty array. There is no other meaning of `[`. A dict is `{a: 1}` and the empty dict is `{}` — one spelling each (D17), and the one a JSON document already uses. |
 | D4 | The value of the last evaluated statement is the value of a script, a function body, and a closure. `return` is optional and exists for early exit. |
 | D5 | Regex matching is the `~` operator (and `!~`), always returning Bool. The index of a match is `s.index(/re/)`. `==` with a regex operand is a compile error. |
-| D6 | Truthiness: only `nil` and `false` are falsy. `0`, `0.0`, `""`, `[]`, `[:]` are **truthy**. |
+| D6 | Truthiness: only `nil` and `false` are falsy. `0`, `0.0`, `""`, `[]`, `{}` are **truthy**. |
 | D7 | `$name` is a first-class identifier bound from a host table, both in code and inside string literals. It is a separate namespace from local variables and is never resolved through the scope chain. |
 | D8 | Host values arrive as strings; conversions are explicit (`$n.int`). There is no coercion mode, no bareword shim, and no textual pre-substitution pass. |
 | D9 | Integer/float split: `7 / 2 == 3`, `7.0 / 2 == 3.5`. `Int` is `int64`, `Float` is `float64`. Overflow of `Int` **promotes to Float** (never wraps). |
@@ -416,9 +416,19 @@ else { b }
 
 ### 3.11 `{` and `[`
 
-`{` always opens a closure. `[` always opens a collection. **No parser state is required to
-tell them apart from anything else** — this is the single largest simplification in the
+`[` always opens a collection. `{` opens one of three things, and **which one is decided by
+position alone, never by parser state** — this is the single largest simplification in the
 language, and nothing may be added that reintroduces the ambiguity.
+
+| Position | Reading |
+|---|---|
+| after the header of `if`, `while`, `for`, `fn` or a `match` arm | the **body** |
+| directly after a call-shaped expression (§4.2) | the **trailing closure** |
+| operand position | a **dict** if the §3.12 lookahead says so, otherwise a **closure** |
+
+The three never overlap, because a closure body and a block can never begin with `name :`
+— the shape §3.12 keys on. Each position has exactly one reading, so no token is ever
+re-read and no node is ever undone.
 
 One restriction, the same one Go uses: **inside the header of `if`, `while`, `for` or
 `match`, a `{` at bracket depth 0 ends the header and opens the body.** A call with a
@@ -429,38 +439,75 @@ if xs.any { it > 5 } { … }      # ERROR: the header ended at the first '{'
 if (xs.any { it > 5 }) { … }    # correct
 ```
 
-A dict literal in a header needs no parentheses, because it is written with `[`:
+A dict in a header needs no parentheses, because the lookahead runs before the header
+rule — the brace that ends a header is a brace the lookahead declined:
 
 ```
-if [a: 1].has("a") { … }        # legal as written
+if {a: 1}.has("a") { … }        # legal as written
+if x == {a: 1} { … }            # legal as written
 ```
 
-### 3.12 Array or dict
-
-After `[`, the parser looks ahead by a bounded, deterministic amount:
-
-1. `]` immediately → the empty array `[]`.
-2. `:` `]` → the empty dict `[:]`.
-3. First token is `IDENT` or a string literal and the second is `:` → **dict**.
-4. First token is `(` → skip to the matching `)`; if the next token is `:` → **dict**,
-   otherwise array.
-5. Otherwise → **array**.
-
-No parse action is ever undone. A ternary does not interfere: in `[x ? a : b]` the first
-token is `IDENT` and the second is `?`, so it is an array.
+Body position keeps its meaning, so a body that *evaluates to* a dict writes the dict
+inside it — one brace for the body, one for the value:
 
 ```
-[]                  # empty array
-[:]                 # empty dict
-[1, 2, 3]           # array
-[a: 1, b: 2]        # dict with the string keys "a" and "b"
-["a": 1]            # the same dict
-[(k): 1]            # computed key
-[x ? a : b]         # one-element array
+status = if ready { {code: 200} } else { {code: 503} }
+```
+
+Trailing position keeps its meaning too, so a dict argument is spelled with the call's own
+parentheses. `{}` there is the empty closure, not the empty dict:
+
+```
+f {a: 1}                        # ERROR: a dict after a call is written (a: 1) or ({a: 1})
+f(a: 1)                         # keyword arguments collect into one dict (§4.2)
+f({a: 1})                       # an explicit dict argument
+xs.each { }                     # an empty trailing closure
+```
+
+### 3.12 Closure or dict
+
+`[` is an array and needs no lookahead at all. The lookahead belongs to `{`, and in
+operand position — and only there (§3.11) — it decides closure or dict by a bounded,
+deterministic scan run one token past the brace:
+
+1. `}` immediately → the empty dict `{}`.
+2. First token is `IDENT` or a string literal and the second is `:` → **dict**.
+3. First token is `(` → skip to the matching `)`; if the next token is `:` → **dict**,
+   otherwise closure.
+4. Otherwise → **closure**.
+
+No parse action is ever undone, and nothing is consumed unless the scan commits. A
+ternary does not interfere: in `{x ? a : b}` the first token is `IDENT` and the second is
+`?`, so it is a closure whose body is a ternary.
+
+```
+{}                  # empty dict
+{a: 1, b: 2}        # dict with the string keys "a" and "b"
+{"a": 1}            # a quoted key is the same dict
+{(k): 1}            # computed key
+{(x) -> x * 2}      # closure: the token after the matching ')' is '->', not ':'
+{ it * 2 }          # closure
+{x ? a : b}         # closure whose body is a ternary
+{ nil }             # the empty closure value, since `{}` is the empty dict
 ```
 
 A bare-identifier key becomes a string literal, so dicts are JSON-serialisable with no
-symbol type in the language.
+symbol type in the language — and a JSON document is already an mzs dict literal, which
+is why the brace is the dict's only spelling.
+
+**Brackets never carry keys.** `[a: 1]` and `[:]` were the v2.0 dict literals; both are
+now diagnostics that name the replacement, so no such source is read as something else:
+
+| You wrote | Message |
+|---|---|
+| `[a: 1]` | `a dict is written {a: 1}` |
+| `[:]` | `the empty dict is written {}` |
+
+```
+[]                  # empty array
+[1, 2, 3]           # array
+[x ? a : b]         # one-element array
+```
 
 ---
 ## 4. Grammar (EBNF)
@@ -811,8 +858,11 @@ cascade.
 | `def f() { }` | `'def' is not an mzs keyword; use 'fn'` |
 | `%w[a b]` | `'%w' is not mzs; write ["a", "b"]` |
 | `:name` | `mzs has no symbols; write "name"` |
-| `{a: 1}` in expression position | `a dict literal is written [a: 1]` |
-| `k => v` | `'=>' is not an mzs operator; write [k: v] for a dict, { (x) -> … } for a closure` |
+| `[a: 1]` | `a dict is written {a: 1}` |
+| `[:]` | `the empty dict is written {}` |
+| `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
+| `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
+| `k => v` | `'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure` |
 | `{ \|x\| … }` | `closure parameters are parenthesised: { (x) -> … }` |
 | `x &. y` | `'&.' is not an mzs operator; use '?.'` |
 | `a & b` | `'&' is not an mzs operator; use band(a, b), or '&&' for logical and` |
@@ -931,8 +981,8 @@ concept in the language (§4.1).
 | `{ (x) -> B }` | `FuncLit{Params: [x]}` |
 | `{ B }` following a call | appended to that call's `Args` |
 | `[1, 2]` | `ArrayLit` |
-| `[a: 1]` | `DictLit` with `StrLit"a"` as the key |
-| `[:]` | `DictLit{}` |
+| `{a: 1}` | `DictLit` with `StrLit"a"` as the key |
+| `{}` | `DictLit{}` |
 | `a..<b` | `RangeExpr{Exclusive: true}` |
 | `x if c` | `IfExpr{Cond: c, Then: BlockStmt{x}}` |
 | `x while c` | `WhileExpr{Cond: c, Body: BlockStmt{x}}` |
@@ -980,7 +1030,7 @@ many goroutines**. All mutable state lives in the per-`Run` frame.
 | `KString` | `string` (UTF-8, immutable) | `"a"`, `'a'` | rune-indexed |
 | `KRegex` | `*rx.Regexp` | `/re/i` | immutable, shared |
 | `KArray` | `*[]Value` | `[1,2]` | reference semantics, mutable |
-| `KDict` | `*OrderedDict` | `[a: 1]` | insertion-ordered, reference semantics, mutable |
+| `KDict` | `*OrderedDict` | `{a: 1}` | insertion-ordered, reference semantics, mutable |
 | `KFunc` | `*Func` | `fn f(…) { … }`, `{ (x) -> … }` | closures capture by reference |
 
 `Value` is a **struct**, not an interface, to keep the hot path allocation-free:
@@ -1009,7 +1059,7 @@ The data structure is called a **dict**, never a "map" — `map` is the higher-o
 ### 7.3 Truthiness (D6)
 
 `nil` and `false` are falsy. **Everything else is truthy**, including `0`, `0.0`, `""`,
-`[]`, `[:]`, and `NaN`. It differs from Go, Lua, Python and JavaScript — do not "fix" it.
+`[]`, `{}`, and `NaN`. It differs from Go, Lua, Python and JavaScript — do not "fix" it.
 It is why `s.index(/re/)` returning `0` (a match at position 0) is still truthy.
 
 ### 7.4 Equality
@@ -1240,7 +1290,7 @@ xs.map(double)              # where double = { (x) -> x * 2 }
 * Runtime errors (undefined method, type error, division by zero, index type errors, budget
   exhaustion) are the same kind of value.
 * `try X else Y` evaluates `Y` if `X` raises. `try X else (e) -> Y` additionally binds `e` to
-  a Dict `[message: …, kind: …, line: …]` while `Y` is evaluated.
+  a Dict `{message: …, kind: …, line: …}` while `Y` is evaluated.
 * `try` catches **script errors only**. It does **not** catch timeout, step-budget,
   depth-limit or context cancellation; those are unrecoverable and propagate to the host.
 * To guard several statements, group them: `try (a; b) else "-"`.
@@ -1335,7 +1385,7 @@ a, b = [b, a]                    # a swap needs no temporary
 ```
 
 * Only an **Array** or a **Range** has positions. A Dict does not: key order is insertion
-  order (D11), not a positional contract, so `a, b = [x: 1, y: 2]` is a type error and
+  order (D11), not a positional contract, so `a, b = {x: 1, y: 2}` is a type error and
   taking a dict apart is spelled `d["x"], d["y"] = …` or `for k, v in d`.
 * The lengths must be **equal**. Too few values and too many are both run-time errors —
   never a silent `nil` in the extra name, never a silently dropped value:
@@ -1562,7 +1612,7 @@ Conventions used in the tables:
 | `bool` | `bool(x) -> bool` | truthiness of `x` | `"".bool == true` |
 | `array` | `array(x) -> array` | Array→itself, Range→materialise, Dict→`[[k,v],…]`, nil→`[]`, else `[x]` | `(1..3).array` |
 | `dict` | `dict(x) -> dict` | from an Array of `[k,v]` pairs; Dict→itself | `[[1,2]].dict` |
-| `json` | `json(x) -> string` | compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8) | `[a: 1].json` |
+| `json` | `json(x) -> string` | compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8) | `{a: 1}.json` |
 | `inspect` | `inspect(x) -> string` | §12.7 | |
 | `hash` | `hash(x) -> int` | FNV-1a, stable across runs | |
 | `dup` | `dup(x) -> any` | shallow copy for Array/Dict, identity otherwise | |
@@ -1815,8 +1865,8 @@ always naming one of its members; no position of a name switches between the two
 ```
 include json
 json.parse(s)                      # a member of the module
-[total: 1500].json                 # the §12.1 function, spelled as a method
-json([total: 1500])                # error: 'json' is a module, not a function
+{total: 1500}.json                 # the §12.1 function, spelled as a method
+json({total: 1500})                # error: 'json' is a module, not a function
 ```
 
 The same holds for a script module, where there is no function half at all: `cart(order)`
@@ -1855,7 +1905,7 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `math` | `pi`, `e` | constants | |
 | `math` | `sqrt cbrt sin cos tan atan atan2 log log2 log10 exp pow hypot` | `(…) -> float` | |
 | `time` | `now` | `-> time` | requires `Options.Now` |
-| `time` | `parse` | `(s: string, layout: string = auto) -> time` | accepts RFC3339, `YYYY-MM-DD[ HH:MM[:SS]]`, `DD/MM/YY`, `DD.MM.YYYY` |
+| `time` | `parse` | `(s: string, layout: string = auto) -> time` | accepts RFC3339, `YYYY-MM-DD{ HH:MM[:SS]}`, `DD/MM/YY`, `DD.MM.YYYY` |
 | `time` | `at` | `(unix: int) -> time` | |
 | `date` | `today` | `-> time` (midnight) | requires `Options.Now` |
 | `date` | `parse` | `(s: string) -> time` | |
@@ -1907,11 +1957,11 @@ someone else authored.
 |---|---|---|
 | `serve` | `(addr: string, routes: dict, ready: fn?) -> nil` | binds `addr` and serves until `http.stop()` or context cancel |
 | `stop` | `() -> nil` | ends the `serve` of this Run after the current request; an argument error outside one |
-| `json` | `(body: any, status: int = 200, headers: dict = [:]) -> dict` | response whose body is `body` encoded as JSON |
-| `text` | `(body: any, status: int = 200, headers: dict = [:]) -> dict` | response whose body is `str(body)` |
-| `get` | `(url: string, opts: dict = [:]) -> dict` | request; returns `[status:, body:, headers:]` |
-| `post` | `(url: string, body: any, opts: dict = [:]) -> dict` | a string body is sent as is, anything else as JSON |
-| `request` | `(method: string, url: string, opts: dict = [:]) -> dict` | `opts`: `body`, `headers`, `timeout` (seconds) |
+| `json` | `(body: any, status: int = 200, headers: dict = {}) -> dict` | response whose body is `body` encoded as JSON |
+| `text` | `(body: any, status: int = 200, headers: dict = {}) -> dict` | response whose body is `str(body)` |
+| `get` | `(url: string, opts: dict = {}) -> dict` | request; returns `{status:, body:, headers:}` |
+| `post` | `(url: string, body: any, opts: dict = {}) -> dict` | a string body is sent as is, anything else as JSON |
+| `request` | `(method: string, url: string, opts: dict = {}) -> dict` | `opts`: `body`, `headers`, `timeout` (seconds) |
 
 **Routes.** A key is a `net/http` pattern — an optional method, a path, and `{name}`
 wildcards (`{name...}` for a trailing segment) — and a value is a closure of one argument.
@@ -1921,7 +1971,7 @@ argument is a closure called with the base URL once the listener is up, which is
 `":0"` usable.
 
 **Request.** The handler is called with
-`[method:, path:, params:, query:, headers:, body:, host:, remote:]`. Header names are
+`{method:, path:, params:, query:, headers:, body:, host:, remote:}`. Header names are
 lowercased and repeated header and query values collapse to the first. `params` holds the
 pattern's wildcards. The body is read under `MaxStringBytes`; a larger one is 400.
 
@@ -2613,7 +2663,7 @@ evaluate as stated. Turn this table into a table-driven Go test verbatim.
 | 49 | `["да", "ага", "конечно"].has($__sent.lower)` | `__sent="Ага"` | true |
 | 50 | `3.times.each { it.str }` | — | `[0,1,2]` |
 | 51 | `(0..6).map { it }.each_slice(2).array` | — | `[[0,1],[2,3],[4,5],[6]]` |
-| 52 | `(0..6).map { [text: it.str, data: "var:date:${it}"] }.each_slice(2).array` | — | array of 2-element arrays of dicts; `.json` round-trips |
+| 52 | `(0..6).map { {text: it.str, data: "var:date:${it}"} }.each_slice(2).array` | — | array of 2-element arrays of dicts; `.json` round-trips |
 | 53 | `$not_existed` | — | `nil` (§9.2) |
 | 54 | `0` | — | `0`, and `Bool` of it is **true** |
 | 55 | `$sent == "лол"` | `sent="лол"` | true |
@@ -2688,7 +2738,7 @@ Lines 1–2 parse. Line 3 is a typo and MUST produce
 a := 1.2
 b := "a"
 c := 1
-d := [a: 1]
+d := {a: 1}
 e := [1, 2, "3"]
 if $__sent.int > 5 { print("big") }
 ```
@@ -2709,13 +2759,13 @@ if $__sent.int > 5 { print("big") }
 | `TestClosureScope` | `x = 0; if true { x = 1 }; x` → `1`; `if true { y = 1 }; y` → `undefined variable 'y'` |
 | `TestImplicitIt` | `[1,2,3].map { it * 2 }` == `[1,2,3].map { (x) -> x * 2 }` |
 | `TestTrailingClosureIsArg` | `[1,2,3].map(double)` == `[1,2,3].map { it * 2 }` where `double = { it * 2 }` |
-| `TestDictLiteral` | `[a: 1].json == "{\"a\":1}"`; `[:].len == 0`; `[].len == 0`; `type([:]) == "dict"` |
-| `TestBraceIsAlwaysClosure` | `if [a: 1].has("a") { 1 } else { 2 }` → `1` (no parens needed around the dict) |
+| `TestDictLiteral` | `{a: 1}.json == "{\"a\":1}"`; `{}.len == 0`; `[].len == 0`; `type({}) == "dict"` |
+| `TestBraceIsAlwaysClosure` | `if {a: 1}.has("a") { 1 } else { 2 }` → `1` (no parens needed around the dict) |
 | `TestMatchFirstWins` | `match 5 { in 1..10 -> "a"; 5 -> "b"; else -> "c" }` → `"a"` |
 | `TestMatchNoArm` | `match 99 { 1 -> "a" }` → `nil` |
 | `TestSubjectEvaluatedOnce` | a subject with a side effect runs exactly once across all arms |
 | `TestUfcsUserFn` | `fn shout(s) { s.upper + "!" }; "да".shout` → `"ДА!"` |
-| `TestDestructureMismatch` | `a, b = [1,2,3]`, `a, b = [1]`, `a, b = 1` and `a, b = [x: 1, y: 2]` each raise, with the kind and text of §8.15 |
+| `TestDestructureMismatch` | `a, b = [1,2,3]`, `a, b = [1]`, `a, b = 1` and `a, b = {x: 1, y: 2}` each raise, with the kind and text of §8.15 |
 | `TestArrayPatternBinds` | `[x, [y, z]]`, `[x, y]`, `[]` and `else` pick the arm by shape; a literal element still compares |
 | `TestBitOpsStayInt` | `shl(1, 63)` is still an `int` and `shl(1, 64)` is `0` where `2 ** 64` promotes to a Float; `2.9.band(1)`, `shl(1, -1)`, `bit(1, 64)` and a non-byte in `pack_bytes` each raise with the text of §12.5 |
 | `TestTimeout` | `Bool("while true { }")` returns `ErrTimeout` in ≤ 1.2 s |
@@ -2856,7 +2906,7 @@ publish time rather than silently at runtime.
 | `.select(` / `.collect(` / `.detect(` / `.inject(` | `.filter(` / `.map(` / `.find(` / `.reduce(` |
 | `JSON.parse(` / `JSON.generate(` | `json.parse(` / `json(` |
 | `%w[a b c]` | `["a", "b", "c"]` |
-| `{k: v}` | `[k: v]` |
+| `{k: v}` | `{k: v}` |
 | `{ \|x\| … }` | `{ (x) -> … }` |
 | `->(x) { … }` / `&fn` | `{ (x) -> … }` / `fn` |
 | `puts(` / `p(` | `say(` / `debug(` |

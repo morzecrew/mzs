@@ -36,24 +36,24 @@ if !TAGS.has(tag) {
 # same answer: use the sample, and say which one it was.
 
 SAMPLE = [
-  [title: "A Postgres feature nobody uses", url: "https://www.crunchydata.com/blog/x",
-   author: "brandur", points: 412, num_comments: 96, created_at: "2026-08-10T09:12:00Z"],
-  [title: "Show HN: A tiny language that fits in one binary", url: "https://github.com/a/b",
-   author: "kmk", points: 388, num_comments: 214, created_at: "2026-08-10T14:02:00Z"],
-  [title: "The cost of a cache miss", url: "https://www.crunchydata.com/blog/y",
-   author: "brandur", points: 201, num_comments: 33, created_at: "2026-08-09T18:40:00Z"],
-  [title: "Writing a regex engine in a weekend", url: "https://github.com/c/d",
-   author: "rsc", points: 190, num_comments: 41, created_at: "2026-08-09T07:55:00Z"],
-  [title: "Ask HN: what broke in production this year?", url: nil,
-   author: "throwaway9", points: 154, num_comments: 402, created_at: "2026-08-08T21:30:00Z"],
-  [title: "Unicode is harder than you think", url: "https://tonsky.me/blog/unicode/",
-   author: "tonsky", points: 133, num_comments: 58, created_at: "2026-08-08T11:05:00Z"],
+  {title: "A Postgres feature nobody uses", url: "https://www.crunchydata.com/blog/x",
+   author: "brandur", points: 412, num_comments: 96, created_at: "2026-08-10T09:12:00Z"},
+  {title: "Show HN: A tiny language that fits in one binary", url: "https://github.com/a/b",
+   author: "kmk", points: 388, num_comments: 214, created_at: "2026-08-10T14:02:00Z"},
+  {title: "The cost of a cache miss", url: "https://www.crunchydata.com/blog/y",
+   author: "brandur", points: 201, num_comments: 33, created_at: "2026-08-09T18:40:00Z"},
+  {title: "Writing a regex engine in a weekend", url: "https://github.com/c/d",
+   author: "rsc", points: 190, num_comments: 41, created_at: "2026-08-09T07:55:00Z"},
+  {title: "Ask HN: what broke in production this year?", url: nil,
+   author: "throwaway9", points: 154, num_comments: 402, created_at: "2026-08-08T21:30:00Z"},
+  {title: "Unicode is harder than you think", url: "https://tonsky.me/blog/unicode/",
+   author: "tonsky", points: 133, num_comments: 58, created_at: "2026-08-08T11:05:00Z"},
 ]
 
 url = "${API}?tags=${tag}&hitsPerPage=${limit}"
 say("GET ${url}")
 
-answer = try http.get(url, [timeout: 10]) else (e) -> [status: 0, error: e["message"]]
+answer = try http.get(url, {timeout: 10}) else (e) -> {status: 0, error: e["message"]}
 payload = answer["status"] == 200 ? (try json.parse(answer["body"]) else nil) : nil
 
 hits = match {
@@ -80,14 +80,14 @@ fn short(s, n) { s.len <= n ? s : s.slice(0, n - 1) + "…" }
 
 stories = hits
   .filter { is(it["title"], "string") && !it["title"].blank }
-  .map { (h) -> [
+  .map { (h) -> {
     title:    h["title"].trim,
     author:   h["author"] ?? "—",
     points:   int(h["points"]),
     comments: int(h["num_comments"]),
     domain:   domain_of(h["url"]),
     day:      str(h["created_at"]).first(10),     # "2026-08-11T08:15:46Z" → "2026-08-11"
-  ] }
+  } }
   .filter { it["points"] > 0 }
 
 if stories.empty {
@@ -116,12 +116,12 @@ say("average %.1f points and %.1f comments per story" % [
 
 sites = stories
   .group_by { it["domain"] }
-  .map { (host, rows) -> [
+  .map { (host, rows) -> {
     host:   host,
     count:  rows.len,
     points: rows.sum { it["points"] },
     best:   rows.max_by { it["points"] }["title"],
-  ] }
+  } }
   .sort_by { [-it["points"], it["host"]] }
 
 say("")
@@ -188,7 +188,7 @@ say("")
 say("top %d by points" % [min(10, stories.len)])
 ranked.take(10).each_with_index { (s, i) ->
   say("  %<rank>2d. %<points>5d pts %<comments>5d cmt  %<domain>-22s  %<title>s" %
-    s.merge([rank: i + 1, domain: short(s["domain"], 22), title: short(s["title"], 46)]))
+    s.merge({rank: i + 1, domain: short(s["domain"], 22), title: short(s["title"], 46)}))
 }
 
 say("")

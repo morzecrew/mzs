@@ -118,7 +118,7 @@ tokens = expr.matches(/\d+|[a-z]+|[-+*\/()]/).map { (t) ->
     /^[a-z]+$/ -> "name"
     else       -> "operator"
   }
-  [text: t, kind: kind]
+  {text: t, kind: kind}
 }
 say("")
 say("tokenizing ${inspect(expr)}")

@@ -24,8 +24,8 @@ func TestErrorsPropagateFromEveryPosition(t *testing.T) {
 		col  int // where the reported error must point; 0 means "at the raise itself"
 	}{
 		{"an array element", `[1, raise("boom"), 3]`, 0},
-		{"a dict key", `["${raise("boom")}": 1]`, 0},
-		{"a dict value", `[k: raise("boom")]`, 0},
+		{"a dict key", `{"${raise("boom")}": 1}`, 0},
+		{"a dict value", `{k: raise("boom")}`, 0},
 		{"a range's upper bound", `1..raise("boom")`, 0},
 		{"a range's lower bound", `raise("boom")..3`, 0},
 		{"an index", `[1,2][raise("boom")]`, 0},
@@ -49,8 +49,8 @@ func TestErrorsPropagateFromEveryPosition(t *testing.T) {
 		{"the value of an assignment", `x = raise("boom")`, 0},
 		{"the right of a destructuring", `a, b = raise("boom")`, 0},
 		{"an element of a destructured array", `[a, b] = [raise("boom"), 2]`, 0},
-		{"an index being assigned to", `d = [k: 1]; d[raise("boom")] = 2`, 0},
-		{"the value being assigned to an index", `d = [k: 1]; d["k"] = raise("boom")`, 0},
+		{"an index being assigned to", `d = {k: 1}; d[raise("boom")] = 2`, 0},
+		{"the value being assigned to an index", `d = {k: 1}; d["k"] = raise("boom")`, 0},
 		{"a global's value", `$g = raise("boom")`, 0},
 		{"a call argument", `fn f(a) { a }; f(raise("boom"))`, 0},
 		{"a function body", `fn f(a) { raise("boom") }; f(1)`, 0},
@@ -160,7 +160,7 @@ func TestTryCatchesRaisesButNotLimits(t *testing.T) {
 func TestRaisedErrorCarriesKindDataAndPosition(t *testing.T) {
 	in := New(Options{Timeout: 0, StepBudget: -1})
 
-	src := "x = 1\ny = 2\nraise([message: \"нет ключа\", code: 404])"
+	src := "x = 1\ny = 2\nraise({message: \"нет ключа\", code: 404})"
 	_, err := in.Eval(context.Background(), src, nil)
 	var e *Error
 	if !errors.As(err, &e) {
@@ -181,7 +181,7 @@ func TestRaisedErrorCarriesKindDataAndPosition(t *testing.T) {
 
 	// The same error, seen from inside the script.
 	v, err := in.Eval(context.Background(),
-		`try raise([message: "нет ключа", code: 404]) else (e) -> "${e["kind"]}/${e["data"]["code"]}/${e["line"]}"`, nil)
+		`try raise({message: "нет ключа", code: 404}) else (e) -> "${e["kind"]}/${e["data"]["code"]}/${e["line"]}"`, nil)
 	if err != nil {
 		t.Fatalf("Eval error = %v", err)
 	}
