@@ -11,7 +11,7 @@ Two of them need a capability the host has to grant, which is the point of those
 
 ```sh
 mzs --time examples/29_time_scheduling.mzs
-mzs -v '__sent=нужен оператор' examples/09_host_variables.mzs
+mzs -v '__sent=I need an operator' examples/09_host_variables.mzs
 ```
 
 Two more use the network, which needs no flag — but do need a deadline longer than the
@@ -28,7 +28,7 @@ option:
 
 ```sh
 mzs examples/32_io_files.mzs                          # writes into $TMPDIR
-printf 'да\nнет\nда\n' | mzs examples/32_io_files.mzs # …and reads the pipe as data
+printf 'yes\nno\nyes\n' | mzs examples/32_io_files.mzs # …and reads the pipe as data
 ```
 
 Everything else runs with no flags, inside the default sandbox: one second, five million

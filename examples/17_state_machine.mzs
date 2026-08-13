@@ -14,9 +14,9 @@ STATES = [
     prompt: "Hello! Shall we book a visit?",
     on: { (input, _) ->
       match input.lower.trim {
-        in ["yes", "y", "sure", "да"] -> [goto: "service", say: "Great."]
-        in ["no", "n", "нет"]         -> [goto: "done", say: "No problem — text me any time."]
-        else                          -> [retry: true, say: "Please answer yes or no."]
+        in ["yes", "y", "sure"] -> [goto: "service", say: "Great."]
+        in ["no", "n", "nope"]  -> [goto: "done", say: "No problem — text me any time."]
+        else                    -> [retry: true, say: "Please answer yes or no."]
       }
     },
   ],
@@ -60,9 +60,9 @@ STATES = [
     render: { (ctx) -> "So: ${ctx["service"]} on ${ctx["day"]} at ${ctx["time"]}, ${ctx["price"]} ₽. Confirm?" },
     on: { (input, _) ->
       match input.lower.trim {
-        in ["yes", "y", "confirm", "да"] -> [goto: "booked", set: [status: "confirmed"]]
-        in ["no", "change", "нет"]        -> [goto: "service", set: [status: "restarted"], say: "Let us redo it."]
-        else                              -> [retry: true, say: "Yes or no?"]
+        in ["yes", "y", "confirm"] -> [goto: "booked", set: [status: "confirmed"]]
+        in ["no", "change"]        -> [goto: "service", set: [status: "restarted"], say: "Let us redo it."]
+        else                       -> [retry: true, say: "Yes or no?"]
       }
     },
   ],

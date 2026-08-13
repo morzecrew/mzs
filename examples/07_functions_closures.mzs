@@ -13,7 +13,7 @@ fn greet(name, greeting = "Hello", punct = "!") { "${greeting}, ${name}${punct}"
 fn tag(name, *classes) { classes.empty ? "<${name}>" : "<${name} class=\"${classes.join(" ")}\">" }
 
 say(greet("Ann"))
-say(greet("Ann", "Добрый день", "."))
+say(greet("Ann", "Good afternoon", "."))
 say(tag("div") + tag("span", "big", "red"))
 
 # A default may read the parameters bound before it — they are ordinary expressions.
@@ -57,7 +57,7 @@ squash    = { (s) -> s.squeeze(" ") }
 normalize = compose(trim_it, lower_it, squash)
 
 say("")
-say("compose: ${inspect(normalize.call("   ОПЕРАТОР   нужен   "))}")
+say("compose: ${inspect(normalize.call("   I NEED an   OPERATOR   "))}")
 
 fn multiplier(k) { { (x) -> x * k } }
 double = multiplier(2)
@@ -83,7 +83,7 @@ fn validate(value) {
 
 say("")
 say("validation")
-["Ann", "", "a1", "Иван"].each { (v) -> say("  ${inspect(v).ljust(10)}${validate(v)}") }
+["Ann", "", "a1", "Zoë"].each { (v) -> say("  ${inspect(v).ljust(10)}${validate(v)}") }
 
 # --- recursion: named functions may call themselves; depth is bounded ---------
 

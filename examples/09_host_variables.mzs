@@ -1,8 +1,8 @@
 # 09 — $variables: the values the host puts in, and the ones the script hands back.
 #
 #   mzs examples/09_host_variables.mzs
-#   mzs -v '__sent=  ОПЕРАТОР ' -v price=1500 examples/09_host_variables.mzs
-#   mzs --vars '{"__sent":"да","price":1500,"tags":["vip","new"]}' examples/09_host_variables.mzs
+#   mzs -v '__sent=  OPERATOR ' -v price=1500 examples/09_host_variables.mzs
+#   mzs --vars '{"__sent":"yes","price":1500,"tags":["vip","new"]}' examples/09_host_variables.mzs
 #
 # A `$name` is not a local: it lives in a table the host owns, it is a namespace of its
 # own, and it is never resolved through the scope chain. An unbound one reads as nil
@@ -54,10 +54,10 @@ say("  \${\$price} inside text →  the price is ${$price ?? "unset"}")
 s = sent.str.lower.trim
 
 conditions = [
-  [name: "confirm",     value: s == "да" || s ~ /^(ага|конечно|yes|y)$/],
-  [name: "handoff",     value: s ~ /оператор|человек|поддержк|operator|support/],
-  [name: "menu",        value: s ~ /все темы|главное меню|\bменю\b|показать все/],
-  [name: "cancel",      value: s ~ /^(отмена|cancel|стоп)$/ || s.starts_with("❌")],
+  [name: "confirm",     value: s == "yes" || s ~ /^(yeah|sure|ok|y)$/],
+  [name: "handoff",     value: s ~ /operator|real person|manager|support/],
+  [name: "menu",        value: s ~ /all topics|main menu|\bmenu\b|show everything/],
+  [name: "cancel",      value: s ~ /^(cancel|stop|abort)$/ || s.starts_with("❌")],
   [name: "big spender", value: price.int >= 1000],
   [name: "is vip",      value: is(tags, "array") && tags.has("vip")],
   [name: "not empty",   value: !s.blank],
@@ -98,12 +98,12 @@ say("  \$score       ${$score}")
 # --- the answer, as a bot engine would take it --------------------------------
 
 reply = match $intent {
-  "confirm"          -> "Отлично, записываю вас${name == "guest" ? "" : ", ${name}"}."
-  "handoff_operator" -> "Соединяю с оператором…"
-  "main_menu"        -> "Вот главное меню."
-  "cancel"           -> "Отменил."
-  "empty"            -> "Напишите что-нибудь, и я помогу."
-  else               -> "Не понял. Попробуйте «меню»."
+  "confirm"          -> "Great, booking you in${name == "guest" ? "" : ", ${name}"}."
+  "handoff_operator" -> "Putting you through to an operator…"
+  "main_menu"        -> "Here is the main menu."
+  "cancel"           -> "Cancelled."
+  "empty"            -> "Write something and I will help."
+  else               -> "I did not get that. Try «menu»."
 }
 
 say("")

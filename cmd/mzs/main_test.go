@@ -587,12 +587,12 @@ func TestExamples(t *testing.T) {
 		},
 		{
 			name:     "09 host variables, routed to the operator",
-			argv:     []string{"-v", "__sent=  ОПЕРАТОР ", "-v", "price=1500", path("09_host_variables.mzs")},
-			contains: []string{`"intent":"handoff_operator"`, `$normalized  "оператор"`},
+			argv:     []string{"-v", "__sent=  OPERATOR ", "-v", "price=1500", path("09_host_variables.mzs")},
+			contains: []string{`"intent":"handoff_operator"`, `$normalized  "operator"`},
 		},
 		{
 			name:     "09 host variables, the program value is the branch",
-			argv:     []string{"-p", "-v", "__sent=да", path("09_host_variables.mzs")},
+			argv:     []string{"-p", "-v", "__sent=yes", path("09_host_variables.mzs")},
 			contains: []string{"true\n"},
 		},
 		{
@@ -646,7 +646,7 @@ func TestExamples(t *testing.T) {
 		{
 			name:     "32 io: files, env and the catchable miss",
 			argv:     []string{path("32_io_files.mzs")},
-			contains: []string{"write       56 bytes", "parsed      3 rows, 210 minutes in total", "io.stdin  io.lines"},
+			contains: []string{"write       42 bytes", "parsed      3 rows, 210 minutes in total", "io.stdin  io.lines"},
 		},
 		{
 			name:     "--net is gone and says so",

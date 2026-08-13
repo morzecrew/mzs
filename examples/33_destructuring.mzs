@@ -37,13 +37,13 @@ say("=== splitting, zipping, slicing ===")
 user, host = "ivan@example.ru".split("@")
 say("user@host              → user=${user} host=${host}")
 
-name, price, qty = "гель;480;3".split(";")
-say("a csv row              → ${name} × ${qty} по ${price} = ${price.int * qty.int}")
+name, price, qty = "gel;480;3".split(";")
+say("a csv row              → ${name} × ${qty} at ${price} = ${price.int * qty.int}")
 
 # `zip` hands back pairs, `partition` hands back exactly two arrays: both are shapes a
 # pattern reads directly.
 say("")
-months = ["янв", "фев", "мар", "апр"]
+months = ["jan", "feb", "mar", "apr"]
 sales = [120, 90, 160, 140]
 months.zip(sales).each { (row) ->
   m, n = row
@@ -56,9 +56,9 @@ say("partition              → below ${lows.json}, above ${highs.json}")
 say("")
 say("=== for with two variables ===")
 
-stock = [гель: 3, крем: 0, масло: 7]
+stock = [gel: 3, cream: 0, oil: 7]
 for item, n in stock {
-  say("  ${item.ljust(6)} ${n == 0 ? "нет в наличии" : "${n} шт"}")
+  say("  ${item.ljust(6)} ${n == 0 ? "out of stock" : "${n} in stock"}")
 }
 
 # A dict iterates as [key, value] pairs, which is why the two-variable form reads the
@@ -97,7 +97,7 @@ fn describe(v) {
     else            -> "not a pair: ${inspect(v)}"
   }
 }
-[[0, 9], [5, 1], [1, 5], [7], [], "нет", [1, 2, 3]].each { (v) ->
+[[0, 9], [5, 1], [1, 5], [7], [], "no", [1, 2, 3]].each { (v) ->
   say("  ${inspect(v).ljust(11)} → ${describe(v)}")
 }
 

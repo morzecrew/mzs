@@ -1,7 +1,7 @@
 {
   "name": "mzs",
   "displayName": "mzs",
-  "description": "Подсветка синтаксиса, автодополнение, подсказки и диагностика для языка mzs",
+  "description": "Syntax highlighting, completion, hovers and diagnostics for the mzs language",
   "version": "1.1.0",
   "publisher": "morze",
   "license": "MIT",
@@ -66,20 +66,20 @@
     "commands": [
       {
         "command": "mzs.runFile",
-        "title": "mzs: запустить файл",
+        "title": "mzs: Run file",
         "icon": "$(play)"
       },
       {
         "command": "mzs.evalSelection",
-        "title": "mzs: выполнить выделенное как однострочник"
+        "title": "mzs: Evaluate selection as a one-liner"
       },
       {
         "command": "mzs.showTokens",
-        "title": "mzs: показать поток токенов"
+        "title": "mzs: Show the token stream"
       },
       {
         "command": "mzs.showAst",
-        "title": "mzs: показать AST"
+        "title": "mzs: Show the AST"
       }
     ],
     "menus": {
@@ -111,28 +111,28 @@
         "mzs.path": {
           "type": "string",
           "default": "mzs",
-          "markdownDescription": "Путь к исполняемому файлу `mzs`. Соберите его командой `go build -o ~/bin/mzs ./cmd/mzs`."
+          "markdownDescription": "Path to the `mzs` executable. Build it with `go build -o ~/bin/mzs ./cmd/mzs`."
         },
         "mzs.time": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Проверять и запускать с `--time` — иначе `include time` и `include date` будут ошибкой (SPEC §12.8)."
+          "markdownDescription": "Check and run with `--time` — without it `include time` and `include date` are an error (SPEC §12.8)."
         },
         "mzs.diagnostics.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Показывать ошибки и предупреждения от `mzs --check`."
+          "description": "Show the errors and warnings from `mzs --check`."
         },
         "mzs.diagnostics.delay": {
           "type": "number",
           "default": 300,
           "minimum": 0,
-          "description": "Задержка в миллисекундах между вводом и проверкой."
+          "description": "Delay in milliseconds between typing and checking."
         },
         "mzs.completion.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Автодополнение методов, встроенных функций и ключевых слов."
+          "description": "Complete methods, built-in functions and keywords."
         }
       }
     }

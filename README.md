@@ -70,7 +70,7 @@ if c { a } else { b }          xs.map { it * 2 }          double = { (n) -> n * 
 **`[ … ]` is always a collection.** An array or a dict, never a third thing.
 
 ```
-[]        [1, 2, 3]        [:]        [name: "Иван", price: 1500]
+[]        [1, 2, 3]        [:]        [name: "Ivan", price: 1500]
 ```
 
 **`x.f(y)` is exactly `f(x, y)`** (UFCS). There are no "global functions" on one side and
@@ -78,7 +78,7 @@ if c { a } else { b }          xs.map { it * 2 }          double = { (n) -> n * 
 
 ```
 fn shout(s) { s.upper + "!" }
-"да".shout                     # ДА!
+"yes".shout                    # YES!
 ```
 
 Plus `match` instead of the `if/else if` ladder, sixteen keywords, exactly one name per
@@ -98,20 +98,20 @@ Every line is a complete program. Try them straight in the terminal: `mzs -e '<l
 | Normalise a user's answer | `"  ОПЕРАТОР ".lower.trim == "оператор"` | `true` |
 | Test against a regex | `"Привет!".lower ~ /привет\|hello/i` | `true` |
 | Match index in **runes** | `"привет".index(/вет/)` | `3` |
-| Throw the apostrophes out | `"О'Брайен".replace(/'/, "")` | `ОБрайен` |
+| Throw the apostrophes out | `"O'Brien".replace(/'/, "")` | `OBrien` |
 | Take `login:email` apart | `"ivan:i@x.ru".split(":")[1]` | `i@x.ru` |
 | Spread a pair over names | `user, host = "ivan@x.ru".split("@"); host` | `x.ru` |
-| First word | `"Иван Петров".split(" ").first` | `Иван` |
+| First word | `"Ivan Petrov".split(" ").first` | `Ivan` |
 | A number out of an empty string, no panic | `"".int + 1200` | `1200` |
 | A number with trailing junk | `"12abc".int` | `12` |
-| Word frequencies | `"да,нет,да".split(",").tally.json` | `{"да":2,"нет":1}` |
-| An intent router | `match s { in ["да","ага"] -> 1; /^нет/ -> 0; else -> nil }` | |
+| Word frequencies | `"yes,no,yes".split(",").tally.json` | `{"yes":2,"no":1}` |
+| An intent router | `match s { in ["yes","yeah"] -> 1; /^no/ -> 0; else -> nil }` | |
 | Even numbers | `[1,2,3,4].filter { it % 2 == 0 }` | `[2, 4]` |
 | Fold | `[1,2,3].reduce(0) { (a, x) -> a + x }` | `6` |
 | Chunk by two | `(0..6).map { it }.each_slice(2).array` | `[[0,1],[2,3],[4,5],[6]]` |
 | Dig into JSON | `include json; json.parse(s).dig(0, "generated_text")` | |
-| A default value | `[].first ?? "пусто"` | `пусто` |
-| Do not fall over | `include json; try json.parse("{oops") else "битый json"` | |
+| A default value | `[].first ?? "empty"` | `empty` |
+| Do not fall over | `include json; try json.parse("{oops") else "broken json"` | |
 | Keyboard buttons | `(0..5).map { [text: "${it}:00", data: "t:${it}"] }` | |
 | Read a file | `include io; io.read("/etc/hostname").trim` | |
 | Count the scripts next door | `include io; io.ls(".").filter { it.ends_with(".mzs") }.len` | |
@@ -234,8 +234,8 @@ $ mzs -e '0..5.map { it }'
 `--check` additionally catches the classic "the regex came out of JSON" mistake:
 
 ```
-$ mzs --check -e '"еда" ~ /\\bеда\\b/'
--e:1:9: warning: "\\b" matches a literal backslash; did you mean "\b"? (pattern probably came from a JSON string)
+$ mzs --check -e '"food" ~ /\\bfood\\b/'
+-e:1:10: warning: "\\b" matches a literal backslash; did you mean "\b"? (pattern probably came from a JSON string)
 ```
 
 ### REPL
@@ -243,10 +243,10 @@ $ mzs --check -e '"еда" ~ /\\bеда\\b/'
 ```
 $ mzs
 mzs 2.0.0 — .help for help, .exit to quit
-mzs> s = "  ПРИВЕТ "
-"  ПРИВЕТ "
+mzs> s = "  HELLO "
+"  HELLO "
 mzs> s.lower.trim
-"привет"
+"hello"
 mzs> fn double(n) { n * 2 }
 #<fn double>
 mzs> double(21)
@@ -269,10 +269,10 @@ Nine kinds: `nil`, `bool`, `int`, `float`, `string`, `regex`, `array`, `dict`, `
 ```
 n   = 42            0xff    0b1010    1_000_000
 f   = 1.5           1e9
-s   = "привет"      'raw string'
-re  = /привет|hello/i
-xs  = [1, 2, "три"]
-d   = [name: "Иван", price: 1500]
+s   = "hello"       'raw string'
+re  = /hello|hi/i
+xs  = [1, 2, "three"]
+d   = [name: "Ivan", price: 1500]
 e   = [:]                        # an empty dict; [] is an empty array
 fun = { (x) -> x * 2 }
 ```
@@ -288,11 +288,11 @@ Only `nil` and `false` are falsy. `0`, `""`, `[]`, `[:]` are truthy.
 ```
 + - * / %  **           7 / 2 == 3        7.0 / 2 == 3.5        -(2 ** 2) == -4
 == !=  < <= > >=  <=>
-~  !~                   s ~ /меню/i       # a regex match, always true/false
+~  !~                   s ~ /menu/i       # a regex match, always true/false
 && || !                 ?? ?.             # ?? fires on nil only
 .. ..<                  (0..5)  (0..<5)
 = := += -= *= /= %= **= ||= &&= ??=
-? :                     x > 3 ? "да" : "нет"
+? :                     x > 3 ? "yes" : "no"
 ```
 
 Integer division when both sides are `int`; `%` takes the sign of the divisor. An `int`
@@ -320,8 +320,8 @@ x += 1 while x < 5
 
 ```
 intent = match s {
-  in ["да", "ага", "конечно"]  -> "confirm"
-  /\bоператор|перевед/i        -> "handoff"
+  in ["yes", "yeah", "sure"]   -> "confirm"
+  /\boperator|transfer/i       -> "handoff"
   in 1..5                      -> "small"
   s.len > 500 if verbose       -> "too_long"
   else                         -> "unknown"
@@ -340,7 +340,7 @@ With no subject, every pattern is simply a condition:
 ```
 match {
   yes            -> "confirm"
-  s ~ /оператор/ -> "handoff"
+  s ~ /operator/ -> "handoff"
   else           -> "unknown"
 }
 ```
@@ -382,7 +382,7 @@ Parameters are always parenthesised — for a named function and for a closure a
 
 ```
 fn add(a, b) { a + b }
-fn greet(name, greeting = "Привет") { "${greeting}, ${name}!" }
+fn greet(name, greeting = "Hello") { "${greeting}, ${name}!" }
 fn sum(*nums) { nums.sum }
 
 add2   = { (a, b) -> a + b }
@@ -407,8 +407,8 @@ Assigning to an existing variable works as usual.
 "ordinary: \n \t ❤ \$"
 'raw: \n stays two characters, which is handy for regexes'
 
-"Ваш адрес $__sent?"              # $name is a host global
-"Итого: ${price + 1200} ₽"        # ${…} is any expression
+"Your address is $__sent?"        # $name is a host global
+"Total: ${price + 1200} €"        # ${…} is any expression
 ```
 
 `$name` inside a string means exactly what it means outside — a host variable. A local
@@ -436,7 +436,7 @@ $counter = $counter.int + 1       # a write; the host picks it up from Result.Gl
 ```
 
 Values arrive from the host as **strings** and are never parsed, so spaces, apostrophes
-(`О'Брайен`) and emoji inside a value are safe. They enter arithmetic through `.int` /
+(`O'Brien`) and emoji inside a value are safe. They enter arithmetic through `.int` /
 `.float`, which never fail: `"".int == 0`.
 
 ---
@@ -490,11 +490,11 @@ not a mistake — and the run does not return until it has: **no goroutine outli
 `Run`**. An unawaited task's error goes to `Stderr` instead of being lost.
 
 ```
-$ mzs -e 'async fn boom() { raise("упала") }
+$ mzs -e 'async fn boom() { raise("crashed") }
 boom()
-"живы"'
-mzs: task 'boom' failed and was never awaited: -e:1:19: raise: упала
-живы
+"alive"'
+mzs: task 'boom' failed and was never awaited: -e:1:19: raise: crashed
+alive
 ```
 
 A task's error is caught where it is awaited: `try t.await else "a fallback answer"`. A task
@@ -643,7 +643,7 @@ the dialogue store will not open a socket.
 include http
 
 http.serve(":8080", [
-  "GET /hello":    { (req) -> "привет, " + (req["query"]["name"] ?? "мир") },
+  "GET /hello":    { (req) -> "hello, " + (req["query"]["name"] ?? "world") },
   "GET /get/{id}": { (req) -> http.json([id: req["params"]["id"].int]) },
 ])
 ```

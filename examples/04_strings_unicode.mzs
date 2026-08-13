@@ -89,10 +89,10 @@ say("  numbered:  ${"2026-03-05".replace(/(\d+)-(\d+)-(\d+)/, '\3.\2.\1')}")
 # --- laying text out: every width below is a rune width ------------------------
 
 say("")
-say("| ${"наименование".ljust(20)} | ${"цена".rjust(9)} |")
+say("| ${"item".ljust(20)} | ${"price".rjust(9)} |")
 say("| ${"-" * 20} | ${"-" * 9} |")
-[["стрижка", 1500], ["окрашивание 👩‍🎨", 3200], ["borodá", 800]].each { (row) ->
-  say("| ${row[0].ljust(20)} | ${("%d ₽" % row[1]).rjust(9)} |")
+[["haircut", 1500], ["окрашивание 👩‍🎨", 3200], ["borodá", 800]].each { (row) ->
+  say("| ${row[0].ljust(20)} | ${("%d €" % row[1]).rjust(9)} |")
 }
 say("")
 say(" ${"THE END".center(30, "·")} ")

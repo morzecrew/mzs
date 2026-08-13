@@ -46,8 +46,8 @@ fn justify(line, width) {
 
 prose = "Every line of a report is a layout problem: measure the width, break the words,
 line up the columns. The language gives you four primitives, and that is enough once the
-word wrapper is written. Та же функция переносит и русский текст, потому что ширина здесь
-считается в рунах, а не в байтах."
+word wrapper is written. The same function wraps other scripts — та же функция переносит и
+русский текст — because a width here is counted in runes and not in bytes."
 
 say("wrapped to ${WIDTH} columns")
 say("┌" + "─" * WIDTH + "┐")

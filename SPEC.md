@@ -48,7 +48,7 @@ migration.
   `{ … }` is an inline closure, statement modifiers (`x = 1 if c`) exist, ternaries exist,
   `match` arms fit on one line, and the value of the last expression is the result —
   `return` is never required. Concretely, this must be a legal and useful program:
-  `mzs -e 's = $__sent.lower.trim; s == "да" || s ~ /^ага|конечно/'`
+  `mzs -e 's = $__sent.lower.trim; s == "yes" || s ~ /^yeah|sure/'`
 * **G2 — Replace the Ruby subprocess** in `morzebot-backend-v2/pkg/engine/eval`. Same call
   shapes (`Bool`, `String`), no `ruby` binary, no fork. The stored condition strings are
   migrated once (§19); mzs does **not** parse Ruby.
@@ -285,17 +285,17 @@ Two forms.
 |---|---|
 | `$name` | the host global `$name` — **exactly** what `$name` means outside a string |
 | `${ expr }` | any expression, including local variables |
-| `$` not followed by `ident_start` or `{` | a literal `$` (`"цена: 100 $"`) |
+| `$` not followed by `ident_start` or `{` | a literal `$` (`"price: 100 $"`) |
 | `\$` | a literal `$` in any position |
 
 `$name` takes the longest run of `ident_part`. To end the name early, use `${name}`:
 `"${n}00"` is `n` followed by `00`, whereas `"$n00"` is the global `$n00`.
 
 ```
-"Ваш адрес $__sent?"                     # a global; '?' is not part of the name (§3.4)
-"Итоговая цена: ${$price.int + 1200}"
+"Your address is $__sent?"               # a global; '?' is not part of the name (§3.4)
+"Total price: ${$price.int + 1200}"
 "var:time:${n}:00"                       # n is a local, so braces are required
-"скидка 10\$"
+"10\$ off"
 ```
 
 `$name` therefore denotes the same thing inside and outside a string, which is the whole
@@ -320,7 +320,7 @@ runs in normal mode with a brace-depth counter; the `}` that returns depth to ze
 An unterminated string is an error at the position of the opening quote (never silently
 accepted).
 
-There is no word-array literal: write `["да", "ага", "конечно"]`.
+There is no word-array literal: write `["yes", "yeah", "sure"]`.
 
 ### 3.8 Regex literals
 
@@ -402,7 +402,7 @@ This gives leading-dot method chains, hanging `else`, and multi-line `match` arm
 ```
 $__sent
   .lower
-  .trim == "оператор"
+  .trim == "operator"
 
 if c { a }
 else { b }
@@ -626,7 +626,7 @@ of it, §12.8); and a user function is immediately usable as a method:
 
 ```
 fn shout(s) { s.upper + "!" }
-"да".shout          # "ДА!"
+"yes".shout         # "YES!"
 ```
 
 `?.` short-circuits: if the receiver is `nil` the whole postfix expression is `nil` and the
@@ -714,7 +714,7 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 
 | Form | Fires when |
 |---|---|
-| a literal (`"да"`, `42`, `true`, `nil`) | `subject == pattern` |
+| a literal (`"yes"`, `42`, `true`, `nil`) | `subject == pattern` |
 | a regex literal, or any expression of kind regex | `subject ~ pattern` |
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring of a string |
 | `if expr` | `expr` is truthy (the subject is not consulted) |
@@ -752,7 +752,7 @@ replacement for an `if`/`else if` ladder:
 ```
 intent = match {
   yes                -> "confirm"
-  s ~ /\bоператор/i  -> "handoff"
+  s ~ /\boperator/i  -> "handoff"
   s.len > 500        -> "too_long"
   else               -> "unknown"
 }
@@ -768,19 +768,19 @@ subject is evaluated exactly once.
 s = $__sent.lower.trim
 
 intent = match s {
-  in ["да", "ага", "конечно", "ок"]                -> "confirm"
-  in ["нет", "неа", "не"]                          -> "decline"
-  /\bоператор|\/operator|перевед.{0,12}оператор/i  -> "handoff_operator"
-  /все темы|главное меню|\bменю\b/i                -> "main_menu"
-  /привет|здравствуй|hello|\bhi\b/i                -> "greeting"
-  else                                             -> "unknown"
+  in ["yes", "yeah", "sure", "ok"]                  -> "confirm"
+  in ["no", "nope", "nah"]                          -> "decline"
+  /\boperator|\/operator|transfer.{0,12}operator/i  -> "handoff_operator"
+  /all topics|main menu|\bmenu\b/i                  -> "main_menu"
+  /hello|good morning|good evening|\bhi\b/i         -> "greeting"
+  else                                              -> "unknown"
 }
 ```
 
 On one line:
 
 ```
-match $__sent.lower.trim { "да" -> 1; "нет" -> 0; else -> nil }
+match $__sent.lower.trim { "yes" -> 1; "no" -> 0; else -> nil }
 ```
 
 ### 5.6 Ambiguity diagnostics
@@ -1386,7 +1386,7 @@ Values arriving from the bot engine (`$__sent`, `$price`, `$bot_check_attempts`,
 
 | Expression | Result |
 |---|---|
-| `$__sent == "да"` | string comparison — works as written |
+| `$__sent == "yes"` | string comparison — works as written |
 | `$n >= 2` where `$n` is `"3"` | **error** `cannot compare string with int` |
 | `$n.int >= 2` | `true` |
 | `$n + 1` where `$n` is `"2"` | **error** `cannot add int to string` |

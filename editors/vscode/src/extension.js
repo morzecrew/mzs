@@ -55,11 +55,11 @@ function docFor(name, doc, receiver) {
   md.appendCodeblock(sig ? `${head} ${sig}` : head, 'mzs');
   if (doc && doc.sem) md.appendMarkdown('\n' + doc.sem + '\n');
   if (doc && doc.ex) {
-    md.appendMarkdown('\n**Пример**\n');
+    md.appendMarkdown('\n**Example**\n');
     md.appendCodeblock(doc.ex, 'mzs');
   }
   if (!doc || (!doc.sem && !doc.sig)) {
-    md.appendMarkdown('\n_Метод есть в реализации, но не описан в SPEC.md §12._');
+    md.appendMarkdown('\n_The method exists in the implementation, but SPEC.md §12 does not describe it._');
   }
   return md;
 }
@@ -126,7 +126,7 @@ function moduleItems(document, name) {
   if (modulePath) {
     const items = exportsOf(document.uri.fsPath || '', modulePath).map(n => {
       const item = new vscode.CompletionItem(n, vscode.CompletionItemKind.Function);
-      item.detail = `${name}.${n} — из ${modulePath}`;
+      item.detail = `${name}.${n} — from ${modulePath}`;
       item.sortText = '0' + n;
       return item;
     });
@@ -152,9 +152,9 @@ function includeItems(document) {
     .filter(name => !already.has(name))
     .map(name => {
       const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Module);
-      item.detail = GATES[name] ? `нужен ${GATES[name]}` : 'без дополнительных опций';
+      item.detail = GATES[name] ? `needs ${GATES[name]}` : 'no extra options';
       item.documentation = new vscode.MarkdownString(
-        `Модуль \`${name}\`: ` + Object.keys(API.modules[name]).join(', ')
+        `Module \`${name}\`: ` + Object.keys(API.modules[name]).join(', ')
       );
       item.sortText = '0' + name;
       return item;
@@ -206,7 +206,7 @@ function globalItems(document) {
   // offering the rest would be offering an error (§12.8).
   for (const [name, modPath] of includesIn(document.getText())) {
     const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Module);
-    item.detail = modPath ? `модуль из ${modPath}` : `встроенный модуль`;
+    item.detail = modPath ? `a module from ${modPath}` : `a built-in module`;
     item.sortText = '0' + name;
     items.push(item);
   }
@@ -275,8 +275,8 @@ const hoverProvider = {
       if (modName && API.modules[modName[1]] && API.modules[modName[1]][word]) {
         const mod = modName[1];
         const md = docFor(word, API.modules[mod][word], mod);
-        if (GATES[mod]) md.appendMarkdown(`\n\nМодуль \`${mod}\` требует \`${GATES[mod]}\` и строки \`include ${mod}\`.`);
-        else md.appendMarkdown(`\n\nНужна строка \`include ${mod}\`.`);
+        if (GATES[mod]) md.appendMarkdown(`\n\nModule \`${mod}\` needs \`${GATES[mod]}\` and an \`include ${mod}\` line.`);
+        else md.appendMarkdown(`\n\nAn \`include ${mod}\` line is needed.`);
         return new vscode.Hover(md, range);
       }
       const recvKinds = inferReceiver(head);
@@ -286,7 +286,7 @@ const hoverProvider = {
       const doc = API.methods[kinds[0]][word];
       const md = docFor(word, doc, kinds.length === 1 ? kinds[0] : null);
       if (kinds.length > 1) {
-        md.appendMarkdown('\n\nПолучатели: ' + kinds.map(k => '`' + k + '`').join(', '));
+        md.appendMarkdown('\n\nReceivers: ' + kinds.map(k => '`' + k + '`').join(', '));
       }
       return new vscode.Hover(md, range);
     }
@@ -295,7 +295,7 @@ const hoverProvider = {
     if (KEYWORDS.includes(word)) {
       const md = new vscode.MarkdownString();
       md.appendCodeblock(word, 'mzs');
-      md.appendMarkdown('\nКлючевое слово mzs.');
+      md.appendMarkdown('\nAn mzs keyword.');
       return new vscode.Hover(md, range);
     }
     return null;
@@ -331,8 +331,8 @@ function runCheck(document, collection) {
     if (err.code === 'ENOENT' && !missingBinaryWarned) {
       missingBinaryWarned = true;
       vscode.window.showWarningMessage(
-        `mzs: не найден исполняемый файл «${binary()}». Соберите его: go build -o ~/bin/mzs ./cmd/mzs — ` +
-        'или укажите путь в настройке mzs.path.'
+        `mzs: could not find the executable "${binary()}". Build it: go build -o ~/bin/mzs ./cmd/mzs — ` +
+        'or name the path in the mzs.path setting.'
       );
     }
   });
@@ -406,7 +406,7 @@ function evalSelection() {
   if (!src) return;
   const args = [...capabilityFlags(), '-e', src];
   cp.execFile(binary(), args, (err, stdout, stderr) => {
-    const out = (stdout || '').trim() || (stderr || '').trim() || '(нет вывода)';
+    const out = (stdout || '').trim() || (stderr || '').trim() || '(no output)';
     if (err && !stdout) {
       vscode.window.showErrorMessage('mzs: ' + out.split('\n')[0]);
     } else {
@@ -424,7 +424,7 @@ function dump(flag, title) {
     let out = '';
     proc.stdout.on('data', d => (out += d));
     proc.stderr.on('data', d => (out += d));
-    proc.on('error', () => vscode.window.showErrorMessage(`mzs: не найден «${binary()}»`));
+    proc.on('error', () => vscode.window.showErrorMessage(`mzs: could not find "${binary()}"`));
     proc.on('close', () => {
       vscode.workspace.openTextDocument({ content: out, language: 'plaintext' })
         .then(doc => vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside))
@@ -447,7 +447,7 @@ function activate(context) {
     vscode.languages.registerHoverProvider(selector, hoverProvider),
     vscode.commands.registerCommand('mzs.runFile', runFile),
     vscode.commands.registerCommand('mzs.evalSelection', evalSelection),
-    vscode.commands.registerCommand('mzs.showTokens', dump('--tokens', 'поток токенов')),
+    vscode.commands.registerCommand('mzs.showTokens', dump('--tokens', 'the token stream')),
     vscode.commands.registerCommand('mzs.showAst', dump('--ast', 'AST'))
   );
 

@@ -1,8 +1,8 @@
 {
  "information_for_contributors": [
-  "СГЕНЕРИРОВАН: editors/vscode/icons/theme/build.js. Не редактируйте руками.",
-  "Это тема Seti из VS Code (MIT, Microsoft; на основе MIT, jesseweed/seti-ui) плюс одна запись для .mzs.",
-  "Обновить после обновления VS Code: node editors/vscode/icons/theme/build.js",
+  "GENERATED: editors/vscode/icons/theme/build.js. Do not edit by hand.",
+  "This is VS Code's Seti theme (MIT, Microsoft; based on MIT, jesseweed/seti-ui) plus one entry for .mzs.",
+  "Refresh after a VS Code update: node editors/vscode/icons/theme/build.js",
   "This file has been generated from data in https://github.com/jesseweed/seti-ui",
   "- icon definitions: https://github.com/jesseweed/seti-ui/blob/master/styles/_fonts/seti.less",
   "- icon colors: https://github.com/jesseweed/seti-ui/blob/master/styles/ui-variables.less",

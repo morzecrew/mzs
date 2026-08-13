@@ -35,8 +35,8 @@ fn similarity(a, b) {
 }
 
 say("edit distances")
-[["kitten", "sitting"], ["flaw", "lawn"], ["colour", "color"], ["привет", "привет"],
- ["стрижка", "стрижку"], ["book", "back"], ["", "abc"]].each { (pair) ->
+[["kitten", "sitting"], ["flaw", "lawn"], ["colour", "color"], ["hello", "hello"],
+ ["café", "cafe"], ["book", "back"], ["", "abc"]].each { (pair) ->
   d = levenshtein(pair[0], pair[1])
   say("  ${inspect(pair[0]).ljust(11)}→ ${inspect(pair[1]).ljust(11)}${d.str.rjust(2)}  (${similarity(pair[0], pair[1])}% alike)")
 }

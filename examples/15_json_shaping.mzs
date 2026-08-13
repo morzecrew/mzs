@@ -19,7 +19,7 @@ payload = '{
     {"id": 2, "name": "Anna Smith", "email": "anna@example.com", "vip": false,
      "address": {"city": "Berlin"},
      "orders": [{"id": "B-4", "total": 3200, "status": "paid", "items": 2}]},
-    {"id": 3, "name": "Ли Мин", "email": "li@example.cn", "vip": false,
+    {"id": 3, "name": "李明", "email": "li@example.cn", "vip": false,
      "address": {"city": "Shanghai", "zip": "200000"},
      "orders": []},
     {"id": 4, "name": "Sean O\'Brien", "vip": true,
@@ -106,7 +106,7 @@ again = json.parse(report.json)
 say("")
 say("round trip is lossless: ${again == report}")
 say("key order is preserved:  ${report["totals"].keys.json}")
-say("unicode survives:        ${["name": "Ли Мин", "note": "emoji 👋 too"].json}")
+say("unicode survives:        ${["name": "李明", "note": "emoji 👋 too"].json}")
 
 # --- the envelope a handler would return --------------------------------------
 

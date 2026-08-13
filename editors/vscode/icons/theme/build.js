@@ -31,7 +31,7 @@ const CANDIDATES = [
 
 const source = CANDIDATES.find(p => fs.existsSync(path.join(p, 'icons/vs-seti-icon-theme.json')));
 if (!source) {
-  console.error('не найдена тема Seti внутри VS Code. Укажите путь:\n' +
+  console.error('could not find the Seti theme inside VS Code. Name the path:\n' +
     '  node build.js /path/to/vscode/resources/app');
   process.exit(1);
 }
@@ -53,9 +53,9 @@ seti.light.fileExtensions.mzs = '_mzs_light';
 seti.light.languageIds.mzs = '_mzs_light';
 
 seti.information_for_contributors = [
-  'СГЕНЕРИРОВАН: editors/vscode/icons/theme/build.js. Не редактируйте руками.',
-  'Это тема Seti из VS Code (MIT, Microsoft; на основе MIT, jesseweed/seti-ui) плюс одна запись для .mzs.',
-  'Обновить после обновления VS Code: node editors/vscode/icons/theme/build.js',
+  'GENERATED: editors/vscode/icons/theme/build.js. Do not edit by hand.',
+  'This is VS Code\'s Seti theme (MIT, Microsoft; based on MIT, jesseweed/seti-ui) plus one entry for .mzs.',
+  'Refresh after a VS Code update: node editors/vscode/icons/theme/build.js',
   ...(Array.isArray(seti.information_for_contributors) ? seti.information_for_contributors : []),
 ];
 
@@ -66,5 +66,5 @@ fs.copyFileSync(path.join(source, 'icons/seti.woff'), path.join(HERE, 'seti.woff
 fs.copyFileSync(path.join(source, 'ThirdPartyNotices.txt'), path.join(HERE, 'ThirdPartyNotices.txt'));
 
 const exts = Object.keys(seti.fileExtensions).length;
-console.log(`собрано из ${source}`);
-console.log(`расширений файлов: ${exts}, определений иконок: ${Object.keys(seti.iconDefinitions).length}`);
+console.log(`built from ${source}`);
+console.log(`file extensions: ${exts}, icon definitions: ${Object.keys(seti.iconDefinitions).length}`);

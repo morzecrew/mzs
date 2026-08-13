@@ -1,8 +1,8 @@
 # 32 — the io module: stdin, files and the environment.
 #
 #   mzs examples/32_io_files.mzs
-#   printf 'да\nнет\nда\n' | mzs examples/32_io_files.mzs
-#   MZS_DEMO=привет mzs examples/32_io_files.mzs
+#   printf 'yes\nno\nyes\n' | mzs examples/32_io_files.mzs
+#   MZS_DEMO=hello mzs examples/32_io_files.mzs
 #
 # The filesystem is a capability, not a given. `include io` only works because the host
 # installed an Options.FS, and the CLI is a host that does: the person typing the command
@@ -25,7 +25,7 @@ say("")
 
 TMP = io.env("TMPDIR", "/tmp")
 say("  TMPDIR      ${TMP}")
-say("  MZS_DEMO    ${io.env("MZS_DEMO", "(not set — try MZS_DEMO=привет)")}")
+say("  MZS_DEMO    ${io.env("MZS_DEMO", "(not set — try MZS_DEMO=hello)")}")
 say("  NOT_SET     ${inspect(io.env("MZS_NO_SUCH_VARIABLE"))}")
 
 # --- stdin --------------------------------------------------------------------
@@ -37,7 +37,7 @@ say("  NOT_SET     ${inspect(io.env("MZS_NO_SUCH_VARIABLE"))}")
 lines = io.lines
 say("")
 if lines.empty {
-  say("  stdin       empty (try: printf 'да\\nнет\\nда\\n' | mzs examples/32_io_files.mzs)")
+  say("  stdin       empty (try: printf 'yes\\nno\\nyes\\n' | mzs examples/32_io_files.mzs)")
 } else {
   tally = lines.map { it.trim.lower }.tally
   say("  stdin       ${lines.len} line(s), ${tally.len} distinct")
@@ -47,7 +47,7 @@ if lines.empty {
 # --- write, read, append ------------------------------------------------------
 
 path = "${TMP}/mzs_example_32.txt"
-report = ["сеанс,минут", "стрижка,60", "борода,30"].join("\n") + "\n"
+report = ["session,minutes", "café shave,30", "haircut,60"].join("\n") + "\n"
 
 say("")
 say("  file        ${path}")
@@ -61,7 +61,7 @@ say("  write       ${written} bytes")
 back = io.read(path)
 say("  read        ${back.lines.len} lines, ${back.len} runes")
 
-added = io.append(path, "окрашивание,120\n")
+added = io.append(path, "colouring,120\n")
 say("  append      ${added} bytes")
 
 # The file is a value like any other once it is a string: the whole library applies.

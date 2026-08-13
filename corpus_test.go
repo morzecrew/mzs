@@ -450,7 +450,7 @@ func TestAuthorFiles(t *testing.T) {
 			{"errors", "examples/08_errors_and_validation.mzs", nil, "",
 				[]string{"zero-division", "declined (no_items)", "retry: succeeded on attempt 3"}},
 			{"host variables", "examples/09_host_variables.mzs",
-				map[string]string{"__sent": "  ОПЕРАТОР ", "price": "1500"}, "false",
+				map[string]string{"__sent": "  OPERATOR ", "price": "1500"}, "false",
 				[]string{"handoff_operator", `"score":15`}},
 			{"regex", "examples/10_regex_toolkit.mzs", nil, "",
 				[]string{"Lee, Ann", "05/03/2026", "11 tokens"}},
