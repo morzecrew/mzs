@@ -44,6 +44,7 @@ per message.
 11. [Sandbox and limits](#sandbox-and-limits)
 12. [What mzs is not](#what-mzs-is-not)
 13. [Verification](#verification)
+14. [License](#license)
 
 ---
 
@@ -982,3 +983,9 @@ Examples: thirty-three complete programs in [`examples/`](examples/README.md) �
 value model and `match` to BFS through a maze, a FIFO warehouse, `async fn` and an HTTP
 service. Each one runs on its own (`mzs examples/11_log_parser.mzs`) and prints a report.
 The author's files from §16.3 are not examples; they live in [`testdata/`](testdata/).
+
+---
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
