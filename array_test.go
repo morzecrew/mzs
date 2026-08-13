@@ -797,7 +797,7 @@ func TestArrayRowsChargeTheStepBudget(t *testing.T) {
 		"delete_at": true, "sample": true, "array": true,
 	}
 	unchargedCopy := map[string]bool{
-		"slice": true, "take": true, "drop": true, "concat": true, "step": true,
+		"slice": true, "take": true, "drop": true, "concat": true,
 	}
 
 	opts := optsWithRand()
@@ -812,9 +812,14 @@ func TestArrayRowsChargeTheStepBudget(t *testing.T) {
 		pairs[i] = Array(Int(int64(i)), Int(int64(i)))
 		bytes[i] = Int(int64(i % 256))
 	}
-	// Two rows need a receiver of their own shape, or they would fail on the element
-	// type before reaching the walk this test is about.
-	recv := map[string]Value{"dict": Array(pairs...), "pack_bytes": Array(bytes...)}
+	// Three rows need a receiver of their own shape, or they would fail on the element
+	// type — or, for `step`, on the receiver kind — before reaching the walk this test
+	// is about.
+	recv := map[string]Value{
+		"dict":       Array(pairs...),
+		"pack_bytes": Array(bytes...),
+		"step":       rangeOf(0, int64(n-1), false),
+	}
 
 	for _, name := range arrayRowNames() {
 		t.Run(name, func(t *testing.T) {
@@ -825,8 +830,11 @@ func TestArrayRowsChargeTheStepBudget(t *testing.T) {
 			}
 			_, err := colInvoke(c, arrayRowKind(name), name, xs, arrayRowArgs[name]...)
 			if constantTime[name] || unchargedCopy[name] {
-				if errors.Is(err, ErrBudget) {
-					t.Errorf("%q spent the budget on a %d-element array; it is listed as not charging", name, n)
+				// Not "no budget error" but "no error at all": a row that fails for
+				// another reason would otherwise sit in these lists proving nothing.
+				if err != nil {
+					t.Errorf("%q = %v; a row listed as not charging must answer on a "+
+						"budget of one step", name, err)
 				}
 				return
 			}

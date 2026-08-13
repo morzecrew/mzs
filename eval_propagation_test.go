@@ -21,54 +21,58 @@ func TestErrorsPropagateFromEveryPosition(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
+		col  int // where the reported error must point; 0 means "at the raise itself"
 	}{
-		{"an array element", `[1, raise("boom"), 3]`},
-		{"a dict key", `["${raise("boom")}": 1]`},
-		{"a dict value", `[k: raise("boom")]`},
-		{"a range's upper bound", `1..raise("boom")`},
-		{"a range's lower bound", `raise("boom")..3`},
-		{"an index", `[1,2][raise("boom")]`},
-		{"the length of a two-argument index", `[1,2][0, raise("boom")]`},
-		{"the iterable of a for", `for x in raise("boom") { x }`},
-		{"the body of a for", `for x in [1] { raise("boom") }`},
-		{"the condition of a while", `while raise("boom") { 1 }`},
-		{"the body of a while", `while true { raise("boom") }`},
-		{"the subject of a match", `match raise("boom") { else -> 1 }`},
-		{"a match pattern", `match 1 { raise("boom") -> 1; else -> 2 }`},
-		{"an `in` pattern", `match 1 { in raise("boom") -> 1; else -> 2 }`},
-		{"a match guard", `match 1 { 1 if raise("boom") -> 1; else -> 2 }`},
-		{"an interpolation", `"${raise("boom")}"`},
-		{"the left of &&", `raise("boom") && true`},
-		{"the right of &&", `true && raise("boom")`},
-		{"the condition of a ternary", `raise("boom") ? 1 : 2`},
-		{"the then of a ternary", `true ? raise("boom") : 2`},
-		{"the else of a ternary", `false ? 1 : raise("boom")`},
-		{"the condition of an if", `if raise("boom") { 1 }`},
-		{"the body of an if", `if true { raise("boom") }`},
-		{"the value of an assignment", `x = raise("boom")`},
-		{"the right of a destructuring", `a, b = raise("boom")`},
-		{"an element of a destructured array", `[a, b] = [raise("boom"), 2]`},
-		{"an index being assigned to", `d = [k: 1]; d[raise("boom")] = 2`},
-		{"the value being assigned to an index", `d = [k: 1]; d["k"] = raise("boom")`},
-		{"a global's value", `$g = raise("boom")`},
-		{"a call argument", `fn f(a) { a }; f(raise("boom"))`},
-		{"a function body", `fn f(a) { raise("boom") }; f(1)`},
-		{"a default argument", `fn f(a = raise("boom")) { a }; f()`},
-		{"a closure's body", `x = { (a) -> a }; x(raise("boom"))`},
-		{"a method receiver", `raise("boom").len`},
-		{"a method argument", `[1].each_slice(raise("boom"))`},
-		{"a module member's argument", `include json; json.parse(raise("boom"))`},
-		{"a closure passed to a stdlib row", `[1].map { raise("boom") }`},
-		{"the operand of a unary minus", `-raise("boom")`},
-		{"the operand of a not", `!raise("boom")`},
-		{"the left of a binary operator", `raise("boom") + 1`},
-		{"the right of a binary operator", `1 + raise("boom")`},
-		{"a statement inside a group", `(1; raise("boom"))`},
-		{"the value of a return", `fn f() { return raise("boom") }; f()`},
-		{"the value of a break", `while true { break raise("boom") }`},
-		{"the value of a next", `while true { next raise("boom") }`},
-		{"the fallback of a try", `try raise("x") else raise("boom")`},
-		{"a re-raise from the handler", `try raise("boom") else (e) -> raise(e["message"])`},
+		{"an array element", `[1, raise("boom"), 3]`, 0},
+		{"a dict key", `["${raise("boom")}": 1]`, 0},
+		{"a dict value", `[k: raise("boom")]`, 0},
+		{"a range's upper bound", `1..raise("boom")`, 0},
+		{"a range's lower bound", `raise("boom")..3`, 0},
+		{"an index", `[1,2][raise("boom")]`, 0},
+		{"the length of a two-argument index", `[1,2][0, raise("boom")]`, 0},
+		{"the iterable of a for", `for x in raise("boom") { x }`, 0},
+		{"the body of a for", `for x in [1] { raise("boom") }`, 0},
+		{"the condition of a while", `while raise("boom") { 1 }`, 0},
+		{"the body of a while", `while true { raise("boom") }`, 0},
+		{"the subject of a match", `match raise("boom") { else -> 1 }`, 0},
+		{"a match pattern", `match 1 { raise("boom") -> 1; else -> 2 }`, 0},
+		{"an `in` pattern", `match 1 { in raise("boom") -> 1; else -> 2 }`, 0},
+		{"a match guard", `match 1 { 1 if raise("boom") -> 1; else -> 2 }`, 0},
+		{"an interpolation", `"${raise("boom")}"`, 0},
+		{"the left of &&", `raise("boom") && true`, 0},
+		{"the right of &&", `true && raise("boom")`, 0},
+		{"the condition of a ternary", `raise("boom") ? 1 : 2`, 0},
+		{"the then of a ternary", `true ? raise("boom") : 2`, 0},
+		{"the else of a ternary", `false ? 1 : raise("boom")`, 0},
+		{"the condition of an if", `if raise("boom") { 1 }`, 0},
+		{"the body of an if", `if true { raise("boom") }`, 0},
+		{"the value of an assignment", `x = raise("boom")`, 0},
+		{"the right of a destructuring", `a, b = raise("boom")`, 0},
+		{"an element of a destructured array", `[a, b] = [raise("boom"), 2]`, 0},
+		{"an index being assigned to", `d = [k: 1]; d[raise("boom")] = 2`, 0},
+		{"the value being assigned to an index", `d = [k: 1]; d["k"] = raise("boom")`, 0},
+		{"a global's value", `$g = raise("boom")`, 0},
+		{"a call argument", `fn f(a) { a }; f(raise("boom"))`, 0},
+		{"a function body", `fn f(a) { raise("boom") }; f(1)`, 0},
+		{"a default argument", `fn f(a = raise("boom")) { a }; f()`, 0},
+		{"a closure's body", `x = { () -> raise("boom") }; x()`, 0},
+		{"a method receiver", `raise("boom").len`, 0},
+		{"a method argument", `[1].each_slice(raise("boom"))`, 0},
+		{"a module member's argument", `include json; json.parse(raise("boom"))`, 0},
+		{"a closure passed to a stdlib row", `[1].map { raise("boom") }`, 0},
+		{"the operand of a unary minus", `-raise("boom")`, 0},
+		{"the operand of a not", `!raise("boom")`, 0},
+		{"the left of a binary operator", `raise("boom") + 1`, 0},
+		{"the right of a binary operator", `1 + raise("boom")`, 0},
+		{"a statement inside a group", `(1; raise("boom"))`, 0},
+		{"the value of a return", `fn f() { return raise("boom") }; f()`, 0},
+		{"the value of a break", `while true { break raise("boom") }`, 0},
+		{"the value of a next", `while true { next raise("boom") }`, 0},
+		{"the fallback of a try", `try raise("x") else raise("boom")`, 0},
+		// The handler builds a new error, so the position is the re-raise, not the
+		// raise it came from. Reporting the original would point at a line the second
+		// failure did not come from.
+		{"a re-raise from the handler", `try raise("boom") else (e) -> raise(e["message"])`, 31},
 	}
 
 	// Limits off: this is about the error that the program raises, and a deadline or a
@@ -89,8 +93,17 @@ func TestErrorsPropagateFromEveryPosition(t *testing.T) {
 				t.Errorf("%s: error = %s: %q; want %s: %q",
 					tt.src, e.Kind, e.Msg, ErrKindRaise, "boom")
 			}
-			if e.Line == 0 || e.Col == 0 {
-				t.Errorf("%s: error lost its position (%d:%d)", tt.src, e.Line, e.Col)
+			// The position must be the raise's own, not merely some non-zero one: an
+			// error rebuilt on the way out would still have a position, just the
+			// wrong one. Every program here is a single line, so the column of the
+			// `raise` in the source is the whole expectation.
+			wantCol := tt.col
+			if wantCol == 0 {
+				wantCol = strings.Index(tt.src, `raise("boom")`) + 1
+			}
+			if e.Line != 1 || e.Col != wantCol {
+				t.Errorf("%s: error reported at %d:%d; want 1:%d, where the raise is",
+					tt.src, e.Line, e.Col, wantCol)
 			}
 		})
 	}

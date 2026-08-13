@@ -1212,11 +1212,6 @@ func TestCLIRunOptions(t *testing.T) {
 			wantCode: exitOK,
 		},
 		{
-			name:     "--rand with a seed is reproducible",
-			argv:     []string{"--rand=1", "-e", "rand(1000)"},
-			wantCode: exitOK,
-		},
-		{
 			name:     "--no-io withholds the module",
 			argv:     []string{"--no-io", "-e", "include io; io.stdin"},
 			wantCode: exitError,
@@ -1245,6 +1240,25 @@ func TestCLIRunOptions(t *testing.T) {
 	}
 }
 
+// A seed makes the sequence reproducible, which is the whole reason --rand takes one
+// (§8.13): two runs with the same seed agree, and the unseeded default does not have to.
+func TestCLISeededRandIsReproducible(t *testing.T) {
+	t.Parallel()
+
+	const prog = "(1..5).map { rand(1000000) }.json"
+
+	_, first, _ := exec([]string{"--rand=7", "-e", prog}, "")
+	_, again, _ := exec([]string{"--rand=7", "-e", prog}, "")
+	if first == "" || first != again {
+		t.Errorf("two runs with seed 7 gave %q and %q; want the same sequence", first, again)
+	}
+
+	_, other, _ := exec([]string{"--rand=8", "-e", prog}, "")
+	if other == first {
+		t.Errorf("seeds 7 and 8 both gave %q; the seed is not reaching the source", first)
+	}
+}
+
 // `--` ends the flags, so a script may be handed arguments that look like flags. It
 // needs a file: a one-liner and a script file are mutually exclusive (§15).
 func TestCLIEndOfFlags(t *testing.T) {
@@ -1268,13 +1282,12 @@ func TestCLIEndOfFlags(t *testing.T) {
 }
 
 // A script may only include a file under the root of the program that ran it (§12.8,
-// §14.3): the CLI is the host here, and the path policy is the host's.
+// §14.3): the CLI is the host here, and the path policy is the host's. The root is the
+// script's own directory, and for a `-e` program it is the working directory — which is
+// why this test cannot run in parallel: t.Chdir and t.Parallel are exclusive.
 func TestCLIIncludeRootIsEnforced(t *testing.T) {
-	t.Parallel()
-
 	dir := t.TempDir()
-	lib := filepath.Join(dir, "lib.mzs")
-	if err := os.WriteFile(lib, []byte("export fn one() { 1 }\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "lib.mzs"), []byte("export fn one() { 1 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	main := filepath.Join(dir, "main.mzs")
@@ -1283,33 +1296,69 @@ func TestCLIIncludeRootIsEnforced(t *testing.T) {
 	}
 
 	t.Run("a sibling include works", func(t *testing.T) {
-		code, out, errOut := exec([]string{main}, "")
+		code, out, errOut := exec([]string{"-p", main}, "")
 		if code != exitOK {
 			t.Fatalf("exit = %d (stdout %q, stderr %q)", code, out, errOut)
 		}
+		if !strings.Contains(out, "1") {
+			t.Errorf("stdout = %q; want the module's answer", out)
+		}
 	})
 
+	// The escaping include has to name a module that would otherwise load, or a refusal
+	// proves nothing: a missing or unparsable file fails for its own reasons, and the
+	// test would pass even if the root policy were dropped entirely.
 	t.Run("an include above the root is refused", func(t *testing.T) {
-		escaping := filepath.Join(dir, "escape.mzs")
-		if err := os.WriteFile(escaping, []byte(`include x from "../../../etc/passwd"`+"\n"), 0o644); err != nil {
+		outside := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "outside.mzs"),
+			[]byte("export fn two() { 2 }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		rel, err := filepath.Rel(dir, filepath.Join(outside, "outside.mzs"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Sanity: the path really does climb out of the root, so the refusal below is
+		// the policy's doing and not a typo's.
+		if !strings.HasPrefix(rel, "..") {
+			t.Fatalf("the fixture path %q does not leave the root", rel)
+		}
+
+		escaping := filepath.Join(dir, "escape.mzs")
+		src := `include x from "` + filepath.ToSlash(rel) + `"` + "\nx.two()\n"
+		if err := os.WriteFile(escaping, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
 		code, _, errOut := exec([]string{escaping}, "")
 		if code == exitOK {
-			t.Error("an include outside the root was allowed")
+			t.Fatal("an include outside the root was allowed")
 		}
-		if errOut == "" {
-			t.Error("no diagnostic for an include outside the root")
+		if !strings.Contains(errOut, "outside the root directory") {
+			t.Errorf("stderr = %q; want the root-policy diagnostic", errOut)
 		}
 	})
 
-	t.Run("a one-liner has no root to include from", func(t *testing.T) {
-		code, _, errOut := exec([]string{"-e", `include lib from "./lib.mzs"`}, "")
-		if code == exitOK {
-			t.Error("a -e program included a file; it has no directory to resolve against")
+	// A `-e` program has no file of its own, so the working directory is its root.
+	t.Run("a one-liner resolves from the working directory", func(t *testing.T) {
+		t.Chdir(dir)
+		code, out, errOut := exec([]string{"-e", `include lib from "./lib.mzs"; lib.one()`}, "")
+		if code != exitOK {
+			t.Fatalf("exit = %d (stdout %q, stderr %q)", code, out, errOut)
 		}
-		if errOut == "" {
-			t.Error("no diagnostic for an include with no root")
+		if !strings.Contains(out, "1") {
+			t.Errorf("stdout = %q; want the module's answer", out)
+		}
+	})
+
+	t.Run("a one-liner cannot climb out of the working directory either", func(t *testing.T) {
+		t.Chdir(dir)
+		code, _, errOut := exec([]string{"-e", `include x from "../../etc/passwd"`}, "")
+		if code == exitOK {
+			t.Fatal("a -e program included a file above its working directory")
+		}
+		if !strings.Contains(errOut, "outside the root directory") {
+			t.Errorf("stderr = %q; want the root-policy diagnostic", errOut)
 		}
 	})
 }

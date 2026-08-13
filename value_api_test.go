@@ -286,12 +286,15 @@ func TestAccessorsOfTheWrongKind(t *testing.T) {
 }
 
 func TestDictPanicsOnAnOddPairList(t *testing.T) {
+	// Spread from a slice rather than writing the odd list inline: a vet-style check
+	// reads the literal call as a mistake, and the mistake is the point here.
+	odd := []Value{Str("a"), Int(1), Str("b")}
 	defer func() {
 		if recover() == nil {
 			t.Error("Dict with an odd number of arguments did not panic")
 		}
 	}()
-	Dict(Str("a"), Int(1), Str("b"))
+	Dict(odd...)
 }
 
 // Equality and ordering reach kinds a script cannot compare with `<`, and the host can.

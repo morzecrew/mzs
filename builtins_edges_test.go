@@ -279,8 +279,27 @@ func TestRandShapes(t *testing.T) {
 			t.Fatalf("uuid error = %v", err)
 		}
 		s := got.Str()
-		if len(s) != 36 || s[8] != '-' || s[13] != '-' || s[14] != '4' || s[18] != '-' || s[23] != '-' {
-			t.Errorf("uuid = %q; want a v4 uuid", s)
+		if len(s) != 36 {
+			t.Fatalf("uuid = %q; want 36 characters", s)
+		}
+		for i, r := range s {
+			switch i {
+			case 8, 13, 18, 23:
+				if r != '-' {
+					t.Errorf("uuid = %q; want '-' at %d", s, i)
+				}
+			default:
+				if !strings.ContainsRune("0123456789abcdef", r) {
+					t.Errorf("uuid = %q; %q at %d is not a hex digit", s, r, i)
+				}
+			}
+		}
+		// RFC 4122: the version nibble is 4 and the variant nibble is one of 8-b.
+		if s[14] != '4' {
+			t.Errorf("uuid = %q; want version 4 at index 14", s)
+		}
+		if !strings.ContainsRune("89ab", rune(s[19])) {
+			t.Errorf("uuid = %q; want the variant nibble at 19 to be one of 8, 9, a, b", s)
 		}
 	})
 }
