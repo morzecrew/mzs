@@ -1,0 +1,142 @@
+# 30 — the http module, both halves: a client call and a real server.
+#
+#   mzs examples/30_http_service.mzs
+#   mzs -v probe=https://example.com examples/30_http_service.mzs
+#
+#   curl localhost:8080/catalog
+#   curl 'localhost:8080/catalog?max=1000'
+#   curl localhost:8080/item/2
+#   curl -i localhost:8080/item/999          # 404
+#   curl -i localhost:8080/item/abc          # 400
+#   curl -X POST localhost:8080/booking -d '{"item_id":1,"who":"Ivan"}'
+#   curl localhost:8080/stats
+#   curl localhost:8080/shutdown             # ends the Run
+#
+# The network needs no flag: `http` is installed like `json`. What it still needs is the
+# `include` below — without that line the name `http` does not exist at all, and a host
+# that must not allow a socket takes the name away with Unregister("http").
+
+include http
+include json
+
+CATALOG = [
+  [id: 1, name: "Signature haircut", price: 1500, minutes: 60],
+  [id: 2, name: "Beard trim",        price: 800,  minutes: 30],
+  [id: 3, name: "Premium colour",    price: 3200, minutes: 120],
+  [id: 4, name: "Hot towel shave",   price: 700,  minutes: 45],
+]
+
+# --- the client half ------------------------------------------------------------
+#
+# One call, and every failure it can have is an ordinary catchable error — a refused
+# connection, DNS, the per-call timeout. Running out of the Run's own deadline is not:
+# that is a limit, and limits end the Run (§14.1).
+
+probe = $probe ?? "https://example.com"
+say("probing ${probe}")
+answer = try http.get(probe, [timeout: 5]) else (e) -> [status: 0, error: e["message"]]
+
+if answer["status"] == 0 {
+  say("  unreachable: ${answer["error"]}")
+  say("  (offline is fine — the server below does not need the network to exist)")
+} else {
+  say("  ${answer["status"]} · ${answer["headers"]["content-type"] ?? "no content-type"} · ${answer["body"].len} bytes")
+  say("  first line: ${inspect(answer["body"].lines.first)}")
+}
+
+# --- state the handlers share ---------------------------------------------------
+
+bookings = []
+hits = [:]
+
+fn count(path) { hits.set(path, (hits[path] ?? 0) + 1) }
+fn find_item(id) { CATALOG.find { it["id"] == id } }
+
+# --- the server half ------------------------------------------------------------
+#
+# A route key is a method and a pattern; a handler is a closure of one argument. What it
+# returns is what the client gets: a string is text, a dict or array is JSON, and
+# http.json(body, status) is the form that sets a code.
+
+http.serve(":8080", [
+
+  "GET /catalog": { (req) ->
+    count("catalog")
+    max = (req["query"]["max"] ?? "").int
+    items = max > 0 ? CATALOG.filter { it["price"] <= max } : CATALOG
+    [count: items.len, filter: max > 0 ? "price <= ${max}" : "none", items: items]
+  },
+
+  "GET /item/{id}": { (req) ->
+    count("item")
+    raw = req["params"]["id"]
+    match {
+      raw !~ /^\d+$/       -> http.json([error: "id must be a number, got ${inspect(raw)}"], 400)
+      find_item(raw.int) == nil -> http.json([error: "no item ${raw}"], 404)
+      else                 -> find_item(raw.int)
+    }
+  },
+
+  "POST /booking": { (req) ->
+    count("booking")
+    body = try json.parse(req["body"]) else nil
+    problems = match {
+      body == nil                     -> ["body is not valid JSON"]
+      !is(body, "dict")               -> ["body must be a JSON object"]
+      else -> [
+        body["who"] == nil || str(body["who"]).blank ? "who is required" : nil,
+        find_item((body["item_id"] ?? "").int) == nil ? "item_id must name a service" : nil,
+      ].compact
+    }
+
+    if !problems.empty {
+      return http.json([error: "validation failed", problems: problems], 422)
+    }
+
+    item = find_item(body["item_id"].int)
+    booking = [
+      id: "B-${(bookings.len + 1).str.rjust(3, "0")}",
+      who: str(body["who"]).trim,
+      item: item["name"],
+      price: item["price"],
+    ]
+    bookings.push(booking)
+    http.json(booking, 201, [location: "/booking/${booking["id"]}"])
+  },
+
+  "GET /booking": { (_) ->
+    count("booking-list")
+    [count: bookings.len, revenue: bookings.sum { it["price"] }, bookings: bookings]
+  },
+
+  "GET /stats": { (_) ->
+    count("stats")
+    [requests: hits, bookings: bookings.len, catalog: CATALOG.len]
+  },
+
+  "GET /health": { (_) -> "ok" },
+
+  "GET /shutdown": { (_) ->
+    http.stop()
+    "bye — ${bookings.len} booking(s) made, ${hits.values.sum} request(s) served"
+  },
+
+], { (url) ->
+  say("")
+  say("listening on ${url}")
+  say("  GET  ${url}/catalog?max=1000")
+  say("  GET  ${url}/item/2")
+  say("  POST ${url}/booking   -d '{\"item_id\":1,\"who\":\"Ivan\"}'")
+  say("  GET  ${url}/shutdown  to stop")
+})
+
+# --- after the loop -------------------------------------------------------------
+#
+# `serve` returns when a handler calls http.stop() or the context is cancelled, so the
+# Run continues here with whatever the handlers accumulated.
+
+say("")
+say("server stopped after ${hits.values.sum} requests: ${hits.json}")
+say("bookings taken: ${bookings.len}")
+bookings.each { (b) -> say("  ${b["id"]}  ${b["who"].ljust(12)}${b["item"].ljust(20)}${b["price"]} ₽") }
+say("revenue ${bookings.sum { it["price"] }} ₽")

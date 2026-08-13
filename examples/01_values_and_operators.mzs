@@ -1,0 +1,92 @@
+# 01 — the value model, printed as a table you can run.
+#
+#   mzs examples/01_values_and_operators.mzs
+#
+# Every line below is an expression whose value, type and reasoning are shown side by
+# side. The point is the rules that differ from the language you came from: integer
+# division, the sign of '%', overflow that promotes instead of wrapping, truthiness that
+# only nil and false fail, and comparison that never coerces.
+
+fn head(title) {
+  say("")
+  say(title)
+  say("-" * 74)
+  say("${"expression".ljust(34)}${"value".ljust(24)}type")
+}
+
+fn show(expr, v) {
+  say("${expr.ljust(34)}${inspect(v).ljust(24)}${type(v)}")
+}
+
+head("numbers — Int and Float are two kinds, and division knows it")
+show("7 / 2", 7 / 2)
+show("7.0 / 2", 7.0 / 2)
+show("7 % 3", 7 % 3)
+show("-7 % 3", -7 % 3)
+show("2 ** 10", 2 ** 10)
+show("2 ** -1", 2 ** -1)
+show("-(2 ** 2)", -(2 ** 2))
+show("9223372036854775807 + 1", 9223372036854775807 + 1)
+show("0.1 + 0.2", 0.1 + 0.2)
+show("(0.1 + 0.2).round(2)", (0.1 + 0.2).round(2))
+show("7.5.round", 7.5.round)
+show("(-7.5).round", (-7.5).round)
+show("7.29.floor(1)", 7.29.floor(1))
+show("7.21.ceil(1)", 7.21.ceil(1))
+show("42.clamp(0, 10)", 42.clamp(0, 10))
+show("255.str(16)", 255.str(16))
+show("0xff + 0b1010 + 0o7", 0xff + 0b1010 + 0o7)
+show("1_000_000 / 1000", 1_000_000 / 1000)
+
+head("conversions — explicit, and 'int' never raises")
+show('"12abc".int', "12abc".int)
+show('"".int + 1200', "".int + 1200)
+show('"3.9".float', "3.9".float)
+show('"3.9".int', "3.9".int)
+show("3.9.int", 3.9.int)
+show("str(1.5) + str(2)", str(1.5) + str(2))
+show('float("abc")', float("abc"))
+
+head("truthiness — only nil and false are falsy (this is deliberate)")
+show("bool(0)", bool(0))
+show('bool("")', bool(""))
+show("bool([])", bool([]))
+show("bool([:])", bool([:]))
+show("bool(nil)", bool(nil))
+show("bool(false)", bool(false))
+show('"привет".index(/при/)', "привет".index(/при/))
+show('"привет".index(/нет/)', "привет".index(/нет/))
+
+head("equality and ordering — comparison never coerces")
+show('1 == 1.0', 1 == 1.0)
+show('"2" == 2', "2" == 2)
+show('[1, [2]] == [1, [2]]', [1, [2]] == [1, [2]])
+show('[a: 1, b: 2] == [b: 2, a: 1]', [a: 1, b: 2] == [b: 2, a: 1])
+show('"apple" <=> "banana"', "apple" <=> "banana")
+show('[3, 1] <=> [3, 0]', [3, 1] <=> [3, 0])
+show('try 1 < "2" else "type error"', try 1 < "2" else "type error")
+
+head("nil — one value, two operators, no exceptions")
+show('nil ?? "fallback"', nil ?? "fallback")
+show('false ?? "fallback"', false ?? "fallback")
+show('[:]["missing"] ?? 0', [:]["missing"] ?? 0)
+show('nil?.len', nil?.len)
+show("len(nil)", len(nil))
+
+head("ranges are lazy until you ask for the elements")
+show("(1..5).len", (1..5).len)
+show("(1..<5).array", (1..<5).array)
+show("(1..1000000).has(999)", (1..1000000).has(999))
+show("(1..10).step(3)", (1..10).step(3))
+show("type(1..5)", type(1..5))
+show('is(1..5, "array")', is(1..5, "array"))
+
+head("collections render as JSON, and dicts keep insertion order")
+show('[3, 1, 2].sort', [3, 1, 2].sort)
+show('[b: 2, a: 1].json', [b: 2, a: 1].json)
+show('[1, "two", 3.0, nil].json', [1, "two", 3.0, nil].json)
+show('["a", "a", "b"].tally', ["a", "a", "b"].tally)
+show('hash("stable") == hash("stable")', hash("stable") == hash("stable"))
+
+say("")
+say("Read the rules that produced this table in SPEC §7 (values) and §8.3 (arithmetic).")

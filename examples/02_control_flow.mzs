@@ -1,0 +1,96 @@
+# 02 — control flow, where every construct is an expression.
+#
+#   mzs examples/02_control_flow.mzs
+#
+# The program explores Collatz trajectories, because they need every loop shape at once:
+# a `while` that must report why it stopped, a `for` over a range, early exit with a
+# value, and the statement modifiers that keep a guard on one line. Nothing here is a
+# statement in the sense of "produces nothing" — `if`, `while` and `for` all have values.
+
+# --- if is an expression, so a classifier is an assignment ---------------------
+
+fn shape(n) {
+  kind = if n.even { "even" } else if n % 3 == 0 { "odd multiple of 3" } else { "odd" }
+  "${n} is ${kind}"
+}
+
+say(shape(8))
+say(shape(9))
+say(shape(7))
+
+# --- while is an expression too: `break v` is what the loop is worth -----------
+#
+# The trajectory stops at 1, but a runaway input must stop as well. The loop therefore
+# reports its own reason instead of leaving the caller to guess.
+
+fn trajectory(start, cap) {
+  n = start
+  steps = []
+  reason = while true {
+    break "reached 1" if n == 1
+    break "gave up after ${cap} steps" if steps.len >= cap
+    steps.push(n)
+    n = n.even ? n / 2 : 3 * n + 1
+  }
+  [start: start, steps: steps.len, peak: (steps + [1]).max, reason: reason, path: steps]
+}
+
+short = trajectory(6, 100)
+say("")
+say("6 → ${short["path"].join(" → ")} → 1")
+say("stopped because it ${short["reason"]}, peak ${short["peak"]}")
+
+capped = trajectory(27, 20)
+say("27 with a 20-step cap: ${capped["reason"]}")
+
+# --- for over a range, with `next` and `break` inside a closure ----------------
+#
+# `next` ends one iteration, `break` ends the whole call and hands back its value.
+
+say("")
+say("first Collatz start above 1 whose peak clears 9000:")
+found = (2..100).find { trajectory(it, 400)["peak"] > 9000 }
+say("  ${found} (peak ${trajectory(found, 400)["peak"]})")
+
+longest = [start: 0, steps: -1]
+for n in 1..300 {
+  next if n.even                       # even starts repeat their halves — skip them
+  t = trajectory(n, 400)
+  longest = t if t["steps"] > longest["steps"]
+}
+say("longest odd start under 300: ${longest["start"]} with ${longest["steps"]} steps")
+
+# --- statement modifiers keep the guard on the line it guards ------------------
+
+flagged = []
+for n in [7, 12, 27, 31, 40] {
+  flagged.push(n) if trajectory(n, 400)["steps"] > 15
+}
+say("")
+say("starts needing more than 15 steps: ${flagged.json}")
+
+i = 0
+i += 1 while i * i < 500
+say("smallest i with i² ≥ 500: ${i}")
+
+# --- a histogram, built with the loop as an expression ------------------------
+
+say("")
+say("trajectory lengths, 1..60")
+buckets = [:]
+for n in 1..60 {
+  key = (trajectory(n, 400)["steps"] / 10 * 10).str
+  buckets[key] = (buckets[key] ?? 0) + 1
+}
+buckets.keys.sort_by { it.int }.each { (k) ->
+  say("  ${(k + "–" + (k.int + 9).str).ljust(8)}${"█" * buckets[k]} ${buckets[k]}")
+}
+
+# --- grouping statements inside one expression --------------------------------
+#
+# `( a; b; c )` groups without opening a scope, which is what makes a one-liner able to
+# do two things and still be an expression.
+
+report = (total = (1..60).map { trajectory(it, 400)["steps"] }.sum; avg = total / 60; "average ${avg} steps over 60 starts")
+say("")
+say(report)

@@ -1,0 +1,150 @@
+# 14 — laying out text: wrap, justify, box, tabulate.
+#
+#   mzs examples/14_text_layout.mzs
+#
+# Terminal output is a layout problem, and the four primitives — `ljust`, `rjust`,
+# `center` and string repetition — are enough for all of it once you write the wrapper.
+# Everything here counts runes, so a Cyrillic invoice lines up exactly like a Latin one.
+
+WIDTH = 62
+
+# --- word wrap: the fold every report needs -----------------------------------
+
+fn wrap(text, width) {
+  lines = []
+  line = ""
+  text.split(/\s+/).reject { it.blank }.each { (word) ->
+    if line.blank {
+      line = word
+    } else if line.len + 1 + word.len <= width {
+      line += " " + word
+    } else {
+      lines.push(line)
+      line = word
+    }
+  }
+  lines.push(line) if !line.blank
+  lines
+}
+
+# --- full justification: spread the slack into the gaps -----------------------
+
+fn justify(line, width) {
+  words = line.split(" ")
+  return line if words.len == 1 || line.len >= width
+  slack = width - words.sum { it.len }
+  gaps = words.len - 1
+  out = ""
+  words.each_with_index { (word, i) ->
+    out += word
+    # The leftover spaces go to the leftmost gaps, one each — the rule every
+    # typesetter uses, and the reason justified text does not drift right.
+    out += " " * (slack / gaps + (i < slack % gaps ? 1 : 0)) if i < gaps
+  }
+  out
+}
+
+prose = "Every line of a report is a layout problem: measure the width, break the words,
+line up the columns. The language gives you four primitives, and that is enough once the
+word wrapper is written. Та же функция переносит и русский текст, потому что ширина здесь
+считается в рунах, а не в байтах."
+
+say("wrapped to ${WIDTH} columns")
+say("┌" + "─" * WIDTH + "┐")
+wrap(prose, WIDTH - 2).each { (l) -> say("│ ${l.ljust(WIDTH - 2)} │") }
+say("└" + "─" * WIDTH + "┘")
+
+wrapped = wrap(prose, WIDTH - 2)
+say("")
+say("the same paragraph, fully justified")
+say("┌" + "─" * WIDTH + "┐")
+wrapped.each_with_index { (l, i) ->
+  out = i == wrapped.len - 1 ? l.ljust(WIDTH - 2) : justify(l, WIDTH - 2)
+  say("│ ${out} │")
+}
+say("└" + "─" * WIDTH + "┘")
+
+# --- a box that fits its content ----------------------------------------------
+
+fn box(title, lines, pad) {
+  inner = ([title.len] + lines.map { it.len }).max + pad * 2
+  out = ["╔" + "═" * inner + "╗", "║" + title.center(inner) + "║", "╟" + "─" * inner + "╢"]
+  lines.each { (l) -> out.push("║" + " " * pad + l.ljust(inner - pad) + "║") }
+  out.push("╚" + "═" * inner + "╝")
+}
+
+say("")
+box("INVOICE A-1043", [
+  "Customer: Ivan Petrov",
+  "Date:     2026-03-05",
+  "Stylist:  Анна            ← a Cyrillic cell lines up too",
+  "Due:      8 800 ₽",
+], 2).each { (l) -> say(l) }
+
+# --- a table that measures its own columns ------------------------------------
+#
+# The widths come from the data, so the same function renders any array of dicts.
+
+fn table(rows, columns, aligns) {
+  widths = columns.map { (c) -> ([c.len] + rows.map { str(it[c]).len }).max }
+  fn cell(text, width, align) { align == "r" ? text.rjust(width) : text.ljust(width) }
+
+  slots = (0..<columns.len).array
+  head = slots.map { (i) -> cell(columns[i], widths[i], "l") }.join("  ")
+  rule = widths.map { "─" * it }.join("──")
+  body = rows.map { (r) ->
+    slots.map { (i) -> cell(str(r[columns[i]]), widths[i], aligns[i]) }.join("  ")
+  }
+  [head, rule] + body
+}
+
+items = [
+  [item: "Signature haircut", qty: 2, price: 1500, total: 3000],
+  [item: "Beard trim", qty: 1, price: 800, total: 800],
+  [item: "Colour, premium", qty: 1, price: 3200, total: 3200],
+  [item: "Уход (care)", qty: 3, price: 600, total: 1800],
+]
+
+say("")
+table(items, ["item", "qty", "price", "total"], ["l", "r", "r", "r"]).each { (l) -> say(l) }
+say("${" " * 17}${"total".rjust(6)}${(items.sum { it["total"] }.str + " ₽").rjust(15)}")
+
+# --- truncation with an ellipsis, and a two-column layout ---------------------
+
+fn ellipsis(s, n) { s.len <= n ? s : s.first(n - 1) + "…" }
+
+notes = [
+  ["Allergies", "ammonia — use an ammonia-free colourant on every visit"],
+  ["Prefers", "stylist Анна, afternoon slots"],
+  ["History", "last visit 2026-01-12, premium colour and care, paid in full"],
+]
+
+say("")
+say("client notes, truncated to fit")
+notes.each { (n) ->
+  say("  ${n[0].ljust(14)}${ellipsis(n[1], 44)}")
+}
+
+# --- centering a banner --------------------------------------------------------
+
+say("")
+say("·" * WIDTH)
+["MORZE BARBERSHOP", "1 Lenina st. · +7 999 123-45-67", "спасибо за визит! · thank you!"].each { (l) ->
+  say(l.center(WIDTH))
+}
+say("·" * WIDTH)
+
+# --- a sparkline, because a number is worse than a shape ----------------------
+
+fn sparkline(values) {
+  blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+  lo = values.min
+  hi = values.max
+  span = hi - lo == 0 ? 1 : hi - lo
+  values.map { (v) -> blocks[((v - lo) * 7 / span).clamp(0, 7)] }.join("")
+}
+
+revenue = [4200, 5100, 4800, 6300, 7100, 6800, 9200, 8800, 7400, 6900, 8100, 9600]
+say("")
+say("revenue by month  ${sparkline(revenue)}  ${revenue.min}–${revenue.max} ₽")
+say("load by weekday   ${sparkline([3, 5, 4, 8, 9, 7, 2])}  mon–sun")

@@ -1,0 +1,140 @@
+# 16 — an intent router: the job this language was written for.
+#
+#   mzs examples/16_intent_router.mzs
+#   mzs -v '__sent=хочу записаться на завтра в 14:00' examples/16_intent_router.mzs
+#
+# A bot receives a line of text and has to decide what it means, pull the details out of
+# it, and answer. That is one normalisation, a table of scored rules, a few captures and
+# a reply — and it has to survive an empty message, a message in the wrong case and a
+# message that is nothing but an emoji.
+
+# --- rules: a name, a weight, and a test that is a closure --------------------
+
+RULES = [
+  [intent: "greeting",  weight: 2, test: { (s) -> s ~ /^(привет|здравствуй|добрый (день|вечер|утро)|hi|hello)\b/ }],
+  [intent: "booking",   weight: 5, test: { (s) -> s ~ /записа|запиш|бронир|book|appointment/ }],
+  [intent: "booking",   weight: 3, test: { (s) -> s ~ /\bна (завтра|сегодня|послезавтра|пн|вт|ср|чт|пт|сб|вс)\b/ }],
+  [intent: "cancel",    weight: 6, test: { (s) -> s ~ /отмен|cancel|не приду|перенес/ }],
+  [intent: "price",     weight: 4, test: { (s) -> s ~ /сколько стоит|цена|прайс|стоимость|price|how much/ }],
+  [intent: "hours",     weight: 4, test: { (s) -> s ~ /во сколько|режим работы|график|когда работ|open|hours/ }],
+  [intent: "handoff",   weight: 8, test: { (s) -> s ~ /оператор|живого человека|менеджер|жалоб|operator|human being/ }],
+  [intent: "thanks",    weight: 2, test: { (s) -> s ~ /спасибо|благодар|thanks|thank you/ }],
+  [intent: "confirm",   weight: 3, test: { (s) -> s ~ /^(да|ага|конечно|подтвержда|yes|ok)\b/ }],
+  [intent: "decline",   weight: 3, test: { (s) -> s ~ /^(нет|не надо|no|nope)\b/ }],
+]
+
+# --- entities: what the message says, not just what it means ------------------
+
+fn entities(s) {
+  found = [:]
+  time = s.captures(/\b(\d{1,2})[:.](\d{2})\b/)
+  found.set("time", "${time[1].rjust(2, "0")}:${time[2]}") if time != nil
+  day = s.captures(/\b(сегодня|завтра|послезавтра|monday|tuesday|пн|вт|ср|чт|пт|сб|вс)\b/)
+  found.set("day", day[1]) if day != nil
+  people = s.captures(/\bна (\d+) (?:челов|person|people)/)
+  found.set("people", people[1].int) if people != nil
+  phone = s.captures(/(\+?\d[\d\s()-]{9,})/)
+  found.set("phone", phone[1].replace(/\D/, "")) if phone != nil
+  # `\w` is ASCII by design (RE2 semantics); a Cyrillic word class is \p{L}.
+  service = s.captures(/(стрижк\p{L}*|бород\p{L}*|окрашивани\p{L}*|маникюр\p{L}*|haircut|beard|colour)/)
+  found.set("service", service[1]) if service != nil
+  found
+}
+
+# --- the router ----------------------------------------------------------------
+
+fn route(raw) {
+  s = raw.lower.trim.squeeze(" ")
+  return [intent: "empty", score: 0, confidence: 0.0, entities: [:], normalized: s] if s.blank
+
+  hits = RULES.filter { it["test"].call(s) }
+  scores = hits.reduce([:]) { (acc, r) -> acc.set(r["intent"], (acc[r["intent"]] ?? 0) + r["weight"]) }
+  best = scores.sort_by { (_, w) -> -w }.first
+  total = scores.values.sum
+
+  [ intent:     best == nil ? "unknown" : best[0],
+    score:      best == nil ? 0 : best[1],
+    confidence: best == nil ? 0.0 : (best[1] * 100 / total).float / 100,
+    competing:  scores.len > 1 ? scores.keys.reject { it == best[0] } : [],
+    entities:   entities(s),
+    normalized: s ]
+}
+
+# --- replies: one place, so the wording is reviewable -------------------------
+
+REPLIES = [
+  greeting: "Здравствуйте! Чем помочь — записать, назвать цену или показать график?",
+  booking:  "Записываю. Уточните услугу и время, если ещё не сказали.",
+  cancel:   "Отменил запись. Хотите записаться на другое время?",
+  price:    "Стрижка — 1500 ₽, борода — 800 ₽, окрашивание — от 3200 ₽.",
+  hours:    "Работаем ежедневно с 10:00 до 21:00.",
+  handoff:  "Соединяю с оператором, одну минуту.",
+  thanks:   "Всегда рады!",
+  confirm:  "Принято.",
+  decline:  "Понял, ничего не меняю.",
+  empty:    "Напишите сообщение — и я помогу.",
+  unknown:  "Не понял. Могу записать, назвать цену или показать график работы.",
+]
+
+fn keyboard(intent) {
+  match intent {
+    "booking" -> [["Сегодня", "book:today"], ["Завтра", "book:tomorrow"], ["Другой день", "book:pick"]]
+    "price"   -> [["Прайс полностью", "price:all"], ["Записаться", "book:start"]]
+    "unknown" -> [["Меню", "menu"], ["Оператор", "handoff"]]
+    else      -> []
+  }
+}
+
+fn answer(raw) {
+  r = route(raw)
+  buttons = keyboard(r["intent"]).map { (b) -> [text: b[0], data: b[1]] }
+  r.merge([reply: REPLIES[r["intent"]], keyboard: buttons])
+}
+
+# --- a batch, so the table shows the routing at a glance ----------------------
+
+messages = [
+  $__sent ?? "Привет! Хочу записаться на завтра в 14:00 на стрижку",
+  "СКОЛЬКО СТОИТ окрашивание?",
+  "  во сколько вы работаете  ",
+  "отмените мою запись пожалуйста",
+  "дайте оператора, у меня жалоба",
+  "да",
+  "спасибо!!!",
+  "запишите на 4 человека, телефон +7 999 123-45-67",
+  "🙂",
+  "",
+]
+
+say("${"message".ljust(42)}${"intent".ljust(10)}${"conf".rjust(5)}  entities")
+say("-" * 92)
+messages.each { (m) ->
+  r = route(m)
+  ent = r["entities"].empty ? "" : r["entities"].json
+  say("${(m.len > 40 ? m.first(39) + "…" : m).ljust(42)}${r["intent"].ljust(10)}${("%.2f" % r["confidence"]).rjust(5)}  ${ent}")
+}
+
+# --- one message, fully answered ----------------------------------------------
+
+full = answer(messages.first)
+say("")
+say("full answer for ${inspect(messages.first)}")
+say("  normalized: ${inspect(full["normalized"])}")
+say("  intent:     ${full["intent"]} (score ${full["score"]}, confidence ${"%.0f%%" % (full["confidence"] * 100)})")
+say("  competing:  ${full["competing"].empty ? "none" : full["competing"].join(", ")}")
+say("  entities:   ${full["entities"].json}")
+say("  reply:      ${full["reply"]}")
+say("  keyboard:   ${full["keyboard"].json}")
+
+# --- what the host actually stores back ---------------------------------------
+
+$intent = full["intent"]
+$slot_day = full["entities"]["day"] ?? ""
+$slot_time = full["entities"]["time"] ?? ""
+$needs_operator = full["intent"] == "handoff"
+
+say("")
+say("host variables: ${[intent: $intent, day: $slot_day, time: $slot_time, operator: $needs_operator].json}")
+
+# The value of the program is the branch a flow engine takes next.
+$intent

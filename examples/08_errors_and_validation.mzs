@@ -1,0 +1,138 @@
+# 08 — errors: raise, try/else, and the failures you should not raise at all.
+#
+#   mzs examples/08_errors_and_validation.mzs
+#
+# `try X else Y` is the whole catch mechanism, and it is an expression: the value of the
+# `else` side replaces the value of the failed side. What `try` may catch is limited on
+# purpose — a timeout, a step budget or a depth limit is the host ending the Run, and no
+# script gets to swallow that.
+
+# --- the failure kinds a script can produce ------------------------------------
+
+fn kind_of(f) { try (f.call(); "no error") else (e) -> "${e["kind"]}: ${e["message"]}" }
+
+say("what the runtime raises")
+[
+  ["a type mismatch",  { 1 + "two" }],
+  ["a bad index",      { [a: 1].fetch("b") }],
+  ["division by zero", { 7 / 0 }],
+  ["your own raise",   { raise("out of stock") }],
+  ["a bad argument",   { "abc".slice("x") }],
+].each { (row) -> say("  ${row[0].ljust(20)}${kind_of(row[1])}") }
+
+# Float division does not raise: IEEE says infinity, and that is a value.
+say("  ${"float division".ljust(20)}7.0 / 0 = ${7.0 / 0}")
+
+# --- raise carries data, not just a message ------------------------------------
+#
+# `raise(dict)` attaches the dict to the error; the handler reads it back from
+# e["data"], which is how a failure crosses a call boundary without being re-parsed.
+
+fn charge(order) {
+  raise([code: "no_items", order: order["id"]]) if order["items"].empty
+  raise([code: "limit", order: order["id"], amount: order["amount"]]) if order["amount"] > 100000
+  "charged ${order["amount"]} ₽"
+}
+
+orders = [
+  [id: "A-1", items: ["cut"], amount: 1500],
+  [id: "A-2", items: [], amount: 0],
+  [id: "A-3", items: ["colour"], amount: 250000],
+]
+
+say("")
+say("charging")
+orders.each { (o) ->
+  outcome = try charge(o) else (e) -> "declined (${e["data"]["code"]})"
+  say("  ${o["id"]}: ${outcome}")
+}
+
+# --- try is an expression, so it composes into a pipeline ----------------------
+
+raw_amounts = ["1500", "", "not a number", "3200"]
+say("")
+say("parsed amounts: ${raw_amounts.map { it.blank ? 0 : it.int }.json}    — int never raises")
+say("strict parse:   ${raw_amounts.map { (s) -> try strict_int(s) else -1 }.json}   — so raise when you need strictness")
+
+fn strict_int(s) {
+  raise("not an integer: ${inspect(s)}") if s !~ /^-?\d+$/
+  s.int
+}
+
+# --- the two ways to be defensive, and when each is right ---------------------
+
+cfg = [http: [port: 8080]]
+say("")
+say("?? for an absent value:  ${cfg.dig("http", "host") ?? "0.0.0.0"}")
+say("?. for an absent chain:  ${inspect(cfg["proxy"]?.len)}")
+say("try for a failing call:  ${try cfg.fetch("proxy") else "(no proxy configured)"}")
+
+# --- validation: collect the failures, do not raise on the first one -----------
+#
+# A form is not an exception: the user wants every problem at once. Raising is for the
+# invariant that must hold; a report is for the input someone typed.
+
+rules = [
+  [field: "name",  message: "must not be empty",        test: { (r) -> !(r["name"] ?? "").blank }],
+  [field: "email", message: "must look like an email",  test: { (r) -> (r["email"] ?? "") ~ /^\S+@\S+\.\S+$/ }],
+  [field: "age",   message: "must be 18..120",          test: { (r) -> (r["age"] ?? "").int >= 18 && (r["age"] ?? "").int <= 120 }],
+  [field: "phone", message: "must have 11 digits",      test: { (r) -> (r["phone"] ?? "").replace(/\D/, "").len == 11 }],
+]
+
+fn check(record) {
+  rules.reject { it["test"].call(record) }.map { "${it["field"]} ${it["message"]}" }
+}
+
+forms = [
+  [name: "Ann",  email: "ann@example.com", age: "34", phone: "+7 999 123-45-67"],
+  [name: "",     email: "bob(at)example",  age: "12", phone: "123"],
+  [name: "Cleo", email: "cleo@example.io", age: "",   phone: "89161112233"],
+]
+
+say("")
+say("form validation")
+forms.each_with_index { (f, i) ->
+  problems = check(f)
+  status = problems.empty ? "accepted" : "rejected"
+  say("  form ${i + 1}: ${status}")
+  problems.each { (p) -> say("      • ${p}") }
+}
+
+# --- retry: the loop that gives up, and says so --------------------------------
+
+attempts = 0
+fn flaky(attempt) {
+  raise("transient failure #${attempt}") if attempt < 3
+  "succeeded on attempt ${attempt}"
+}
+
+result = while true {
+  attempts += 1
+  outcome = try flaky(attempts) else nil
+  break outcome if outcome != nil
+  break "gave up after ${attempts} attempts" if attempts >= 5
+}
+say("")
+say("retry: ${result}")
+
+# --- assert states the invariant in the code, not in a comment ----------------
+
+fn withdraw(balance, amount) {
+  assert(amount > 0, "amount must be positive")
+  assert(amount <= balance, "insufficient funds: ${amount} > ${balance}")
+  balance - amount
+}
+
+say("")
+say("withdraw 300 of 1000 → ${withdraw(1000, 300)}")
+say("withdraw 3000 of 1000 → ${try withdraw(1000, 3000) else (e) -> e["message"]}")
+
+# --- what `try` will not catch -------------------------------------------------
+#
+#   try (while true { }) else "caught"      # never catches: the deadline ends the Run
+#   try (1..1e9).array else "caught"        # never catches: MaxCollection is a limit
+#
+# Limits are the host's contract with whoever runs the script (§14.1). A script that
+# could catch its own timeout would be a script that could ignore it.
+say("")
+say("limit errors — timeout, step budget, depth, MaxCollection — are never catchable.")

@@ -1,0 +1,279 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "mzs",
+  "scopeName": "source.mzs",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#include-decl" },
+    { "include": "#export-decl" },
+    { "include": "#fn-decl" },
+    { "include": "#keyword" },
+    { "include": "#string-double" },
+    { "include": "#string-single" },
+    { "include": "#regex" },
+    { "include": "#number" },
+    { "include": "#global" },
+    { "include": "#closure-params" },
+    { "include": "#dict-key" },
+    { "include": "#module" },
+    { "include": "#method-call" },
+    { "include": "#builtin" },
+    { "include": "#operator" },
+    { "include": "#punctuation" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "comment": {
+      "comment": "SPEC §3.2: '#' to end of line, with no exceptions. '//' is division twice.",
+      "name": "comment.line.number-sign.mzs",
+      "begin": "#",
+      "end": "$",
+      "beginCaptures": { "0": { "name": "punctuation.definition.comment.mzs" } }
+    },
+
+    "keyword": {
+      "comment": "SPEC §3.5: sixteen keywords, and that is the whole list.",
+      "patterns": [
+        {
+          "name": "keyword.control.mzs",
+          "match": "\\b(?:if|else|match|while|for|in|break|next|return|try)\\b"
+        },
+        {
+          "name": "keyword.control.import.mzs",
+          "match": "\\b(?:include|export)\\b"
+        },
+        {
+          "comment": "§8.14: 'async' is positional, so it only highlights before 'fn'.",
+          "name": "keyword.declaration.function.mzs",
+          "match": "\\b(?:async\\s+)?fn\\b"
+        },
+        {
+          "name": "constant.language.boolean.mzs",
+          "match": "\\b(?:true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.mzs",
+          "match": "\\bnil\\b"
+        },
+        {
+          "comment": "§8.9: the parameter a closure with no parameter list binds.",
+          "name": "variable.language.it.mzs",
+          "match": "\\bit\\b"
+        }
+      ]
+    },
+
+    "include-decl": {
+      "comment": "`include name` and `include name from \"path\"` (§12.8). 'from' is positional, not a keyword.",
+      "match": "\\b(include)\\s+([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)(?:\\s+(from))?",
+      "captures": {
+        "1": { "name": "keyword.control.import.mzs" },
+        "2": { "name": "entity.name.namespace.mzs" },
+        "3": { "name": "keyword.control.import.from.mzs" }
+      }
+    },
+
+    "export-decl": {
+      "match": "\\b(export)\\s+(?:(fn)\\s+)?([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)",
+      "captures": {
+        "1": { "name": "keyword.control.import.mzs" },
+        "2": { "name": "keyword.declaration.function.mzs" },
+        "3": { "name": "entity.name.function.mzs" }
+      }
+    },
+
+    "fn-decl": {
+      "match": "\\b(fn)\\s+([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.mzs" },
+        "2": { "name": "entity.name.function.mzs" }
+      }
+    },
+
+    "string-double": {
+      "comment": "§3.7: escapes and $-interpolation.",
+      "name": "string.quoted.double.mzs",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.mzs" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.mzs" } },
+      "patterns": [
+        { "include": "#escape" },
+        { "include": "#interpolation" },
+        { "include": "#global-in-string" }
+      ]
+    },
+
+    "string-single": {
+      "comment": "§3.7: raw. The only escapes are \\' and \\\\, and there is no interpolation.",
+      "name": "string.quoted.single.mzs",
+      "begin": "'",
+      "end": "'",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.mzs" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.mzs" } },
+      "patterns": [
+        {
+          "name": "constant.character.escape.mzs",
+          "match": "\\\\['\\\\]"
+        }
+      ]
+    },
+
+    "escape": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.mzs",
+          "match": "\\\\u\\{[0-9A-Fa-f]{1,6}\\}"
+        },
+        {
+          "name": "constant.character.escape.mzs",
+          "match": "\\\\(?:u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|[nrt0\\\\\"'abfve$])"
+        },
+        {
+          "comment": "§3.7: an unknown escape is the literal character, not an error.",
+          "name": "constant.character.escape.mzs",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "interpolation": {
+      "comment": "§3.7: ${ expr } — any expression, including locals.",
+      "name": "meta.embedded.line.mzs",
+      "begin": "\\$\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.mzs" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.mzs" } },
+      "patterns": [{ "include": "$self" }]
+    },
+
+    "global-in-string": {
+      "comment": "§3.7: $name inside a string is the host global, exactly as it is outside one.",
+      "name": "variable.other.global.mzs",
+      "match": "\\$[A-Za-z0-9_\\p{L}]+"
+    },
+
+    "regex": {
+      "comment": "§3.8. A '/' opens a regex only where a value cannot precede it; after an identifier, a literal or a closing bracket it is division.",
+      "name": "string.regexp.mzs",
+      "begin": "(?<![A-Za-z0-9_\\p{L}\\)\\]\\}]\\s?)/(?![/*=\\s])",
+      "end": "/([imxsu]*)",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.mzs" } },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.mzs" },
+        "1": { "name": "keyword.other.flag.mzs" }
+      },
+      "patterns": [
+        { "name": "constant.character.escape.mzs", "match": "\\\\." },
+        { "name": "keyword.control.anchor.mzs", "match": "[\\^$]|\\\\[AbBzZG]" },
+        { "name": "keyword.operator.quantifier.mzs", "match": "[*+?]\\??|\\{\\d+(?:,\\d*)?\\}" },
+        { "name": "keyword.operator.alternation.mzs", "match": "\\|" },
+        { "name": "meta.group.regexp.mzs", "match": "\\((?:\\?[:=!>#]|\\?<[=!]?)?" },
+        { "name": "constant.other.character-class.mzs", "match": "\\[\\[:[a-z]+:\\]\\]|\\[\\^?|\\]" }
+      ]
+    },
+
+    "number": {
+      "comment": "§3.6. A '.' after digits starts a float only before another digit, so `1.str` is a method call.",
+      "patterns": [
+        {
+          "name": "constant.numeric.float.mzs",
+          "match": "\\b\\d[\\d_]*\\.\\d[\\d_]*(?:[eE][+-]?\\d+)?\\b|\\b\\d[\\d_]*[eE][+-]?\\d+\\b"
+        },
+        { "name": "constant.numeric.integer.hexadecimal.mzs", "match": "\\b0[xX][0-9A-Fa-f_]+\\b" },
+        { "name": "constant.numeric.integer.binary.mzs", "match": "\\b0[bB][01_]+\\b" },
+        { "name": "constant.numeric.integer.octal.mzs", "match": "\\b0[oO][0-7_]+\\b" },
+        { "name": "constant.numeric.integer.mzs", "match": "\\b\\d[\\d_]*\\b" }
+      ]
+    },
+
+    "global": {
+      "name": "variable.other.global.mzs",
+      "match": "\\$[A-Za-z0-9_\\p{L}]+"
+    },
+
+    "closure-params": {
+      "comment": "§7.7: closure parameters are parenthesised and followed by '->'.",
+      "begin": "(?<=\\{)\\s*(\\()(?=[^()]*\\)\\s*->)",
+      "end": "(\\))\\s*(->)",
+      "beginCaptures": { "1": { "name": "punctuation.definition.parameters.begin.mzs" } },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.parameters.end.mzs" },
+        "2": { "name": "keyword.operator.arrow.mzs" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "name": "variable.parameter.mzs", "match": "[A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*" },
+        { "name": "punctuation.separator.mzs", "match": "," },
+        { "include": "$self" }
+      ]
+    },
+
+    "dict-key": {
+      "comment": "`[name: 1]` and `f(k: v)` — an identifier key is the string \"name\" (§8.7). The colon is adjacent, which keeps a ternary out of this rule.",
+      "match": "([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)(:)(?!:)(?=\\s)",
+      "captures": {
+        "1": { "name": "constant.other.key.mzs" },
+        "2": { "name": "punctuation.separator.key-value.mzs" }
+      }
+    },
+
+    "module": {
+      "comment": "The built-in modules of §12.8, highlighted where they are used as one. They still need an include; the extension's diagnostics say so if it is missing.",
+      "match": "\\b(json|math|time|date|http)\\b(?=\\s*\\.)",
+      "name": "entity.name.namespace.mzs"
+    },
+
+    "method-call": {
+      "match": "(\\.|\\?\\.)\\s*([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)",
+      "captures": {
+        "1": { "name": "punctuation.accessor.mzs" },
+        "2": { "name": "entity.name.function.method.mzs" }
+      }
+    },
+
+    "builtin": {
+      "comment": "Generated from mzs.BuiltinNames(); regenerate with editors/vscode/data/gen.",
+      "name": "support.function.builtin.mzs",
+      "match": "\\b(?:abs|array|assert|bool|ceil|debug|defined|dict|dup|empty|float|floor|format|hash|inspect|int|is|json|len|max|min|now|pipe|print|raise|rand|range|regex|round|say|sort|str|sum|tap|type|uuid)\\b(?=\\s*\\()"
+    },
+
+    "operator": {
+      "comment": "§3.9, longest match first.",
+      "patterns": [
+        { "name": "keyword.operator.assignment.mzs", "match": "\\*\\*=|\\|\\|=|&&=|\\?\\?=|[+\\-*/%]=|:=|=(?!=)" },
+        { "name": "keyword.operator.comparison.mzs", "match": "<=>|==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.match.mzs", "match": "!~|~" },
+        { "name": "keyword.operator.logical.mzs", "match": "&&|\\|\\||\\?\\?|!" },
+        { "name": "keyword.operator.range.mzs", "match": "\\.\\.<|\\.\\." },
+        { "name": "keyword.operator.arrow.mzs", "match": "->" },
+        { "name": "keyword.operator.accessor.mzs", "match": "\\?\\." },
+        { "name": "keyword.operator.arithmetic.mzs", "match": "\\*\\*|[+\\-*/%]" },
+        { "name": "keyword.operator.ternary.mzs", "match": "[?:]" }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.separator.mzs", "match": "[,;]" },
+        { "name": "punctuation.section.brackets.mzs", "match": "[\\[\\]]" },
+        { "name": "punctuation.section.parens.mzs", "match": "[()]" },
+        { "name": "punctuation.section.braces.mzs", "match": "[{}]" }
+      ]
+    },
+
+    "identifier": {
+      "comment": "§3.4: no '?' or '!' suffix, and the case of the first rune means nothing.",
+      "patterns": [
+        {
+          "name": "entity.name.function.call.mzs",
+          "match": "\\b[A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*(?=\\s*\\()"
+        },
+        {
+          "name": "variable.other.mzs",
+          "match": "\\b[A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*"
+        }
+      ]
+    }
+  }
+}

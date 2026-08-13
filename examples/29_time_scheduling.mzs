@@ -1,0 +1,125 @@
+# 29 — time and dates: a booking schedule, built from durations.
+#
+#   mzs --time examples/29_time_scheduling.mzs
+#
+# The clock is a capability, not a given: without `--time` (Options.EnableTime, plus a
+# Now for the current instant) the `time` and `date` modules do not exist at all, and the
+# include says so. With it, a time value is an opaque kind with arithmetic — `+ 90.minutes`
+# — and `strftime` for anything a human has to read.
+
+include time
+include date
+
+OPEN = 10
+CLOSE = 20
+SLOT = 30
+
+day = time.parse("2026-03-05 10:00")
+say("schedule for ${day.strftime("%A, %d %B %Y")}")
+say("open ${OPEN}:00–${CLOSE}:00, ${SLOT}-minute slots")
+
+# --- the fields, and the arithmetic ------------------------------------------
+
+t = time.parse("2026-03-05 14:30:15")
+say("")
+say("one instant, every way of looking at it")
+say("  iso            ${t}")
+say("  strftime       ${t.strftime("%Y-%m-%d %H:%M:%S %a")}")
+say("  parts          year ${t.year} month ${t.month} day ${t.day} · ${t.hour}:${t.min}:${t.sec}")
+say("  weekday/yday   ${t.wday} / ${t.yday}")
+say("  midnight       ${t.to_date.strftime("%Y-%m-%d %H:%M")}")
+say("  unix seconds   ${t.int}")
+say("  + 90 minutes   ${(t + 90.minutes).strftime("%H:%M")}")
+say("  − 2 hours      ${(t - 2.hours).strftime("%H:%M")}")
+say("  + 3 days       ${(t + 3.days).strftime("%Y-%m-%d")}")
+say("  + 2 weeks      ${(t + 2.weeks).strftime("%Y-%m-%d")}")
+say("  in Tokyo       ${t.in_time_zone("Asia/Tokyo").strftime("%Y-%m-%d %H:%M %Z")}")
+
+# --- the four formats a bot has to accept ------------------------------------
+
+say("")
+say("parsing what people actually type")
+["2026-03-05T14:30:00Z", "2026-03-05 14:30", "05/03/26", "05.03.2026"].each { (s) ->
+  parsed = try time.parse(s).strftime("%Y-%m-%d %H:%M") else "unparsable"
+  say("  ${inspect(s).ljust(24)}${parsed}")
+}
+say("  ${inspect("today").ljust(24)}${date.today.strftime("%Y-%m-%d")} (from the host clock)")
+
+# --- generating the grid -------------------------------------------------------
+
+slots = (0..<((CLOSE - OPEN) * 60 / SLOT)).map { (i) -> day + (i * SLOT).minutes }
+
+booked = [
+  [at: "10:30", who: "Ivan",  service: "haircut", minutes: 60],
+  [at: "12:00", who: "Anna",  service: "colour",  minutes: 120],
+  [at: "15:30", who: "Li",    service: "beard",   minutes: 30],
+  [at: "18:00", who: "Sean",  service: "haircut", minutes: 60],
+]
+
+fn covers(booking, slot) {
+  start = time.parse("2026-03-05 ${booking["at"]}")
+  slot.int >= start.int && slot.int < (start + booking["minutes"].minutes).int
+}
+
+say("")
+say("the day")
+slots.each { (s) ->
+  taken = booked.find { (b) -> covers(b, s) }
+  label = taken == nil ? "—" : "${taken["who"]} (${taken["service"]})"
+  bar = taken == nil ? "·" : "█"
+  say("  ${s.strftime("%H:%M")}  ${bar}  ${label}")
+}
+
+free = slots.reject { (s) -> booked.any { (b) -> covers(b, s) } }
+say("")
+say("${free.len} of ${slots.len} slots free: ${free.map { it.strftime("%H:%M") }.join(" ")}")
+
+# --- finding a gap long enough for a given service ---------------------------
+
+fn first_gap(minutes) {
+  needed = minutes / SLOT
+  start_index = (0..<slots.len).find { (i) ->
+    (0..<needed).all { (k) -> i + k < slots.len && !booked.any { (b) -> covers(b, slots[i + k]) } }
+  }
+  start_index == nil ? nil : slots[start_index]
+}
+
+say("")
+say("first free slot for…")
+[[30, "beard"], [60, "haircut"], [120, "colour"], [240, "a whole afternoon"]].each { (need) ->
+  found = first_gap(need[0])
+  say("  ${need[1].ljust(20)}${found == nil ? "nothing fits today" : found.strftime("%H:%M")}")
+}
+
+# --- utilisation and the working week ----------------------------------------
+
+booked_minutes = booked.sum { it["minutes"] }
+open_minutes = (CLOSE - OPEN) * 60
+say("")
+say("utilisation ${booked_minutes * 100 / open_minutes}% (${booked_minutes} of ${open_minutes} minutes)")
+say("longest booking: ${booked.max_by { it["minutes"] }.pipe { "${it["who"]}, ${it["minutes"]} minutes" }}")
+
+week = (0..<7).map { (i) -> day + i.days }
+say("")
+say("the week ahead")
+week.each { (d) ->
+  weekend = d.wday == 0 || d.wday == 6
+  say("  ${d.strftime("%a %d.%m")}  ${weekend ? "closed" : "open ${OPEN}:00–${CLOSE}:00"}")
+}
+
+# --- durations are ordinary numbers with a unit ------------------------------
+
+say("")
+say("durations")
+say("  90.minutes as seconds: ${90.minutes.int}")
+say("  1.days == 24.hours:    ${1.days.int == 24.hours.int}")
+say("  a slot is ${SLOT}.minutes, and the day holds ${open_minutes / SLOT} of them")
+
+# --- reminders: what to send, and when ---------------------------------------
+
+say("")
+say("reminders to queue")
+booked.each { (b) ->
+  start = time.parse("2026-03-05 ${b["at"]}")
+  say("  ${(start - 2.hours).strftime("%H:%M")} → “${b["who"]}, see you at ${b["at"]}” (2h before)")
+}

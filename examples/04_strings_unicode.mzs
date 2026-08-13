@@ -1,0 +1,115 @@
+# 04 — strings are UTF-8 and every index is a rune index.
+#
+#   mzs examples/04_strings_unicode.mzs
+#
+# The program cleans up a batch of messy contact records. It is worth reading for one
+# reason: nothing here counts bytes. `len`, `[]`, `index`, `reverse`, `center` and
+# friends all work in runes, so Cyrillic and emoji behave exactly like ASCII — which is
+# the difference between a name that renders and a name that comes out as mojibake.
+
+# --- runes, not bytes ---------------------------------------------------------
+
+say("runes vs bytes")
+say("${"text".ljust(16)}${"len".ljust(6)}${"bytes".ljust(8)}reversed")
+['hello', 'привет', 'Ёлка', '👋 hi', 'año'].each { (s) ->
+  say("${inspect(s).ljust(16)}${s.len.str.ljust(6)}${s.bytes.len.str.ljust(8)}${s.reverse}")
+}
+
+# --- the cleaner ---------------------------------------------------------------
+#
+# Input arrives the way people type it: NBSP, double spaces, stray punctuation, mixed
+# case, phone numbers in six shapes. `trim` handles NBSP and zero-width spaces too, which
+# a hand-rolled trim usually forgets.
+
+raw = [
+  "  ИВАН   петров   | ivan.petrov@Example.COM | +7 (999) 123-45-67 ",
+  "​мария сидорова |MARIA@example.com|8 916 000 11 22",
+  "  o'brien,   sean |SEAN.OBRIEN@mail.co.uk| +44 20 7946 0958",
+  "李 明 | li.ming@example.cn | +86 10 6552 9988",
+]
+
+fn clean_name(s) {
+  s.trim.squeeze(" ").split(/[\s,]+/).map { it.capitalize }.join(" ")
+}
+
+fn clean_phone(s) {
+  digits = s.replace(/\D/, "")
+  digits = "7" + digits.last(10) if digits.starts_with("8") && digits.len == 11
+  "+" + digits
+}
+
+fn mask_email(s) {
+  parts = s.trim.lower.split("@")
+  user = parts[0]
+  visible = user.len <= 2 ? user : user.first(2) + "*" * (user.len - 2)
+  "${visible}@${parts[1]}"
+}
+
+say("")
+say("cleaned records")
+cards = raw.map { (line) ->
+  f = line.split("|")
+  [name: clean_name(f[0]), email: mask_email(f[1]), phone: clean_phone(f[2])]
+}
+cards.each { (c) ->
+  say("  ${c["name"].ljust(18)}${c["email"].ljust(26)}${c["phone"]}")
+}
+
+# --- searching and slicing, all in runes --------------------------------------
+
+s = "привет, мир и ещё раз мир"
+say("")
+say("searching in ${inspect(s)}")
+say("  index('мир')        ${s.index("мир")}")
+say("  last_index('мир')   ${s.last_index("мир")}")
+say("  index(/ещ./)        ${s.index(/ещ./)}")
+say("  s[8, 3]             ${inspect(s[8, 3])}")
+say("  s[-3, 3]            ${inspect(s[-3, 3])}")
+say("  first(6) / last(3)  ${inspect(s.first(6))} / ${inspect(s.last(3))}")
+say("  count('мир')        ${s.count("мир")}")
+say("  has('ещё')          ${s.has("ещё")}")
+say("  starts_with         ${s.starts_with("привет", "hello")}")
+
+# --- replacing: a string, a pattern, or a closure over the match --------------
+
+template = "Dear {{name}}, your order {{id}} ships on {{date}}."
+values = [name: "Иван", id: "A-1043", date: "2026-03-05"]
+
+filled = template.replace(/\{\{(\w+)\}\}/) { (whole, key) ->
+  values[key] ?? whole
+}
+say("")
+say("templating by closure")
+say("  ${filled}")
+
+say("  redacted: ${"card 4111 1111 1111 1111".replace(/\d{4}(?= )/, "****")}")
+say("  first only: ${"a-b-c".replace_first("-", "+")}")
+say("  numbered:  ${"2026-03-05".replace(/(\d+)-(\d+)-(\d+)/, '\3.\2.\1')}")
+
+# --- laying text out: every width below is a rune width ------------------------
+
+say("")
+say("| ${"наименование".ljust(20)} | ${"цена".rjust(9)} |")
+say("| ${"-" * 20} | ${"-" * 9} |")
+[["стрижка", 1500], ["окрашивание 👩‍🎨", 3200], ["borodá", 800]].each { (row) ->
+  say("| ${row[0].ljust(20)} | ${("%d ₽" % row[1]).rjust(9)} |")
+}
+say("")
+say(" ${"THE END".center(30, "·")} ")
+# A width here is a count of runes, not of terminal columns: CJK and emoji occupy two
+# columns each, so a table of mixed scripts needs a width table the language does not
+# pretend to have.
+
+# --- the small ones that keep parsers short -----------------------------------
+
+say("")
+say("odds and ends")
+say("  blank('  \\u00a0 ')  ${"    ".blank}")
+say("  chars           ${"añб".chars.json}")
+say("  ord / chr       ${"Я".ord} / ${1071.chr}")
+say("  swapcase        ${"Привет World".swapcase}")
+say("  chomp / chop    ${inspect("line\n".chomp)} / ${inspect("line!".chop)}")
+say("  lines           ${"a\nb\nc".lines.json}")
+say("  split limit 2   ${"a:b:c".split(":", 2).json}")
+say("  split by rune   ${"añб".split("").json}")
+say("  squeeze         ${inspect("aaabbb   c".squeeze)}")

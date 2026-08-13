@@ -1,0 +1,165 @@
+{
+  "include a built-in module": {
+    "prefix": "inc",
+    "body": "include ${1|json,math,time,date,http|}",
+    "description": "Подключить встроенный модуль (§12.8)"
+  },
+  "include a script module": {
+    "prefix": "incfrom",
+    "body": "include ${1:lib} from \"./${2:lib}.mzs\"",
+    "description": "Подключить соседний .mzs"
+  },
+  "export a function": {
+    "prefix": "expfn",
+    "body": [
+      "export fn ${1:name}(${2:args}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Экспортируемая функция модуля"
+  },
+  "export a value": {
+    "prefix": "exp",
+    "body": "export ${1:name} = ${2:value}",
+    "description": "Экспортируемое значение"
+  },
+  "function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:args}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Объявление функции"
+  },
+  "async function": {
+    "prefix": "async",
+    "body": [
+      "async fn ${1:name}(${2:args}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Объявление асинхронной функции: вызов запускает задачу (§8.14)"
+  },
+  "await a task": {
+    "prefix": "await",
+    "body": [
+      "${1:task}.await"
+    ],
+    "description": "Дождаться задачу и получить её значение"
+  },
+  "function one-line": {
+    "prefix": "fn1",
+    "body": "fn ${1:name}(${2:args}) { $0 }",
+    "description": "Функция в одну строку"
+  },
+  "closure": {
+    "prefix": "cl",
+    "body": "{ (${1:x}) -> $0 }",
+    "description": "Замыкание с параметрами"
+  },
+  "if": {
+    "prefix": "if",
+    "body": [
+      "if ${1:cond} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Условие"
+  },
+  "if else": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:cond} {",
+      "\t$2",
+      "} else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Условие с else"
+  },
+  "match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:x} {",
+      "\tin [${2:\"да\", \"ага\"}] -> $3",
+      "\telse -> $0",
+      "}"
+    ],
+    "description": "Разбор по вариантам вместо лестницы if"
+  },
+  "while": {
+    "prefix": "while",
+    "body": [
+      "while ${1:cond} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Цикл"
+  },
+  "for in": {
+    "prefix": "for",
+    "body": [
+      "for ${1:x} in ${2:xs} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Цикл по коллекции"
+  },
+  "try else": {
+    "prefix": "try",
+    "body": "try ${1:expr} else ${0:\"запасное значение\"}",
+    "description": "Поймать ошибку выражения"
+  },
+  "ternary": {
+    "prefix": "?:",
+    "body": "${1:cond} ? ${2:a} : ${3:b}",
+    "description": "Тернарный оператор"
+  },
+  "map block": {
+    "prefix": "map",
+    "body": "${1:xs}.map { ${2:it} }",
+    "description": "map с замыканием"
+  },
+  "filter block": {
+    "prefix": "filter",
+    "body": "${1:xs}.filter { ${2:it} > 0 }",
+    "description": "filter с замыканием"
+  },
+  "each block": {
+    "prefix": "each",
+    "body": "${1:xs}.each { (${2:x}) -> $0 }",
+    "description": "each с замыканием"
+  },
+  "reduce": {
+    "prefix": "reduce",
+    "body": "${1:xs}.reduce(${2:0}) { (${3:acc}, ${4:x}) -> $0 }",
+    "description": "Свёртка"
+  },
+  "web server": {
+    "prefix": "serve",
+    "body": [
+      "include http",
+      "",
+      "http.serve(\"${1::8080}\", [",
+      "  \"GET /${2:hello}\": { (req) -> http.json([${3:message}: \"$4\"]) },",
+      "])"
+    ],
+    "description": "Веб-сервер: маршрут и JSON-ответ"
+  },
+  "condition equals": {
+    "prefix": "cond=",
+    "body": "$${1:__sent}.lower.trim == \"${2:да}\"",
+    "description": "Условие morzebot: нормализация и сравнение"
+  },
+  "condition regex": {
+    "prefix": "cond~",
+    "body": "$${1:__sent} ~ /${2:привет}/i",
+    "description": "Условие morzebot: регулярка"
+  },
+  "condition router": {
+    "prefix": "cond?",
+    "body": "match $${1:__sent}.lower.trim { in [\"да\", \"ага\"] -> 1; /^нет/ -> 0; else -> nil }",
+    "description": "Условие morzebot: роутер интентов"
+  }
+}

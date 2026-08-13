@@ -1,0 +1,196 @@
+# 31 — the other half of `http`: fetch from a public API and make a report out of it.
+#
+#   mzs -t 30 examples/31_api_pipeline.mzs
+#   mzs -t 30 -v tag=show_hn examples/31_api_pipeline.mzs
+#   mzs -t 30 -v tag=ask_hn -v limit=50 examples/31_api_pipeline.mzs
+#
+# `-t 30` is not decoration. A client call is bounded by its own `timeout` **and** by
+# what is left of the Run's deadline, whichever is shorter, and the default deadline is
+# one second (§14.1). Running out of `timeout` is an ordinary error a script can catch;
+# running out of the Run's time is a limit, and limits end the Run.
+#
+# The data is the front page of Hacker News through the Algolia API: no key, no headers,
+# plain JSON. If the network is down the script says so and falls back to the sample
+# below, because the half worth reading is what happens after the bytes arrive.
+
+include http
+include json
+
+API = "https://hn.algolia.com/api/v1/search"
+
+# A tag is a fixed token, so it goes into the URL as it stands — no escaping question to
+# answer, which is why this example takes a tag and not a free-text query.
+TAGS = ["front_page", "show_hn", "ask_hn"]
+
+tag = $tag ?? "front_page"
+limit = ($limit ?? "30").int.clamp(1, 100)
+
+if !TAGS.has(tag) {
+  raise("tag must be one of ${TAGS.join(", ")}, got ${inspect(tag)}")
+}
+
+# --- fetch ------------------------------------------------------------------------
+#
+# One call, one catch. Every way this can fail — a refused connection, DNS, the per-call
+# timeout, a non-2xx status, a body that is not the JSON this script expects — has the
+# same answer: use the sample, and say which one it was.
+
+SAMPLE = [
+  [title: "A Postgres feature nobody uses", url: "https://www.crunchydata.com/blog/x",
+   author: "brandur", points: 412, num_comments: 96, created_at: "2026-08-10T09:12:00Z"],
+  [title: "Show HN: A tiny language that fits in one binary", url: "https://github.com/a/b",
+   author: "kmk", points: 388, num_comments: 214, created_at: "2026-08-10T14:02:00Z"],
+  [title: "The cost of a cache miss", url: "https://www.crunchydata.com/blog/y",
+   author: "brandur", points: 201, num_comments: 33, created_at: "2026-08-09T18:40:00Z"],
+  [title: "Writing a regex engine in a weekend", url: "https://github.com/c/d",
+   author: "rsc", points: 190, num_comments: 41, created_at: "2026-08-09T07:55:00Z"],
+  [title: "Ask HN: what broke in production this year?", url: nil,
+   author: "throwaway9", points: 154, num_comments: 402, created_at: "2026-08-08T21:30:00Z"],
+  [title: "Unicode is harder than you think", url: "https://tonsky.me/blog/unicode/",
+   author: "tonsky", points: 133, num_comments: 58, created_at: "2026-08-08T11:05:00Z"],
+]
+
+url = "${API}?tags=${tag}&hitsPerPage=${limit}"
+say("GET ${url}")
+
+answer = try http.get(url, [timeout: 10]) else (e) -> [status: 0, error: e["message"]]
+payload = answer["status"] == 200 ? (try json.parse(answer["body"]) else nil) : nil
+
+hits = match {
+  answer["status"] == 0 -> tap(SAMPLE) { say("  unreachable (${answer["error"]}) — using the sample") }
+  answer["status"] != 200 -> tap(SAMPLE) { say("  HTTP ${answer["status"]} — using the sample") }
+  !is(payload, "dict") || !is(payload["hits"], "array") -> tap(SAMPLE) { say("  unexpected body — using the sample") }
+  else -> tap(payload["hits"]) { (h) -> say("  ${answer["status"]} · ${h.len} of ${payload["nbHits"] ?? h.len} stories") }
+}
+
+# --- normalise --------------------------------------------------------------------
+#
+# An API answers with its shape, not yours. One pass turns the parts this script cares
+# about into flat records, and everything downstream reads those — so a renamed field
+# upstream is one line to fix here, not twenty greps.
+
+fn domain_of(link) {
+  m = str(link).captures(/^https?:\/\/(?:www\.)?([^\/:?#]+)/)
+  m == nil ? "news.ycombinator.com" : m[1].lower
+}
+
+# Column widths are in runes, and so is `slice`, so a Cyrillic or emoji title is cut
+# where it looks cut and the columns below still line up.
+fn short(s, n) { s.len <= n ? s : s.slice(0, n - 1) + "…" }
+
+stories = hits
+  .filter { is(it["title"], "string") && !it["title"].blank }
+  .map { (h) -> [
+    title:    h["title"].trim,
+    author:   h["author"] ?? "—",
+    points:   int(h["points"]),
+    comments: int(h["num_comments"]),
+    domain:   domain_of(h["url"]),
+    day:      str(h["created_at"]).first(10),     # "2026-08-11T08:15:46Z" → "2026-08-11"
+  ] }
+  .filter { it["points"] > 0 }
+
+if stories.empty {
+  say("nothing to report")
+  return
+}
+
+# --- the numbers ------------------------------------------------------------------
+
+total_points = stories.sum { it["points"] }
+total_comments = stories.sum { it["comments"] }
+top = stories.max_by { it["points"] }
+
+say("")
+say("%s · %d stories · %d points · %d comments" % [tag, stories.len, total_points, total_comments])
+say("average %.1f points and %.1f comments per story" % [
+  total_points / stories.len.float,
+  total_comments / stories.len.float,
+])
+
+# --- where the front page links ---------------------------------------------------
+#
+# group_by gives a dict of key → the matching elements; the map over it collapses each
+# group to one row, and sorting is a separate step on ordinary values. Nothing here
+# knows it came from HTTP.
+
+sites = stories
+  .group_by { it["domain"] }
+  .map { (host, rows) -> [
+    host:   host,
+    count:  rows.len,
+    points: rows.sum { it["points"] },
+    best:   rows.max_by { it["points"] }["title"],
+  ] }
+  .sort_by { [-it["points"], it["host"]] }
+
+say("")
+say("sites, by the points they pulled in")
+sites.take(8).each { (s) ->
+  share = 100.0 * s["points"] / total_points
+  say("  %-28s %2d × %5d pts  %4.1f%%  %s" % [
+    short(s["host"], 28), s["count"], s["points"], share, short(s["best"], 38),
+  ])
+}
+if sites.len > 8 {
+  rest = sites.drop(8)
+  say("  %-28s %2d × %5d pts" % ["… ${rest.len} more sites", rest.sum { it["count"] }, rest.sum { it["points"] }])
+}
+
+# --- what people argued about -----------------------------------------------------
+#
+# Comments per point is the cheap proxy for "this one got a thread". A story with 17
+# points and 22 comments has a wonderful ratio and means nothing, so the ratio is taken
+# over the upper half by points and not over everything — an ordering is only as honest
+# as what goes into it, and the cut belongs in the code where a reader can see it.
+
+ranked = stories.sort_by { -it["points"] }
+argued = ranked
+  .take(max(3, stories.len / 2))
+  .sort_by { -(it["comments"] / it["points"].float) }
+  .take(3)
+
+say("")
+say("most discussed per point, among the top %d by points" % [max(3, stories.len / 2)])
+argued.each { (s) ->
+  say("  %4.2f  %4d comments / %4d pts  %s" % [
+    s["comments"] / s["points"].float, s["comments"], s["points"], short(s["title"], 44),
+  ])
+}
+
+# --- authors with more than one story ---------------------------------------------
+
+repeats = stories
+  .group_by { it["author"] }
+  .filter { (_, rows) -> rows.len > 1 }
+  .sort_by { (_, rows) -> -rows.sum { it["points"] } }
+
+say("")
+if repeats.empty {
+  say("no author has two stories on this page")
+} else {
+  say("authors with more than one story")
+  repeats.each { (pair) ->
+    who = pair[0]
+    rows = pair[1]
+    say("  %-16s %d stories, %d pts: %s" % [who, rows.len, rows.sum { it["points"] },
+      rows.map { short(it["title"], 30) }.join(" · ")])
+  }
+}
+
+# --- the table --------------------------------------------------------------------
+#
+# `%<name>` reads its argument out of a dict by name, so a wide row stays readable: the
+# format string and the record are checked against each other by eye, not by counting
+# positions. The record is the story itself plus the one field the loop adds.
+
+say("")
+say("top %d by points" % [min(10, stories.len)])
+ranked.take(10).each_with_index { (s, i) ->
+  say("  %<rank>2d. %<points>5d pts %<comments>5d cmt  %<domain>-22s  %<title>s" %
+    s.merge([rank: i + 1, domain: short(s["domain"], 22), title: short(s["title"], 46)]))
+}
+
+say("")
+say("the one at the top: ${top["title"]}")
+say("  ${top["points"]} points, ${top["comments"]} comments, ${top["domain"]}, posted ${top["day"]}")

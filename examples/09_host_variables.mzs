@@ -1,0 +1,115 @@
+# 09 — $variables: the values the host puts in, and the ones the script hands back.
+#
+#   mzs examples/09_host_variables.mzs
+#   mzs -v '__sent=  ОПЕРАТОР ' -v price=1500 examples/09_host_variables.mzs
+#   mzs --vars '{"__sent":"да","price":1500,"tags":["vip","new"]}' examples/09_host_variables.mzs
+#
+# A `$name` is not a local: it lives in a table the host owns, it is a namespace of its
+# own, and it is never resolved through the scope chain. An unbound one reads as nil
+# instead of failing, because a dialogue condition must survive a variable that was
+# never set — that is the whole reason the form exists.
+
+# --- reading: unbound is nil, and nil has two operators ------------------------
+
+sent    = $__sent ?? ""
+price   = $price ?? "0"
+tags    = $tags ?? []
+name    = $client_name ?? "guest"
+
+say("what the host passed in")
+say("  \$__sent      ${inspect($__sent)}")
+say("  \$price       ${inspect($price)}")
+say("  \$tags        ${inspect($tags)}")
+say("  \$missing     ${inspect($nothing_here)}      — unbound reads as nil, never an error")
+say("  defined()    __sent=${defined($__sent)} nothing_here=${defined($nothing_here)}")
+
+# `defined` asks the table, not the value: a $var explicitly set to nil is still bound.
+say("  a bound nil is still defined once the host sets it")
+
+# --- host values arrive as strings; conversion is explicit and never raises ----
+#
+# With `-v` every value is a string. With `--vars` (JSON) an int stays an int. Code that
+# works under both is code that converts what it needs, when it needs it.
+
+say("")
+say("conversions")
+say("  price + 1200      ${price.int + 1200}      — .int of \"\" is 0, of \"12abc\" is 12")
+say("  is it a number?   ${price.str ~ /^\d+(\.\d+)?$/}")
+say("  as float          ${price.float}")
+say("  blank check       ${sent.str.blank}")
+say("  normalised        ${inspect(sent.str.lower.trim)}")
+
+# --- interpolation reaches $vars directly --------------------------------------
+
+say("")
+say("interpolation")
+say("  Hello, $client_name!  →  Hello, ${name}!")
+say("  \${\$price} inside text →  the price is ${$price ?? "unset"}")
+
+# --- the classic: a stored dialogue condition ---------------------------------
+#
+# These are the shapes a bot engine stores as strings and evaluates per message. Each is
+# a complete program whose value is a bool — which is what `mzs --bool` exits on.
+
+s = sent.str.lower.trim
+
+conditions = [
+  [name: "confirm",     value: s == "да" || s ~ /^(ага|конечно|yes|y)$/],
+  [name: "handoff",     value: s ~ /оператор|человек|поддержк|operator|support/],
+  [name: "menu",        value: s ~ /все темы|главное меню|\bменю\b|показать все/],
+  [name: "cancel",      value: s ~ /^(отмена|cancel|стоп)$/ || s.starts_with("❌")],
+  [name: "big spender", value: price.int >= 1000],
+  [name: "is vip",      value: is(tags, "array") && tags.has("vip")],
+  [name: "not empty",   value: !s.blank],
+]
+
+say("")
+say("stored conditions against ${inspect(sent)}")
+conditions.each { (c) ->
+  say("  ${(c["value"] ? "✓" : "·")} ${c["name"].ljust(14)}${c["value"]}")
+}
+
+intent = match {
+  conditions.find { it["name"] == "cancel" }["value"]  -> "cancel"
+  conditions.find { it["name"] == "handoff" }["value"] -> "handoff_operator"
+  conditions.find { it["name"] == "menu" }["value"]    -> "main_menu"
+  conditions.find { it["name"] == "confirm" }["value"] -> "confirm"
+  s.blank                                              -> "empty"
+  else                                                 -> "unknown"
+}
+
+# --- writing: a $var assigned here is what the host reads back ----------------
+#
+# In Go that is Result.Globals; from the CLI it is state that later lines can see. This
+# is how a "set variable" block in a flow editor is expressed.
+
+$intent = intent
+$normalized = s
+$attempts = ($attempts ?? "0").int + 1
+$score = (price.int / 100) + (intent == "confirm" ? 10 : 0)
+
+say("")
+say("what the script hands back")
+say("  \$intent      ${$intent}")
+say("  \$normalized  ${inspect($normalized)}")
+say("  \$attempts    ${$attempts}")
+say("  \$score       ${$score}")
+
+# --- the answer, as a bot engine would take it --------------------------------
+
+reply = match $intent {
+  "confirm"          -> "Отлично, записываю вас${name == "guest" ? "" : ", ${name}"}."
+  "handoff_operator" -> "Соединяю с оператором…"
+  "main_menu"        -> "Вот главное меню."
+  "cancel"           -> "Отменил."
+  "empty"            -> "Напишите что-нибудь, и я помогу."
+  else               -> "Не понял. Попробуйте «меню»."
+}
+
+say("")
+say("reply: ${reply}")
+say("payload: ${[intent: $intent, score: $score, vip: is(tags, "array") && tags.has("vip")].json}")
+
+# The value of the whole program is its last expression — `mzs --bool` turns that into
+# an exit code, which is how a condition becomes a branch in the flow engine.
+intent == "confirm"

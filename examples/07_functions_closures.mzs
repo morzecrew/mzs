@@ -1,0 +1,131 @@
+# 07 — functions, closures and the one namespace they share with the library.
+#
+#   mzs examples/07_functions_closures.mzs
+#
+# There is no "block" in this language: `{ … }` is a closure literal everywhere, a
+# trailing closure is just the last argument, and `x.f(y)` is `f(x, y)` — so a function
+# you write is usable as a method the moment it exists. This file builds a small
+# functional toolkit on those three facts.
+
+# --- parameters: defaults are evaluated at the call, rest collects the tail ----
+
+fn greet(name, greeting = "Hello", punct = "!") { "${greeting}, ${name}${punct}" }
+fn tag(name, *classes) { classes.empty ? "<${name}>" : "<${name} class=\"${classes.join(" ")}\">" }
+
+say(greet("Ann"))
+say(greet("Ann", "Добрый день", "."))
+say(tag("div") + tag("span", "big", "red"))
+
+# A default may read the parameters bound before it — they are ordinary expressions.
+fn slice_of(xs, from = 0, upto = xs.len) { xs.slice(from, upto - from) }
+say("slice_of: ${slice_of([1, 2, 3, 4, 5], 1).json} / ${slice_of([1, 2, 3, 4, 5], 1, 3).json}")
+
+# --- UFCS: your function is a method of its first argument ---------------------
+
+fn shout(s) { s.upper + "!" }
+fn truncate(s, n, tail = "…") { s.len <= n ? s : s.first(n - tail.len) + tail }
+
+say("")
+say("UFCS: ${"a long sentence that will not fit".truncate(20)} ${"done".shout}")
+say("     the same call: ${truncate("a long sentence that will not fit", 20)}")
+
+# --- closures capture the scope they were written in, by reference ------------
+
+fn make_counter(start = 0, step = 1) {
+  n = start
+  # Two closures over one binding: the state lives in the scope, not in either of them.
+  [ tick:  { n += step; n },
+    peek:  { n },
+    reset: { n = start; n } ]
+}
+
+c = make_counter(100, 5)
+c["tick"].call()
+c["tick"].call()
+say("")
+say("counter after two ticks: ${c["peek"].call()}, reset → ${c["reset"].call()}")
+
+# --- functions are values: compose, partially apply, dispatch -----------------
+
+fn compose(*fns) {
+  { (x) -> fns.reduce(x) { (acc, f) -> f.call(acc) } }
+}
+
+trim_it   = { (s) -> s.trim }
+lower_it  = { (s) -> s.lower }
+squash    = { (s) -> s.squeeze(" ") }
+normalize = compose(trim_it, lower_it, squash)
+
+say("")
+say("compose: ${inspect(normalize.call("   ОПЕРАТОР   нужен   "))}")
+
+fn multiplier(k) { { (x) -> x * k } }
+double = multiplier(2)
+treble = multiplier(3)
+say("partial application: ${[1, 2, 3].map(double).json} ${[1, 2, 3].map(treble).json}")
+
+# A closure passed by name and a closure written at the call site are the same thing.
+say("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it * 2 }.json}")
+
+# --- a validation chain: a list of closures, run in order ---------------------
+
+checks = [
+  [name: "not empty",  test: { (s) -> !s.blank }],
+  [name: "min length", test: { (s) -> s.len >= 3 }],
+  [name: "no digits",  test: { (s) -> s !~ /\d/ }],
+  [name: "ascii only", test: { (s) -> s.len == s.bytes.len }],
+]
+
+fn validate(value) {
+  failed = checks.reject { it["test"].call(value) }.map { it["name"] }
+  failed.empty ? "ok" : "failed: ${failed.join(", ")}"
+}
+
+say("")
+say("validation")
+["Ann", "", "a1", "Иван"].each { (v) -> say("  ${inspect(v).ljust(10)}${validate(v)}") }
+
+# --- recursion: named functions may call themselves; depth is bounded ---------
+
+fn quicksort(xs) {
+  return xs if xs.len <= 1
+  pivot = xs.first
+  rest = xs.drop(1)
+  quicksort(rest.filter { it < pivot }) + [pivot] + quicksort(rest.reject { it < pivot })
+}
+
+fn tree_sum(node) {
+  is(node, "array") ? node.sum { tree_sum(it) } : node
+}
+
+say("")
+say("quicksort: ${quicksort([9, 2, 7, 4, 1, 8, 3]).json}")
+say("nested sum: ${tree_sum([1, [2, [3, [4, [5]]]], 6])}")
+
+# Mutual recursion works because top-level `fn`s are hoisted before the file runs.
+fn is_even(n) { n == 0 ? true : is_odd(n - 1) }
+fn is_odd(n)  { n == 0 ? false : is_even(n - 1) }
+say("mutual recursion: 10 even? ${is_even(10)}, 7 even? ${is_even(7)}")
+
+# --- `return` is optional; the last expression is the value -------------------
+
+fn classify(n) {
+  return "negative" if n < 0            # early exit is what `return` is for
+  match { n == 0 -> "zero"; n < 10 -> "small"; else -> "large" }
+}
+say("")
+say("classify: ${[-2, 0, 5, 50].map { classify(it) }.join(" ")}")
+
+# --- what a closure knows about itself ----------------------------------------
+
+say("")
+say("arity of { (a, b) -> } is ${{ (a, b) -> a + b }.arity}, of a rest-arg fn is ${tag.arity} (variadic)")
+say("call by value: ${{ (a, b) -> a * b }.call(6, 7)}")
+
+# --- tap and pipe: inspect a pipeline without breaking it ---------------------
+
+result = [3, 1, 2]
+  .tap { say("tap sees ${it.json} and passes it on") }
+  .sort
+  .pipe { "sorted: ${it.json}" }
+say(result)

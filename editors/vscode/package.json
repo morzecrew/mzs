@@ -1,0 +1,140 @@
+{
+  "name": "mzs",
+  "displayName": "mzs",
+  "description": "Подсветка синтаксиса, автодополнение, подсказки и диагностика для языка mzs",
+  "version": "1.1.0",
+  "publisher": "morze",
+  "license": "MIT",
+  "icon": "icons/logo-128.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters",
+    "Themes"
+  ],
+  "keywords": [
+    "mzs",
+    "morze",
+    "morzebot",
+    "ruby"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:mzs"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mzs",
+        "aliases": [
+          "mzs",
+          "Morze Script"
+        ],
+        "extensions": [
+          ".mzs"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/mzs-light.svg",
+          "dark": "./icons/mzs-dark.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mzs",
+        "scopeName": "source.mzs",
+        "path": "./syntaxes/mzs.tmLanguage.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "mzs-seti",
+        "label": "mzs (Seti)",
+        "path": "./icons/theme/mzs-seti-icon-theme.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "mzs",
+        "path": "./snippets/mzs.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mzs.runFile",
+        "title": "mzs: запустить файл",
+        "icon": "$(play)"
+      },
+      {
+        "command": "mzs.evalSelection",
+        "title": "mzs: выполнить выделенное как однострочник"
+      },
+      {
+        "command": "mzs.showTokens",
+        "title": "mzs: показать поток токенов"
+      },
+      {
+        "command": "mzs.showAst",
+        "title": "mzs: показать AST"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "mzs.runFile",
+          "when": "resourceLangId == mzs",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mzs.evalSelection",
+          "when": "resourceLangId == mzs && editorHasSelection",
+          "group": "z_commands"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "mzs.evalSelection",
+        "key": "ctrl+shift+e",
+        "when": "editorTextFocus && resourceLangId == mzs && editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "mzs",
+      "properties": {
+        "mzs.path": {
+          "type": "string",
+          "default": "mzs",
+          "markdownDescription": "Путь к исполняемому файлу `mzs`. Соберите его командой `go build -o ~/bin/mzs ./cmd/mzs`."
+        },
+        "mzs.time": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Проверять и запускать с `--time` — иначе `include time` и `include date` будут ошибкой (SPEC §12.8)."
+        },
+        "mzs.diagnostics.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Показывать ошибки и предупреждения от `mzs --check`."
+        },
+        "mzs.diagnostics.delay": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "description": "Задержка в миллисекундах между вводом и проверкой."
+        },
+        "mzs.completion.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Автодополнение методов, встроенных функций и ключевых слов."
+        }
+      }
+    }
+  }
+}

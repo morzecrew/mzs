@@ -1,0 +1,134 @@
+# 11 — a log analyser: parse, group, rank, report.
+#
+#   mzs examples/11_log_parser.mzs
+#
+# Thirty lines of access log go in and an operations report comes out: error rate,
+# latency percentiles, the endpoints that hurt, and the one client worth blocking. The
+# shape is the one every log tool has — a regex per line, dicts as records, group_by and
+# sort_by for the questions — and it is short because the pipeline never leaves the data.
+
+log = "
+2026-03-05T09:00:01 INFO  api  GET  /health        200   3ms  10.0.0.9
+2026-03-05T09:00:04 INFO  api  GET  /catalog       200  41ms  10.0.0.9
+2026-03-05T09:01:12 INFO  api  GET  /catalog       200  38ms  10.0.0.4
+2026-03-05T09:01:44 WARN  api  GET  /catalog       200 210ms  10.0.0.4
+2026-03-05T09:02:03 INFO  api  POST /booking       201  88ms  10.0.0.4
+2026-03-05T09:02:31 ERROR api  POST /booking       500 120ms  10.0.0.7
+2026-03-05T09:03:00 INFO  api  GET  /health        200   2ms  10.0.0.9
+2026-03-05T09:03:19 INFO  api  GET  /booking/42    200  17ms  10.0.0.4
+2026-03-05T09:04:02 ERROR api  POST /payment       502 980ms  10.0.0.7
+2026-03-05T09:04:37 WARN  api  GET  /catalog       200 305ms  10.0.0.2
+2026-03-05T09:05:10 INFO  api  GET  /catalog       200  35ms  10.0.0.2
+2026-03-05T09:05:44 ERROR api  POST /payment       502 1200ms 10.0.0.7
+2026-03-05T09:06:01 INFO  api  GET  /health        200   3ms  10.0.0.9
+2026-03-05T09:06:28 INFO  api  POST /booking       201  75ms  10.0.0.2
+2026-03-05T09:07:03 ERROR api  GET  /booking/999   404  12ms  10.0.0.7
+2026-03-05T09:07:41 INFO  api  GET  /catalog       200  44ms  10.0.0.4
+2026-03-05T09:08:09 WARN  api  POST /booking       201 260ms  10.0.0.2
+2026-03-05T09:08:55 ERROR api  POST /payment       500 640ms  10.0.0.7
+2026-03-05T09:09:12 INFO  api  GET  /health        200   4ms  10.0.0.9
+2026-03-05T09:09:39 INFO  api  GET  /catalog       200  29ms  10.0.0.2
+2026-03-05T09:10:02 INFO  api  GET  /booking/17    200  19ms  10.0.0.4
+2026-03-05T09:10:48 ERROR api  POST /payment       502 1100ms 10.0.0.7
+2026-03-05T09:11:15 INFO  api  GET  /catalog       200  33ms  10.0.0.2
+2026-03-05T09:11:52 WARN  api  GET  /booking/8     200 190ms  10.0.0.4
+2026-03-05T09:12:30 INFO  api  POST /booking       201  81ms  10.0.0.9
+2026-03-05T09:13:07 ERROR api  POST /booking       409  22ms  10.0.0.2
+2026-03-05T09:13:44 INFO  api  GET  /health        200   3ms  10.0.0.9
+2026-03-05T09:14:21 INFO  api  GET  /catalog       200  47ms  10.0.0.4
+2026-03-05T09:14:58 ERROR api  POST /payment       502 1350ms 10.0.0.7
+this line is not a log line at all
+"
+
+LINE = /^(?<ts>\S+) (?<level>\w+)\s+(?<svc>\w+)\s+(?<method>\w+)\s+(?<path>\S+)\s+(?<status>\d{3})\s+(?<ms>\d+)ms\s+(?<ip>[\d.]+)$/
+
+# --- parse: a nil from `captures` is a line that is not ours ------------------
+
+parsed = log.lines.map { it.trim }.reject { it.blank }.map { (l) -> l.captures(LINE) }
+bad = parsed.count { it == nil }
+rows = parsed.compact.map { (m) ->
+  [ time:   m["ts"].last(8),
+    minute: m["ts"].last(8).first(5),
+    level:  m["level"],
+    method: m["method"],
+    path:   m["path"],
+    status: m["status"].int,
+    ms:     m["ms"].int,
+    ip:     m["ip"] ]
+}
+
+say("parsed ${rows.len} entries, skipped ${bad} unparsable line(s)")
+say("window ${rows.first["time"]} – ${rows.last["time"]}")
+
+# --- health at a glance --------------------------------------------------------
+
+errors = rows.filter { it["status"] >= 400 }
+say("")
+say("error rate ${errors.len * 100 / rows.len}% (${errors.len}/${rows.len}) — ${rows.map { it["level"] }.tally.json}")
+say("statuses   ${rows.map { it["status"] }.tally.sort_by { (code, _) -> code }.map { "${it[0]}×${it[1]}" }.join("  ")}")
+
+# --- latency: sort once, read the percentiles off the array -------------------
+
+fn percentile(sorted, p) { sorted[((sorted.len - 1) * p / 100).clamp(0, sorted.len - 1)] }
+
+lat = rows.map { it["ms"] }.sort
+say("")
+say("latency  min ${lat.first}ms  p50 ${percentile(lat, 50)}ms  p90 ${percentile(lat, 90)}ms  p95 ${percentile(lat, 95)}ms  max ${lat.last}ms")
+say("mean ${lat.sum / lat.len}ms over ${lat.len} requests")
+
+# --- per endpoint: the table an on-call reads first ---------------------------
+
+say("")
+say("${"endpoint".ljust(18)}${"n".rjust(4)}${"err".rjust(5)}${"p95".rjust(8)}${"worst".rjust(8)}  profile")
+say("-" * 64)
+rows.group_by { "${it["method"]} ${it["path"].replace(/\/\d+$/, "/{id}")}" }
+    .sort_by { (_, rs) -> -rs.map { it["ms"] }.max }
+    .each { (pair) ->
+      name = pair[0]
+      rs = pair[1]
+      ms = rs.map { it["ms"] }.sort
+      errs = rs.count { it["status"] >= 400 }
+      bar = "▇" * (ms.max / 100).clamp(0, 14)
+      say("${name.ljust(18)}${rs.len.str.rjust(4)}${errs.str.rjust(5)}${(percentile(ms, 95).str + "ms").rjust(8)}${(ms.max.str + "ms").rjust(8)}  ${bar}")
+    }
+
+# --- who is causing it ---------------------------------------------------------
+
+say("")
+say("by client")
+rows.group_by { it["ip"] }
+    .map { (ip, rs) -> [ip: ip, n: rs.len, errs: rs.count { it["status"] >= 400 }] }
+    .sort_by { -it["errs"] }
+    .each { (c) ->
+      share = c["errs"] * 100 / c["n"]
+      flag = share >= 50 ? "  ← ${share}% of its traffic fails" : ""
+      say("  ${c["ip"].ljust(11)}${c["n"].str.rjust(3)} req  ${c["errs"].str.rjust(2)} err  ${share.str.rjust(3)}%${flag}")
+    }
+
+# --- traffic per minute, as a shape rather than a number ----------------------
+
+say("")
+say("requests per minute")
+per_minute = rows.group_by { it["minute"] }
+per_minute.keys.sort.each { (m) ->
+  n = per_minute[m].len
+  errs = per_minute[m].count { it["status"] >= 400 }
+  say("  ${m}  ${"█" * (n - errs)}${"░" * errs} ${n}")
+}
+
+# --- the incident: consecutive failures on one endpoint -----------------------
+
+payment = rows.filter { it["path"] == "/payment" }
+say("")
+say("incident: ${payment.len} calls to /payment, ${payment.count { it["status"] >= 500 }} of them 5xx")
+say("  first at ${payment.first["time"]}, last at ${payment.last["time"]}")
+say("  latency climbed ${payment.map { "${it["ms"]}ms" }.join(" → ")}")
+say("  suggested action: circuit-break /payment for ${payment.last["ip"]}")
+
+# --- the one-liner an operator would actually type ----------------------------
+
+say("")
+say("top 3 slowest single requests:")
+rows.sort_by { -it["ms"] }.take(3).each { (r) ->
+  say("  ${r["time"]}  ${r["ms"].str.rjust(5)}ms  ${r["method"]} ${r["path"]} → ${r["status"]}")
+}

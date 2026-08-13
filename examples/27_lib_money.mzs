@@ -1,0 +1,30 @@
+# A money module. Nothing here is reachable from the outside unless it says `export`,
+# which is what makes `rate` and `round_half_up` private implementation details.
+
+include text from "./27_lib_text.mzs"
+
+export currency = "₽"
+export vat_percent = 20
+
+# private: the importer cannot see these, and `defined(money.rate)` is false
+rate = 100
+fn round_half_up(n) { (n + rate / 2) / rate * rate }
+
+export fn from_units(units) { units * rate }
+export fn to_units(cents) { cents / rate }
+
+export fn format(cents) {
+  whole = cents / rate
+  frac = (cents % rate).str.rjust(2, "0")
+  "${text.group(whole)}.${frac} ${currency}"
+}
+
+export fn vat(cents) { cents * vat_percent / (100 + vat_percent) }
+export fn with_vat(cents) { cents + cents * vat_percent / 100 }
+export fn discount(cents, percent) { round_half_up(cents - cents * percent / 100) }
+
+export fn split_evenly(cents, ways) {
+  base = cents / ways
+  extra = cents % ways
+  (0..<ways).map { (i) -> i < extra ? base + 1 : base }
+}

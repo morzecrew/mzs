@@ -1,0 +1,156 @@
+# 23 — breadth-first search: shortest path through a maze.
+#
+#   mzs examples/23_maze_bfs.mzs
+#
+# A queue is an array with `shift`, a visited set is a dict, and a coordinate is a string
+# key — that is the entire data structure budget of BFS. The program finds the shortest
+# path, reconstructs it through a parent map, prints the distance field, and then proves
+# the answer by checking that no shorter path exists.
+
+MAZE = "
+#########################
+#S....#.......#.........#
+#.###.#.#####.#.#######.#
+#.#...#.....#.#.#.....#.#
+#.#.#######.#.#.#.###.#.#
+#...#.......#...#.#...#.#
+###.#.#########.#.#.###.#
+#...#.#.......#.#.#...#.#
+#.###.#.#####.#.#.###.#.#
+#.....#.....#...#...#..E#
+#########################
+"
+
+grid = MAZE.lines.reject { it.blank }.map { it.chars }
+H = grid.len
+W = grid.first.len
+
+fn key(x, y) { "${x},${y}" }
+
+fn find_cell(grid, ch) {
+  found = nil
+  grid.each_with_index { (row, y) ->
+    row.each_with_index { (c, x) -> found = [x: x, y: y] if c == ch }
+  }
+  found
+}
+
+start = find_cell(grid, "S")
+goal = find_cell(grid, "E")
+
+say("maze ${W}×${H}, start ${key(start["x"], start["y"])}, exit ${key(goal["x"], goal["y"])}")
+say("walls ${grid.flatten.count { it == "#" }}, open ${grid.flatten.count { it != "#" }}")
+
+# --- the search ------------------------------------------------------------------
+#
+# The queue holds cells to expand; `dist` doubles as the visited set, because a cell with
+# a distance has been seen. `parent` remembers where each cell was reached from, which is
+# what turns "how far" into "which way".
+
+STEPS = [[0, -1], [1, 0], [0, 1], [-1, 0]]
+
+fn bfs(grid, from, to) {
+  queue = [from]
+  dist = [:]
+  parent = [:]
+  dist.set(key(from["x"], from["y"]), 0)
+  expanded = 0
+
+  while !queue.empty {
+    cell = queue.shift
+    expanded += 1
+    break if cell["x"] == to["x"] && cell["y"] == to["y"]
+
+    here = key(cell["x"], cell["y"])
+    STEPS.each { (d) ->
+      nx = cell["x"] + d[0]
+      ny = cell["y"] + d[1]
+      next if nx < 0 || ny < 0 || nx >= W || ny >= H
+      next if grid[ny][nx] == "#"
+      k = key(nx, ny)
+      next if dist.has(k)
+      dist.set(k, dist[here] + 1)
+      parent.set(k, here)
+      queue.push([x: nx, y: ny])
+    }
+  }
+
+  [dist: dist, parent: parent, expanded: expanded]
+}
+
+search = bfs(grid, start, goal)
+goal_key = key(goal["x"], goal["y"])
+
+say("")
+say("expanded ${search["expanded"]} cells, reached ${search["dist"].len} of ${grid.flatten.count { it != "#" }} open cells")
+say("shortest path: ${search["dist"][goal_key] ?? "unreachable"} steps")
+
+# --- reconstruct the path by walking the parents backwards --------------------
+
+path = []
+cursor = goal_key
+while cursor != nil {
+  path.unshift(cursor)
+  cursor = search["parent"][cursor]
+}
+
+say("path length ${path.len} cells (${path.len - 1} moves)")
+say("first steps: ${path.take(6).join(" → ")} …")
+
+# --- draw it ---------------------------------------------------------------------
+
+on_path = path.reduce([:]) { (acc, k) -> acc.set(k, true) }
+
+say("")
+(0..<H).each { (y) ->
+  say("  " + (0..<W).map { (x) ->
+    match {
+      grid[y][x] == "S" || grid[y][x] == "E" -> grid[y][x]
+      on_path.has(key(x, y))                 -> "•"
+      else                                   -> grid[y][x]
+    }
+  }.join(""))
+}
+
+# --- the distance field says how the search spread ---------------------------
+
+say("")
+say("distance field (hex digits, · = wall, space = never reached)")
+(0..<H).each { (y) ->
+  say("  " + (0..<W).map { (x) ->
+    d = search["dist"][key(x, y)]
+    match {
+      grid[y][x] == "#" -> "·"
+      d == nil          -> " "
+      else              -> d.str(16).last(1)
+    }
+  }.join(""))
+}
+
+# --- the proof -------------------------------------------------------------------
+#
+# Two checks, because a path that looks right on screen can still be wrong: every step
+# must be to an adjacent open cell, and the length must equal the BFS distance — which is
+# the shortest by construction, since BFS expands in order of distance.
+
+fn coords(k) { k.split(",").map { it.int } }
+
+steps_ok = path.each_cons(2).all { (pair) ->
+  a = coords(pair[0])
+  b = coords(pair[1])
+  (a[0] - b[0]).abs + (a[1] - b[1]).abs == 1 && grid[b[1]][b[0]] != "#"
+}
+
+say("")
+say("every move is to an adjacent open cell: ${steps_ok}")
+say("path length equals the BFS distance:    ${path.len - 1 == search["dist"][goal_key]}")
+say("the exit is the farthest cell reached:  ${search["dist"].values.max == search["dist"][goal_key]}")
+
+# --- a closed maze: the same code must say so, not hang -----------------------
+
+sealed = grid.map { (row) -> dup(row) }
+sealed[9][23] = "#"
+sealed[8][22] = "#"
+blocked = bfs(sealed, start, [x: 23, y: 9])
+say("")
+say("with the exit walled in: ${blocked["dist"][goal_key] == nil ? "unreachable, reported in ${blocked["expanded"]} expansions" : "still reachable"}")

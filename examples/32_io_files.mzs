@@ -1,0 +1,103 @@
+# 32 — the io module: stdin, files and the environment.
+#
+#   mzs examples/32_io_files.mzs
+#   printf 'да\nнет\nда\n' | mzs examples/32_io_files.mzs
+#   MZS_DEMO=привет mzs examples/32_io_files.mzs
+#
+# The filesystem is a capability, not a given. `include io` only works because the host
+# installed an Options.FS, and the CLI is a host that does: the person typing the command
+# already owns the machine. Inside a bot that evaluates conditions out of a store, the same
+# line is a compile error naming the missing field — which is the whole design (§12.13).
+#
+# Everything written below goes into the system temp directory and is left there: there is
+# no io.rm, and there is not going to be one. A script reads a file, writes a file and
+# lists a directory; anything structural belongs to the host or to the shell.
+
+include io
+
+say("io — what the host handed over")
+say("")
+
+# --- the environment ----------------------------------------------------------
+#
+# io.env(name, default): unset *or empty* takes the default, the way ${HOME:-/tmp} does
+# in the shell it is going to be typed next to.
+
+TMP = io.env("TMPDIR", "/tmp")
+say("  TMPDIR      ${TMP}")
+say("  MZS_DEMO    ${io.env("MZS_DEMO", "(not set — try MZS_DEMO=привет)")}")
+say("  NOT_SET     ${inspect(io.env("MZS_NO_SUCH_VARIABLE"))}")
+
+# --- stdin --------------------------------------------------------------------
+#
+# io.stdin is read once per Run and kept; io.lines is that text split. Neither needs a
+# pipe to exist — with no reader the text is "" and the lines are [], so this file runs
+# the same whether you piped something into it or not.
+
+lines = io.lines
+say("")
+if lines.empty {
+  say("  stdin       empty (try: printf 'да\\nнет\\nда\\n' | mzs examples/32_io_files.mzs)")
+} else {
+  tally = lines.map { it.trim.lower }.tally
+  say("  stdin       ${lines.len} line(s), ${tally.len} distinct")
+  tally.each { (word, n) -> say("              ${word.ljust(12)}${n}") }
+}
+
+# --- write, read, append ------------------------------------------------------
+
+path = "${TMP}/mzs_example_32.txt"
+report = ["сеанс,минут", "стрижка,60", "борода,30"].join("\n") + "\n"
+
+say("")
+say("  file        ${path}")
+say("  existed     ${io.exists(path)}")
+
+written = io.write(path, report)
+say("  write       ${written} bytes")
+
+# io.write counts bytes, because that is what went to the disk; `len` on the string that
+# comes back counts runes, because that is what the language counts everywhere (§12.2).
+back = io.read(path)
+say("  read        ${back.lines.len} lines, ${back.len} runes")
+
+added = io.append(path, "окрашивание,120\n")
+say("  append      ${added} bytes")
+
+# The file is a value like any other once it is a string: the whole library applies.
+rows = io.read(path).lines.drop(1).map { it.split(",") }
+total = rows.map { it[1].int }.sum
+say("  parsed      ${rows.len} rows, ${total} minutes in total")
+rows.each { (r) -> say("              ${r[0].ljust(14)}${r[1].rjust(3)}") }
+
+# --- listing ------------------------------------------------------------------
+#
+# io.ls sorts. The order a filesystem hands entries back in is not a contract, and a
+# script that prints a directory must print the same thing twice in a row (§8.13).
+
+ours = io.ls(TMP).filter { it.starts_with("mzs_example_") }
+say("")
+say("  ls          ${ours.len} file(s) of ours in ${TMP}: ${ours.join(", ")}")
+
+# --- when the world says no ---------------------------------------------------
+#
+# A missing file is the outside world answering, not the script breaking its own rules,
+# so it is an ordinary catchable error with the path in the message (§8.11).
+
+missing = "${TMP}/mzs_example_32_does_not_exist.txt"
+say("")
+say("  exists      ${io.exists(missing)}   (a name that is not there is false, not an error)")
+say("  try read    ${try io.read(missing) else "(fell back to a default)"}")
+
+reason = try io.read(missing) else (e) -> e["message"]
+say("  the message ${reason}")
+
+# --- what the host still decides ----------------------------------------------
+#
+# Nothing above cleaned, joined or judged a path: what this script wrote arrived at
+# Options.FS verbatim. Whether "../../etc/shadow" is allowed is the policy of the code
+# that implemented the interface — here, the CLI, which allows what the shell allows.
+
+say("")
+say("  the module has eight members and no ninth:")
+say("    io.stdin  io.lines  io.read  io.write  io.append  io.exists  io.ls  io.env")

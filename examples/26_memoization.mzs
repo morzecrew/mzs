@@ -1,0 +1,149 @@
+# 26 — memoisation: a dict, a closure, and the cost of forgetting.
+#
+#   mzs examples/26_memoization.mzs
+#
+# A cache is a dict that a closure captures. That is the whole technique — but the
+# interesting part is measuring it, so every function here counts its own calls, and the
+# numbers below are the real ones, not an estimate.
+
+# --- the naive version, and why it hurts --------------------------------------
+
+naive_calls = 0
+fn fib_naive(n) {
+  naive_calls += 1
+  n < 2 ? n : fib_naive(n - 1) + fib_naive(n - 2)
+}
+
+say("plain recursion")
+[10, 18, 22].each { (n) ->
+  naive_calls = 0
+  v = fib_naive(n)
+  say("  fib(${n.str.rjust(2)}) = ${v.str.rjust(6)}   ${naive_calls} calls")
+}
+
+# --- the memoised version -------------------------------------------------------
+#
+# `cache` lives in the enclosing scope, so both the lookup and the store see the same
+# dict — and a closure that captures it keeps working after the function returns.
+
+cache = [:]
+memo_calls = 0
+hits = 0
+
+fn fib(n) {
+  memo_calls += 1
+  key = n.str
+  if cache.has(key) {
+    hits += 1
+    return cache[key]
+  }
+  v = n < 2 ? n : fib(n - 1) + fib(n - 2)
+  cache.set(key, v)
+  v
+}
+
+say("")
+say("with a cache")
+[10, 18, 22, 60, 90].each { (n) ->
+  memo_calls = 0
+  hits = 0
+  v = fib(n)
+  say("  fib(${n.str.rjust(2)}) = ${v.str.rjust(20)}   ${memo_calls.str.rjust(3)} calls, ${hits} of them cache hits")
+}
+say("  cache holds ${cache.len} entries after all of that")
+say("  fib(90) with plain recursion would take about ${(2 ** 45).str.first(3)}×10¹² calls")
+
+# --- a reusable memoiser: hand it a closure, get a faster one back ------------
+
+fn memoize(f) {
+  store = [:]
+  calls = [0, 0]                       # [total, misses]
+  wrapper = { (x) ->
+    calls[0] += 1
+    k = str(x)
+    if !store.has(k) {
+      calls[1] += 1
+      store.set(k, f.call(x))
+    }
+    store[k]
+  }
+  [call: wrapper, stats: { "${calls[0]} calls, ${calls[1]} misses, ${store.len} cached" }]
+}
+
+slow_square = { (n) -> (1..n).sum { 1 } * n }     # deliberately does real work
+fast = memoize(slow_square)
+
+inputs = [40, 40, 41, 40, 42, 41, 40]
+results = inputs.map { (n) -> fast["call"].call(n) }
+say("")
+say("memoize() over ${inputs.json}")
+say("  results ${results.json}")
+say("  ${fast["stats"].call()}")
+
+# --- Collatz: the cache pays off across calls, not inside one ----------------
+
+collatz_cache = [:]
+fn collatz_len(n) {
+  return 1 if n == 1
+  k = n.str
+  return collatz_cache[k] if collatz_cache.has(k)
+  next_n = n.even ? n / 2 : 3 * n + 1
+  v = 1 + collatz_len(next_n)
+  collatz_cache.set(k, v)
+  v
+}
+
+lengths = (1..300).map { (n) -> [n: n, len: collatz_len(n)] }
+best = lengths.max_by { it["len"] }
+say("")
+say("Collatz lengths for 1..300")
+say("  longest: ${best["n"]} with ${best["len"]} steps")
+say("  cache grew to ${collatz_cache.len} entries covering values far above 300")
+say("  top five: ${lengths.sort_by { -it["len"] }.take(5).map { "${it["n"]}(${it["len"]})" }.join(" ")}")
+
+# --- eviction: a dict is insertion-ordered, so FIFO eviction is two lines -----
+
+fn bounded_cache(limit) {
+  store = [:]
+  [ put: { (pair) ->
+      store.delete(store.keys.first) if store.len >= limit && !store.has(pair[0])
+      store.set(pair[0], pair[1])
+    },
+    get:  { (k) -> store[k] },
+    keys: { store.keys } ]
+}
+
+lru = bounded_cache(4)
+["a", "b", "c", "d", "e", "f"].each_with_index { (k, i) -> lru["put"].call([k, i]) }
+say("")
+say("a 4-entry FIFO cache after inserting a…f: ${lru["keys"].call().json}")
+say("  'a' was evicted: ${lru["get"].call("a") == nil}, 'f' is present: ${lru["get"].call("f") == 5}")
+
+# --- when memoisation is wrong --------------------------------------------------
+#
+# A cache assumes the function is pure. Cache something that reads mutable state, and you
+# have not made it faster — you have made it wrong.
+
+counter = 0
+impure = { (_) -> counter += 1; counter }
+cached_impure = memoize(impure)
+say("")
+say("caching an impure function:")
+say("  direct calls:  ${[impure.call(1), impure.call(1), impure.call(1)].json}   — different every time")
+say("  through cache: ${[cached_impure["call"].call(1), cached_impure["call"].call(1)].json}   — frozen at the first answer")
+say("  the cache is not broken; the function was never a function of its argument.")
+
+# --- the numbers, side by side --------------------------------------------------
+
+say("")
+say("${"n".rjust(4)}${"plain calls".rjust(14)}${"memo calls".rjust(12)}${"speedup".rjust(10)}")
+say("-" * 40)
+[10, 16, 20, 22].each { (n) ->
+  naive_calls = 0
+  fib_naive(n)
+  plain = naive_calls
+  cache = [:]
+  memo_calls = 0
+  fib(n)
+  say("${n.str.rjust(4)}${plain.str.rjust(14)}${memo_calls.str.rjust(12)}${(plain / memo_calls).str.rjust(9)}×")
+}

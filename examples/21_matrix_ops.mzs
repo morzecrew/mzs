@@ -1,0 +1,139 @@
+# 21 — matrices out of nested arrays: transpose, multiply, invert-by-hand.
+#
+#   mzs examples/21_matrix_ops.mzs
+#
+# There is no matrix type, and none is needed: an array of arrays plus `map` is a matrix
+# library. The interesting part is the determinant, which is recursion over minors, and
+# Gaussian elimination, which is the one place mutation earns its keep.
+
+A = [[1, 2, 3],
+     [4, 5, 6]]
+
+B = [[7,  8],
+     [9,  10],
+     [11, 12]]
+
+M = [[2, -1, 0],
+     [1,  3, 2],
+     [0,  5, 1]]
+
+# --- printing first, because everything below is easier to read that way ------
+
+fn render(name, m) {
+  width = m.flatten.map { str(it).len }.max
+  say("${name} = ${m.len}×${m.first.len}")
+  m.each { (row) -> say("  │ ${row.map { str(it).rjust(width) }.join("  ")} │") }
+}
+
+render("A", A)
+render("B", B)
+
+# --- transpose: one line, and the shape of every other operation --------------
+
+fn transpose(m) { (0..<m.first.len).map { (c) -> m.map { (row) -> row[c] } } }
+
+say("")
+render("Aᵀ", transpose(A))
+
+# --- multiply: rows of one against columns of the other -----------------------
+
+fn matmul(x, y) {
+  yt = transpose(y)
+  x.map { (row) -> yt.map { (col) -> row.zip(col).sum { (pair) -> pair[0] * pair[1] } } }
+}
+
+say("")
+render("A·B", matmul(A, B))
+render("B·A", matmul(B, A))
+say("  (matrix multiplication does not commute — the shapes alone say so)")
+
+# --- the small algebra --------------------------------------------------------
+
+fn identity(n) { (0..<n).map { (r) -> (0..<n).map { (c) -> r == c ? 1 : 0 } } }
+fn scale(m, k) { m.map { (row) -> row.map { it * k } } }
+fn add(x, y) { x.zip(y).map { (pair) -> pair[0].zip(pair[1]).map { (p) -> p[0] + p[1] } } }
+
+say("")
+render("I₃", identity(3))
+render("M", M)
+render("M·I", matmul(M, identity(3)))
+say("  M·I == M: ${matmul(M, identity(3)) == M}")
+render("2M − M", add(scale(M, 2), scale(M, -1)))
+
+# --- determinant: expansion by minors, which is naturally recursive -----------
+
+fn minor(m, skip_row, skip_col) {
+  (0..<m.len).reject { it == skip_row }.map { (r) ->
+    (0..<m.len).reject { it == skip_col }.map { (c) -> m[r][c] }
+  }
+}
+
+fn det(m) {
+  return m[0][0] if m.len == 1
+  return m[0][0] * m[1][1] - m[0][1] * m[1][0] if m.len == 2
+  (0..<m.len).sum { (c) -> (c.even ? 1 : -1) * m[0][c] * det(minor(m, 0, c)) }
+}
+
+say("")
+say("det(M)   = ${det(M)}")
+say("det(I₃)  = ${det(identity(3))}")
+say("det(2M)  = ${det(scale(M, 2))}  = 2³·det(M) = ${8 * det(M)}")
+
+# --- Gaussian elimination: solve M·x = b --------------------------------------
+#
+# Here the rows really are worked on in place: `dup` per row keeps the caller's matrix
+# intact, and the reduction is easier to read as steps than as a fold.
+
+fn solve(m, b) {
+  n = m.len
+  aug = (0..<n).map { (r) -> dup(m[r]) + [b[r]] }
+
+  (0..<n).each { (col) ->
+    # partial pivoting: the largest remaining coefficient becomes the pivot
+    pivot = (col..<n).max_by { (r) -> aug[r][col].abs }
+    tmp = aug[col]
+    aug[col] = aug[pivot]
+    aug[pivot] = tmp
+
+    ((col + 1)..<n).each { (r) ->
+      factor = aug[r][col].float / aug[col][col]
+      (col..n).each { (c) -> aug[r][c] = aug[r][c] - factor * aug[col][c] }
+    }
+  }
+
+  x = (0..<n).map { (_) -> 0.0 }
+  (n - 1).downto(0).each { (r) ->
+    known = ((r + 1)..<n).sum { (c) -> aug[r][c] * x[c] }
+    x[r] = (aug[r][n] - known) / aug[r][r]
+  }
+  x.map { (v) -> (v * 1000).round.float / 1000 }
+}
+
+b = [1, 8, 11]
+x = solve(M, b)
+say("")
+say("solving M·x = ${b.json}")
+say("  x = ${x.json}")
+say("  check M·x = ${matmul(M, x.map { (v) -> [v] }).map { (row) -> (row[0] * 1000).round.float / 1000 }.json}")
+
+# --- an application: rotating points --------------------------------------------
+
+fn rotation(cos_num, sin_num) { [[cos_num, -sin_num], [sin_num, cos_num]] }
+
+square = [[0, 0], [4, 0], [4, 4], [0, 4]]
+# A quarter turn needs no trigonometry: cos 90° = 0, sin 90° = 1.
+turned = matmul(square, transpose(rotation(0, 1)))
+
+say("")
+say("a square, rotated a quarter turn")
+say("  before ${square.json}")
+say("  after  ${turned.json}")
+say("  area is unchanged: ${det(rotation(0, 1))} × the original")
+
+# --- and the sanity checks a matrix library owes you --------------------------
+
+say("")
+say("(Aᵀ)ᵀ == A:            ${transpose(transpose(A)) == A}")
+say("det(Mᵀ) == det(M):     ${det(transpose(M)) == det(M)}")
+say("(A·B)ᵀ == Bᵀ·Aᵀ:       ${transpose(matmul(A, B)) == matmul(transpose(B), transpose(A))}")
+say("singular matrix found: ${det([[1, 2], [2, 4]]) == 0}")

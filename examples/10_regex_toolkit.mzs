@@ -1,0 +1,128 @@
+# 10 — regular expressions: a literal type, two engines, one syntax.
+#
+#   mzs examples/10_regex_toolkit.mzs
+#
+# `/re/` is a literal, matching is the `~` operator (never `==`), and the engine is
+# chosen for you: RE2 when the pattern is RE2-safe, a bundled backtracking engine when it
+# uses `\b`, lookaround or a backreference. Both accept the same syntax and both are
+# bounded, so a pathological pattern is a diagnostic and not a hung process.
+
+# --- matching is an operator, and it answers a bool ---------------------------
+
+say("matching")
+["Привет!", "hello", "12345"].each { (s) ->
+  say("  ${inspect(s).ljust(12)}~ /привет/i → ${s ~ /привет/i}   !~ /\\d/ → ${s !~ /\d/}")
+}
+
+# --- where, not just whether ---------------------------------------------------
+
+s = "order A-1043 shipped, order B-77 pending"
+say("")
+say("in ${inspect(s)}")
+say("  index(/[A-Z]-\\d+/)   ${s.index(/[A-Z]-\d+/)}          — a rune index")
+say("  count(/order/)       ${s.count(/order/)}")
+say("  matches(/[A-Z]-\\d+/) ${s.matches(/[A-Z]-\d+/).json}")
+
+# --- captures: positional and named --------------------------------------------
+#
+# `captures` returns the whole match at 0 and the groups after it; named groups are
+# reachable by name on the same array, which is what makes a parser readable.
+
+line = "2026-03-05T14:30:59+03:00 WARN  booking  slot 12 already taken (retry 2/5)"
+m = line.captures(/^(?<date>\d{4}-\d{2}-\d{2})T(?<time>[\d:]{8})\S*\s+(?<level>[A-Z]+)\s+(?<mod>\w+)\s+(?<msg>.+)$/)
+
+say("")
+say("one line, five fields")
+say("  whole:  ${m[0].first(28)}…")
+say("  date:   ${m["date"]}   time: ${m["time"]}")
+say("  level:  ${m["level"]}   module: ${m["mod"]}")
+say("  message ${inspect(m["msg"])}")
+say("  by position: ${m[1]} / ${m[3]}")
+
+# A failed match is nil, not an empty array — so `?.` and `??` do the work.
+say("  no match → ${inspect("nothing here".captures(/(\d+)/))}, safe: ${"nothing here".captures(/(\d+)/)?.first ?? "(none)"}")
+
+# --- every match, with its groups ---------------------------------------------
+
+csv = "cut=1500, colour=3200, shave=600, beard=800"
+# With groups, `matches` yields one array *of the groups* per match — the whole match is
+# what `captures` puts at index 0, and here it would only be in the way.
+pairs = csv.matches(/(\w+)=(\d+)/).map { (g) -> [g[0], g[1].int] }
+say("")
+say("matches with groups → ${pairs.dict.json}")
+say("total ${pairs.sum { it[1] }} ₽")
+
+# --- replacing: literal, backreference, or a closure over the match -----------
+
+say("")
+say("replacing")
+say("  literal:   ${"a-b-c".replace("-", "+")}")
+say("  first only ${"a-b-c".replace_first("-", "+")}")
+say("  by group:  ${"2026-03-05".replace(/(\d+)-(\d+)-(\d+)/, '\3/\2/\1')}")
+say("  by name:   ${"Ann Lee".replace(/(?<first>\w+) (?<last>\w+)/, '\k<last>, \k<first>')}")
+say("  by closure:${" " + "price 1500, fee 300".replace(/\d+/) { (n) -> "${n.int * 2}" }}")
+say("  redact:    ${"call +7 999 123-45-67 now".replace(/\d/, "•")}")
+
+# --- splitting on a pattern ----------------------------------------------------
+
+messy = "one,  two;three |four"
+say("")
+say("split on /[,;|]\\s*/ → ${messy.split(/[,;|]\s*/).map { it.trim }.json}")
+say("split on whitespace → ${"  a   b  c ".split(" ").json}   — a run of spaces is one separator")
+
+# --- flags ---------------------------------------------------------------------
+
+say("")
+say("flags")
+say("  i (case)        ${"ПРИВЕТ" ~ /привет/i}")
+say("  s (dot matches newline) ${"a\nb" ~ /a.b/s}")
+say("  m (^ per line)  ${"x\nfoo" ~ /^foo$/m}")
+say("  x (spacing)     ${"A-1043" ~ / [A-Z] - \d+ /x}   — /x ignores literal whitespace in the pattern")
+
+# --- what only the backtracking engine can do ---------------------------------
+#
+# `\b` is Unicode-aware here: it sits between a letter and a non-letter in any script,
+# which is exactly what a keyword search over Russian text needs.
+
+text = "еда, а не еды; поедим — но не «беда»"
+say("")
+say("word boundaries in ${inspect(text)}")
+say("  /\\bеда\\b/  → ${text ~ /\bеда\b/}   (matches the standalone word)")
+say("  /\\bбеда\\b/ → ${text ~ /\bбеда\b/}   (inside «» it is still a word)")
+say("  /\\bед\\b/   → ${text ~ /\bед\b/}   (a prefix is not a word)")
+
+say("")
+say("lookaround and backreferences")
+say("  price without the currency: ${"1500 ₽".captures(/\d+(?= ₽)/)[0]}")
+say("  not a test file:            ${"main.mzs" ~ /^(?!test_).*\.mzs$/}")
+say("  doubled word:               ${"the the end".captures(/\b(\w+) \1\b/)?.dig(1) ?? "(none)"}")
+
+# --- a regex is a value --------------------------------------------------------
+
+re = /^\+?\d[\d\s()-]{6,}$/
+say("")
+say("a regex value: source ${inspect(re.source)}, flags ${inspect(re.flags)}")
+say("  as a table:  ${["+7 999 123-45-67", "call me"].map { it ~ re }.json}")
+
+# Built at runtime from a string — note the doubled backslash: this is a *string*, so
+# `\d` would be a plain `d`. `mzs --check` warns about exactly this mistake.
+digits = regex("^\\d+$")
+say("  regex(\"^\\\\d+\$\") on \"42\": ${"42" ~ digits}")
+
+# --- putting it together: a tiny tokenizer ------------------------------------
+
+expr = "12 + 30*x - (7 / y)"
+tokens = expr.matches(/\d+|[a-z]+|[-+*\/()]/).map { (t) ->
+  kind = match t {
+    /^\d+$/    -> "number"
+    /^[a-z]+$/ -> "name"
+    else       -> "operator"
+  }
+  [text: t, kind: kind]
+}
+say("")
+say("tokenizing ${inspect(expr)}")
+tokens.each_slice(6).each { (row) ->
+  say("  ${row.map { "${it["text"]}:${it["kind"].first(3)}" }.join("  ")}")
+}
+say("  ${tokens.len} tokens, ${tokens.count { it["kind"] == "number" }} numbers, ${tokens.map { it["kind"] }.tally.json}")

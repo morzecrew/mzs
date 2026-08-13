@@ -1,0 +1,1583 @@
+{
+ "methods": {
+  "array": {
+   "all": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "without a closure, tests truthiness",
+    "ex": ""
+   },
+   "any": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "without a closure, tests truthiness",
+    "ex": ""
+   },
+   "array": {
+    "sig": "`array(x) -> array`",
+    "sem": "Array→itself, Range→materialise, Dict→`[[k,v],…]`, nil→`[]`, else `[x]`",
+    "ex": "`(1..3).array`"
+   },
+   "compact": {
+    "sig": "`-> array`",
+    "sem": "drops `nil`s",
+    "ex": ""
+   },
+   "concat": {
+    "sig": "`(other: array) -> array`",
+    "sem": "mutates",
+    "ex": ""
+   },
+   "count": {
+    "sig": "`(v) | { (x) -> … } -> int`",
+    "sem": "counts equal elements, or matches",
+    "ex": ""
+   },
+   "delete": {
+    "sig": "`(v: any) -> array`",
+    "sem": "removes all equal elements",
+    "ex": ""
+   },
+   "delete_at": {
+    "sig": "`(i: int) -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "dict": {
+    "sig": "`dict(x) -> dict`",
+    "sem": "from an Array of `[k,v]` pairs; Dict→itself",
+    "ex": "`[[1,2]].dict`"
+   },
+   "dig": {
+    "sig": "`(*keys) -> any`",
+    "sem": "nested lookup through Arrays and Dicts, nil-safe at every step",
+    "ex": ""
+   },
+   "drop": {
+    "sig": "`(n: int) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "drop_while": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "each": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "returns the receiver",
+    "ex": ""
+   },
+   "each_cons": {
+    "sig": "`(n: int) -> array`",
+    "sem": "sliding windows",
+    "ex": ""
+   },
+   "each_slice": {
+    "sig": "`(n: int) [{ (chunk) -> … }] -> array`",
+    "sem": "without a closure returns an array of chunks",
+    "ex": ""
+   },
+   "each_with_index": {
+    "sig": "`{ (x, i) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "empty": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "filter": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "find": {
+    "sig": "`{ (x) -> … } -> any | nil`",
+    "sem": "",
+    "ex": ""
+   },
+   "first": {
+    "sig": "`(n: int = nil) -> any | array`",
+    "sem": "element, or first/last `n`",
+    "ex": ""
+   },
+   "flat_map": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "flatten": {
+    "sig": "`(depth: int = -1) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "group_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "has": {
+    "sig": "`(v) -> bool`",
+    "sem": "uses `==`",
+    "ex": ""
+   },
+   "index": {
+    "sig": "`(v) | { (x) -> … } -> int | nil`",
+    "sem": "",
+    "ex": ""
+   },
+   "insert": {
+    "sig": "`(i: int, *v) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "join": {
+    "sig": "`(sep: string = \"\") -> string`",
+    "sem": "`str` of each element",
+    "ex": ""
+   },
+   "json": {
+    "sig": "`json(x) -> string`",
+    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+    "ex": "`[a: 1].json`"
+   },
+   "last": {
+    "sig": "`(n: int = nil) -> any | array`",
+    "sem": "element, or first/last `n`",
+    "ex": ""
+   },
+   "len": {
+    "sig": "`-> int`",
+    "sem": "",
+    "ex": ""
+   },
+   "map": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "max": {
+    "sig": "`[{ (x) -> … }] -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "max_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "min": {
+    "sig": "`[{ (x) -> … }] -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "min_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "none": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "without a closure, tests truthiness",
+    "ex": ""
+   },
+   "partition": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "pop": {
+    "sig": "`-> any`",
+    "sem": "removes and returns; `nil` when empty",
+    "ex": ""
+   },
+   "push": {
+    "sig": "`(*v) -> array`",
+    "sem": "appends, mutates, returns the receiver",
+    "ex": ""
+   },
+   "reduce": {
+    "sig": "`(init: any = nil) { (acc, x) -> … } -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "reject": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "reverse": {
+    "sig": "`-> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "reverse_in_place": {
+    "sig": "`-> array`",
+    "sem": "the mutating variants, named so at the call site",
+    "ex": ""
+   },
+   "sample": {
+    "sig": "`-> any | array`",
+    "sem": "require `Options.Rand`",
+    "ex": ""
+   },
+   "shift": {
+    "sig": "`-> any`",
+    "sem": "removes and returns; `nil` when empty",
+    "ex": ""
+   },
+   "shuffle": {
+    "sig": "`-> any | array`",
+    "sem": "require `Options.Rand`",
+    "ex": ""
+   },
+   "slice": {
+    "sig": "`(i: int, n: int = 1) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "sort": {
+    "sig": "`[{ (a, b) -> int }] -> array`",
+    "sem": "stable; the closure returns a `<=>`-style int",
+    "ex": ""
+   },
+   "sort_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "sort_in_place": {
+    "sig": "`-> array`",
+    "sem": "the mutating variants, named so at the call site",
+    "ex": ""
+   },
+   "sum": {
+    "sig": "`[{ (x) -> … }] -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "take": {
+    "sig": "`(n: int) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "take_while": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "tally": {
+    "sig": "`-> dict`",
+    "sem": "element → count",
+    "ex": ""
+   },
+   "uniq": {
+    "sig": "`[{ (x) -> … }] -> array`",
+    "sem": "preserves the first occurrence",
+    "ex": ""
+   },
+   "unshift": {
+    "sig": "`(*v) -> array`",
+    "sem": "prepends",
+    "ex": ""
+   },
+   "zip": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "",
+    "ex": ""
+   }
+  },
+  "bool": {
+   "&": {},
+   "^": {},
+   "|": {}
+  },
+  "dict": {
+   "all": {
+    "sig": "`{ (k, v) -> … } -> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "any": {
+    "sig": "`{ (k, v) -> … } -> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "array": {
+    "sig": "`array(x) -> array`",
+    "sem": "Array→itself, Range→materialise, Dict→`[[k,v],…]`, nil→`[]`, else `[x]`",
+    "ex": "`(1..3).array`"
+   },
+   "delete": {
+    "sig": "`(k) -> any`",
+    "sem": "returns the removed value",
+    "ex": ""
+   },
+   "dig": {
+    "sig": "`(*keys) -> any`",
+    "sem": "nested lookup, nil-safe",
+    "ex": ""
+   },
+   "each": {
+    "sig": "`{ (k, v) -> … } -> dict`",
+    "sem": "",
+    "ex": ""
+   },
+   "empty": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "fetch": {
+    "sig": "`(k) -> any`",
+    "sem": "raises when absent",
+    "ex": ""
+   },
+   "filter": {
+    "sig": "`{ (k, v) -> … } -> dict`",
+    "sem": "",
+    "ex": ""
+   },
+   "find": {
+    "sig": "`{ (k, v) -> … } -> array | nil`",
+    "sem": "the `[k, v]` pair",
+    "ex": ""
+   },
+   "get": {
+    "sig": "`(k, default: any = nil) -> any`",
+    "sem": "`nil` (or the default) when absent",
+    "ex": ""
+   },
+   "has": {
+    "sig": "`(k) -> bool`",
+    "sem": "key test",
+    "ex": ""
+   },
+   "has_val": {
+    "sig": "`(v) -> bool`",
+    "sem": "value test",
+    "ex": ""
+   },
+   "invert": {
+    "sig": "`-> dict`",
+    "sem": "",
+    "ex": ""
+   },
+   "json": {
+    "sig": "`json(x) -> string`",
+    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+    "ex": "`[a: 1].json`"
+   },
+   "keys": {
+    "sig": "`-> array`",
+    "sem": "insertion order",
+    "ex": ""
+   },
+   "len": {
+    "sig": "`-> int`",
+    "sem": "",
+    "ex": ""
+   },
+   "map": {
+    "sig": "`{ (k, v) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "merge": {
+    "sig": "`(*others: dict) -> dict`",
+    "sem": "new dict, later wins",
+    "ex": ""
+   },
+   "merge_in_place": {
+    "sig": "`(*others: dict) -> dict`",
+    "sem": "mutating",
+    "ex": ""
+   },
+   "reject": {
+    "sig": "`{ (k, v) -> … } -> dict`",
+    "sem": "",
+    "ex": ""
+   },
+   "set": {
+    "sig": "`(k, v) -> dict`",
+    "sem": "mutates, returns the receiver; inserts at the end when new",
+    "ex": ""
+   },
+   "sort_by": {
+    "sig": "`{ (k, v) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "values": {
+    "sig": "`-> array`",
+    "sem": "insertion order",
+    "ex": ""
+   }
+  },
+  "float": {
+   "abs": {
+    "sig": "`-> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "ceil": {
+    "sig": "`(digits: int = 0) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "chr": {
+    "sig": "`-> string`",
+    "sem": "code point → string",
+    "ex": ""
+   },
+   "clamp": {
+    "sig": "`(lo, hi) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "days": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "downto": {
+    "sig": "`(n: int) [{ (i) -> … }] -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "float": {
+    "sig": "`-> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "floor": {
+    "sig": "`(digits: int = 0) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "hours": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "int": {
+    "sig": "`-> int`",
+    "sem": "Float truncates toward zero",
+    "ex": ""
+   },
+   "json": {
+    "sig": "`json(x) -> string`",
+    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+    "ex": "`[a: 1].json`"
+   },
+   "minutes": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "negative": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "positive": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "pow": {
+    "sig": "`(e) -> number`",
+    "sem": "same as `**`",
+    "ex": ""
+   },
+   "round": {
+    "sig": "`(digits: int = 0) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "seconds": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "step": {
+    "sig": "`(limit, by) [{ (i) -> … }] -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "str": {
+    "sig": "`(base: int = 10) -> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "times": {
+    "sig": "`[{ (i) -> … }] -> array`",
+    "sem": "`3.times` without a closure → `[0,1,2]`",
+    "ex": ""
+   },
+   "upto": {
+    "sig": "`(n: int) [{ (i) -> … }] -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "weeks": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "zero": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   }
+  },
+  "fn": {
+   "arity": {
+    "sig": "",
+    "sem": "returns int",
+    "ex": ""
+   },
+   "call": {
+    "sig": "call(*args)",
+    "sem": "",
+    "ex": ""
+   }
+  },
+  "int": {
+   "abs": {
+    "sig": "`-> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "ceil": {
+    "sig": "`(digits: int = 0) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "chr": {
+    "sig": "`-> string`",
+    "sem": "code point → string",
+    "ex": ""
+   },
+   "clamp": {
+    "sig": "`(lo, hi) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "days": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "downto": {
+    "sig": "`(n: int) [{ (i) -> … }] -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "even": {
+    "sig": "`-> bool`",
+    "sem": "Int only",
+    "ex": ""
+   },
+   "float": {
+    "sig": "`-> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "floor": {
+    "sig": "`(digits: int = 0) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "hours": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "int": {
+    "sig": "`-> int`",
+    "sem": "Float truncates toward zero",
+    "ex": ""
+   },
+   "json": {
+    "sig": "`json(x) -> string`",
+    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+    "ex": "`[a: 1].json`"
+   },
+   "minutes": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "negative": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "odd": {
+    "sig": "`-> bool`",
+    "sem": "Int only",
+    "ex": ""
+   },
+   "positive": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "pow": {
+    "sig": "`(e) -> number`",
+    "sem": "same as `**`",
+    "ex": ""
+   },
+   "round": {
+    "sig": "`(digits: int = 0) -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "seconds": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "step": {
+    "sig": "`(limit, by) [{ (i) -> … }] -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "str": {
+    "sig": "`(base: int = 10) -> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "times": {
+    "sig": "`[{ (i) -> … }] -> array`",
+    "sem": "`3.times` without a closure → `[0,1,2]`",
+    "ex": ""
+   },
+   "upto": {
+    "sig": "`(n: int) [{ (i) -> … }] -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "weeks": {
+    "sig": "`-> duration`",
+    "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "zero": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   }
+  },
+  "range": {
+   "all": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "without a closure, tests truthiness",
+    "ex": ""
+   },
+   "any": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "without a closure, tests truthiness",
+    "ex": ""
+   },
+   "array": {
+    "sig": "`array(x) -> array`",
+    "sem": "Array→itself, Range→materialise, Dict→`[[k,v],…]`, nil→`[]`, else `[x]`",
+    "ex": "`(1..3).array`"
+   },
+   "compact": {
+    "sig": "`-> array`",
+    "sem": "drops `nil`s",
+    "ex": ""
+   },
+   "count": {
+    "sig": "`(v) | { (x) -> … } -> int`",
+    "sem": "counts equal elements, or matches",
+    "ex": ""
+   },
+   "dict": {
+    "sig": "`dict(x) -> dict`",
+    "sem": "from an Array of `[k,v]` pairs; Dict→itself",
+    "ex": "`[[1,2]].dict`"
+   },
+   "drop": {
+    "sig": "`(n: int) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "drop_while": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "each": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "returns the receiver",
+    "ex": ""
+   },
+   "each_cons": {
+    "sig": "`(n: int) -> array`",
+    "sem": "sliding windows",
+    "ex": ""
+   },
+   "each_slice": {
+    "sig": "`(n: int) [{ (chunk) -> … }] -> array`",
+    "sem": "without a closure returns an array of chunks",
+    "ex": ""
+   },
+   "each_with_index": {
+    "sig": "`{ (x, i) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "empty": {
+    "sig": "`-> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "filter": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "find": {
+    "sig": "`{ (x) -> … } -> any | nil`",
+    "sem": "",
+    "ex": ""
+   },
+   "first": {
+    "sig": "`(n: int = nil) -> any | array`",
+    "sem": "element, or first/last `n`",
+    "ex": ""
+   },
+   "flat_map": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "flatten": {
+    "sig": "`(depth: int = -1) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "group_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "has": {
+    "sig": "`(v) -> bool`",
+    "sem": "uses `==`",
+    "ex": ""
+   },
+   "index": {
+    "sig": "`(v) | { (x) -> … } -> int | nil`",
+    "sem": "",
+    "ex": ""
+   },
+   "join": {
+    "sig": "`(sep: string = \"\") -> string`",
+    "sem": "`str` of each element",
+    "ex": ""
+   },
+   "json": {
+    "sig": "`json(x) -> string`",
+    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+    "ex": "`[a: 1].json`"
+   },
+   "last": {
+    "sig": "`(n: int = nil) -> any | array`",
+    "sem": "element, or first/last `n`",
+    "ex": ""
+   },
+   "len": {
+    "sig": "`-> int`",
+    "sem": "",
+    "ex": ""
+   },
+   "map": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "max": {
+    "sig": "`[{ (x) -> … }] -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "max_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "min": {
+    "sig": "`[{ (x) -> … }] -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "min_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "none": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "without a closure, tests truthiness",
+    "ex": ""
+   },
+   "partition": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "reduce": {
+    "sig": "`(init: any = nil) { (acc, x) -> … } -> any`",
+    "sem": "",
+    "ex": ""
+   },
+   "reject": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "reverse": {
+    "sig": "`-> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "sample": {
+    "sig": "`-> any | array`",
+    "sem": "require `Options.Rand`",
+    "ex": ""
+   },
+   "shuffle": {
+    "sig": "`-> any | array`",
+    "sem": "require `Options.Rand`",
+    "ex": ""
+   },
+   "slice": {
+    "sig": "`(i: int, n: int = 1) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "sort": {
+    "sig": "`[{ (a, b) -> int }] -> array`",
+    "sem": "stable; the closure returns a `<=>`-style int",
+    "ex": ""
+   },
+   "sort_by": {
+    "sig": "`{ (x) -> … } -> …`",
+    "sem": "",
+    "ex": ""
+   },
+   "step": {},
+   "sum": {
+    "sig": "`[{ (x) -> … }] -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "take": {
+    "sig": "`(n: int) -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "take_while": {
+    "sig": "`{ (x) -> … } -> array`",
+    "sem": "",
+    "ex": ""
+   },
+   "tally": {
+    "sig": "`-> dict`",
+    "sem": "element → count",
+    "ex": ""
+   },
+   "uniq": {
+    "sig": "`[{ (x) -> … }] -> array`",
+    "sem": "preserves the first occurrence",
+    "ex": ""
+   },
+   "zip": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "",
+    "ex": ""
+   }
+  },
+  "regex": {
+   "captures": {
+    "sig": "`(s: string) -> array | nil`",
+    "sem": "§8.4",
+    "ex": ""
+   },
+   "flags": {
+    "sig": "`-> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "index": {
+    "sig": "`(s: string) -> int | nil`",
+    "sem": "rune index of the first match",
+    "ex": ""
+   },
+   "matches": {
+    "sig": "`(s: string) -> array`",
+    "sem": "every match",
+    "ex": ""
+   },
+   "source": {
+    "sig": "`-> string`",
+    "sem": "the pattern text",
+    "ex": ""
+   },
+   "str": {
+    "sig": "`-> string`",
+    "sem": "`/src/flags`",
+    "ex": ""
+   }
+  },
+  "string": {
+   "blank": {
+    "sig": "`-> bool`",
+    "sem": "empty after `trim`",
+    "ex": ""
+   },
+   "bytes": {
+    "sig": "`-> array`",
+    "sem": "integer byte values",
+    "ex": ""
+   },
+   "capitalize": {
+    "sig": "`-> string`",
+    "sem": "first rune upper, rest lower",
+    "ex": ""
+   },
+   "captures": {
+    "sig": "`(re: regex) -> array | nil`",
+    "sem": "element 0 is the whole match, 1..n the groups; named groups also reachable as `m[\"name\"]`",
+    "ex": ""
+   },
+   "center": {
+    "sig": "`(width: int, pad: string = \" \") -> string`",
+    "sem": "rune widths",
+    "ex": ""
+   },
+   "chars": {
+    "sig": "`-> array`",
+    "sem": "one-rune strings",
+    "ex": ""
+   },
+   "chomp": {
+    "sig": "`(suffix: string = \"\\n\") -> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "chop": {
+    "sig": "`-> string`",
+    "sem": "drops the last rune",
+    "ex": ""
+   },
+   "count": {
+    "sig": "`(sub: string | regex) -> int`",
+    "sem": "non-overlapping occurrences",
+    "ex": ""
+   },
+   "each_char": {
+    "sig": "`{ (c) -> … } -> string`",
+    "sem": "iterates, returns the receiver",
+    "ex": ""
+   },
+   "empty": {
+    "sig": "`-> bool`",
+    "sem": "`len == 0`",
+    "ex": ""
+   },
+   "ends_with": {
+    "sig": "`(*suffixes: string) -> bool`",
+    "sem": "",
+    "ex": ""
+   },
+   "first": {
+    "sig": "`(n: int = 1) -> string`",
+    "sem": "first/last `n` runes",
+    "ex": ""
+   },
+   "first_and_last": {
+    "sig": "`-> string`",
+    "sem": "`first(1) + last(1)`",
+    "ex": ""
+   },
+   "float": {
+    "sig": "`float(x) -> float`",
+    "sem": "§12.7",
+    "ex": "`\"1.5\".float`"
+   },
+   "has": {
+    "sig": "`(sub: string) -> bool`",
+    "sem": "substring test",
+    "ex": "`\"hello\".has(\"lo\")`"
+   },
+   "index": {
+    "sig": "`(needle: string | regex, from: int = 0) -> int | nil`",
+    "sem": "rune index",
+    "ex": "`s.index(/оператор/i)`"
+   },
+   "int": {
+    "sig": "`int(x) -> int`",
+    "sem": "§12.7, never raises",
+    "ex": "`\"12abc\".int == 12`"
+   },
+   "json": {
+    "sig": "`json(x) -> string`",
+    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+    "ex": "`[a: 1].json`"
+   },
+   "last": {
+    "sig": "`(n: int = 1) -> string`",
+    "sem": "first/last `n` runes",
+    "ex": ""
+   },
+   "last_index": {
+    "sig": "`(needle) -> int | nil`",
+    "sem": "",
+    "ex": ""
+   },
+   "len": {
+    "sig": "`-> int`",
+    "sem": "rune count",
+    "ex": "`s.len`"
+   },
+   "lines": {
+    "sig": "`-> array`",
+    "sem": "split on `\\n`, terminator dropped",
+    "ex": ""
+   },
+   "ljust": {
+    "sig": "`(width: int, pad: string = \" \") -> string`",
+    "sem": "rune widths",
+    "ex": ""
+   },
+   "lower": {
+    "sig": "`-> string`",
+    "sem": "Unicode lowercase",
+    "ex": "`\"ПРИВЕТ\".lower == \"привет\"`"
+   },
+   "matches": {
+    "sig": "`(re: regex) -> array`",
+    "sem": "every match; with groups, an array of group-arrays",
+    "ex": "`d.matches(/(Mon|Tue)/).first`"
+   },
+   "ord": {
+    "sig": "`-> int`",
+    "sem": "code point of the first rune",
+    "ex": ""
+   },
+   "replace": {
+    "sig": "`(pat: string | regex, repl: string | fn) -> string`",
+    "sem": "replaces **all**; `\\1`/`\\k<name>` in `repl`; a closure receives the match array **spread**",
+    "ex": "`s.replace(/'/, \"\")`"
+   },
+   "replace_first": {
+    "sig": "`(pat, repl) -> string`",
+    "sem": "replaces the first occurrence",
+    "ex": ""
+   },
+   "reverse": {
+    "sig": "`-> string`",
+    "sem": "rune-wise",
+    "ex": ""
+   },
+   "rjust": {
+    "sig": "`(width: int, pad: string = \" \") -> string`",
+    "sem": "rune widths",
+    "ex": ""
+   },
+   "slice": {
+    "sig": "`(i: int, n: int = 1) -> string`",
+    "sem": "same as `s[i, n]`",
+    "ex": ""
+   },
+   "split": {
+    "sig": "`(sep: string | regex = \" \", limit: int = -1) -> array`",
+    "sem": "`\" \"` splits on runs of whitespace; `\"\"` splits into runes",
+    "ex": "`$__sent.split(\":\")[1]`"
+   },
+   "squeeze": {
+    "sig": "`(set: string = \"\") -> string`",
+    "sem": "collapses runs of repeated runes",
+    "ex": ""
+   },
+   "starts_with": {
+    "sig": "`(*prefixes: string) -> bool`",
+    "sem": "any prefix matches",
+    "ex": "`s.starts_with(\"/\")`"
+   },
+   "str": {
+    "sig": "`str(x) -> string`",
+    "sem": "§12.7",
+    "ex": "`str(1) == \"1\"`"
+   },
+   "swapcase": {
+    "sig": "`-> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "trim": {
+    "sig": "`-> string`",
+    "sem": "trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF**",
+    "ex": "`\"  ОПЕРАТОР \".lower.trim`"
+   },
+   "trim_end": {
+    "sig": "`-> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "trim_start": {
+    "sig": "`-> string`",
+    "sem": "",
+    "ex": ""
+   },
+   "upper": {
+    "sig": "`-> string`",
+    "sem": "Unicode uppercase",
+    "ex": "`\"да\".upper == \"ДА\"`"
+   }
+  },
+  "task": {
+   "await": {
+    "sig": "`await(t) -> any`",
+    "sem": "waits for the task and yields the value of its body; raises here, at the await, whatever the body raised. Awaiting a finished task again is the same answer again.",
+    "ex": "`t.await`"
+   },
+   "done": {
+    "sig": "`done(t) -> bool`",
+    "sem": "has the task finished — the one question about a task that never waits",
+    "ex": "`t.done`"
+   }
+  },
+  "time": {
+   "day": {},
+   "hour": {},
+   "in_time_zone": {},
+   "min": {
+    "sig": "`(xs: array | *args) -> any`",
+    "sem": "by `<=>`; empty → `nil`",
+    "ex": "`max(1,2,3)`"
+   },
+   "month": {},
+   "sec": {},
+   "strftime": {},
+   "to_date": {},
+   "wday": {},
+   "yday": {},
+   "year": {}
+  }
+ },
+ "builtins": {
+  "abs": {
+   "sig": "`abs(x: number) -> number`",
+   "sem": "",
+   "ex": "`(-2).abs`"
+  },
+  "array": {
+   "sig": "`array(x) -> array`",
+   "sem": "Array→itself, Range→materialise, Dict→`[[k,v],…]`, nil→`[]`, else `[x]`",
+   "ex": "`(1..3).array`"
+  },
+  "assert": {
+   "sig": "`assert(cond: any, msg: string = \"assertion failed\") -> nil`",
+   "sem": "raises when falsy",
+   "ex": ""
+  },
+  "bool": {
+   "sig": "`bool(x) -> bool`",
+   "sem": "truthiness of `x`",
+   "ex": "`\"\".bool == true`"
+  },
+  "ceil": {
+   "sig": "`(x: number, digits: int = 0) -> number`",
+   "sem": "",
+   "ex": "`1.2.ceil`"
+  },
+  "debug": {
+   "sig": "`debug(*args) -> any`",
+   "sem": "writes the `inspect` form + `\\n`; returns the first arg",
+   "ex": "`debug(x)`"
+  },
+  "defined": {
+   "sig": "`defined(name) -> bool`",
+   "sem": "true if the identifier or `$var` is bound (parser-level special form)",
+   "ex": "`defined($price)`"
+  },
+  "dict": {
+   "sig": "`dict(x) -> dict`",
+   "sem": "from an Array of `[k,v]` pairs; Dict→itself",
+   "ex": "`[[1,2]].dict`"
+  },
+  "dup": {
+   "sig": "`dup(x) -> any`",
+   "sem": "shallow copy for Array/Dict, identity otherwise",
+   "ex": ""
+  },
+  "empty": {
+   "sig": "`empty(x) -> bool`",
+   "sem": "`len(x) == 0`",
+   "ex": "`xs.empty`"
+  },
+  "float": {
+   "sig": "`float(x) -> float`",
+   "sem": "§12.7",
+   "ex": "`\"1.5\".float`"
+  },
+  "floor": {
+   "sig": "`(x: number, digits: int = 0) -> number`",
+   "sem": "",
+   "ex": "`1.2.ceil`"
+  },
+  "format": {
+   "sig": "`format(fmt: string, *args) -> string`",
+   "sem": "§12.7",
+   "ex": "`format(\"%.2f\", x)`"
+  },
+  "hash": {
+   "sig": "`hash(x) -> int`",
+   "sem": "FNV-1a, stable across runs",
+   "ex": ""
+  },
+  "inspect": {
+   "sig": "`inspect(x) -> string`",
+   "sem": "§12.7",
+   "ex": ""
+  },
+  "int": {
+   "sig": "`int(x) -> int`",
+   "sem": "§12.7, never raises",
+   "ex": "`\"12abc\".int == 12`"
+  },
+  "is": {
+   "sig": "`is(x, name: string) -> bool`",
+   "sem": "kind test",
+   "ex": "`x.is(\"array\")`"
+  },
+  "json": {
+   "sig": "`json(x) -> string`",
+   "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
+   "ex": "`[a: 1].json`"
+  },
+  "len": {
+   "sig": "`len(x) -> int`",
+   "sem": "rune length of a String, element count of Array/Dict/Range; `nil` → 0",
+   "ex": "`s.len > 2`"
+  },
+  "max": {
+   "sig": "`(xs: array | *args) -> any`",
+   "sem": "by `<=>`; empty → `nil`",
+   "ex": "`max(1,2,3)`"
+  },
+  "min": {
+   "sig": "`(xs: array | *args) -> any`",
+   "sem": "by `<=>`; empty → `nil`",
+   "ex": "`max(1,2,3)`"
+  },
+  "now": {
+   "sig": "`now() -> time`",
+   "sem": "**only if `Options.Now` is set**",
+   "ex": ""
+  },
+  "pipe": {
+   "sig": "`pipe(x) { (v) -> … } -> any`",
+   "sem": "runs the closure, returns **its** value",
+   "ex": "`x.pipe { it * 2 }`"
+  },
+  "print": {
+   "sig": "`print(*args) -> nil`",
+   "sem": "writes `str` of each arg to `Options.Stdout`, no separator, no newline",
+   "ex": "`print(a)`"
+  },
+  "raise": {
+   "sig": "`raise(msg: any) -> never`",
+   "sem": "raises a script error",
+   "ex": "`raise(\"bad\")`"
+  },
+  "rand": {
+   "sig": "`rand(n: int = 0) -> number`",
+   "sem": "**only if `Options.Rand` is set**, else `undefined function`",
+   "ex": ""
+  },
+  "range": {
+   "sig": "`range(a: int, b: int = nil, step: int = 1) -> array`",
+   "sem": "half-open: `range(0,3) == [0,1,2]`, `range(3) == [0,1,2]`",
+   "ex": "`range(3)`"
+  },
+  "regex": {
+   "sig": "`regex(pattern: string, flags: string = \"\") -> regex`",
+   "sem": "compiles at runtime (cached)",
+   "ex": "`regex('\\bменю', \"i\")`"
+  },
+  "round": {
+   "sig": "`round(x: number, digits: int = 0) -> number`",
+   "sem": "half away from zero; `digits == 0` → Int",
+   "ex": "`round(1.256, 2)`"
+  },
+  "say": {
+   "sig": "`say(*args) -> nil`",
+   "sem": "like `print` but appends `\\n` after each arg; `say()` writes one `\\n`; an Array arg prints one element per line",
+   "ex": "`say(\"hi\")`"
+  },
+  "sort": {
+   "sig": "`sort(xs: array) [{ (a, b) -> int }] -> array`",
+   "sem": "stable, new array",
+   "ex": "`xs.sort { (a,b) -> b <=> a }`"
+  },
+  "str": {
+   "sig": "`str(x) -> string`",
+   "sem": "§12.7",
+   "ex": "`str(1) == \"1\"`"
+  },
+  "sum": {
+   "sig": "`sum(xs: array) -> number`",
+   "sem": "numeric sum; empty → `0`",
+   "ex": "`[1,2].sum`"
+  },
+  "tap": {
+   "sig": "`tap(x) { (v) -> … } -> any`",
+   "sem": "runs the closure, returns `x`",
+   "ex": ""
+  },
+  "type": {
+   "sig": "`type(x) -> string`",
+   "sem": "§7.2 names",
+   "ex": "`type(1) == \"int\"`"
+  },
+  "uuid": {
+   "sig": "`uuid() -> string`",
+   "sem": "**only if `Options.Rand` is set**",
+   "ex": ""
+  }
+ },
+ "modules": {
+  "date": {
+   "parse": {
+    "sig": "`(s: string) -> time`",
+    "sem": "",
+    "ex": ""
+   },
+   "today": {
+    "sig": "`-> time` (midnight)",
+    "sem": "requires `Options.Now`",
+    "ex": ""
+   }
+  },
+  "http": {
+   "get": {
+    "sig": "`(url: string, opts: dict = [:]) -> dict`",
+    "sem": "request; returns `[status:, body:, headers:]`",
+    "ex": ""
+   },
+   "json": {
+    "sig": "`(body: any, status: int = 200, headers: dict = [:]) -> dict`",
+    "sem": "response whose body is `body` encoded as JSON",
+    "ex": ""
+   },
+   "post": {
+    "sig": "`(url: string, body: any, opts: dict = [:]) -> dict`",
+    "sem": "a string body is sent as is, anything else as JSON",
+    "ex": ""
+   },
+   "request": {
+    "sig": "`(method: string, url: string, opts: dict = [:]) -> dict`",
+    "sem": "`opts`: `body`, `headers`, `timeout` (seconds)",
+    "ex": ""
+   },
+   "serve": {
+    "sig": "`(addr: string, routes: dict, ready: fn?) -> nil`",
+    "sem": "binds `addr` and serves until `http.stop()` or context cancel",
+    "ex": ""
+   },
+   "stop": {
+    "sig": "`() -> nil`",
+    "sem": "ends the `serve` of this Run after the current request; an argument error outside one",
+    "ex": ""
+   },
+   "text": {
+    "sig": "`(body: any, status: int = 200, headers: dict = [:]) -> dict`",
+    "sem": "response whose body is `str(body)`",
+    "ex": ""
+   }
+  },
+  "io": {
+   "append": {
+    "sig": "`(path: string, s: string) -> int`",
+    "sem": "creates when absent; returns the bytes written",
+    "ex": "`io.append(\"log\", l)`"
+   },
+   "env": {
+    "sig": "`(name: string, default: any = nil) -> string | nil`",
+    "sem": "an unset **or empty** name is the default",
+    "ex": "`io.env(\"HOME\", \"/tmp\")`"
+   },
+   "exists": {
+    "sig": "`(path: string) -> bool`",
+    "sem": "a name that is not there is `false`; a filesystem that cannot answer raises",
+    "ex": "`io.exists(\"a.txt\")`"
+   },
+   "lines": {
+    "sig": "`-> array`",
+    "sem": "`io.stdin.lines` (§12.2): the terminator is dropped, a CRLF file reads like an LF one",
+    "ex": "`io.lines.len`"
+   },
+   "ls": {
+    "sig": "`(dir: string = \".\") -> array`",
+    "sem": "the entry names of a directory, sorted (§8.13)",
+    "ex": "`io.ls(\".\").len`"
+   },
+   "read": {
+    "sig": "`(path: string) -> string`",
+    "sem": "the file as a string",
+    "ex": "`io.read(\"a.txt\")`"
+   },
+   "stdin": {
+    "sig": "`-> string`",
+    "sem": "the whole of `Options.Stdin`, read once per Run and kept for the rest of it. No reader is `\"\"`, not an error",
+    "ex": "`io.stdin.trim`"
+   },
+   "write": {
+    "sig": "`(path: string, s: string) -> int`",
+    "sem": "truncates or creates; returns the bytes written",
+    "ex": "`io.write(\"a.txt\", s)`"
+   }
+  },
+  "json": {
+   "parse": {
+    "sig": "`(s: string) -> any`",
+    "sem": "objects→Dict (insertion-ordered), arrays→Array, numbers→Int when integral else Float, `null`→nil. Raises on malformed input.",
+    "ex": ""
+   },
+   "pretty": {
+    "sig": "`(x: any) -> string`",
+    "sem": "2-space indent",
+    "ex": ""
+   }
+  },
+  "math": {
+   "atan": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "atan2": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "cbrt": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "cos": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "e": {
+    "sig": "constants",
+    "sem": "",
+    "ex": ""
+   },
+   "exp": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "hypot": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "log": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "log10": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "log2": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "pi": {
+    "sig": "constants",
+    "sem": "",
+    "ex": ""
+   },
+   "pow": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "sin": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "sqrt": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   },
+   "tan": {
+    "sig": "`(…) -> float`",
+    "sem": "",
+    "ex": ""
+   }
+  },
+  "time": {
+   "at": {
+    "sig": "`(unix: int) -> time`",
+    "sem": "",
+    "ex": ""
+   },
+   "now": {
+    "sig": "`-> time`",
+    "sem": "requires `Options.Now`",
+    "ex": ""
+   },
+   "parse": {
+    "sig": "`(s: string, layout: string = auto) -> time`",
+    "sem": "accepts RFC3339, `YYYY-MM-DD[ HH:MM[:SS]]`, `DD/MM/YY`, `DD.MM.YYYY`",
+    "ex": ""
+   }
+  }
+ },
+ "gates": {
+  "date": "--time",
+  "http": "",
+  "io": "",
+  "json": "",
+  "math": "",
+  "time": "--time"
+ },
+ "keywords": [
+  "break",
+  "else",
+  "export",
+  "false",
+  "fn",
+  "for",
+  "if",
+  "in",
+  "include",
+  "match",
+  "next",
+  "nil",
+  "return",
+  "true",
+  "try",
+  "while"
+ ],
+ "note": "generated from SPEC.md §12 + the live registry"
+}

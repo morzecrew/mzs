@@ -1,0 +1,23 @@
+# A text module, included by the money module as well as by the main program: a diamond
+# include loads it once per Run, which the main file checks.
+
+loaded_at = "load-time side effect"
+
+export fn group(n) {
+  digits = n.abs.str.chars.reverse
+  out = digits.each_slice(3).map { it.join("") }.join(" ").chars.reverse.join("")
+  n < 0 ? "−" + out : out
+}
+
+export fn pad_between(left, right, width) {
+  gap = width - left.len - right.len
+  left + " " * (gap < 1 ? 1 : gap) + right
+}
+
+export fn titlecase(s) {
+  s.split(" ").map { it.capitalize }.join(" ")
+}
+
+export fn banner(title, width) {
+  ["┌" + "─" * width + "┐", "│" + title.center(width) + "│", "└" + "─" * width + "┘"]
+}

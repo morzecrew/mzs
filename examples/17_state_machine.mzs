@@ -1,0 +1,158 @@
+# 17 — a state machine: states are data, transitions are closures.
+#
+#   mzs examples/17_state_machine.mzs
+#
+# A booking dialogue, written as a table. Each state knows what it asks, how to read an
+# answer, and where to go next; the driver knows nothing about booking at all. That split
+# is the point: the flow is data you can print, validate and change without touching the
+# engine that runs it.
+
+MAX_RETRIES = 2
+
+STATES = [
+  start: [
+    prompt: "Hello! Shall we book a visit?",
+    on: { (input, _) ->
+      match input.lower.trim {
+        in ["yes", "y", "sure", "да"] -> [goto: "service", say: "Great."]
+        in ["no", "n", "нет"]         -> [goto: "done", say: "No problem — text me any time."]
+        else                          -> [retry: true, say: "Please answer yes or no."]
+      }
+    },
+  ],
+  service: [
+    prompt: "What are we booking — haircut, beard or colour?",
+    on: { (input, _) ->
+      s = input.lower.trim
+      price = [haircut: 1500, beard: 800, colour: 3200][s]
+      price == nil ?
+        [retry: true, say: "I know haircut, beard and colour."] :
+        [goto: "day", set: [service: s, price: price], say: "${s.capitalize}, ${price} ₽."]
+    },
+  ],
+  day: [
+    prompt: "Which day? (today / tomorrow / a date like 2026-03-07)",
+    on: { (input, _) ->
+      s = input.lower.trim
+      match s {
+        in ["today", "tomorrow"] -> [goto: "time", set: [day: s]]
+        /^\d{4}-\d{2}-\d{2}$/    -> [goto: "time", set: [day: s]]
+        else                     -> [retry: true, say: "A day, please: today, tomorrow or 2026-03-07."]
+      }
+    },
+  ],
+  time: [
+    prompt: "What time? We work 10:00–21:00.",
+    # No `return` in a handler, on purpose: inside a closure it unwinds to the enclosing
+    # *function* (§8.10) — which here would be `run` itself, not this handler. A `match`
+    # says the same thing and stays inside the closure.
+    on: { (input, _) ->
+      m = input.captures(/\b(\d{1,2})[:.](\d{2})\b/)
+      match {
+        m == nil                        -> [retry: true, say: "I need a time like 14:30."]
+        m[1].int < 10 || m[1].int >= 21 -> [retry: true, say: "That is outside 10:00–21:00."]
+        else -> [goto: "confirm", set: [time: "${m[1].rjust(2, "0")}:${m[2]}"]]
+      }
+    },
+  ],
+  confirm: [
+    prompt: nil,   # this state builds its own prompt from the context
+    render: { (ctx) -> "So: ${ctx["service"]} on ${ctx["day"]} at ${ctx["time"]}, ${ctx["price"]} ₽. Confirm?" },
+    on: { (input, _) ->
+      match input.lower.trim {
+        in ["yes", "y", "confirm", "да"] -> [goto: "booked", set: [status: "confirmed"]]
+        in ["no", "change", "нет"]        -> [goto: "service", set: [status: "restarted"], say: "Let us redo it."]
+        else                              -> [retry: true, say: "Yes or no?"]
+      }
+    },
+  ],
+  booked: [terminal: true, render: { (ctx) -> "Booked! See you ${ctx["day"]} at ${ctx["time"]}." }],
+  done:   [terminal: true, render: { (_) -> "Closed without booking." }],
+]
+
+# --- the driver: forty lines that know nothing about barbershops --------------
+
+fn prompt_of(state, ctx) {
+  s = STATES[state]
+  s["render"] != nil ? s["render"].call(ctx) : s["prompt"]
+}
+
+fn run(script) {
+  state = "start"
+  ctx = [:]
+  retries = 0
+  transcript = []
+  log = []
+
+  script.each { (input) ->
+    break if STATES[state]["terminal"]
+
+    transcript.push("bot > ${prompt_of(state, ctx)}")
+    transcript.push("you > ${input}")
+
+    step = STATES[state]["on"].call(input, ctx)
+    (step["set"] ?? [:]).each { (k, v) -> ctx.set(k, v) }
+    transcript.push("bot > ${step["say"]}") if step["say"] != nil
+
+    if step["retry"] {
+      retries += 1
+      if retries > MAX_RETRIES {
+        log.push("${state} → handoff (too many retries)")
+        state = "done"
+        ctx.set("status", "handed off")
+        transcript.push("bot > Let me pass you to a human.")
+        next
+      }
+      log.push("${state} ↺ retry ${retries}")
+      next
+    }
+
+    retries = 0
+    log.push("${state} → ${step["goto"]}")
+    state = step["goto"]
+  }
+
+  transcript.push("bot > ${prompt_of(state, ctx)}") if STATES[state]["terminal"]
+  [state: state, ctx: ctx, transcript: transcript, log: log]
+}
+
+# --- a clean run ----------------------------------------------------------------
+
+happy = run(["yes", "colour", "tomorrow", "14:30", "yes"])
+say("— a conversation that goes well —")
+happy["transcript"].each { (l) -> say("  ${l}") }
+say("")
+say("  path:    ${happy["log"].join("  ")}")
+say("  context: ${happy["ctx"].json}")
+
+# --- a run with corrections ----------------------------------------------------
+
+messy = run(["maybe", "yes", "manicure", "beard", "next week", "tomorrow", "9:00", "18:15", "no", "haircut", "today", "11:00", "yes"])
+say("")
+say("— the same machine, with a user who changes their mind —")
+say("  path: ${messy["log"].join("  ")}")
+say("  ended in ${messy["state"]} with ${messy["ctx"].json}")
+
+# --- a run that gives up --------------------------------------------------------
+
+stuck = run(["what", "huh", "???", "hello?"])
+say("")
+say("— three bad answers in a row hand the user to a person —")
+stuck["transcript"].last(4).each { (l) -> say("  ${l}") }
+say("  path: ${stuck["log"].join("  ")}")
+
+# --- the machine is data, so it can be checked -------------------------------
+#
+# Every non-terminal state must be reachable and must name states that exist. This is
+# the sort of check a flow editor runs before it lets anyone publish a bot.
+
+targets = STATES.map { (name, s) ->
+  s["terminal"] ? [] : [name]
+}.flatten
+
+say("")
+say("machine: ${STATES.len} states, ${STATES.filter { (_, s) -> s["terminal"] }.len} terminal")
+say("  with a prompt:  ${STATES.filter { (_, s) -> s["prompt"] != nil }.keys.join(", ")}")
+say("  computed text:  ${STATES.filter { (_, s) -> s["render"] != nil }.keys.join(", ")}")
+say("  handlers:       ${targets.join(", ")}")
+say("  every handler is a closure: ${STATES.all { (_, s) -> s["terminal"] || is(s["on"], "function") }}")

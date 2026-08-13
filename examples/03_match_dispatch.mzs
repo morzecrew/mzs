@@ -1,0 +1,110 @@
+# 03 — `match`: one construct instead of an if/else-if ladder.
+#
+#   mzs examples/03_match_dispatch.mzs
+#
+# `match` has two shapes. With a subject it tests arms against it — a literal, `in` a
+# list, `in` a range, or a regex — and without a subject it is a ladder of conditions.
+# Both are expressions, both are first-match-wins, and `else` must be last.
+
+# --- with a subject: four kinds of arm, in one statement ----------------------
+
+fn triage(status) {
+  match status {
+    in 200..299 -> "ok"
+    301         -> "moved permanently"
+    302         -> "found (temporary)"
+    in [401, 403] -> "auth"
+    in 400..499 -> "client error"
+    in 500..599 -> "server error"
+    else        -> "unknown status"
+  }
+}
+
+say("status triage")
+[200, 204, 301, 302, 401, 404, 418, 500, 503, 999].each { (s) ->
+  say("  ${s.str.ljust(6)}${triage(s)}")
+}
+
+# --- regex arms, and why the order of the arms is the whole logic -------------
+#
+# The first arm that matches wins, so the specific patterns come before the general
+# ones. Written as an if/else-if ladder this is where the reader loses the thread.
+
+fn intent(line) {
+  match line.lower.trim {
+    ""                       -> "empty"
+    in ["yes", "y", "sure"]  -> "confirm"
+    in ["no", "n", "nope"]   -> "decline"
+    /^\/(\w+)/               -> "command"
+    /^\d{4}-\d{2}-\d{2}$/    -> "date"
+    /^\+?\d[\d\s()-]{6,}$/   -> "phone"
+    /\S+@\S+\.\S+/           -> "email"
+    /help|support|operator/  -> "handoff"
+    else                     -> "free text"
+  }
+}
+
+samples = [
+  "Yes", "  nope ", "/start now", "2026-03-05", "+7 (999) 123-45-67",
+  "ivan@example.com", "I need an operator", "just talking", "",
+]
+
+say("")
+say("intent routing")
+samples.each { (s) -> say("  ${inspect(s).ljust(24)}${intent(s)}") }
+
+# --- without a subject: a ladder of conditions, still an expression -----------
+
+fn shipping(order) {
+  weight = order["weight"]
+  match {
+    order["express"] && weight > 20 -> "express freight"
+    order["express"]                -> "express courier"
+    weight > 20                     -> "freight"
+    weight > 2                      -> "parcel"
+    else                            -> "letter"
+  }
+}
+
+orders = [
+  [id: 1, weight: 0.4, express: false],
+  [id: 2, weight: 6.0, express: false],
+  [id: 3, weight: 6.0, express: true],
+  [id: 4, weight: 31.0, express: true],
+]
+
+say("")
+say("shipping method")
+orders.each { (o) -> say("  order ${o["id"]}: ${shipping(o)}") }
+
+# --- match yields a value, so it composes into a pipeline ---------------------
+#
+# Arms may be closures as easily as strings: what an arm returns is what the match is
+# worth, and a closure that is called right there keeps the branch and its work together.
+
+handlers = [
+  command: { (line) -> "run ${line.captures(/^\/(\w+)/)[1]}" },
+  date:    { (line) -> "book ${line}" },
+  email:   { (line) -> "mail ${line.captures(/(\S+@\S+\.\S+)/)[1]}" },
+]
+
+fn handle(line) {
+  kind = intent(line)
+  h = handlers[kind]
+  h == nil ? "reply: ${kind}" : h.call(line)
+}
+
+say("")
+say("dispatch through a table of closures")
+["/report weekly", "2026-03-05", "write to ivan@example.com", "hello"].each { (line) ->
+  say("  ${inspect(line).ljust(30)}${handle(line)}")
+}
+
+# --- arms fit on one line, which is the point of a one-liner language ---------
+
+say("")
+grade = { (n) -> match n { in 90..100 -> "A"; in 75..89 -> "B"; in 60..74 -> "C"; else -> "F" } }
+say("grades: ${[95, 80, 61, 40].map { grade.call(it) }.join(" ")}")
+
+# A match with no matching arm and no `else` is nil — not an error, not a crash.
+say("no arm, no else: ${inspect(match 7 { 1 -> "one" })}")

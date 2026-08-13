@@ -1,0 +1,140 @@
+# 24 — fuzzy matching: edit distance, similarity, "did you mean".
+#
+#   mzs examples/24_fuzzy_search.mzs
+#
+# Levenshtein distance is a dynamic-programming table, which in this language is an array
+# of arrays and two loops. On top of it: a similarity ratio, a prefix bonus, and the
+# suggestion list a CLI prints when you typo a command. Everything is rune-based, so it
+# works on Cyrillic and emoji without a second implementation.
+
+# --- the distance ---------------------------------------------------------------
+#
+# Only two rows of the table are ever needed, but the full table is what makes the
+# algorithm legible — and it is what the trace below prints.
+
+fn levenshtein(a, b) {
+  x = a.chars
+  y = b.chars
+  rows = (0..y.len).map { (j) -> (0..x.len).map { (i) -> j == 0 ? i : (i == 0 ? j : 0) } }
+
+  (1..y.len).each { (j) ->
+    (1..x.len).each { (i) ->
+      cost = x[i - 1] == y[j - 1] ? 0 : 1
+      rows[j][i] = [rows[j][i - 1] + 1,        # delete
+                    rows[j - 1][i] + 1,        # insert
+                    rows[j - 1][i - 1] + cost  # substitute
+                   ].min
+    }
+  }
+  rows[y.len][x.len]
+}
+
+fn similarity(a, b) {
+  longest = a.len > b.len ? a.len : b.len
+  longest == 0 ? 100 : (longest - levenshtein(a, b)) * 100 / longest
+}
+
+say("edit distances")
+[["kitten", "sitting"], ["flaw", "lawn"], ["colour", "color"], ["привет", "привет"],
+ ["стрижка", "стрижку"], ["book", "back"], ["", "abc"]].each { (pair) ->
+  d = levenshtein(pair[0], pair[1])
+  say("  ${inspect(pair[0]).ljust(11)}→ ${inspect(pair[1]).ljust(11)}${d.str.rjust(2)}  (${similarity(pair[0], pair[1])}% alike)")
+}
+
+# --- the table, printed, because that is how you debug a DP ------------------
+
+fn table_of(a, b) {
+  x = a.chars
+  y = b.chars
+  rows = (0..y.len).map { (j) -> (0..x.len).map { (i) -> j == 0 ? i : (i == 0 ? j : 0) } }
+  (1..y.len).each { (j) ->
+    (1..x.len).each { (i) ->
+      cost = x[i - 1] == y[j - 1] ? 0 : 1
+      rows[j][i] = [rows[j][i - 1] + 1, rows[j - 1][i] + 1, rows[j - 1][i - 1] + cost].min
+    }
+  }
+  rows
+}
+
+a = "sunday"
+b = "saturday"
+say("")
+say("the table for ${inspect(a)} → ${inspect(b)}")
+say("      " + a.chars.map { it.rjust(3) }.join(""))
+table_of(a, b).each_with_index { (row, j) ->
+  label = j == 0 ? " " : b[j - 1]
+  say("  ${label}  ${row.map { it.str.rjust(3) }.join("")}")
+}
+
+# --- "did you mean": distance is not enough, and neither is prefix ------------
+
+COMMANDS = ["install", "uninstall", "list", "update", "upgrade", "search",
+            "show", "remove", "clean", "config", "version", "help"]
+
+fn suggest(word, candidates, limit) {
+  candidates.map { (c) ->
+    d = levenshtein(word, c)
+    prefix = (0..<(word.len < c.len ? word.len : c.len)).take_while { (i) -> word[i, 1] == c[i, 1] }.len
+    contains = c.has(word) ? 2 : 0
+    [name: c, distance: d, score: similarity(word, c) + prefix * 8 + contains * 10]
+  }.sort_by { -it["score"] }.take(limit)
+}
+
+say("")
+["instal", "unistall", "updte", "serch", "verison", "xyzzy"].each { (typo) ->
+  best = suggest(typo, COMMANDS, 3)
+  top = best.first
+  verdict = top["score"] >= 60 ? "did you mean ${inspect(top["name"])}?" : "no close command"
+  say("  ${inspect(typo).ljust(12)}${verdict.ljust(28)}${best.map { "${it["name"]}(${it["score"]})" }.join("  ")}")
+}
+
+# --- searching a catalogue, where the query is a phrase ----------------------
+
+CATALOGUE = [
+  "Signature haircut", "Beard trim", "Hot towel shave", "Premium colour",
+  "Hair care treatment", "Kids haircut", "Head massage", "Colour correction",
+]
+
+fn best_match(query, items) {
+  q = query.lower
+  items.map { (item) ->
+    words = item.lower.split(" ")
+    word_hit = words.map { (w) -> similarity(q, w) }.max
+    whole = similarity(q, item.lower)
+    substring = item.lower.has(q) ? 100 : 0
+    [item: item, score: [word_hit, whole, substring].max]
+  }.sort_by { -it["score"] }
+}
+
+say("")
+say("catalogue search")
+["hair cut", "beard", "colur", "massaj", "shave"].each { (q) ->
+  hits = best_match(q, CATALOGUE).take(2)
+  say("  ${inspect(q).ljust(12)}${hits.map { "${it["item"]} ${it["score"]}%" }.join("  ·  ")}")
+}
+
+# --- deduplicating a list where the duplicates are typos ---------------------
+
+names = ["Ivan Petrov", "ivan petrov", "Ivan Petrow", "Anna Smith", "Anna Smit",
+         "Li Ming", "Sean O'Brien", "Sean OBrien"]
+
+clusters = []
+names.each { (n) ->
+  home = clusters.find { (c) -> similarity(n.lower, c.first.lower) >= 85 }
+  home == nil ? clusters.push([n]) : home.push(n)
+}
+
+say("")
+say("clustering ${names.len} names at 85% similarity → ${clusters.len} people")
+clusters.each { (c) ->
+  say("  ${c.first.ljust(14)}${c.len > 1 ? "also written: " + c.drop(1).map { inspect(it) }.join(", ") : "(one spelling)"}")
+}
+
+# --- the properties a distance function must have ----------------------------
+
+say("")
+say("identity:    d(x, x) == 0            ${levenshtein("mzs", "mzs") == 0}")
+say("symmetry:    d(x, y) == d(y, x)      ${levenshtein("kitten", "sitting") == levenshtein("sitting", "kitten")}")
+say("triangle:    d(x, z) ≤ d(x, y)+d(y, z) ${levenshtein("abc", "xyz") <= levenshtein("abc", "abz") + levenshtein("abz", "xyz")}")
+say("unicode:     d(\"мир\", \"мор\") == 1     ${levenshtein("мир", "мор") == 1}")
+say("emoji:       d(\"a👋b\", \"ab\") == 1      ${levenshtein("a👋b", "ab") == 1}")

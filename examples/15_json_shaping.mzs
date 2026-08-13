@@ -1,0 +1,133 @@
+# 15 — JSON: parse what arrived, reshape it, hand back what you promised.
+#
+#   mzs examples/15_json_shaping.mzs
+#
+# `json.parse` is the only way in and `x.json` is the only way out — encoding is the
+# §12.1 function, spelled as a method wherever the module is included, so there is never
+# a second encoder to drift. Dicts keep insertion order, so the document you build is
+# the document that goes on the wire, field for field.
+
+include json
+
+payload = '{
+  "meta": {"request_id": "req-77", "page": 1, "per_page": 50, "took_ms": 42},
+  "customers": [
+    {"id": 1, "name": "Ivan Petrov", "email": "IVAN@example.com", "vip": true,
+     "address": {"city": "Moscow", "zip": "101000"},
+     "orders": [{"id": "A-1", "total": 6300, "status": "paid", "items": 3},
+                {"id": "A-9", "total": 1500, "status": "refunded", "items": 1}]},
+    {"id": 2, "name": "Anna Smith", "email": "anna@example.com", "vip": false,
+     "address": {"city": "Berlin"},
+     "orders": [{"id": "B-4", "total": 3200, "status": "paid", "items": 2}]},
+    {"id": 3, "name": "Ли Мин", "email": "li@example.cn", "vip": false,
+     "address": {"city": "Shanghai", "zip": "200000"},
+     "orders": []},
+    {"id": 4, "name": "Sean O\'Brien", "vip": true,
+     "address": {"city": "Dublin", "zip": "D02"},
+     "orders": [{"id": "C-2", "total": 9900, "status": "pending", "items": 5}]}
+  ]
+}'
+
+# --- parsing, and the one thing you must decide about bad input ---------------
+
+doc = try json.parse(payload) else nil
+if doc == nil {
+  say("the payload was not JSON at all")
+  return nil
+}
+
+say("request ${doc.dig("meta", "request_id")} · page ${doc.dig("meta", "page")} · ${doc.dig("meta", "took_ms")}ms")
+say("customers: ${doc["customers"].len}")
+
+# A parse failure is an ordinary catchable error, so a fallback is one expression.
+broken = try json.parse('{"oops": ') else [error: "malformed json"]
+say("bad input →  ${broken.json}")
+
+# --- reading a document nobody promised you: dig, ??, and no exceptions -------
+
+say("")
+say("${"customer".ljust(14)}${"city".ljust(10)}${"zip".ljust(8)}${"orders".rjust(7)}${"paid".rjust(9)}")
+say("-" * 50)
+doc["customers"].each { (c) ->
+  paid = c["orders"].filter { it["status"] == "paid" }.sum { it["total"] }
+  say("${c["name"].ljust(14)}${c.dig("address", "city").ljust(10)}${(c.dig("address", "zip") ?? "—").ljust(8)}${c["orders"].len.str.rjust(7)}${paid.str.rjust(9)}")
+}
+
+# --- reshaping: the document you have into the document you need --------------
+
+report = [
+  generated_for: doc.dig("meta", "request_id"),
+  totals: [
+    customers: doc["customers"].len,
+    vip:       doc["customers"].count { it["vip"] },
+    orders:    doc["customers"].sum { it["orders"].len },
+    revenue:   doc["customers"].sum { (c) -> c["orders"].filter { it["status"] == "paid" }.sum { it["total"] } },
+    refunded:  doc["customers"].sum { (c) -> c["orders"].filter { it["status"] == "refunded" }.sum { it["total"] } },
+  ],
+  by_city: doc["customers"].group_by { it.dig("address", "city") }.map { (city, cs) ->
+    [city: city, customers: cs.len, revenue: cs.sum { (c) -> c["orders"].sum { it["total"] } }]
+  }.sort_by { -it["revenue"] },
+  attention: doc["customers"]
+    .flat_map { (c) -> c["orders"].map { (o) -> o.merge([customer: c["name"]]) } }
+    .filter { it["status"] != "paid" }
+    .map { [order: it["id"], customer: it["customer"], status: it["status"], total: it["total"]] },
+]
+
+say("")
+say("the reshaped report, compact:")
+say(report.json)
+
+say("")
+say("…and pretty, which is the same document with whitespace:")
+say(json.pretty(report["totals"]))
+
+# --- normalising fields you cannot trust --------------------------------------
+
+clean = doc["customers"].map { (c) ->
+  [ id:      c["id"],
+    name:    c["name"].trim,
+    email:   (c["email"] ?? "").lower,
+    city:    c.dig("address", "city") ?? "unknown",
+    zip:     c.dig("address", "zip") ?? "",
+    vip:     c["vip"] == true,
+    revenue: c["orders"].sum { it["total"] } ]
+}
+
+say("")
+say("normalised, and the missing email is now empty rather than absent:")
+clean.each { (c) -> say("  ${c.json}") }
+
+# --- round trip: encode, parse back, compare ----------------------------------
+#
+# Equality is structural, so this is a real check and not a string comparison: key order
+# differs? still equal. Int vs float? compared numerically.
+
+again = json.parse(report.json)
+say("")
+say("round trip is lossless: ${again == report}")
+say("key order is preserved:  ${report["totals"].keys.json}")
+say("unicode survives:        ${["name": "Ли Мин", "note": "emoji 👋 too"].json}")
+
+# --- the envelope a handler would return --------------------------------------
+
+fn envelope(status, data, meta) {
+  [ status: status,
+    ok:     status < 400,
+    meta:   (meta ?? [:]).merge([count: is(data, "array") ? data.len : 1]),
+    data:   data ]
+}
+
+say("")
+say("200 → ${envelope(200, clean.take(2).map { [id: it["id"], name: it["name"]] }, [page: 1]).json}")
+say("404 → ${envelope(404, [message: "customer not found"], nil).json}")
+
+# --- what JSON cannot carry ----------------------------------------------------
+#
+# A function has no JSON form and encodes as null; a value that contains itself is an
+# error rather than an endless document. Both are decisions, not accidents.
+
+say("")
+say("a closure encodes as ${[cb: { it }].json}")
+cycle = [1, 2]
+cycle.push(cycle)
+say("a cycle raises:      ${try cycle.json else (e) -> e["message"]}")

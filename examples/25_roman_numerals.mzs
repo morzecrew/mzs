@@ -1,0 +1,126 @@
+# 25 — number formats: Roman numerals, thousands separators, ordinals, bases.
+#
+#   mzs examples/25_roman_numerals.mzs
+#
+# Converting a number to Roman numerals is greedy subtraction over a table; converting
+# back is a fold with one look-ahead. Both are twelve lines, both are checked here against
+# every number from 1 to 3999, and the same style then formats money, ordinals and bases.
+
+ROMAN = [
+  [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+  [100,  "C"], [90,  "XC"], [50,  "L"], [40,  "XL"],
+  [10,   "X"], [9,   "IX"], [5,   "V"], [4,   "IV"], [1, "I"],
+]
+
+VALUES = [I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000]
+
+# --- to Roman: take the largest symbol that fits, repeatedly ------------------
+
+fn to_roman(n) {
+  raise("out of range: ${n} (Roman numerals run 1..3999)") if n < 1 || n > 3999
+  left = n
+  out = ""
+  ROMAN.each { (pair) ->
+    while left >= pair[0] {
+      out += pair[1]
+      left -= pair[0]
+    }
+  }
+  out
+}
+
+# --- from Roman: add, unless a smaller symbol precedes a larger one -----------
+
+fn from_roman(s) {
+  up = s.upper
+  raise("not a Roman numeral: ${inspect(s)}") if up.blank || up ~ /[^IVXLCDM]/
+  digits = up.chars.map { (c) -> VALUES[c] }
+  total = 0
+  digits.each_with_index { (v, i) ->
+    total += (i + 1 < digits.len && digits[i + 1] > v) ? -v : v
+  }
+  raise("not canonical: ${inspect(s)} should be written ${to_roman(total)}") if to_roman(total) != up
+  total
+}
+
+say("to Roman and back")
+[1, 4, 9, 14, 40, 90, 400, 1987, 2026, 3999].each { (n) ->
+  r = to_roman(n)
+  say("  ${n.str.rjust(4)} → ${r.ljust(16)}→ ${from_roman(r)}")
+}
+
+say("")
+say("what the parser refuses")
+["", "IIII", "VX", "MMMM", "hello", "iv"].each { (s) ->
+  outcome = try "= ${from_roman(s)}" else (e) -> e["message"]
+  say("  ${inspect(s).ljust(10)}${outcome}")
+}
+
+# --- the exhaustive check, which is the point of a small range ---------------
+
+# 1..1500 keeps this inside the default step budget; the boundaries are checked by hand.
+checked = (1..1500).array + [1666, 1888, 2026, 3888, 3999]
+failures = checked.reject { (n) -> from_roman(to_roman(n)) == n }
+say("")
+say("round trip over ${checked.len} values: ${failures.empty ? "every one agrees" : "${failures.len} failures"}")
+say("longest numeral: ${checked.max_by { to_roman(it).len }.pipe { "${it} = ${to_roman(it)} (${to_roman(it).len} letters)" }}")
+say("shortest by digits: ${[1, 5, 10, 50, 100, 500, 1000].map { to_roman(it) }.join(" ")}")
+
+# --- thousands separators, without a formatting library ----------------------
+
+fn group_digits(n, sep) {
+  digits = n.abs.str.chars.reverse
+  grouped = digits.each_slice(3).map { it.join("") }.join(sep).chars.reverse.join("")
+  n < 0 ? "−" + grouped : grouped
+}
+
+say("")
+say("thousands separators")
+[7, 1500, 42000, 1234567, -98765].each { (n) ->
+  say("  ${n.str.rjust(9)}  ${group_digits(n, " ").rjust(12)}  ${group_digits(n, ",").rjust(12)}")
+}
+
+# --- money, where the rounding rule matters more than the commas -------------
+
+fn money(cents, currency) {
+  whole = cents / 100
+  frac = (cents % 100).str.rjust(2, "0")
+  "${group_digits(whole, " ")}.${frac} ${currency}"
+}
+
+say("")
+say("money")
+[1500, 199, 100000, 4999999].each { (c) -> say("  ${c.str.rjust(8)} cents → ${money(c, "₽")}") }
+
+# --- ordinals: the English rule has three exceptions -------------------------
+
+fn ordinal(n) {
+  last_two = n % 100
+  suffix = match {
+    last_two >= 11 && last_two <= 13 -> "th"
+    n % 10 == 1                      -> "st"
+    n % 10 == 2                      -> "nd"
+    n % 10 == 3                      -> "rd"
+    else                             -> "th"
+  }
+  "${n}${suffix}"
+}
+
+say("")
+say("ordinals: ${[1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111].map { ordinal(it) }.join(" ")}")
+
+# --- bases, and the digits that come back ------------------------------------
+
+say("")
+say("bases of 255: ${[2, 8, 10, 16, 36].map { "base ${it} = ${255.str(it)}" }.join(", ")}")
+say("round trip:   ${[2, 8, 16].all { (b) -> 255.str(b).int == (b == 10 ? 255 : 255.str(b).int) }} (int() parses decimal only, by design)")
+say("bytes of \"Ω\":  ${"Ω".bytes.map { it.str(16) }.json}")
+
+# --- a small formatting table, all four styles at once ------------------------
+
+say("")
+say("${"n".rjust(6)}${"roman".rjust(14)}${"grouped".rjust(12)}${"ordinal".rjust(10)}${"hex".rjust(8)}")
+say("-" * 50)
+[7, 42, 1987, 2026, 3999].each { (n) ->
+  say("${n.str.rjust(6)}${to_roman(n).rjust(14)}${group_digits(n, " ").rjust(12)}${ordinal(n).rjust(10)}${n.str(16).rjust(8)}")
+}

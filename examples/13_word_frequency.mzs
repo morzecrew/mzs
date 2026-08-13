@@ -1,0 +1,106 @@
+# 13 — text statistics: tokenise, count, rank, visualise.
+#
+#   mzs examples/13_word_frequency.mzs
+#
+# The classic word-count, taken far enough to be useful: stop words, bigrams, hapax
+# legomena, a readability estimate and a histogram — over text in two scripts, because
+# `\w` and `lower` are Unicode-aware and the counts must come out right either way.
+
+text = "
+The quick brown fox jumps over the lazy dog. The dog barks, and the fox runs away.
+A quick response is better than a perfect response that arrives too late.
+Быстрая реакция лучше идеальной реакции, которая опоздала. Лиса бежит, собака лает.
+The fox is quick; the dog is lazy; the story is old — but the counting is new.
+Response times matter: a quick response keeps the customer, a late response loses one.
+"
+
+STOP = ["the", "a", "an", "is", "and", "that", "than", "too", "over", "but", "one",
+        "и", "а", "но", "не", "что", "которая", "лучше"]
+
+# --- tokenising: \w is Unicode, so both scripts tokenise with one pattern ------
+
+words = text.lower.matches(/[\p{L}\p{N}]+(?:['’-][\p{L}]+)*/)
+content = words.reject { STOP.has(it) }
+
+say("${text.trim.len} characters, ${words.len} words, ${words.uniq.len} distinct")
+say("${content.len} content words after removing ${words.len - content.len} stop words")
+
+# --- the ranking ---------------------------------------------------------------
+
+freq = content.tally.sort_by { (w, n) -> [-n, w] }
+top = freq.take(12)
+widest = top.map { it[0].len }.max
+
+say("")
+say("most frequent content words")
+top.each { (pair) ->
+  word = pair[0]
+  n = pair[1]
+  say("  ${word.ljust(widest + 1)}${n.str.rjust(2)}  ${"▇" * n}")
+}
+
+# --- the long tail is the interesting half -------------------------------------
+
+once = freq.filter { it[1] == 1 }.map { it[0] }
+say("")
+say("hapax legomena (said exactly once): ${once.len} of ${freq.len} — ${once.take(8).join(", ")}…")
+say("coverage: the top 5 words are ${top.take(5).sum { it[1] } * 100 / content.len}% of the content words")
+
+# --- bigrams: each_cons is the whole implementation ---------------------------
+
+bigrams = content.each_cons(2).map { it.join(" ") }.tally.sort_by { (_, n) -> -n }.filter { it[1] > 1 }
+say("")
+say("repeated bigrams: ${bigrams.map { "${inspect(it[0])}×${it[1]}" }.join(", ")}")
+
+# --- sentences, and a rough readability ---------------------------------------
+
+sentences = text.split(/[.;:!?]+/).map { it.trim }.reject { it.blank }
+lengths = sentences.map { it.matches(/[\p{L}\p{N}]+/).len }
+
+say("")
+say("${sentences.len} sentences, ${lengths.sum / lengths.len} words on average (longest ${lengths.max}, shortest ${lengths.min})")
+say("longest sentence: ${inspect(sentences[lengths.index(lengths.max)].first(58) + "…")}")
+
+# A syllable-free stand-in for readability: long words per sentence.
+long_words = content.filter { it.len > 7 }
+say("long words (8+): ${long_words.len}, ${long_words.len * 10 / sentences.len / 10}.${long_words.len * 10 / sentences.len % 10} per sentence")
+
+# --- letters, and what they say about the script mix ---------------------------
+
+letters = text.lower.chars.filter { it ~ /\p{L}/ }
+cyr = letters.count { it ~ /[а-яё]/ }
+say("")
+say("letters: ${letters.len} total — ${letters.len - cyr} latin, ${cyr} cyrillic (${cyr * 100 / letters.len}%)")
+say("most common letters: ${letters.tally.sort_by { (_, n) -> -n }.take(8).map { "${it[0]}${it[1]}" }.join(" ")}")
+
+# --- word-length profile -------------------------------------------------------
+
+say("")
+say("word length profile")
+by_len = words.group_by { it.len }
+by_len.keys.sort.each { (n) ->
+  say("  ${n.str.rjust(2)} ${"█" * by_len[n].len} ${by_len[n].len}")
+}
+
+# --- a keyword-in-context concordance ------------------------------------------
+
+fn kwic(source, needle, width) {
+  source.split(/\s+/).each_cons(width).filter { it[width / 2].lower.replace(/\W/, "") == needle }
+        .map { (window) -> window.join(" ") }
+}
+
+say("")
+say("concordance for ${inspect("response")}")
+kwic(text, "response", 5).each { (line) -> say("  …${line}…") }
+
+# --- the summary a reader would keep -------------------------------------------
+
+say("")
+say("summary: ${[
+  words: words.len,
+  distinct: words.uniq.len,
+  sentences: sentences.len,
+  top_word: freq.first[0],
+  top_count: freq.first[1],
+  cyrillic_share: "${cyr * 100 / letters.len}%",
+].json}")
