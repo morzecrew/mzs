@@ -1,6 +1,6 @@
 # Examples
 
-Thirty-three complete programs, in order of difficulty. Each one runs on its own, prints a
+Thirty-four complete programs, in order of difficulty. Each one runs on its own, prints a
 readable report, and is written to be read as much as to be executed:
 
 ```sh
@@ -51,6 +51,7 @@ does not have it at all.
 | 08 | `08_errors_and_validation.mzs` | `raise` with data, `try … else (e) ->`, validation that collects instead of raising, retry, `assert` |
 | 09 | `09_host_variables.mzs` | `$vars`: unbound reads as nil, explicit conversion, writing values back for the host |
 | 33 | `33_destructuring.mzs` | `a, b = pair`, nested patterns, `for k, v`, binding `match` arms, and what a mismatch does |
+| 34 | `34_bits_and_bytes.mzs` | flags and masks with `band`/`bor`/`shl`, an IPv4 subnet test, `bytes`/`pack_bytes`, CRC-32, and why they are functions |
 
 ## Text, patterns and data
 

@@ -289,8 +289,12 @@ func (l *Lexer) top() *frame {
 }
 
 // badRune reports one diagnostic for a rune that no rule of §3 can start, and skips it
-// (§3.3 recovery). Two spellings get their §5.6 fix-it here rather than in the parser,
-// because neither '&' nor '|' is a token kind — the parser never sees them.
+// (§3.3 recovery). Several spellings get their §5.6 fix-it here rather than in the parser,
+// because none of '&', '|' and '^' is a token kind — the parser never sees them.
+//
+// The three bit operators are deliberately absent (§12.5): '&' and '|' one keystroke from
+// '&&' and '||' is the ambiguity D16 refuses, so the operations are functions instead and
+// this is where anyone who typed the operator is told their name.
 func (l *Lexer) badRune(start token.Pos, r rune) {
 	switch {
 	case r == '&' && l.at(1) == '.':
@@ -298,6 +302,15 @@ func (l *Lexer) badRune(start token.Pos, r rune) {
 		l.advanceN(2)
 	case r == '|' && l.prev == token.LBRACE:
 		l.errorf(start, "closure parameters are parenthesised: { (x) -> … }")
+		l.bump()
+	case r == '&':
+		l.errorf(start, "'&' is not an mzs operator; use band(a, b), or '&&' for logical and")
+		l.bump()
+	case r == '|':
+		l.errorf(start, "'|' is not an mzs operator; use bor(a, b), or '||' for logical or")
+		l.bump()
+	case r == '^':
+		l.errorf(start, "'^' is not an mzs operator; use bxor(a, b), or '**' to raise to a power")
 		l.bump()
 	default:
 		l.errorf(start, "unexpected character %q", string(r))

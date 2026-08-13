@@ -1,6 +1,8 @@
 package mzs
 
 import (
+	"errors"
+	"math"
 	"testing"
 )
 
@@ -266,6 +268,105 @@ func TestNumberDurations(t *testing.T) {
 				t.Errorf("7.%s without the time module: want an undefined-method error", tt.meth)
 			}
 		})
+	}
+}
+
+// The bit rows of §12.5 are functions, not operators, and they are pure int64: D9's
+// promotion rule stops at their door, so `shl` truncates to 64 bits where `*` would have
+// gone to Float.
+func TestBitOperations(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   string
+		args []Value
+		want Value
+	}{
+		{"band", "band", []Value{Int(0b1100), Int(0b1010)}, Int(0b1000)},
+		{"bor", "bor", []Value{Int(0b1100), Int(0b1010)}, Int(0b1110)},
+		{"bxor", "bxor", []Value{Int(0b1100), Int(0b1010)}, Int(0b0110)},
+		{"band with a mask", "band", []Value{Int(0x1234), Int(0xff)}, Int(0x34)},
+		{"bnot of zero is all ones", "bnot", []Value{Int(0)}, Int(-1)},
+		{"bnot is its own inverse", "bnot", []Value{Int(^int64(42))}, Int(42)},
+		{"shl", "shl", []Value{Int(1), Int(10)}, Int(1024)},
+		{"shl of zero bits", "shl", []Value{Int(7), Int(0)}, Int(7)},
+		{"shl truncates to 64 bits instead of promoting", "shl", []Value{Int(1), Int(64)}, Int(0)},
+		{"shl into the sign bit", "shl", []Value{Int(1), Int(63)}, Int(math.MinInt64)},
+		{"shl drops the bits it shifts out", "shl", []Value{Int(math.MaxInt64), Int(1)}, Int(-2)},
+		{"shr", "shr", []Value{Int(1024), Int(10)}, Int(1)},
+		{"shr is arithmetic", "shr", []Value{Int(-8), Int(1)}, Int(-4)},
+		{"shr of a negative saturates at -1", "shr", []Value{Int(-8), Int(64)}, Int(-1)},
+		{"shr of a positive saturates at 0", "shr", []Value{Int(8), Int(64)}, Int(0)},
+		{"popcount", "popcount", []Value{Int(255)}, Int(8)},
+		{"popcount of zero", "popcount", []Value{Int(0)}, Int(0)},
+		{"popcount counts two's complement bits", "popcount", []Value{Int(-1)}, Int(64)},
+		{"bit that is set", "bit", []Value{Int(0b101), Int(2)}, Bool(true)},
+		{"bit that is clear", "bit", []Value{Int(0b101), Int(1)}, Bool(false)},
+		{"bit 63 of a negative number is the sign", "bit", []Value{Int(-1), Int(63)}, Bool(true)},
+	}
+
+	c := stdCtx(DefaultOptions())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := stdBuiltin(t, c, tt.fn, tt.args...)
+			if err != nil {
+				t.Fatalf("%s: unexpected error %v", tt.fn, err)
+			}
+			if !stdSame(got, tt.want) {
+				t.Errorf("%s = %s; want %s", tt.fn, got.Inspect(), tt.want.Inspect())
+			}
+		})
+	}
+}
+
+// A bit function refuses what it cannot answer exactly: there is no coercion (§9.1) and
+// no guess about the bits above 63.
+func TestBitOperationErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   string
+		args []Value
+		want string
+	}{
+		{"a float argument does not truncate", "band", []Value{Float(2.9), Int(1)},
+			"band expects an int, got float: bit operations do not round, write x.int"},
+		{"a float second argument", "bor", []Value{Int(1), Float(2.0)},
+			"bor expects an int, got float: bit operations do not round, write x.int"},
+		{"a string argument", "bxor", []Value{Str("1"), Int(1)},
+			"bxor expects an int, got string"},
+		{"a negative left shift", "shl", []Value{Int(1), Int(-1)},
+			"shl: shift count -1 is negative; the other direction is shr"},
+		{"a negative right shift", "shr", []Value{Int(1), Int(-1)},
+			"shr: shift count -1 is negative; the other direction is shl"},
+		{"a bit index past the width", "bit", []Value{Int(1), Int(64)},
+			"bit: index 64 is outside 0..63"},
+		{"a negative bit index", "bit", []Value{Int(1), Int(-1)},
+			"bit: index -1 is outside 0..63"},
+	}
+
+	c := stdCtx(DefaultOptions())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := stdBuiltin(t, c, tt.fn, tt.args...)
+			if err == nil {
+				t.Fatalf("%s: want an error, got none", tt.fn)
+			}
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("%s error is %T (%v), want *Error", tt.fn, err, err)
+			}
+			if e.Msg != tt.want {
+				t.Errorf("%s error = %q; want %q", tt.fn, e.Msg, tt.want)
+			}
+		})
+	}
+}
+
+// UFCS is not a second implementation (D18): the method spelling every example uses
+// reaches the very same row.
+func TestBitOperationsAreMethodsToo(t *testing.T) {
+	v := evOK(t, evInterp(), `0xff.band(0x0f).shl(4).bor(1)`, nil)
+	if !stdSame(v, Int(0xf1)) {
+		t.Errorf("chained bit methods = %s; want 241", v.Inspect())
 	}
 }
 

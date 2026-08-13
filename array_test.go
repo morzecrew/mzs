@@ -212,6 +212,11 @@ func TestArrayMethods(t *testing.T) {
 			args: []Value{Int(2)}, want: "[[0,1],[2,3],[4]]"},
 		{name: "each_slice rejects a zero size", method: "each_slice", recv: colInts(1), args: []Value{Int(0)}, wantErr: true},
 		{name: "each_cons", method: "each_cons", recv: colInts(1, 2, 3), args: []Value{Int(2)}, want: "[[1,2],[2,3]]"},
+		{name: "pack_bytes", method: "pack_bytes", recv: colInts(0x41, 0x42), want: `"AB"`},
+		{name: "pack_bytes of nothing is the empty string", method: "pack_bytes", recv: Array(), want: `""`},
+		{name: "pack_bytes rejects a value above a byte", method: "pack_bytes", recv: colInts(300), wantErr: true},
+		{name: "pack_bytes rejects a negative value", method: "pack_bytes", recv: colInts(-1), wantErr: true},
+		{name: "pack_bytes rejects a non-int element", method: "pack_bytes", recv: colStrs("A"), wantErr: true},
 		{name: "array is the receiver", method: "array", recv: colInts(1), want: "[1]"},
 		{name: "dict from pairs", method: "dict", recv: Array(Array(Str("a"), Int(1)), Array(Str("b"), Int(2))),
 			want: `{"a":1,"b":2}`},
@@ -292,6 +297,44 @@ func TestArrayMutation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// pack_bytes closes the loop String#bytes opens (§12.3): whatever a string is taken
+// apart into puts it back together byte for byte, multi-byte runes included.
+func TestPackBytesRoundTrip(t *testing.T) {
+	c := colCtx(t, DefaultOptions())
+
+	for _, s := range []string{"", "ascii", "привет", "héllo 🌲", "\x00\x01\xff"} {
+		t.Run(s, func(t *testing.T) {
+			got, err := colInvoke(c, KString, "bytes", Str(s))
+			if err != nil {
+				t.Fatalf("bytes: %v", err)
+			}
+			back, err := colInvoke(c, KArray, "pack_bytes", got)
+			if err != nil {
+				t.Fatalf("pack_bytes: %v", err)
+			}
+			if back.Str() != s {
+				t.Errorf("round trip = %q; want %q", back.Str(), s)
+			}
+		})
+	}
+
+	// The rows work on bytes, not runes, so a packed string can be invalid UTF-8 — the
+	// same thing `io.read` of a binary file produces (§12.13). Nothing panics; the
+	// rune-based rows just see the replacement character.
+	t.Run("a packed string may not be valid UTF-8", func(t *testing.T) {
+		v, err := colInvoke(c, KArray, "pack_bytes", colInts(0xff, 0xfe))
+		if err != nil {
+			t.Fatalf("pack_bytes: %v", err)
+		}
+		if len(v.Str()) != 2 {
+			t.Errorf("packed %d bytes; want 2", len(v.Str()))
+		}
+		if got := v.Len(); got != 2 {
+			t.Errorf("len = %d; want 2 replacement runes", got)
+		}
+	})
 }
 
 // TestArrayAliasing pins reference semantics (§7.1): a mutation is visible through
@@ -429,6 +472,7 @@ func TestRangeMethods(t *testing.T) {
 		{name: "min", method: "min", recv: rangeOf(3, 7, false), want: "3"},
 		{name: "max", method: "max", recv: rangeOf(3, 7, false), want: "7"},
 		{name: "reverse", method: "reverse", recv: rangeOf(1, 3, false), want: "[3,2,1]"},
+		{name: "pack_bytes", method: "pack_bytes", recv: rangeOf(0x41, 0x43, false), want: `"ABC"`},
 		{name: "step", method: "step", recv: rangeOf(0, 10, false), args: []Value{Int(3)}, want: "[0,3,6,9]"},
 		{name: "step rejects zero", method: "step", recv: rangeOf(0, 10, false), args: []Value{Int(0)}, wantErr: true},
 		{name: "each_slice chains to array", method: "each_slice", recv: rangeOf(0, 6, false),

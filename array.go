@@ -64,6 +64,7 @@ func init() {
 		{Name: "take_while", Min: 1, Max: 1, Fn: arrTakeWhile},
 		{Name: "drop_while", Min: 1, Max: 1, Fn: arrDropWhile},
 		{Name: "zip", Max: -1, Fn: arrZip},
+		{Name: "pack_bytes", Fn: arrPackBytes},
 		{Name: "array", Fn: arrArray},
 		{Name: "dict", Fn: arrDict},
 		{Name: "json", Fn: arrJSON},
@@ -497,6 +498,41 @@ func arrJoin(c *Ctx, recv Value, args []Value) (Value, error) {
 		}
 	}
 	return Str(sb.String()), nil
+}
+
+// arrPackBytes is the inverse of String#bytes (§12.2): one element, one byte. Without it
+// `bytes` is a one-way street — you can take a string apart and never put it back — which
+// is what makes the bit rows of §12.5 usable on data rather than only on flags.
+//
+// Every element must be an Int in 0..255 and a bad one names its index: a byte quietly
+// truncated from 300 to 44 is a corrupt string that only surfaces much later.
+//
+// The result is bytes, not runes, so packing arbitrary values can build a string that is
+// not valid UTF-8 — exactly as `io.read` of a binary file can (§12.13). The rune-based
+// rows then see U+FFFD, and JSON encoding replaces the bad bytes; nothing panics.
+func arrPackBytes(c *Ctx, recv Value, _ []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	if err := c.CheckString(len(xs)); err != nil {
+		return Nil(), err
+	}
+	buf := make([]byte, len(xs))
+	for i, x := range xs {
+		if x.Kind() != KInt {
+			return Nil(), c.TypeErrorf("pack_bytes: expected a byte in 0..255 at element %d, got %s",
+				i, x.TypeName())
+		}
+		if x.n < 0 || x.n > 255 {
+			return Nil(), c.ArgErrorf("pack_bytes: expected a byte in 0..255 at element %d, got %d", i, x.n)
+		}
+		buf[i] = byte(x.n)
+	}
+	return Str(string(buf)), nil
 }
 
 // arrDig is the nil-safe nested lookup of §12.3, shared with the dict row of §12.4.

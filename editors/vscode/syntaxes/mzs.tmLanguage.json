@@ -235,7 +235,7 @@
     "builtin": {
       "comment": "Generated from mzs.BuiltinNames(); regenerate with editors/vscode/data/gen.",
       "name": "support.function.builtin.mzs",
-      "match": "\\b(?:abs|array|assert|bool|ceil|debug|defined|dict|dup|empty|float|floor|format|hash|inspect|int|is|json|len|max|min|now|pipe|print|raise|rand|range|regex|round|say|sort|str|sum|tap|type|uuid)\\b(?=\\s*\\()"
+      "match": "\\b(?:abs|array|assert|band|bit|bnot|bool|bor|bxor|ceil|debug|defined|dict|dup|empty|float|floor|format|hash|inspect|int|is|json|len|max|min|now|pipe|popcount|print|raise|rand|range|regex|round|say|shl|shr|sort|str|sum|tap|type|uuid)\\b(?=\\s*\\()"
     },
 
     "operator": {

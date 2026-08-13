@@ -294,7 +294,8 @@ Only `nil` and `false` are falsy. `0`, `""`, `[]`, `[:]` are truthy.
 ```
 
 Integer division when both sides are `int`; `%` takes the sign of the divisor. An `int`
-overflow is promoted to `float` rather than wrapped.
+overflow is promoted to `float` rather than wrapped — except in the bit functions, which
+stay in `int64` (see Numbers below; `&`, `|` and `^` are not operators here).
 
 There are no conversions: `"2" + 1` is an error, write `"2".int + 1`. The one implicit
 conversion is string interpolation.
@@ -528,7 +529,7 @@ alike. There are no aliases — every operation has exactly one name.
 `filter` `reject` `find` `any` `all` `none` `reduce` `sum` `min` `max` `min_by` `max_by`
 `sort_by` `group_by` `partition` `sort` `reverse` `uniq` `flatten` `flat_map` `dig`
 `compact` `tally` `slice` `take` `drop` `take_while` `drop_while` `zip` `concat`
-`sample` `shuffle` `sort_in_place` `reverse_in_place`
+`pack_bytes` `sample` `shuffle` `sort_in_place` `reverse_in_place`
 
 ### Dicts
 
@@ -539,6 +540,19 @@ alike. There are no aliases — every operation has exactly one name.
 
 `int` `float` `str` `abs` `round` `ceil` `floor` `clamp` `zero` `positive` `negative`
 `even` `odd` `times` `upto` `downto` `step` `pow` `chr`
+
+Bits: `band` `bor` `bxor` `bnot` `shl` `shr` `popcount` `bit`. They are functions rather
+than operators — `&` next to `&&` is the kind of near-miss this language refuses, so
+writing `a & b` gets you a diagnostic naming `band` — and they are pure `int64`: `shl`
+drops the bits it pushes past the top instead of promoting to a Float the way `*` does.
+`bytes` takes a string apart into numbers and `pack_bytes` puts it back.
+
+```
+flags = bor(READ, WRITE)          # 0b0011
+flags.bit(1)                      # true — WRITE is set
+flags.band(bnot(WRITE))           # clear it again
+"\x01\x02".bytes.reduce(0) { (a, b) -> a.shl(8).bor(b) }   # 258
+```
 
 ### Ranges and regexes
 
@@ -979,7 +993,7 @@ flows after the migration ([`SPEC.md` §16.1](SPEC.md)), the regex corpus (§16.
 author's own files (§16.3), a test for every known gotcha (§16.4) and for every diagnostic
 of §5.6.
 
-Examples: thirty-three complete programs in [`examples/`](examples/README.md) — from the
+Examples: thirty-four complete programs in [`examples/`](examples/README.md) — from the
 value model and `match` to BFS through a maze, a FIFO warehouse, `async fn` and an HTTP
 service. Each one runs on its own (`mzs examples/11_log_parser.mzs`) and prints a report.
 The author's files from §16.3 are not examples; they live in [`testdata/`](testdata/).

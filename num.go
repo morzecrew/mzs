@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"math"
+	"math/bits"
 	"strconv"
 )
 
@@ -360,6 +361,128 @@ func init() {
 			return Bool(recv.n%2 != 0), nil
 		}},
 	)
+}
+
+// ---------------------------------------------------------------------------
+// Bit operations (§12.5)
+// ---------------------------------------------------------------------------
+//
+// These are functions, not operators, and that is the decision rather than a shortcut.
+// `&` and `|` living one keystroke away from `&&` and `||` is the exact shape D16 says
+// not to introduce, and `<<`/`>>` are reserved (§20). As free functions they get the
+// method spelling for nothing under UFCS: `flags.band(0xff)` *is* `band(flags, 0xff)`,
+// one implementation and one name (D17).
+//
+// Every row here is pure int64 arithmetic. D9's promotion rule does not reach it: a bit
+// operation never produces a Float, `shl` truncates to 64 bits instead of promoting, and
+// a Float argument is a type error rather than a silent truncation (§9.1).
+
+func init() {
+	RegisterBuiltins(
+		Builtin{Name: "band", Min: 2, Max: 2, Fn: bitPair(func(a, b int64) int64 { return a & b })},
+		Builtin{Name: "bor", Min: 2, Max: 2, Fn: bitPair(func(a, b int64) int64 { return a | b })},
+		Builtin{Name: "bxor", Min: 2, Max: 2, Fn: bitPair(func(a, b int64) int64 { return a ^ b })},
+		Builtin{Name: "bnot", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
+			a, err := argBits(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			return Int(^a), nil
+		}},
+		Builtin{Name: "shl", Min: 2, Max: 2, Fn: bitShift(false)},
+		Builtin{Name: "shr", Min: 2, Max: 2, Fn: bitShift(true)},
+		Builtin{Name: "popcount", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
+			a, err := argBits(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			return Int(int64(bits.OnesCount64(uint64(a)))), nil
+		}},
+		Builtin{Name: "bit", Min: 2, Max: 2, Fn: func(c *Ctx, args []Value) (Value, error) {
+			a, err := argBits(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			i, err := argBits(c, args[1])
+			if err != nil {
+				return Nil(), err
+			}
+			// 64 is not "false, the number has no such bit": for a negative receiver
+			// every bit above 63 is a 1, so either answer would be a guess (I5, D16).
+			if i < 0 || i > 63 {
+				return Nil(), c.ArgErrorf("bit: index %d is outside 0..63", i)
+			}
+			return Bool(a&(int64(1)<<uint(i)) != 0), nil
+		}},
+	)
+}
+
+// argBits reads an argument that must be an Int. A Float is refused rather than
+// truncated: `2.9.band(1)` has no defensible answer, and there is no coercion (§9.1).
+func argBits(c *Ctx, v Value) (int64, error) {
+	if v.Kind() == KInt {
+		return v.n, nil
+	}
+	if v.Kind() == KFloat {
+		return 0, c.TypeErrorf("%s expects an int, got float: bit operations do not round, write x.int", c.Name())
+	}
+	return 0, c.TypeErrorf("%s expects an int, got %s", c.Name(), v.TypeName())
+}
+
+// bitPair builds the two-argument rows, which differ only in the Go operator.
+func bitPair(op func(a, b int64) int64) HostFunc {
+	return func(c *Ctx, args []Value) (Value, error) {
+		a, err := argBits(c, args[0])
+		if err != nil {
+			return Nil(), err
+		}
+		b, err := argBits(c, args[1])
+		if err != nil {
+			return Nil(), err
+		}
+		return Int(op(a, b)), nil
+	}
+}
+
+// bitShift builds `shl` and `shr`. `shr` is arithmetic — the sign bit is copied in, so
+// `shr(-8, 1)` is -4 and stays the integer division by two it looks like.
+//
+// A negative count is an error rather than a shift the other way: each direction has its
+// own name, and `shl(x, -1)` is far more often a bug than an intention.
+func bitShift(right bool) HostFunc {
+	return func(c *Ctx, args []Value) (Value, error) {
+		a, err := argBits(c, args[0])
+		if err != nil {
+			return Nil(), err
+		}
+		n, err := argBits(c, args[1])
+		if err != nil {
+			return Nil(), err
+		}
+		if n < 0 {
+			return Nil(), c.ArgErrorf("%s: shift count %d is negative; the other direction is %s",
+				c.Name(), n, otherShift(right))
+		}
+		// Everything is shifted out past 63 bits. Go defines this case, but spelling it
+		// out keeps the code and the SPEC line side by side.
+		if n > 63 {
+			if right && a < 0 {
+				return Int(-1), nil
+			}
+			return Int(0), nil
+		}
+		if right {
+			return Int(a >> uint(n)), nil
+		}
+		return Int(a << uint(n)), nil
+	}
+}
+
+func otherShift(right bool) string {
+	if right {
+		return "shl"
+	}
+	return "shr"
 }
 
 // numPos is the positional arguments with the trailing closure removed. A closure is an
