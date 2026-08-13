@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "pr-review-loop": {
+      "source": "morzecrew/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pr-review-loop/SKILL.md",
+      "computedHash": "dd9f1cb9345b90d337014fac286b6616b26807c671b406650528e59c242b73cb"
+    }
+  }
+}
