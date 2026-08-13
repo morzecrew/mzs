@@ -83,14 +83,23 @@ func (m memFS) Stat(name string) (bool, int64, bool, error) {
 	s, ok := m[name]
 	return ok, int64(len(s)), false, nil
 }
+// List returns immediate children by their own name, the way os.ReadDir does — matching
+// on the raw prefix would let List("data") see "database.txt", and would return "sub/x"
+// for a file a level down.
 func (m memFS) List(dir string) ([]string, error) {
 	if err := m.check(dir); err != nil { return nil, err }
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+	if dir == "" || dir == "." { prefix = "" }
+	seen := map[string]bool{}
 	var out []string
 	for name := range m {
-		if strings.HasPrefix(name, dir) {
-			out = append(out, strings.TrimPrefix(name, dir))
-		}
+		if !strings.HasPrefix(name, prefix) { continue }
+		entry, _, _ := strings.Cut(strings.TrimPrefix(name, prefix), "/")
+		if entry == "" || seen[entry] { continue }
+		seen[entry] = true
+		out = append(out, entry)
 	}
+	sort.Strings(out) // a map range is unordered; a listing should not be
 	return out, nil
 }
 ```

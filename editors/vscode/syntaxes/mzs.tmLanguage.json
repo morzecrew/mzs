@@ -210,7 +210,7 @@
     },
 
     "dict-key": {
-      "comment": "`[name: 1]` and `f(k: v)` — an identifier key is the string \"name\" (§8.7). The colon is adjacent, which keeps a ternary out of this rule.",
+      "comment": "`{name: 1}` and `f(k: v)` — an identifier key is the string \"name\" (§8.7). The colon is adjacent, which keeps a ternary out of this rule.",
       "match": "([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)(:)(?!:)(?=\\s)",
       "captures": {
         "1": { "name": "constant.other.key.mzs" },

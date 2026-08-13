@@ -139,7 +139,7 @@
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-    "ex": "`[a: 1].json`"
+    "ex": "`{a: 1}.json`"
    },
    "last": {
     "sig": "`(n: int = nil) -> any | array`",
@@ -366,7 +366,7 @@
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-    "ex": "`[a: 1].json`"
+    "ex": "`{a: 1}.json`"
    },
    "keys": {
     "sig": "`-> array`",
@@ -468,7 +468,7 @@
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-    "ex": "`[a: 1].json`"
+    "ex": "`{a: 1}.json`"
    },
    "minutes": {
     "sig": "`-> duration`",
@@ -602,7 +602,7 @@
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-    "ex": "`[a: 1].json`"
+    "ex": "`{a: 1}.json`"
    },
    "minutes": {
     "sig": "`-> duration`",
@@ -784,7 +784,7 @@
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-    "ex": "`[a: 1].json`"
+    "ex": "`{a: 1}.json`"
    },
    "last": {
     "sig": "`(n: int = nil) -> any | array`",
@@ -1034,7 +1034,7 @@
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-    "ex": "`[a: 1].json`"
+    "ex": "`{a: 1}.json`"
    },
    "last": {
     "sig": "`(n: int = 1) -> string`",
@@ -1291,7 +1291,7 @@
   "json": {
    "sig": "`json(x) -> string`",
    "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
-   "ex": "`[a: 1].json`"
+   "ex": "`{a: 1}.json`"
   },
   "len": {
    "sig": "`len(x) -> int`",
@@ -1414,22 +1414,22 @@
   },
   "http": {
    "get": {
-    "sig": "`(url: string, opts: dict = [:]) -> dict`",
-    "sem": "request; returns `[status:, body:, headers:]`",
+    "sig": "`(url: string, opts: dict = {}) -> dict`",
+    "sem": "request; returns `{status:, body:, headers:}`",
     "ex": ""
    },
    "json": {
-    "sig": "`(body: any, status: int = 200, headers: dict = [:]) -> dict`",
+    "sig": "`(body: any, status: int = 200, headers: dict = {}) -> dict`",
     "sem": "response whose body is `body` encoded as JSON",
     "ex": ""
    },
    "post": {
-    "sig": "`(url: string, body: any, opts: dict = [:]) -> dict`",
+    "sig": "`(url: string, body: any, opts: dict = {}) -> dict`",
     "sem": "a string body is sent as is, anything else as JSON",
     "ex": ""
    },
    "request": {
-    "sig": "`(method: string, url: string, opts: dict = [:]) -> dict`",
+    "sig": "`(method: string, url: string, opts: dict = {}) -> dict`",
     "sem": "`opts`: `body`, `headers`, `timeout` (seconds)",
     "ex": ""
    },
@@ -1444,7 +1444,7 @@
     "ex": ""
    },
    "text": {
-    "sig": "`(body: any, status: int = 200, headers: dict = [:]) -> dict`",
+    "sig": "`(body: any, status: int = 200, headers: dict = {}) -> dict`",
     "sem": "response whose body is `str(body)`",
     "ex": ""
    }
@@ -1593,7 +1593,7 @@
    },
    "parse": {
     "sig": "`(s: string, layout: string = auto) -> time`",
-    "sem": "accepts RFC3339, `YYYY-MM-DD[ HH:MM[:SS]]`, `DD/MM/YY`, `DD.MM.YYYY`",
+    "sem": "accepts RFC3339, `YYYY-MM-DD{ HH:MM[:SS]}`, `DD/MM/YY`, `DD.MM.YYYY`",
     "ex": ""
    }
   }

@@ -81,6 +81,10 @@ $ mzs -e 'include json; json.pretty({a: 1})'
 
 ## Files
 
+These four assume POSIX — `/tmp` writable, `/etc` present, `HOME` an absolute path — so
+the *results* are what a Linux or macOS shell prints; elsewhere the calls are the same and
+the values differ.
+
 | One-liner | Result |
 |---|---|
 | `include io; io.write("/tmp/d.txt", "a\nb\n"); io.read("/tmp/d.txt").lines.len` | `2` |

@@ -141,9 +141,9 @@
     "body": [
       "include http",
       "",
-      "http.serve(\"${1::8080}\", [",
-      "  \"GET /${2:hello}\": { (req) -> http.json([${3:message}: \"$4\"]) },",
-      "])"
+      "http.serve(\"${1::8080}\", {",
+      "  \"GET /${2:hello}\": { (req) -> http.json({${3:message}: \"$4\"}) },",
+      "})"
     ],
     "description": "A web server: a route and a JSON reply"
   },

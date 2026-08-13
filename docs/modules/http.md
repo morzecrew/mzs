@@ -226,7 +226,7 @@ say("${a.await} / ${b.await}")
 ```
 
 ```sh
-$ mzs -t 20 probe.mzs      # -t 20: the Run's own 1s deadline would fire first
+$ mzs -t 20 probe.mzs      # -t 20 lifts the Run deadline past the requests' own 2s
 timed out / timed out      # real 0m2,005s
 ```
 

@@ -2,7 +2,7 @@
 
 Reference documentation for mzs, an embeddable scripting language written in Go, one page per topic.
 
-**Start here:** [getting-started/README.md](./getting-started/README.md) — what the language is, the three rules its syntax follows, and a first program. In a hurry, [the cheat sheet](./getting-started/cheatsheet.md) is one runnable line per row.
+**Start here:** [getting-started/README.md](./getting-started/README.md) — what the language is, the rules its syntax follows, and a first program. In a hurry, [the cheat sheet](./getting-started/cheatsheet.md) is one runnable line per row.
 
 ## Getting started
 

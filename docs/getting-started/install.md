@@ -5,7 +5,7 @@ How to build the `mzs` binary and every way to hand it a program.
 ## Build
 
 ```sh
-git clone <repo> mzs && cd mzs
+git clone https://github.com/morzecrew/mzs.git && cd mzs
 go build ./...                # build every package
 go install ./cmd/mzs          # puts the binary in $(go env GOPATH)/bin
 ```

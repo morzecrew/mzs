@@ -9,6 +9,13 @@ the CI that runs all of it.
 gofmt -l .                    # prints nothing
 go vet ./...                  # prints nothing
 go test -race ./...           # ok  mzs  …  for every package
+go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+```
+
+These are the four steps of the `test and coverage` job. Compiling the examples is the
+separate `cli smoke` job, and worth running by hand for anything that touches the grammar:
+
+```sh
 for f in examples/*.mzs; do mzs --check --time "$f"; done
 ```
 
