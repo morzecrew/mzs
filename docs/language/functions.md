@@ -149,8 +149,10 @@ An unknown method is a compile-time error with a suggestion: `"x".nope` reports
 
 ## Scope
 
-Every `{ … }` is a closure, so every `{ … }` is a scope. `=` writes the nearest existing
-binding and creates one *here* when there is none; `:=` always creates here.
+Every closure is a scope — so every `{ … }` that is a closure or a body is one, and a
+dict literal (`{a: 1}`, `{}`) is not: it is a value, and its entries are evaluated in the
+scope around it. `=` writes the nearest existing binding and creates one *here* when
+there is none; `:=` always creates here.
 
 ```
 n = 0; { n = 5 }.call(); n                 # 5

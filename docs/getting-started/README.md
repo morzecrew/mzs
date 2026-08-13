@@ -5,7 +5,7 @@ mzs is an embeddable scripting language written in Go; this page is the entry po
 ## What kind of language this is
 
 * **Everything is an expression.** The value of the last one is the value of a script, a function body and a closure; `return` is optional.
-* **`{ … }` is a closure, unless it is a dict.** `if`, `while`, `for`, `fn` and `match` arms simply call it for you; in operand position `{a: 1}` and `{}` are dicts, and everything else is a closure.
+* **`{ … }` is a closure, unless it is a dict.** `if`, `while`, `for`, `fn` and `match` arms simply call it for you; in operand position `{a: 1}` and `{}` are dicts, and everything else is a closure. After a call the brace is the trailing closure, so `{}` there is the empty closure — as a value, write `{ nil }`.
 * **`[ … ]` is always an array**, and a dict is always braces: `[1, 2]` is an array, `[]` the empty array, `{a: 1}` a dict, `{}` the empty dict. So JSON pastes in as source.
 * **`x.f(y)` is exactly `f(x, y)`.** One flat namespace, and your own `fn` joins it — there are no methods on one side and functions on the other.
 * **`match` replaces the `if/else if` ladder.** Sixteen keywords in the whole language, and exactly one name per operation — `size`, `collect` and `select` are errors that name `len`, `map` and `filter`.

@@ -55,7 +55,7 @@ history.each { (m) ->
 # --- FIFO: the lots are a queue, and a sale drains it from the front ----------
 
 fn fifo(sku) {
-  lots = []          # each lot is [qty, cost]
+  lots = []          # each lot is a dict of qty and cost
   cogs = 0
   shortfall = 0
   movements.filter { it["sku"] == sku }.each { (m) ->

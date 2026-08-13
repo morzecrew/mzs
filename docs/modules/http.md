@@ -113,7 +113,7 @@ $ curl -s -i localhost:8080/dict  | head -3   # {status: 201, body: "made", head
 HTTP/1.1 201 Created
 Content-Type: text/plain; charset=utf-8
 X-Note: hand built
-$ curl -s -i localhost:8080/text  | head -3   # http.text("нет", 418, ["x-brew": "no"])
+$ curl -s -i localhost:8080/text  | head -3   # http.text("нет", 418, {"x-brew": "no"})
 HTTP/1.1 418 I'm a teapot
 Content-Type: text/plain; charset=utf-8
 X-Brew: no

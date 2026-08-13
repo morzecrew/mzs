@@ -18,8 +18,10 @@ mzs -e 'File.read("x")'  # -e:1:1: name: undefined variable 'File'
 
 ## Granted by the host
 
-The zero `Options` is the sandboxed one: a script handed nothing can compute and nothing
-else. One field grants one capability.
+The zero `Options` is the sandboxed one: it grants no host capability, so a script handed
+nothing can compute and nothing else — with one exception, `http`, which is installed
+whether or not the host asks and is described [below](#http-is-the-one-exception). One
+field grants one capability.
 
 | Capability | `Options` field | CLI |
 |---|---|---|
@@ -85,7 +87,7 @@ when `serve` returns.
 
 | Field | Default | Bounds | CLI |
 |---|---|---|---|
-| `Timeout` | `1s` | wall clock per Run | `-t`, `-t 0` disables |
+| `Timeout` | `1s` | wall clock per Run, checked between evaluation steps — a blocking host function is not interrupted by it (see [../embedding/functions.md](../embedding/functions.md#blocking)) | `-t`, `-t 0` disables |
 | `StepBudget` | `5000000` | interpreter steps per Run | `--steps`, `--steps 0` disables |
 | `MaxDepth` | `200` | call and recursion depth | — |
 | `MaxTasks` | `64` | tasks live at once | `--tasks`, `--tasks 0` forbids |

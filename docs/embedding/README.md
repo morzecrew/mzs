@@ -59,7 +59,10 @@ mutable state lives in the per-Run frame, and two concurrent Runs never see each
 
 ## Options
 
-Every capability is off by default; the zero `Options` computes and nothing else. `0` means
+Every *host-granted* capability is off by default; the zero `Options` computes and nothing
+else. The one exception is `http`, installed with no option asked for — a host that must
+not allow network access calls `Unregister("http")`, see
+[../reference/sandbox.md](../reference/sandbox.md#http-is-the-one-exception). `0` means
 "use the default" for every limit; a row that can be switched *off* at all says with what.
 
 | Field | Default | Notes |

@@ -2,10 +2,10 @@
 #
 #   mzs examples/07_functions_closures.mzs
 #
-# There is no "block" in this language: `{ … }` is a closure literal everywhere, a
-# trailing closure is just the last argument, and `x.f(y)` is `f(x, y)` — so a function
-# you write is usable as a method the moment it exists. This file builds a small
-# functional toolkit on those three facts.
+# There is no "block" in this language: `{ … }` is a closure wherever it is not a dict —
+# position decides, and a body or a trailing closure is never a dict. A trailing closure
+# is just the last argument, and `x.f(y)` is `f(x, y)`, so a function you write is usable
+# as a method the moment it exists. This file builds a small functional toolkit on that.
 
 # --- parameters: defaults are evaluated at the call, rest collects the tail ----
 
@@ -67,7 +67,7 @@ say("partial application: ${[1, 2, 3].map(double).json} ${[1, 2, 3].map(treble).
 # A closure passed by name and a closure written at the call site are the same thing.
 say("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it * 2 }.json}")
 
-# --- a validation chain: a list of closures, run in order ---------------------
+# --- a validation chain: named checks, each a closure, run in order -----------
 
 checks = [
   {name: "not empty",  test: { (s) -> !s.blank }},

@@ -154,8 +154,11 @@ ended, not that the task was wrong.
 not how many a run may start: 200 tasks awaited one at a time are fine.
 
 ```sh
+$ mzs -e 'async fn f(n) { n }; (1..200).map { (i) -> f(i).await }.sum'
+20100                                                             # awaited one at a time
+
 $ mzs -e 'async fn f(n) { n }; (1..100).map { (i) -> f(i) }.map { it.await }.sum'
--e:1:44: limit: too many tasks: 64 already running (MaxTasks)     # exit 3
+-e:1:44: limit: too many tasks: 64 already running (MaxTasks)     # exit 3, all started first
 
 $ mzs --tasks 0 -e 'async fn f() { 1 }; f()'
 -e:1:21: limit: tasks are disabled: the host set MaxTasks to none, so 'f' cannot be started

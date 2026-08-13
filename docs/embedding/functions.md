@@ -108,13 +108,42 @@ meanwhile. The closure must touch no `Value`, no global and no `Ctx` method.
 in.Register("sleep_ms", 1, func(c *mzs.Ctx, args []mzs.Value) (mzs.Value, error) {
 	if err := c.Step(1000); err != nil { return mzs.Nil(), err }
 	d := time.Duration(args[0].Int()) * time.Millisecond
-	c.Blocking(func() { time.Sleep(d) })
+	ctx := c.Context() // captured here: the closure may touch no Ctx method
+	var err error
+	c.Blocking(func() {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
+	})
+	if err != nil { return mzs.Nil(), err }
 	return args[0], nil
 })
 ```
 
 Two 60 ms tasks over that function finish the Run in 60 ms, not 120. See
 [../language/async.md](../language/async.md).
+
+**Wait on the context, not only on the timer.** A bare `time.Sleep(d)` cannot observe
+cancellation: the Run stays blocked until `d` elapses, so `Eval` cannot return promptly
+however its caller asks. `Ctx.Context()` is the context the Run was started with and host
+functions must honour it; read it *before* `Blocking`, because the closure may touch no
+`Ctx` method. With the `select` above, cancelling the caller's context returns in the
+50 ms it was given rather than the 5 s the script asked to sleep.
+
+**`Options.Timeout` is not a second escape hatch here.** It is enforced between evaluation
+steps, and a host function that blocks is not between steps — so a `Timeout` alone leaves
+the call running to completion and the Run returns no error. Anything that must be bounded
+by wall clock has to arrive as a context with a deadline:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+defer cancel()
+v, err := in.Eval(ctx, `sleep_ms(5000)`, nil)   // returns in ~50ms
+```
 
 ## RegisterModule, SetGlobal, Unregister
 
