@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
+        id: go
         with:
           go-version-file: go.mod
           # go.mod has no `require` and there is no go.sum (I1), so there is nothing
@@ -50,15 +51,44 @@ jobs:
       - name: coverage profile
         run: go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
+      # The number goes into the run summary as well as the log, so it is readable
+      # without Codecov — which matters on a fork, where the upload cannot happen.
       - name: coverage summary
-        run: go tool cover -func=coverage.out | tail -1
+        run: |
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
+          echo "coverage: $total of statements"
+          echo "**Coverage:** $total of statements" >> "$GITHUB_STEP_SUMMARY"
 
+      # Codecov. This is the one step that can fail for a reason that is not the code,
+      # so it has two rules:
+      #
+      #   * with CODECOV_TOKEN set, a failed upload fails the job — a coverage report
+      #     that quietly stops arriving is worse than a red build;
+      #   * without it the job stays green and leaves an annotation instead. A fork and
+      #     a fresh clone have no secret and must not be red for a reason they cannot
+      #     fix; this branch is also protected, and Codecov refuses an untokened upload
+      #     from a protected branch ("Token required because branch is protected").
+      #
+      # The alternative to the secret is OIDC: add `id-token: write` to `permissions`
+      # above and `use_oidc: true` here, once the repository is linked on codecov.io.
       - name: upload to codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: morzecrew/mzs
           files: ./coverage.out
-          fail_ci_if_error: true
+          disable_search: true # exactly the profile above; nothing is guessed
+          flags: unit # a second lane (another OS, another Go) gets its own
+          name: ubuntu-go${{ steps.go.outputs.go-version }}
+          fail_ci_if_error: ${{ secrets.CODECOV_TOKEN != '' }}
+
+      - name: note a missing codecov token
+        if: ${{ secrets.CODECOV_TOKEN == '' }}
+        run: |
+          msg="CODECOV_TOKEN is not set, so the profile was measured but not uploaded."
+          msg="$msg Its total is in the run summary. Add the secret in Settings →"
+          msg="$msg Secrets and variables → Actions."
+          echo "::warning title=Coverage was not uploaded::$msg"
 
   cli:
     name: cli smoke
