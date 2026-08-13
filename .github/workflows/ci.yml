@@ -87,14 +87,6 @@ jobs:
           name: ubuntu-go${{ steps.go.outputs.go-version }}
           fail_ci_if_error: ${{ env.HAS_CODECOV_TOKEN }}
 
-      - name: note a missing codecov token
-        if: env.HAS_CODECOV_TOKEN == 'false'
-        run: |
-          msg="CODECOV_TOKEN is not set, so the profile was measured but not uploaded."
-          msg="$msg Its total is in the run summary. Add the secret in Settings →"
-          msg="$msg Secrets and variables → Actions."
-          echo "::warning title=Coverage was not uploaded::$msg"
-
   cli:
     name: cli smoke
     runs-on: ubuntu-latest
