@@ -32,7 +32,7 @@ fn trajectory(start, cap) {
     steps.push(n)
     n = n.even ? n / 2 : 3 * n + 1
   }
-  [start: start, steps: steps.len, peak: (steps + [1]).max, reason: reason, path: steps]
+  {start: start, steps: steps.len, peak: (steps + [1]).max, reason: reason, path: steps}
 }
 
 short = trajectory(6, 100)
@@ -52,7 +52,7 @@ say("first Collatz start above 1 whose peak clears 9000:")
 found = (2..100).find { trajectory(it, 400)["peak"] > 9000 }
 say("  ${found} (peak ${trajectory(found, 400)["peak"]})")
 
-longest = [start: 0, steps: -1]
+longest = {start: 0, steps: -1}
 for n in 1..300 {
   next if n.even                       # even starts repeat their halves — skip them
   t = trajectory(n, 400)
@@ -77,7 +77,7 @@ say("smallest i with i² ≥ 500: ${i}")
 
 say("")
 say("trajectory lengths, 1..60")
-buckets = [:]
+buckets = {}
 for n in 1..60 {
   key = (trajectory(n, 400)["steps"] / 10 * 10).str
   buckets[key] = (buckets[key] ?? 0) + 1

@@ -7,11 +7,11 @@
 # order the program wrote them, not in the order a hash function decided.
 
 staff = [
-  [id: 1, name: "Ann",  dept: "cutting", grade: 3, since: 2019, skills: ["haircut", "colour"]],
-  [id: 2, name: "Bob",  dept: "cutting", grade: 2, since: 2022, skills: ["haircut"]],
-  [id: 3, name: "Cleo", dept: "colour",  grade: 4, since: 2017, skills: ["colour", "care"]],
-  [id: 4, name: "Dmi",  dept: "barber",  grade: 1, since: 2025, skills: ["shave", "beard"]],
-  [id: 5, name: "Eve",  dept: "colour",  grade: 3, since: 2021, skills: ["colour"]],
+  {id: 1, name: "Ann",  dept: "cutting", grade: 3, since: 2019, skills: ["haircut", "colour"]},
+  {id: 2, name: "Bob",  dept: "cutting", grade: 2, since: 2022, skills: ["haircut"]},
+  {id: 3, name: "Cleo", dept: "colour",  grade: 4, since: 2017, skills: ["colour", "care"]},
+  {id: 4, name: "Dmi",  dept: "barber",  grade: 1, since: 2025, skills: ["shave", "beard"]},
+  {id: 5, name: "Eve",  dept: "colour",  grade: 3, since: 2021, skills: ["colour"]},
 ]
 
 # --- a record is a dict, and reading it has four spellings for four intents ----
@@ -28,7 +28,7 @@ say("  keys            ${ann.keys.json}")
 
 # --- an index: build one dict out of many records -----------------------------
 
-by_id = staff.reduce([:]) { (acc, p) -> acc.set(p["id"], p) }
+by_id = staff.reduce({}) { (acc, p) -> acc.set(p["id"], p) }
 say("")
 say("index by id → ${by_id[3]["name"]} (${by_id.len} entries, int keys)")
 
@@ -39,7 +39,7 @@ by_dept.each { (dept, people) ->
 }
 
 # A dict of arrays inverts into a lookup the other way round.
-who_can = [:]
+who_can = {}
 staff.each { (p) ->
   p["skills"].each { (s) -> who_can[s] = (who_can[s] ?? []).push(p["name"]) }
 }
@@ -53,7 +53,7 @@ say("seniors: ${senior.values.map { it["name"] }.join(", ")}")
 say("juniors: ${by_id.reject { (_, p) -> p["grade"] >= 3 }.values.map { it["name"] }.join(", ")}")
 say("names by seniority: ${staff.sort_by { it["since"] }.map { "${it["name"]}(${it["since"]})" }.join(" ")}")
 
-grades = staff.reduce([:]) { (acc, p) -> acc.set(p["name"], p["grade"]) }
+grades = staff.reduce({}) { (acc, p) -> acc.set(p["name"], p["grade"]) }
 say("grade table: ${grades.json}")
 say("  invert:     ${grades.invert.json}     — last writer wins on a collision")
 say("  has_val(4): ${grades.has_val(4)}")
@@ -65,18 +65,18 @@ say("  all ≥ 1:    ${grades.all { (_, g) -> g >= 1 }}")
 # `merge` is one level deep on purpose — a language that guesses how deep to go is a
 # language that surprises you. Six lines of recursion is the version that never does.
 
-defaults = [
+defaults = {
   service: "booking",
-  http:    [host: "0.0.0.0", port: 8080, tls: [enabled: false, cert: ""]],
-  limits:  [timeout_ms: 1000, retries: 2],
+  http:    {host: "0.0.0.0", port: 8080, tls: {enabled: false, cert: ""}},
+  limits:  {timeout_ms: 1000, retries: 2},
   tags:    ["default"],
-]
+}
 
-override = [
-  http:   [port: 443, tls: [enabled: true, cert: "/etc/ssl/site.pem"]],
-  limits: [retries: 5],
+override = {
+  http:   {port: 443, tls: {enabled: true, cert: "/etc/ssl/site.pem"}},
+  limits: {retries: 5},
   tags:   ["prod", "eu"],
-]
+}
 
 fn deep_merge(a, b) {
   out = dup(a)
@@ -112,7 +112,7 @@ say("config keys: ${config.keys.json}   — dup kept the original whole (one lev
 
 # --- keys are values, not names ------------------------------------------------
 
-mixed = [:]
+mixed = {}
 mixed[1] = "int key"
 mixed[true] = "bool key"
 mixed["1"] = "string key — a different key"

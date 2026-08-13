@@ -43,7 +43,7 @@ func TestCyclicCollectionDoesNotKillHost(t *testing.T) {
 		src  string
 	}{
 		{"self-referential array", `a = [1]; a.push(a); a.str`},
-		{"self-referential dict", `m = [:]; m["self"] = m; m.str`},
+		{"self-referential dict", `m = {}; m["self"] = m; m.str`},
 		{"mutually referential arrays", `a = []; b = []; a.push(b); b.push(a); a.str`},
 		{"cycle compared to cycle", `a = [1]; a.push(a); b = [1]; b.push(b); (a == b).str`},
 		{"cycle interpolated", `a = [1]; a.push(a); "v=${a}"`},
@@ -173,7 +173,7 @@ func TestQuestionMarkForms(t *testing.T) {
 		{"nil coalescing does not fire on false", `false ?? "d"`, "false"},
 		{"nil coalescing is left associative", `nil ?? false ?? "c"`, "false"},
 		{"safe navigation", `nil?.lower ?? "n"`, "n"},
-		{"safe navigation chains", `d = [a: [:]]; d?.get("a")?.get("b") ?? "none"`, "none"},
+		{"safe navigation chains", `d = {a: {}}; d?.get("a")?.get("b") ?? "none"`, "none"},
 		{"coalescing assignment fires once", `x = nil; x ??= "set"; x ??= "again"; x`, "set"},
 		{"ternary then coalescing", `(nil ? 1 : nil) ?? 2`, "2"},
 	}
@@ -302,7 +302,7 @@ func TestStringsAreRuneIndexed(t *testing.T) {
 func TestDictKeepsInsertionOrder(t *testing.T) {
 	t.Parallel()
 
-	const src = `d = [z: 1, a: 2, m: 3]; d["b"] = 4; d.json + "|" + d.keys.join(",")`
+	const src = `d = {z: 1, a: 2, m: 3}; d["b"] = 4; d.json + "|" + d.keys.join(",")`
 	const want = `{"z":1,"a":2,"m":3,"b":4}|z,a,m,b`
 	for i := 0; i < 8; i++ {
 		if got := evalStr(t, src); got != want {

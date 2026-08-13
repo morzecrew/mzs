@@ -117,7 +117,7 @@ func TestHTTPModuleUnregister(t *testing.T) {
 	in := New(DefaultOptions())
 	in.Unregister("http")
 	_, err := in.Eval(context.Background(), `include http
-http.serve(":0", [:])`, nil)
+http.serve(":0", {})`, nil)
 	if err == nil {
 		t.Fatal("http.serve succeeded after Unregister")
 	}
@@ -137,16 +137,16 @@ func TestHTTPServe(t *testing.T) {
 
 	s := startServer(t, `
 		include http
-		http.serve("127.0.0.1:0", [
+		http.serve("127.0.0.1:0", {
 		  "GET /hello":     { (req) -> "привет, " + (req["query"]["name"] ?? "мир") },
-		  "GET /get/{id}":  { (req) -> http.json([id: req["params"]["id"].int, path: req["path"]]) },
+		  "GET /get/{id}":  { (req) -> http.json({id: req["params"]["id"].int, path: req["path"]}) },
 		  "GET /raw":       { (req) -> [1, 2, 3] },
 		  "GET /none":      { (req) -> nil },
-		  "POST /echo":     { (req) -> http.text(req["method"] + ":" + req["body"], 201, ["x-echo": "1"]) },
+		  "POST /echo":     { (req) -> http.text(req["method"] + ":" + req["body"], 201, {"x-echo": "1"}) },
 		  "GET /agent":     { (req) -> req["headers"]["x-test"] },
 		  "GET /boom":      { (req) -> 1 / 0 },
 		  "GET /quit":      { (req) -> http.stop(); "bye" },
-		], { (u) -> __ready(u) })
+		}, { (u) -> __ready(u) })
 	`, netOpts())
 
 	t.Run("string body is text/plain", func(t *testing.T) {
@@ -268,11 +268,11 @@ func TestHTTPServeBudgetIsPerRequest(t *testing.T) {
 	s := startServer(t, `
 		include http
 		fn work() { (0..2000).map { it * 2 }.sum }
-		http.serve("127.0.0.1:0", [
+		http.serve("127.0.0.1:0", {
 		  "GET /work": { (req) -> work().str },
 		  "GET /hog":  { (req) -> while true { 1 }; "unreachable" },
 		  "GET /quit": { (req) -> http.stop(); "bye" },
-		], { (u) -> __ready(u) })
+		}, { (u) -> __ready(u) })
 	`, o)
 
 	for i := 0; i < 5; i++ {
@@ -303,7 +303,7 @@ func TestHTTPServeRestoresTheRunBudget(t *testing.T) {
 
 	s := startServer(t, `
 		include http
-		http.serve("127.0.0.1:0", ["GET /quit": { (req) -> http.stop(); "bye" }], { (u) -> __ready(u) })
+		http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); "bye" }}, { (u) -> __ready(u) })
 		"after"
 	`, netOpts())
 
@@ -326,7 +326,7 @@ func TestHTTPServeCanceledContext(t *testing.T) {
 	})
 	prog, err := in.Compile("server", `
 		include http
-		http.serve("127.0.0.1:0", ["GET /hello": { (req) -> "hi" }], { (u) -> __ready(u) })
+		http.serve("127.0.0.1:0", {"GET /hello": { (req) -> "hi" }}, { (u) -> __ready(u) })
 	`)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
@@ -377,15 +377,15 @@ func TestHTTPServeArgumentErrors(t *testing.T) {
 		{"routes must be a dict", `include http
 http.serve(":0", "GET /x")`, "dict of routes"},
 		{"a route must be a closure", `include http
-http.serve(":0", ["GET /x": 1])`, "must be a closure"},
+http.serve(":0", {"GET /x": 1})`, "must be a closure"},
 		{"a malformed pattern is reported", `include http
-http.serve("127.0.0.1:0", ["GET /x/{": { (r) -> "x" }])`, `route "GET /x/{"`},
+http.serve("127.0.0.1:0", {"GET /x/{": { (r) -> "x" }})`, `route "GET /x/{"`},
 		{"a taken port is reported", fmt.Sprintf(`include http
-http.serve(%q, ["GET /x": { (r) -> "x" }])`, busyAddr), "http.serve:"},
+http.serve(%q, {"GET /x": { (r) -> "x" }})`, busyAddr), "http.serve:"},
 		{"stop outside a server", `include http
 http.stop()`, "no server is running"},
 		{"status out of range", `include http
-http.json([a: 1], 42)`, "between 100 and 599"},
+http.json({a: 1}, 42)`, "between 100 and 599"},
 		{"headers must be a dict", `include http
 http.text("x", 200, "nope")`, "headers must be a dict"},
 		{"a url needs a scheme", `include http
@@ -415,10 +415,10 @@ func TestHTTPServeIsSingleUsePerRun(t *testing.T) {
 
 	s := startServer(t, `
 		include http
-		http.serve("127.0.0.1:0", [
-		  "GET /nest": { (req) -> http.serve("127.0.0.1:0", ["GET /x": { (r) -> "x" }]) },
+		http.serve("127.0.0.1:0", {
+		  "GET /nest": { (req) -> http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}) },
 		  "GET /quit": { (req) -> http.stop(); "bye" },
-		], { (u) -> __ready(u) })
+		}, { (u) -> __ready(u) })
 	`, netOpts())
 
 	if code, _, _ := do(t, "GET", s.url+"/nest", ""); code != 500 {
@@ -469,12 +469,12 @@ http.get($base + "/teapot")["status"].str`, "418"},
 		{"response headers are lowercased", `include http
 http.get($base + "/echo")["headers"]["x-method"]`, "GET"},
 		{"post sends a dict as JSON", `include http
-http.post($base + "/echo", [a: 1])["body"]`,
+http.post($base + "/echo", {a: 1})["body"]`,
 			`{"got":{"a":1},"ctype":"application/json; charset=utf-8"}`},
 		{"request sets headers", `include http
-http.request("GET", $base + "/who", [headers: ["x-who": "Иван"]])["body"]`, "Иван"},
+http.request("GET", $base + "/who", {headers: {"x-who": "Иван"}})["body"]`, "Иван"},
 		{"request carries its own body", `include http
-http.request("PUT", $base + "/echo", [body: "42"])["headers"]["x-method"]`, "PUT"},
+http.request("PUT", $base + "/echo", {body: "42"})["headers"]["x-method"]`, "PUT"},
 		{"a dead host is catchable", `include http
 try http.get("http://127.0.0.1:1/x") else "нет связи"`, "нет связи"},
 	}
@@ -535,7 +535,7 @@ func TestHTTPClientTimeoutOption(t *testing.T) {
 	in.SetGlobal("$base", Str(slow.URL))
 
 	v, err := in.Eval(context.Background(), `include http
-try http.get($base, [timeout: 1]) else "поздно"`, nil)
+try http.get($base, {timeout: 1}) else "поздно"`, nil)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}

@@ -76,7 +76,7 @@ fn suggest(word, candidates, limit) {
     d = levenshtein(word, c)
     prefix = (0..<(word.len < c.len ? word.len : c.len)).take_while { (i) -> word[i, 1] == c[i, 1] }.len
     contains = c.has(word) ? 2 : 0
-    [name: c, distance: d, score: similarity(word, c) + prefix * 8 + contains * 10]
+    {name: c, distance: d, score: similarity(word, c) + prefix * 8 + contains * 10}
   }.sort_by { -it["score"] }.take(limit)
 }
 
@@ -102,7 +102,7 @@ fn best_match(query, items) {
     word_hit = words.map { (w) -> similarity(q, w) }.max
     whole = similarity(q, item.lower)
     substring = item.lower.has(q) ? 100 : 0
-    [item: item, score: [word_hit, whole, substring].max]
+    {item: item, score: [word_hit, whole, substring].max}
   }.sort_by { -it["score"] }
 }
 

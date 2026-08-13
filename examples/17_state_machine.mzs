@@ -9,39 +9,39 @@
 
 MAX_RETRIES = 2
 
-STATES = [
-  start: [
+STATES = {
+  start: {
     prompt: "Hello! Shall we book a visit?",
     on: { (input, _) ->
       match input.lower.trim {
-        in ["yes", "y", "sure"] -> [goto: "service", say: "Great."]
-        in ["no", "n", "nope"]  -> [goto: "done", say: "No problem — text me any time."]
-        else                    -> [retry: true, say: "Please answer yes or no."]
+        in ["yes", "y", "sure"] -> {goto: "service", say: "Great."}
+        in ["no", "n", "nope"]  -> {goto: "done", say: "No problem — text me any time."}
+        else                    -> {retry: true, say: "Please answer yes or no."}
       }
     },
-  ],
-  service: [
+  },
+  service: {
     prompt: "What are we booking — haircut, beard or colour?",
     on: { (input, _) ->
       s = input.lower.trim
-      price = [haircut: 1500, beard: 800, colour: 3200][s]
+      price = {haircut: 1500, beard: 800, colour: 3200}[s]
       price == nil ?
-        [retry: true, say: "I know haircut, beard and colour."] :
-        [goto: "day", set: [service: s, price: price], say: "${s.capitalize}, ${price} ₽."]
+        {retry: true, say: "I know haircut, beard and colour."} :
+        {goto: "day", set: {service: s, price: price}, say: "${s.capitalize}, ${price} ₽."}
     },
-  ],
-  day: [
+  },
+  day: {
     prompt: "Which day? (today / tomorrow / a date like 2026-03-07)",
     on: { (input, _) ->
       s = input.lower.trim
       match s {
-        in ["today", "tomorrow"] -> [goto: "time", set: [day: s]]
-        /^\d{4}-\d{2}-\d{2}$/    -> [goto: "time", set: [day: s]]
-        else                     -> [retry: true, say: "A day, please: today, tomorrow or 2026-03-07."]
+        in ["today", "tomorrow"] -> {goto: "time", set: {day: s}}
+        /^\d{4}-\d{2}-\d{2}$/    -> {goto: "time", set: {day: s}}
+        else                     -> {retry: true, say: "A day, please: today, tomorrow or 2026-03-07."}
       }
     },
-  ],
-  time: [
+  },
+  time: {
     prompt: "What time? We work 10:00–21:00.",
     # No `return` in a handler, on purpose: inside a closure it unwinds to the enclosing
     # *function* (§8.10) — which here would be `run` itself, not this handler. A `match`
@@ -49,26 +49,26 @@ STATES = [
     on: { (input, _) ->
       m = input.captures(/\b(\d{1,2})[:.](\d{2})\b/)
       match {
-        m == nil                        -> [retry: true, say: "I need a time like 14:30."]
-        m[1].int < 10 || m[1].int >= 21 -> [retry: true, say: "That is outside 10:00–21:00."]
-        else -> [goto: "confirm", set: [time: "${m[1].rjust(2, "0")}:${m[2]}"]]
+        m == nil                        -> {retry: true, say: "I need a time like 14:30."}
+        m[1].int < 10 || m[1].int >= 21 -> {retry: true, say: "That is outside 10:00–21:00."}
+        else -> {goto: "confirm", set: {time: "${m[1].rjust(2, "0")}:${m[2]}"}}
       }
     },
-  ],
-  confirm: [
+  },
+  confirm: {
     prompt: nil,   # this state builds its own prompt from the context
     render: { (ctx) -> "So: ${ctx["service"]} on ${ctx["day"]} at ${ctx["time"]}, ${ctx["price"]} ₽. Confirm?" },
     on: { (input, _) ->
       match input.lower.trim {
-        in ["yes", "y", "confirm"] -> [goto: "booked", set: [status: "confirmed"]]
-        in ["no", "change"]        -> [goto: "service", set: [status: "restarted"], say: "Let us redo it."]
-        else                       -> [retry: true, say: "Yes or no?"]
+        in ["yes", "y", "confirm"] -> {goto: "booked", set: {status: "confirmed"}}
+        in ["no", "change"]        -> {goto: "service", set: {status: "restarted"}, say: "Let us redo it."}
+        else                       -> {retry: true, say: "Yes or no?"}
       }
     },
-  ],
-  booked: [terminal: true, render: { (ctx) -> "Booked! See you ${ctx["day"]} at ${ctx["time"]}." }],
-  done:   [terminal: true, render: { (_) -> "Closed without booking." }],
-]
+  },
+  booked: {terminal: true, render: { (ctx) -> "Booked! See you ${ctx["day"]} at ${ctx["time"]}." }},
+  done:   {terminal: true, render: { (_) -> "Closed without booking." }},
+}
 
 # --- the driver: forty lines that know nothing about barbershops --------------
 
@@ -79,7 +79,7 @@ fn prompt_of(state, ctx) {
 
 fn run(script) {
   state = "start"
-  ctx = [:]
+  ctx = {}
   retries = 0
   transcript = []
   log = []
@@ -91,7 +91,7 @@ fn run(script) {
     transcript.push("you > ${input}")
 
     step = STATES[state]["on"].call(input, ctx)
-    (step["set"] ?? [:]).each { (k, v) -> ctx.set(k, v) }
+    (step["set"] ?? {}).each { (k, v) -> ctx.set(k, v) }
     transcript.push("bot > ${step["say"]}") if step["say"] != nil
 
     if step["retry"] {
@@ -113,7 +113,7 @@ fn run(script) {
   }
 
   transcript.push("bot > ${prompt_of(state, ctx)}") if STATES[state]["terminal"]
-  [state: state, ctx: ctx, transcript: transcript, log: log]
+  {state: state, ctx: ctx, transcript: transcript, log: log}
 }
 
 # --- a clean run ----------------------------------------------------------------

@@ -191,7 +191,7 @@ func TestNilResultIsAnError(t *testing.T) {
 func TestValueForButtons(t *testing.T) {
 	t.Parallel()
 
-	v, err := Value(context.Background(), `(0..2).map { [text: it.str, data: "var:date:${it}"] }`, nil)
+	v, err := Value(context.Background(), `(0..2).map { {text: it.str, data: "var:date:${it}"} }`, nil)
 	if err != nil {
 		t.Fatalf("Value error: %v", err)
 	}

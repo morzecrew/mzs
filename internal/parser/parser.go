@@ -4,12 +4,13 @@
 // recovers at statement boundaries, and reports at most MaxErrors syntax errors per
 // compile, joined with errors.Join (§17).
 //
-// One counter carries the whole of the `{` question. `{` is **always** a closure (D2) and
-// `[` is **always** a collection (D3); the single restriction of §3.11 is that inside the
-// header of `if`, `while`, `for` or `match` a `{` at bracket depth zero ends the header
-// and opens the body, which is what header counts. Descending into `(`, `[`, an argument
-// list, an interpolation or a body re-opens ordinary expression position, which is what
-// push/pop do. Nothing else about a `{` is contextual: there is no map-versus-block
+// One counter carries the whole of the `{` question. `[` is **always** an array (D3), and
+// a `{` is read by position (D2): the body after a header, the trailing closure after a
+// call, and in operand position a dict or a closure by the §3.12 lookahead. The single
+// restriction of §3.11 is that inside the header of `if`, `while`, `for` or `match` a `{`
+// at bracket depth zero ends the header and opens the body, which is what header counts.
+// Descending into `(`, `[`, an argument list, an interpolation or a body re-opens
+// ordinary expression position, which is what push/pop do. Nothing needs backtracking:
 // decision, no `blockPos`, no `=>` mode, and no block concept at all — a trailing closure
 // is appended to the call's Args (§4.2).
 //
@@ -575,7 +576,7 @@ func (p *parser) parseAssign() ast.Expr {
 	// Ruby hash or lambda.
 	if p.kind() == token.ASSIGN && p.peekKind(1) == token.GT && adjacent(p.cur(), p.peek(1)) {
 		p.errorAt(p.cur().Pos,
-			"'=>' is not an mzs operator; write [k: v] for a dict, { (x) -> … } for a closure")
+			"'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure")
 		p.advance()
 		p.advance()
 		p.parseAssign() // consume the right side so the statement ends here
@@ -583,9 +584,9 @@ func (p *parser) parseAssign() ast.Expr {
 	}
 	if token.IsAssignOp(p.kind()) {
 		op := p.advance()
-		// `[` is always a collection (D3), so the left side of `=` arrives here as an
-		// array literal and becomes a pattern now — the one place the two spellings of
-		// §8.15 meet.
+		// `[` is always an array (D3), so the left side of `=` arrives here as an array
+		// literal and becomes a pattern now — the one place the two spellings of §8.15
+		// meet.
 		if lit, ok := l.(*ast.ArrayLit); ok {
 			return p.parseDestructureTail(p.targetPattern(lit), op)
 		}
@@ -1076,8 +1077,12 @@ func (p *parser) parsePrimary() ast.Expr {
 	case token.LBRACKET:
 		return p.parseCollection()
 	case token.LBRACE:
-		// §3.11: inside a header a `{` belongs to the body, so it must not be taken as
-		// a closure here; the header parse ends and the caller opens the body.
+		// §3.12: the dict lookahead runs before §3.11, because a body can never begin
+		// with `name :` — so `if x == {a: 1} { … }` reads the dict and still leaves the
+		// body to the caller. Only a non-dict `{` in a header ends the header.
+		if d, ok := p.braceDict(); ok {
+			return d
+		}
 		if p.header == 0 {
 			return p.parseFuncLit()
 		}
@@ -1176,32 +1181,46 @@ func (p *parser) parseGroup() ast.Expr {
 // Collections (§3.12)
 // ---------------------------------------------------------------------------
 
-// parseCollection reads `[ … ]`. `[` is always a collection (D3); the five rules of
-// §3.12 decide array or dict by bounded lookahead, before anything is built.
+// parseCollection reads `[ … ]`. `[` is always an array (D3). The two dict shapes it
+// used to carry are still recognised by the §3.12 lookahead, but only so that each can
+// name its brace replacement instead of failing as a mangled array.
 func (p *parser) parseCollection() ast.Expr {
+	lbIdx := p.pos
 	lb := p.advance().Pos
 	saved := p.push()
 	defer p.pop(saved)
 
 	p.skipNewlines()
-	if p.kind() == token.RBRACKET { // rule 1
+	if p.kind() == token.RBRACKET {
 		rb := p.advance()
 		return &ast.ArrayLit{Lbrack: lb, Rbrack: rb.End}
 	}
-	if p.kind() == token.COLON && p.peekKind(1) == token.RBRACKET { // rule 2
-		p.advance()
-		rb := p.advance()
-		return &ast.DictLit{Lbrack: lb, Rbrack: rb.End}
+	if p.kind() == token.COLON && p.peekKind(1) == token.RBRACKET {
+		return p.bracketDict(lbIdx, lb, "the empty dict is written {}")
 	}
-	if p.dictFollows() { // rules 3 and 4
-		return p.parseDictBody(lb)
+	if p.dictFollows() {
+		return p.bracketDict(lbIdx, lb, "a dict is written {a: 1}")
 	}
 	return p.parseArrayBody(lb) // rule 5
 }
 
+// bracketDict reports a dict written in brackets — the v2.0 spelling — and names the
+// brace form that replaces it. The literal is skipped whole from its '[' at lbIdx, so
+// nothing inside it can cascade, and a DictLit stands in for the rest of the parse.
+func (p *parser) bracketDict(lbIdx int, lb token.Pos, msg string) ast.Expr {
+	p.errorAt(lb, "%s", msg)
+	end := p.skipBalanced(lbIdx, token.LBRACKET, token.RBRACKET)
+	stop := p.toks[end-1].End
+	p.pos = end
+	return &ast.DictLit{Lbrack: lb, Rbrack: stop}
+}
+
 // dictFollows is §3.12 rules 3 and 4, read from the token after the '['.
-func (p *parser) dictFollows() bool {
-	i := p.pos
+func (p *parser) dictFollows() bool { return p.dictFollowsAt(p.pos) }
+
+// dictFollowsAt is dictFollows read from an arbitrary index, so the same three shapes
+// decide a `{ … }` in operand position (§3.11) without duplicating the rule.
+func (p *parser) dictFollowsAt(i int) bool {
 	switch p.toks[i].Kind {
 	case token.IDENT:
 		return p.toks[i+1].Kind == token.COLON
@@ -1231,13 +1250,15 @@ func (p *parser) parseArrayBody(lb token.Pos) ast.Expr {
 	return &ast.ArrayLit{Elems: elems, Lbrack: lb, Rbrack: rb.End}
 }
 
-// parseDictBody reads `DictEntry { "," DictEntry } [ "," ]`. A bare-identifier key
-// becomes a string literal, so a dict is JSON-serialisable with no symbol type (§3.12).
+// parseDictBody reads `DictEntry { "," DictEntry } [ "," ]` up to the closing `}`
+// (§3.12). A bare-identifier key becomes a string literal, so a dict is
+// JSON-serialisable with no symbol type.
 func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
+	const close = token.RBRACE
 	d := &ast.DictLit{Lbrack: lb}
 	for {
 		p.skipNewlines()
-		if p.kind() == token.RBRACKET || p.kind() == token.EOF {
+		if p.kind() == close || p.kind() == token.EOF {
 			break
 		}
 		var key ast.Expr
@@ -1256,7 +1277,7 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 		default:
 			p.errorAt(p.cur().Pos, "expected a dict key, found %s", describe(p.cur()))
 			before := p.pos
-			p.sync([]token.Kind{token.RBRACKET})
+			p.sync([]token.Kind{close})
 			p.skipNewlines()
 			if p.pos == before {
 				// sync stops *at* a boundary without consuming it, and the loop above
@@ -1278,7 +1299,7 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 		}
 	}
 	p.skipNewlines()
-	rb := p.expect(token.RBRACKET, "dict literal")
+	rb := p.expect(close, "dict literal")
 	d.Rbrack = rb.End
 	return d
 }
@@ -1291,7 +1312,9 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 // form. With no `(params) ->` list the closure implicitly declares `it` (§8.9).
 func (p *parser) parseFuncLit() ast.Expr {
 	lb := p.advance()
-	if e, ok := p.dictInBraces(lb); ok {
+	// Reached from operand position only after braceDict declined, so a dict shape here
+	// is the trailing-closure slot of §4.2 — where a dict argument has its own spelling.
+	if e, ok := p.braceDictHere(lb, "a dict after a call is written (a: 1) or ({a: 1})"); ok {
 		return e
 	}
 	saved := p.push()
@@ -1323,7 +1346,7 @@ func (p *parser) parseBody(what string) *ast.BlockStmt {
 		return &ast.BlockStmt{Start: pos, Stop: pos}
 	}
 	lb := p.advance()
-	if _, ok := p.dictInBraces(lb); ok {
+	if _, ok := p.braceDictHere(lb, "this '{' opens the %s; write { {a: 1} } for a dict", what); ok {
 		return &ast.BlockStmt{Start: lb.Pos, Stop: p.cur().Pos}
 	}
 	saved := p.push()
@@ -1349,21 +1372,42 @@ func (p *parser) closureParams(lb token.Token) (params []ast.Param, implicit boo
 	return []ast.Param{{Name: "it", NamePos: lb.Pos, Slot: -1}}, true
 }
 
-// dictInBraces catches the §5.6 row `{a: 1}`: a closure body may not begin with
-// `name :`, so this shape is always a Ruby hash literal. The braces are skipped whole so
-// that nothing inside them can cascade.
-func (p *parser) dictInBraces(lb token.Token) (ast.Expr, bool) {
-	dict := false
-	switch p.kind() {
-	case token.IDENT:
-		dict = p.peekKind(1) == token.COLON
-	case token.STR_BEGIN:
-		dict = p.toks[p.skipString(p.pos)].Kind == token.COLON
-	}
-	if !dict {
+// braceDict reads `{ … }` in operand position when the §3.12 lookahead says dict: `{}`
+// is the empty dict and `{a: 1}`, `{"a": 1}`, `{(k): 1}` carry entries. The scan starts
+// one token past the `{` and decides over tokens alone — nothing is consumed unless it
+// commits.
+//
+// A closure body can never begin with `name :`, which is what keeps the two readings
+// apart, and it is why this may run inside a header where a `{` otherwise opens the
+// body (§3.11): `if x == {a: 1} { … }` needs no parentheses.
+// A line break right after `{` is never a token — §3.10 suppresses it, `LBRACE` being in
+// the continuation set — so the scan reads the first real token at p.pos+1 and needs no
+// newline handling of its own. That is what lets braceDictHere use the same three shapes
+// from p.pos, and what makes `f {` + newline + `a: 1` reach the §5.6 fix-it.
+func (p *parser) braceDict() (ast.Expr, bool) {
+	if i := p.pos + 1; p.toks[i].Kind != token.RBRACE && !p.dictFollowsAt(i) {
 		return nil, false
 	}
-	p.errorAt(lb.Pos, "a dict literal is written [a: 1]")
+	lb := p.advance().Pos
+	saved := p.push()
+	defer p.pop(saved)
+	if p.kind() == token.RBRACE {
+		rb := p.advance()
+		return &ast.DictLit{Lbrack: lb, Rbrack: rb.End}, true
+	}
+	return p.parseDictBody(lb), true
+}
+
+// braceDictHere reports a `{a: 1}` written where §3.11 has already spoken for the brace
+// — after a call, where `{` is the trailing closure, and in body position, where `{`
+// opens the body. Operand position is the only place a brace dict is read (braceDict),
+// so both of those stay decidable without the parser carrying any state. The braces are
+// skipped whole so that nothing inside them can cascade.
+func (p *parser) braceDictHere(lb token.Token, msg string, args ...any) (ast.Expr, bool) {
+	if !p.dictFollowsAt(p.pos) {
+		return nil, false
+	}
+	p.errorAt(lb.Pos, msg, args...)
 	end := p.skipBalanced(p.pos-1, token.LBRACE, token.RBRACE)
 	stop := p.toks[end-1].End
 	p.pos = end
@@ -1619,6 +1663,12 @@ func (p *parser) armArrayPattern(arm *ast.MatchArm) {
 func (p *parser) parseArmBody() *ast.BlockStmt {
 	p.expect(token.ARROW, "match arm")
 	if p.kind() == token.LBRACE {
+		// `->` already accepts a bare expression, so the §3.12 lookahead runs here as it
+		// does in operand position: `-> {ok: true}` is the dict, and only a brace the
+		// lookahead declines opens a body.
+		if d, ok := p.braceDict(); ok {
+			return exprBlock(d)
+		}
 		return p.parseBody("match arm body")
 	}
 	return exprBlock(p.parseExpr())

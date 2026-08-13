@@ -52,14 +52,14 @@ say("rows:    ${rows.len}")
 # --- typing: a CSV field is a string until the program says otherwise ---------
 
 orders = rows.map { (r) ->
-  [ id:    r["id"].int,
+  { id:    r["id"].int,
     who:   r["customer"],
     city:  r["city"],
     item:  r["item"],
     qty:   r["qty"].int,
     price: r["unit_price"].int,
     paid:  r["paid"] == "yes",
-    total: r["qty"].int * r["unit_price"].int ]
+    total: r["qty"].int * r["unit_price"].int }
 }
 
 say("")
@@ -88,8 +88,8 @@ say("${"total".ljust(10)}${orders.len.str.rjust(7)}${orders.sum { it["qty"] }.st
 # --- the questions a spreadsheet is opened for --------------------------------
 
 say("")
-say("best customer:   ${orders.group_by { it["who"] }.map { (who, os) -> [who: who, sum: os.sum { it["total"] }] }.max_by { it["sum"] }.pipe { "${it["who"]} (${money(it["sum"])})" }}")
-say("most sold item:  ${orders.group_by { it["item"] }.map { (i, os) -> [item: i, qty: os.sum { it["qty"] }] }.max_by { it["qty"] }.pipe { "${it["item"]} × ${it["qty"]}" }}")
+say("best customer:   ${orders.group_by { it["who"] }.map { (who, os) -> {who: who, sum: os.sum { it["total"] }} }.max_by { it["sum"] }.pipe { "${it["who"]} (${money(it["sum"])})" }}")
+say("most sold item:  ${orders.group_by { it["item"] }.map { (i, os) -> {item: i, qty: os.sum { it["qty"] }} }.max_by { it["qty"] }.pipe { "${it["item"]} × ${it["qty"]}" }}")
 say("average ticket:  ${money(orders.sum { it["total"] } / orders.len)}")
 say("unpaid orders:   ${orders.reject { it["paid"] }.map { it["id"] }.json}")
 say("cities:          ${orders.map { it["city"] }.uniq.sort.join(", ")}")

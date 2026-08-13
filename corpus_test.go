@@ -149,7 +149,7 @@ func TestCorpusConditions(t *testing.T) {
 			map[string]string{"__sent": "Ага"}, modeBool, "true", ""},
 		{"50", "times each returns the receiver", `3.times.each { it.str }`, nil, modeJSON, `[0,1,2]`, ""},
 		{"51", "range map each_slice", `(0..6).map { it }.each_slice(2).array`, nil, modeJSON, `[[0,1],[2,3],[4,5],[6]]`, ""},
-		{"52", "buttons payload round-trips", `(0..6).map { [text: it.str, data: "var:date:${it}"] }.each_slice(2).array`, nil, modeJSON,
+		{"52", "buttons payload round-trips", `(0..6).map { {text: it.str, data: "var:date:${it}"} }.each_slice(2).array`, nil, modeJSON,
 			`[[{"text":"0","data":"var:date:0"},{"text":"1","data":"var:date:1"}],` +
 				`[{"text":"2","data":"var:date:2"},{"text":"3","data":"var:date:3"}],` +
 				`[{"text":"4","data":"var:date:4"},{"text":"5","data":"var:date:5"}],` +
@@ -410,7 +410,7 @@ func TestAuthorFiles(t *testing.T) {
 			`a := 1.2`,
 			`b := "a"`,
 			`c := 1`,
-			`d := [a: 1]`,
+			`d := {a: 1}`,
 			`e := [1, 2, "3"]`,
 			`if $__sent.int > 5 { print("big") }`,
 		}, "\n")
@@ -569,7 +569,7 @@ func TestTruthyZero(t *testing.T) {
 		{`0.0`, true},
 		{`""`, true},
 		{`[]`, true},
-		{`[:]`, true},
+		{`{}`, true},
 		{`"0"`, true},
 		{`nil`, false},
 		{`false`, false},
@@ -733,10 +733,10 @@ func TestDictLiteral(t *testing.T) {
 		src  string
 		want string
 	}{
-		{`[a: 1].json`, `{"a":1}`},
-		{`[:].len`, "0"},
+		{`{a: 1}.json`, `{"a":1}`},
+		{`{}.len`, "0"},
 		{`[].len`, "0"},
-		{`type([:])`, "dict"},
+		{`type({})`, "dict"},
 		{`type([])`, "array"},
 	}
 
@@ -754,7 +754,7 @@ func TestBraceIsAlwaysClosure(t *testing.T) {
 	t.Parallel()
 
 	// `{` after `if` opens the body, never a dict, so the dict literal needs no parens.
-	if v := evalCorpus(t, `if [a: 1].has("a") { 1 } else { 2 }`, nil); v.Int() != 1 {
+	if v := evalCorpus(t, `if {a: 1}.has("a") { 1 } else { 2 }`, nil); v.Int() != 1 {
 		t.Errorf("= %s, want 1 (§3.11)", v.Inspect())
 	}
 }
@@ -806,7 +806,7 @@ func TestDestructureMismatch(t *testing.T) {
 		{`a, b = [1, 2, 3]`, "index", "destructuring expects 2 values, got 3"},
 		{`a, b = [1]`, "index", "destructuring expects 2 values, got 1"},
 		{`a, b = 1`, "type", "cannot destructure int: the right side must be an array"},
-		{`a, b = [x: 1, y: 2]`, "type", "cannot destructure dict: the right side must be an array"},
+		{`a, b = {x: 1, y: 2}`, "type", "cannot destructure dict: the right side must be an array"},
 	}
 
 	for _, tt := range tests {
@@ -1231,10 +1231,16 @@ func TestDiagnostics(t *testing.T) {
 			`'%w' is not mzs; write ["a", "b"]`, 1, 1},
 		{"symbol", `:name`,
 			`mzs has no symbols; write "name"`, 1, 1},
-		{"brace dict literal", `{a: 1}`,
-			`a dict literal is written [a: 1]`, 1, 1},
+		{"bracket dict", `[a: 1]`,
+			`a dict is written {a: 1}`, 1, 1},
+		{"bracket empty dict", `[:]`,
+			`the empty dict is written {}`, 1, 1},
+		{"brace dict after a call", `f {a: 1}`,
+			`a dict after a call is written (a: 1) or ({a: 1})`, 1, 3},
+		{"brace dict in a body", `if c {a: 1}`,
+			`this '{' opens the if body; write { {a: 1} } for a dict`, 1, 6},
 		{"hash rocket", `k => v`,
-			`'=>' is not an mzs operator; write [k: v] for a dict, { (x) -> … } for a closure`, 1, 3},
+			`'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure`, 1, 3},
 		{"pipe closure parameters", `{ |x| x }`,
 			`closure parameters are parenthesised: { (x) -> … }`, 1, 3},
 		{"the Ruby safe call", `x &. y`,

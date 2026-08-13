@@ -96,11 +96,11 @@ kwic(text, "response", 5).each { (line) -> say("  …${line}…") }
 # --- the summary a reader would keep -------------------------------------------
 
 say("")
-say("summary: ${[
+say("summary: ${{
   words: words.len,
   distinct: words.uniq.len,
   sentences: sentences.len,
   top_word: freq.first[0],
   top_count: freq.first[1],
   cyrillic_share: "${cyr * 100 / letters.len}%",
-].json}")
+}.json}")

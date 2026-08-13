@@ -52,9 +52,9 @@ say("")
 text.banner("INVOICE A-1043", 34).each { (l) -> say(l) }
 
 items = [
-  [name: "signature haircut", qty: 2, unit: money.from_units(1500)],
-  [name: "beard trim",        qty: 1, unit: money.from_units(800)],
-  [name: "premium colour",    qty: 1, unit: money.from_units(3200)],
+  {name: "signature haircut", qty: 2, unit: money.from_units(1500)},
+  {name: "beard trim",        qty: 1, unit: money.from_units(800)},
+  {name: "premium colour",    qty: 1, unit: money.from_units(3200)},
 ]
 
 items.each { (i) ->
@@ -70,7 +70,7 @@ say(text.pad_between("  incl. VAT", money.format(money.vat(total)), 36))
 say("")
 say("money as a dict: ${money.len} exported names, ${money.filter { (_, v) -> is(v, "function") }.len} of them functions")
 say("  constants: ${money.reject { (_, v) -> is(v, "function") }.json}")
-say("  json of the report: ${[total: total, formatted: money.format(total), vat: money.vat(total)].json}")
+say("  json of the report: ${{total: total, formatted: money.format(total), vat: money.vat(total)}.json}")
 
 # --- an include is scoped, and a missing one is a compile error ---------------
 #

@@ -67,10 +67,10 @@ fn shipping(order) {
 }
 
 orders = [
-  [id: 1, weight: 0.4, express: false],
-  [id: 2, weight: 6.0, express: false],
-  [id: 3, weight: 6.0, express: true],
-  [id: 4, weight: 31.0, express: true],
+  {id: 1, weight: 0.4, express: false},
+  {id: 2, weight: 6.0, express: false},
+  {id: 3, weight: 6.0, express: true},
+  {id: 4, weight: 31.0, express: true},
 ]
 
 say("")
@@ -82,11 +82,11 @@ orders.each { (o) -> say("  order ${o["id"]}: ${shipping(o)}") }
 # Arms may be closures as easily as strings: what an arm returns is what the match is
 # worth, and a closure that is called right there keeps the branch and its work together.
 
-handlers = [
+handlers = {
   command: { (line) -> "run ${line.captures(/^\/(\w+)/)[1]}" },
   date:    { (line) -> "book ${line}" },
   email:   { (line) -> "mail ${line.captures(/(\S+@\S+\.\S+)/)[1]}" },
-]
+}
 
 fn handle(line) {
   kind = intent(line)

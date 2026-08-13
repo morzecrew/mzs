@@ -30,7 +30,7 @@ fn key(x, y) { "${x},${y}" }
 fn find_cell(grid, ch) {
   found = nil
   grid.each_with_index { (row, y) ->
-    row.each_with_index { (c, x) -> found = [x: x, y: y] if c == ch }
+    row.each_with_index { (c, x) -> found = {x: x, y: y} if c == ch }
   }
   found
 }
@@ -51,8 +51,8 @@ STEPS = [[0, -1], [1, 0], [0, 1], [-1, 0]]
 
 fn bfs(grid, from, to) {
   queue = [from]
-  dist = [:]
-  parent = [:]
+  dist = {}
+  parent = {}
   dist.set(key(from["x"], from["y"]), 0)
   expanded = 0
 
@@ -71,11 +71,11 @@ fn bfs(grid, from, to) {
       next if dist.has(k)
       dist.set(k, dist[here] + 1)
       parent.set(k, here)
-      queue.push([x: nx, y: ny])
+      queue.push({x: nx, y: ny})
     }
   }
 
-  [dist: dist, parent: parent, expanded: expanded]
+  {dist: dist, parent: parent, expanded: expanded}
 }
 
 search = bfs(grid, start, goal)
@@ -99,7 +99,7 @@ say("first steps: ${path.take(6).join(" → ")} …")
 
 # --- draw it ---------------------------------------------------------------------
 
-on_path = path.reduce([:]) { (acc, k) -> acc.set(k, true) }
+on_path = path.reduce({}) { (acc, k) -> acc.set(k, true) }
 
 say("")
 (0..<H).each { (y) ->
@@ -151,6 +151,6 @@ say("the exit is the farthest cell reached:  ${search["dist"].values.max == sear
 sealed = grid.map { (row) -> dup(row) }
 sealed[9][23] = "#"
 sealed[8][22] = "#"
-blocked = bfs(sealed, start, [x: 23, y: 9])
+blocked = bfs(sealed, start, {x: 23, y: 9})
 say("")
 say("with the exit walled in: ${blocked["dist"][goal_key] == nil ? "unreachable, reported in ${blocked["expanded"]} expansions" : "still reachable"}")

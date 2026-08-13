@@ -2,10 +2,10 @@
 #
 #   mzs examples/07_functions_closures.mzs
 #
-# There is no "block" in this language: `{ … }` is a closure literal everywhere, a
-# trailing closure is just the last argument, and `x.f(y)` is `f(x, y)` — so a function
-# you write is usable as a method the moment it exists. This file builds a small
-# functional toolkit on those three facts.
+# There is no "block" in this language: `{ … }` is a closure wherever it is not a dict —
+# position decides, and a body or a trailing closure is never a dict. A trailing closure
+# is just the last argument, and `x.f(y)` is `f(x, y)`, so a function you write is usable
+# as a method the moment it exists. This file builds a small functional toolkit on that.
 
 # --- parameters: defaults are evaluated at the call, rest collects the tail ----
 
@@ -34,9 +34,9 @@ say("     the same call: ${truncate("a long sentence that will not fit", 20)}")
 fn make_counter(start = 0, step = 1) {
   n = start
   # Two closures over one binding: the state lives in the scope, not in either of them.
-  [ tick:  { n += step; n },
+  { tick:  { n += step; n },
     peek:  { n },
-    reset: { n = start; n } ]
+    reset: { n = start; n } }
 }
 
 c = make_counter(100, 5)
@@ -67,13 +67,13 @@ say("partial application: ${[1, 2, 3].map(double).json} ${[1, 2, 3].map(treble).
 # A closure passed by name and a closure written at the call site are the same thing.
 say("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it * 2 }.json}")
 
-# --- a validation chain: a list of closures, run in order ---------------------
+# --- a validation chain: named checks, each a closure, run in order -----------
 
 checks = [
-  [name: "not empty",  test: { (s) -> !s.blank }],
-  [name: "min length", test: { (s) -> s.len >= 3 }],
-  [name: "no digits",  test: { (s) -> s !~ /\d/ }],
-  [name: "ascii only", test: { (s) -> s.len == s.bytes.len }],
+  {name: "not empty",  test: { (s) -> !s.blank }},
+  {name: "min length", test: { (s) -> s.len >= 3 }},
+  {name: "no digits",  test: { (s) -> s !~ /\d/ }},
+  {name: "ascii only", test: { (s) -> s.len == s.bytes.len }},
 ]
 
 fn validate(value) {

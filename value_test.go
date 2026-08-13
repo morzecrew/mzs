@@ -33,7 +33,7 @@ func TestKindString(t *testing.T) {
 	}
 }
 
-// Truthiness is D6/§7.3: only nil and false are falsy. 0, 0.0, "", [], [:] and NaN are
+// Truthiness is D6/§7.3: only nil and false are falsy. 0, 0.0, "", [], {} and NaN are
 // truthy, which is why `s.index(/re/)` returning 0 counts as a hit.
 func TestTruthy(t *testing.T) {
 	tests := []struct {

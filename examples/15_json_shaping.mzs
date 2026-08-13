@@ -40,7 +40,7 @@ say("request ${doc.dig("meta", "request_id")} · page ${doc.dig("meta", "page")}
 say("customers: ${doc["customers"].len}")
 
 # A parse failure is an ordinary catchable error, so a fallback is one expression.
-broken = try json.parse('{"oops": ') else [error: "malformed json"]
+broken = try json.parse('{"oops": ') else {error: "malformed json"}
 say("bad input →  ${broken.json}")
 
 # --- reading a document nobody promised you: dig, ??, and no exceptions -------
@@ -55,23 +55,23 @@ doc["customers"].each { (c) ->
 
 # --- reshaping: the document you have into the document you need --------------
 
-report = [
+report = {
   generated_for: doc.dig("meta", "request_id"),
-  totals: [
+  totals: {
     customers: doc["customers"].len,
     vip:       doc["customers"].count { it["vip"] },
     orders:    doc["customers"].sum { it["orders"].len },
     revenue:   doc["customers"].sum { (c) -> c["orders"].filter { it["status"] == "paid" }.sum { it["total"] } },
     refunded:  doc["customers"].sum { (c) -> c["orders"].filter { it["status"] == "refunded" }.sum { it["total"] } },
-  ],
+  },
   by_city: doc["customers"].group_by { it.dig("address", "city") }.map { (city, cs) ->
-    [city: city, customers: cs.len, revenue: cs.sum { (c) -> c["orders"].sum { it["total"] } }]
+    {city: city, customers: cs.len, revenue: cs.sum { (c) -> c["orders"].sum { it["total"] } }}
   }.sort_by { -it["revenue"] },
   attention: doc["customers"]
-    .flat_map { (c) -> c["orders"].map { (o) -> o.merge([customer: c["name"]]) } }
+    .flat_map { (c) -> c["orders"].map { (o) -> o.merge({customer: c["name"]}) } }
     .filter { it["status"] != "paid" }
-    .map { [order: it["id"], customer: it["customer"], status: it["status"], total: it["total"]] },
-]
+    .map { {order: it["id"], customer: it["customer"], status: it["status"], total: it["total"]} },
+}
 
 say("")
 say("the reshaped report, compact:")
@@ -84,13 +84,13 @@ say(json.pretty(report["totals"]))
 # --- normalising fields you cannot trust --------------------------------------
 
 clean = doc["customers"].map { (c) ->
-  [ id:      c["id"],
+  { id:      c["id"],
     name:    c["name"].trim,
     email:   (c["email"] ?? "").lower,
     city:    c.dig("address", "city") ?? "unknown",
     zip:     c.dig("address", "zip") ?? "",
     vip:     c["vip"] == true,
-    revenue: c["orders"].sum { it["total"] } ]
+    revenue: c["orders"].sum { it["total"] } }
 }
 
 say("")
@@ -106,20 +106,20 @@ again = json.parse(report.json)
 say("")
 say("round trip is lossless: ${again == report}")
 say("key order is preserved:  ${report["totals"].keys.json}")
-say("unicode survives:        ${["name": "李明", "note": "emoji 👋 too"].json}")
+say("unicode survives:        ${{"name": "李明", "note": "emoji 👋 too"}.json}")
 
 # --- the envelope a handler would return --------------------------------------
 
 fn envelope(status, data, meta) {
-  [ status: status,
+  { status: status,
     ok:     status < 400,
-    meta:   (meta ?? [:]).merge([count: is(data, "array") ? data.len : 1]),
-    data:   data ]
+    meta:   (meta ?? {}).merge({count: is(data, "array") ? data.len : 1}),
+    data:   data }
 }
 
 say("")
-say("200 → ${envelope(200, clean.take(2).map { [id: it["id"], name: it["name"]] }, [page: 1]).json}")
-say("404 → ${envelope(404, [message: "customer not found"], nil).json}")
+say("200 → ${envelope(200, clean.take(2).map { {id: it["id"], name: it["name"]} }, {page: 1}).json}")
+say("404 → ${envelope(404, {message: "customer not found"}, nil).json}")
 
 # --- what JSON cannot carry ----------------------------------------------------
 #
@@ -127,7 +127,7 @@ say("404 → ${envelope(404, [message: "customer not found"], nil).json}")
 # error rather than an endless document. Both are decisions, not accidents.
 
 say("")
-say("a closure encodes as ${[cb: { it }].json}")
+say("a closure encodes as ${{cb: { it }}.json}")
 cycle = [1, 2]
 cycle.push(cycle)
 say("a cycle raises:      ${try cycle.json else (e) -> e["message"]}")

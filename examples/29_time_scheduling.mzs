@@ -50,10 +50,10 @@ say("  ${inspect("today").ljust(24)}${date.today.strftime("%Y-%m-%d")} (from the
 slots = (0..<((CLOSE - OPEN) * 60 / SLOT)).map { (i) -> day + (i * SLOT).minutes }
 
 booked = [
-  [at: "10:30", who: "Ivan",  service: "haircut", minutes: 60],
-  [at: "12:00", who: "Anna",  service: "colour",  minutes: 120],
-  [at: "15:30", who: "Li",    service: "beard",   minutes: 30],
-  [at: "18:00", who: "Sean",  service: "haircut", minutes: 60],
+  {at: "10:30", who: "Ivan",  service: "haircut", minutes: 60},
+  {at: "12:00", who: "Anna",  service: "colour",  minutes: 120},
+  {at: "15:30", who: "Li",    service: "beard",   minutes: 30},
+  {at: "18:00", who: "Sean",  service: "haircut", minutes: 60},
 ]
 
 fn covers(booking, slot) {

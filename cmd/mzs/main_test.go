@@ -52,12 +52,12 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name:    "json of a dict keeps insertion order",
-			argv:    []string{"--json", "-e", `[b: 1, a: 2]`},
+			argv:    []string{"--json", "-e", `{b: 1, a: 2}`},
 			wantOut: `{"b":1,"a":2}` + "\n",
 		},
 		{
 			name:    "str is the default rendering: a dict strs as JSON (§12.7)",
-			argv:    []string{"-e", `[b: 1, a: "два"]`},
+			argv:    []string{"-e", `{b: 1, a: "два"}`},
 			wantOut: `{"b":1,"a":"два"}` + "\n",
 		},
 		{
@@ -503,8 +503,9 @@ func TestOneLinerDiagnostics(t *testing.T) {
 		{"def", "def f() { }", "'def' is not an mzs keyword; use 'fn'", 1},
 		{"percent-w array", "%w[a b]", `'%w' is not mzs; write ["a", "b"]`, 1},
 		{"symbol", ":name", `mzs has no symbols; write "name"`, 1},
-		{"brace dict literal", "{a: 1}", "a dict literal is written [a: 1]", 1},
-		{"hash rocket", "k => v", "'=>' is not an mzs operator; write [k: v] for a dict, { (x) -> … } for a closure", 3},
+		{"brace dict after a call", "f {a: 1}", "a dict after a call is written (a: 1) or ({a: 1})", 3},
+		{"brace dict in a body", "if c {a: 1}", "this '{' opens the if body; write { {a: 1} } for a dict", 6},
+		{"hash rocket", "k => v", "'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure", 3},
 		{"pipe closure params", "{ |x| x }", "closure parameters are parenthesised: { (x) -> … }", 3},
 		{"ruby safe navigation", "x &. y", "'&.' is not an mzs operator; use '?.'", 3},
 		{"rescue", "a rescue b", "'rescue' is not an mzs keyword; use 'try a else b'", 3},

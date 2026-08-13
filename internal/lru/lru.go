@@ -14,7 +14,8 @@ type entry[K comparable, V any] struct {
 
 // Cache is a fixed-capacity least-recently-used map. The zero value is not usable;
 // call New. A cache created with n <= 0 is permanently empty: Get always misses and
-// Add is a no-op, which is how Options.ProgramCache == 0 disables caching.
+// Add is a no-op, which is how a negative Options.ProgramCache disables caching — it
+// normalizes to 0, and 0 reaches here only from that path.
 type Cache[K comparable, V any] struct {
 	mu   sync.Mutex
 	cap  int

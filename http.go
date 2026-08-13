@@ -88,10 +88,10 @@ type httpServer struct {
 // httpServe binds addr, routes every pattern in the routes dict to its closure and
 // serves until http.stop() or until the Run's context is canceled.
 //
-//	http.serve(":8080", [
+//	http.serve(":8080", {
 //	  "GET /hello":    { (req) -> "привет" },
-//	  "GET /get/{id}": { (req) -> http.json([id: req["params"]["id"]]) },
-//	])
+//	  "GET /get/{id}": { (req) -> http.json({id: req["params"]["id"]}) },
+//	})
 //
 // Patterns are net/http's own (Go 1.22): an optional method, a path, and {name}
 // wildcards that arrive in req["params"]. The optional third argument is a closure
@@ -296,8 +296,8 @@ func httpFail(rs *runState, job *httpJob, status int, err error) {
 
 // httpRequestValue builds the dict a handler is called with:
 //
-//	[method: "GET", path: "/get/7", params: [id: "7"], query: [full: "1"],
-//	 headers: [accept: "*/*"], body: "", host: "…", remote: "…"]
+//	{method: "GET", path: "/get/7", params: {id: "7"}, query: {full: "1"},
+//	 headers: {accept: "*/*"}, body: "", host: "…", remote: "…"}
 //
 // Header names are lowercased and repeated values collapse to the first, because a
 // script that reaches for req["headers"]["accept"] wants a string, not a case
@@ -523,8 +523,8 @@ func httpClientPost(c *Ctx, args []Value) (Value, error) {
 	return httpDo(c, http.MethodPost, args[0], args[1], argAt(args, 2))
 }
 
-// httpClientRequest is the general form: http.request("PUT", url, [body: …,
-// headers: […], timeout: 3]).
+// httpClientRequest is the general form: http.request("PUT", url, {body: …,
+// headers: {…}, timeout: 3}).
 func httpClientRequest(c *Ctx, args []Value) (Value, error) {
 	method, err := argStr(c, args[0])
 	if err != nil {

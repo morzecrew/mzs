@@ -8,40 +8,40 @@
 # alerts — so no two numbers can disagree.
 
 CATALOG = [
-  [sku: "SHMP-01", name: "Shampoo 250ml",  reorder_at: 12, pack: 6],
-  [sku: "COND-01", name: "Conditioner",    reorder_at: 8,  pack: 6],
-  [sku: "OIL-05",  name: "Beard oil",      reorder_at: 10, pack: 4],
-  [sku: "WAX-02",  name: "Styling wax",    reorder_at: 6,  pack: 12],
+  {sku: "SHMP-01", name: "Shampoo 250ml",  reorder_at: 12, pack: 6},
+  {sku: "COND-01", name: "Conditioner",    reorder_at: 8,  pack: 6},
+  {sku: "OIL-05",  name: "Beard oil",      reorder_at: 10, pack: 4},
+  {sku: "WAX-02",  name: "Styling wax",    reorder_at: 6,  pack: 12},
 ]
 
 # kind: receipt (in, with a unit cost), sale (out), adjust (correction, signed)
 movements = [
-  [day: 1,  sku: "SHMP-01", kind: "receipt", qty: 24, cost: 210],
-  [day: 1,  sku: "COND-01", kind: "receipt", qty: 12, cost: 240],
-  [day: 1,  sku: "OIL-05",  kind: "receipt", qty: 20, cost: 380],
-  [day: 2,  sku: "SHMP-01", kind: "sale",    qty: 3],
-  [day: 3,  sku: "OIL-05",  kind: "sale",    qty: 5],
-  [day: 4,  sku: "SHMP-01", kind: "sale",    qty: 6],
-  [day: 5,  sku: "WAX-02",  kind: "receipt", qty: 12, cost: 150],
-  [day: 6,  sku: "COND-01", kind: "sale",    qty: 5],
-  [day: 7,  sku: "SHMP-01", kind: "receipt", qty: 12, cost: 245],
-  [day: 8,  sku: "SHMP-01", kind: "sale",    qty: 9],
-  [day: 9,  sku: "OIL-05",  kind: "sale",    qty: 7],
-  [day: 10, sku: "WAX-02",  kind: "sale",    qty: 4],
-  [day: 11, sku: "COND-01", kind: "adjust",  qty: -1, note: "broken bottle"],
-  [day: 12, sku: "SHMP-01", kind: "sale",    qty: 5],
-  [day: 13, sku: "OIL-05",  kind: "sale",    qty: 4],
-  [day: 14, sku: "WAX-02",  kind: "sale",    qty: 6],
+  {day: 1,  sku: "SHMP-01", kind: "receipt", qty: 24, cost: 210},
+  {day: 1,  sku: "COND-01", kind: "receipt", qty: 12, cost: 240},
+  {day: 1,  sku: "OIL-05",  kind: "receipt", qty: 20, cost: 380},
+  {day: 2,  sku: "SHMP-01", kind: "sale",    qty: 3},
+  {day: 3,  sku: "OIL-05",  kind: "sale",    qty: 5},
+  {day: 4,  sku: "SHMP-01", kind: "sale",    qty: 6},
+  {day: 5,  sku: "WAX-02",  kind: "receipt", qty: 12, cost: 150},
+  {day: 6,  sku: "COND-01", kind: "sale",    qty: 5},
+  {day: 7,  sku: "SHMP-01", kind: "receipt", qty: 12, cost: 245},
+  {day: 8,  sku: "SHMP-01", kind: "sale",    qty: 9},
+  {day: 9,  sku: "OIL-05",  kind: "sale",    qty: 7},
+  {day: 10, sku: "WAX-02",  kind: "sale",    qty: 4},
+  {day: 11, sku: "COND-01", kind: "adjust",  qty: -1, note: "broken bottle"},
+  {day: 12, sku: "SHMP-01", kind: "sale",    qty: 5},
+  {day: 13, sku: "OIL-05",  kind: "sale",    qty: 4},
+  {day: 14, sku: "WAX-02",  kind: "sale",    qty: 6},
 ]
 
 fn signed(m) { m["kind"] == "receipt" ? m["qty"] : (m["kind"] == "adjust" ? m["qty"] : -m["qty"]) }
 
 # --- running balance per SKU ---------------------------------------------------
 
-balances = [:]
+balances = {}
 history = movements.map { (m) ->
   balances.set(m["sku"], (balances[m["sku"]] ?? 0) + signed(m))
-  m.merge([balance: balances[m["sku"]]])
+  m.merge({balance: balances[m["sku"]]})
 }
 
 say("ledger (${movements.len} movements over ${movements.last["day"]} days)")
@@ -55,12 +55,12 @@ history.each { (m) ->
 # --- FIFO: the lots are a queue, and a sale drains it from the front ----------
 
 fn fifo(sku) {
-  lots = []          # each lot is [qty, cost]
+  lots = []          # each lot is a dict of qty and cost
   cogs = 0
   shortfall = 0
   movements.filter { it["sku"] == sku }.each { (m) ->
     if m["kind"] == "receipt" {
-      lots.push([qty: m["qty"], cost: m["cost"]])
+      lots.push({qty: m["qty"], cost: m["cost"]})
       next
     }
     want = m["kind"] == "adjust" ? -m["qty"] : m["qty"]
@@ -74,7 +74,7 @@ fn fifo(sku) {
     }
     shortfall += want
   }
-  [on_hand: lots.sum { it["qty"] }, value: lots.sum { it["qty"] * it["cost"] }, cogs: cogs, shortfall: shortfall, lots: lots]
+  {on_hand: lots.sum { it["qty"] }, value: lots.sum { it["qty"] * it["cost"] }, cogs: cogs, shortfall: shortfall, lots: lots}
 }
 
 say("")
@@ -122,7 +122,7 @@ CATALOG.sort_by { (c) -> -(sold[c["sku"]] ?? []).sum { it["qty"] } }.each { (c) 
 # --- a consistency check the ledger can run on itself -------------------------
 
 recomputed = CATALOG.map { (c) ->
-  [sku: c["sku"], from_movements: movements.filter { it["sku"] == c["sku"] }.sum { signed(it) }, from_fifo: fifo(c["sku"])["on_hand"]]
+  {sku: c["sku"], from_movements: movements.filter { it["sku"] == c["sku"] }.sum { signed(it) }, from_fifo: fifo(c["sku"])["on_hand"]}
 }
 say("")
 say("balances agree with the FIFO lots: ${recomputed.all { it["from_movements"] == it["from_fifo"] }}")

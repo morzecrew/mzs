@@ -31,7 +31,7 @@ code --install-extension mzs-1.1.0.vsix
 
 | Feature | How it works |
 |---|---|
-| **Highlighting** | a TextMate grammar following SPEC §3: strings with `${}` interpolation and `$globals` inside them, raw `'…'` strings, regexes `/…/imxsu` with their anchors, quantifiers and classes, numbers in every base, dict keys `[a: 1]`, closure parameters `(x) ->`, `include`/`export`, module names, `#` comments |
+| **Highlighting** | a TextMate grammar following SPEC §3: strings with `${}` interpolation and `$globals` inside them, raw `'…'` strings, regexes `/…/imxsu` with their anchors, quantifiers and classes, numbers in every base, dict keys `{a: 1}`, closure parameters `(x) ->`, `include`/`export`, module names, `#` comments |
 | **Completion** | after `include ` — the built-in modules, each marked with the flag it needs; after `module.` — its members (for a neighbouring `.mzs`, the names it really exports); after `.` — the receiver's methods (the type is inferred from the literal on the left); otherwise — built-in functions, keywords, the modules already included, plus the functions, local variables and `$globals` of the file itself |
 | **Hovers** | the signature, the description and the example from SPEC §12; for a module member, also what has to be `include`d (and with which flag) |
 | **Diagnostics** | `mzs --check -` as you type: the buffer goes in through stdin, so errors are visible **before the file is saved**. Warnings show up as warnings, errors as errors |

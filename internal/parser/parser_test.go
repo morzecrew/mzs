@@ -107,7 +107,7 @@ Program "t"
 		},
 		{
 			name: "collections",
-			src:  `[]; [:]; [1, 2]; [a: 1, "b": 2, (k): 3]`,
+			src:  `[]; {}; [1, 2]; {a: 1, "b": 2, (k): 3}`,
 			want: `
 Program "t"
   ExprStmt
@@ -927,10 +927,24 @@ func TestAmbiguityDiagnostics(t *testing.T) {
 			msg: `'%w' is not mzs; write ["a", "b"]`, line: 1, col: 1},
 		{name: "symbol", src: ":name",
 			msg: `mzs has no symbols; write "name"`, line: 1, col: 1},
-		{name: "brace dict literal", src: "{a: 1}",
-			msg: "a dict literal is written [a: 1]", line: 1, col: 1},
+		{name: "bracket dict", src: "[a: 1]",
+			msg: "a dict is written {a: 1}", line: 1, col: 1},
+		{name: "bracket dict with a string key", src: `["a": 1]`,
+			msg: "a dict is written {a: 1}", line: 1, col: 1},
+		{name: "bracket empty dict", src: "[:]",
+			msg: "the empty dict is written {}", line: 1, col: 1},
+		{name: "brace dict after a call", src: "f {a: 1}",
+			msg: "a dict after a call is written (a: 1) or ({a: 1})", line: 1, col: 3},
+		{name: "brace dict in a body", src: "if c {a: 1}",
+			msg: "this '{' opens the if body; write { {a: 1} } for a dict", line: 1, col: 6},
+		// §3.10 suppresses the newline after `{`, so the lookahead of §3.12 reads the
+		// key from the next line unaided and these reach the same two fix-its.
+		{name: "multi-line brace dict after a call", src: "f {\n  a: 1\n}",
+			msg: "a dict after a call is written (a: 1) or ({a: 1})", line: 1, col: 3},
+		{name: "multi-line brace dict in a body", src: "if c {\n  a: 1\n}",
+			msg: "this '{' opens the if body; write { {a: 1} } for a dict", line: 1, col: 6},
 		{name: "hash rocket", src: "k => v",
-			msg: "'=>' is not an mzs operator; write [k: v] for a dict, { (x) -> … } for a closure", line: 1, col: 3},
+			msg: "'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure", line: 1, col: 3},
 		{name: "pipe closure parameters", src: "{ |x| x }",
 			msg: "closure parameters are parenthesised: { (x) -> … }", line: 1, col: 3, extra: 1},
 		{name: "the Ruby safe call", src: "x &. y",
@@ -1023,11 +1037,26 @@ func TestStaticParseRestrictions(t *testing.T) {
 	}
 }
 
-// TestBraceIsAlwaysAClosure covers §3.11: `{` needs no context to be understood, and the
-// one restriction is that a header's `{` opens the body.
-func TestBraceIsAlwaysAClosure(t *testing.T) {
-	if _, err := Parse("t", `if [a: 1].has("a") { 1 } else { 2 }`); err != nil {
+// TestBraceIsAClosureOrADict covers §3.11: in operand position a `{` opens a dict when
+// the §3.12 lookahead says so and a closure otherwise, and the one restriction is that a
+// header's `{` opens the body.
+func TestBraceIsAClosureOrADict(t *testing.T) {
+	if _, err := Parse("t", `if {a: 1}.has("a") { 1 } else { 2 }`); err != nil {
 		t.Errorf("a dict literal in a header needs no parentheses: %v", err)
+	}
+	if got, want := parse(t, "{ nil }"), "Closure"; !strings.Contains(got, want) {
+		t.Errorf("{ nil } is the empty closure value, got\n%s", got)
+	}
+	if _, err := Parse("t", "if x == {a: 1} { 1 }"); err != nil {
+		t.Errorf("a brace dict as a header operand must parse: %v", err)
+	}
+	// A body's `{` still wins: the dict has to be written inside it.
+	if _, err := Parse("t", "if c { {a: 1} } else { {b: 2} }"); err != nil {
+		t.Errorf("a brace dict inside a body must parse: %v", err)
+	}
+	// Trailing position stays the closure slot, empty braces included.
+	if got, want := parse(t, "xs.each { }"), "Closure"; !strings.Contains(got, want) {
+		t.Errorf("an empty trailing brace is a closure, got\n%s", got)
 	}
 	if _, err := Parse("t", "if (xs.any { it > 5 }) { 1 }"); err != nil {
 		t.Errorf("a parenthesised trailing closure in a header must parse: %v", err)
@@ -1050,13 +1079,22 @@ func TestCollectionLookahead(t *testing.T) {
 		want string
 	}{
 		{"rule 1: empty array", "[]", "Array"},
-		{"rule 2: empty dict", "[:]", "Dict"},
-		{"rule 3: identifier key", "[a: 1]", "Dict"},
-		{"rule 3: string key", `["a": 1]`, "Dict"},
-		{"rule 4: computed key", "[(k): 1]", "Dict"},
+		{"rule 2: empty dict", "{}", "Dict"},
+		{"rule 3: identifier key", "{a: 1}", "Dict"},
+		{"rule 3: string key", `{"a": 1}`, "Dict"},
+		{"rule 4: computed key", "{(k): 1}", "Dict"},
 		{"rule 4: parenthesised element", "[(k), 1]", "Array"},
 		{"rule 5: ternary element", "[x ? a : b]", "Array"},
 		{"rule 5: values", "[1, 2, 3]", "Array"},
+		// §3.11: the same five rules decide a `{` in operand position, with the empty
+		// brace reading as the dict and everything else falling through to the closure.
+		{"brace: empty dict", "{}", "Dict"},
+		{"brace: identifier key", "{a: 1}", "Dict"},
+		{"brace: string key", `{"a": 1}`, "Dict"},
+		{"brace: computed key", "{(k): 1}", "Dict"},
+		{"brace: parameters are not a key", "{(x) -> x}", "Closure"},
+		{"brace: implicit it", "{ it * 2 }", "Closure"},
+		{"brace: ternary body", "{x ? a : b}", "Closure"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1096,7 +1134,7 @@ func TestParseErrors(t *testing.T) {
 		// Recovery inside a collection has to consume something: sync stops *at* a `;`
 		// without eating it, and one diagnostic per position means the error budget
 		// would never end the loop either. Left unfixed this input never returns.
-		{"a bad dict key does not spin", "[A:0,A;;;", "expected a dict key, found 'A'", 1, 6},
+		{"a bad dict key does not spin", "{A:0,A;;;", "expected a dict key, found 'A'", 1, 6},
 		{"an array pattern needs a subject", "match { [a, b] -> 1 }", "an array pattern needs a subject: match xs { [a, b] -> … }", 1, 9},
 	}
 
@@ -1180,7 +1218,7 @@ Program "t"
 		},
 		{
 			name: "multi-line dict with a trailing comma",
-			src:  "m = [\n  a: 1,\n  b: 2,\n]",
+			src:  "m = {\n  a: 1,\n  b: 2,\n}",
 			want: `
 Program "t"
   ExprStmt
@@ -1334,7 +1372,7 @@ func FuzzParse(f *testing.F) {
 		`s = $__sent.lower.trim; s == "да" || s ~ /^ага|конечно/`,
 		`fn f(a, b) { a += b; print(a); return a }; f(1, 2)`,
 		`3.times.each { print(it) }`,
-		`d = [a: 1, b: 2]; d.keys.join(",")`,
+		`d = {a: 1, b: 2}; d.keys.join(",")`,
 		`match s { in ["да"] -> 1; /re/i if c -> 2; else -> nil }`,
 		`match { a -> 1 }`,
 		`try f() else (e) -> e["message"]`,
@@ -1346,7 +1384,7 @@ func FuzzParse(f *testing.F) {
 		`"unterminated`, `'unterminated`, "/unterminated",
 		`str =! "x"`, `1..2..3`, `(((((`, `}}}}`, `@x`, `$`, `#`, `//`,
 		`0x`, `1e`, `1_000_000`, `"\u{1F600}"`, `"\xff"`, "\x00\x01\x02",
-		`привет == "да"`, `🌲`, `x ? y : z`, `[:]`, `[]`, `{ (x) -> x }`,
+		`привет == "да"`, `🌲`, `x ? y : z`, `{}`, `[]`, `{ (x) -> x }`,
 	}
 	for _, s := range seeds {
 		f.Add(s)

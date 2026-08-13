@@ -68,7 +68,7 @@ func TestArithmeticOnEveryKindPair(t *testing.T) {
 		{"array concatenation", `[1] + [2]`, "[1,2]"},
 		{"array difference removes every equal element", `[1,2,1,3] - [1]`, "[2,3]"},
 		{"array repetition", `[1,2] * 2`, "[1,2,1,2]"},
-		{"dict merge, later wins", `[a: 1, b: 2] + [b: 3]`, `{"a":1,"b":3}`},
+		{"dict merge, later wins", `{a: 1, b: 2} + {b: 3}`, `{"a":1,"b":3}`},
 	}
 
 	for _, tt := range tests {
@@ -129,7 +129,7 @@ func TestArithmeticTypeErrors(t *testing.T) {
 	}{
 		{`"2" + 1`, "cannot add int to string"},
 		{`[1] + 1`, "cannot add int to array"},
-		{`[a: 1] + 1`, "cannot add int to dict"},
+		{`{a: 1} + 1`, "cannot add int to dict"},
 		{`nil + 1`, "cannot add"},
 		{`true + 1`, "cannot add"},
 		{`1 + "2"`, "cannot add"},

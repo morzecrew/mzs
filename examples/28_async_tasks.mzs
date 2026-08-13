@@ -25,7 +25,7 @@ async fn work(id) {
   # A stand-in for something slow. In real code this would be http.get, and then the
   # waiting really would overlap.
   total = (1..2000).sum { it % (id + 2) }
-  [id: id, total: total]
+  {id: id, total: total}
 }
 
 started = (1..6).map { (i) -> work(i) }
@@ -43,7 +43,7 @@ async fn risky(n) {
 
 say("")
 say("errors")
-(1..4).map { (n) -> [n: n, task: risky(n)] }.each { (row) ->
+(1..4).map { (n) -> {n: n, task: risky(n)} }.each { (row) ->
   outcome = try row["task"].await else (e) -> "caught: ${e["message"]}"
   say("  ${outcome}")
 }

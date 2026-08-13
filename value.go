@@ -194,7 +194,7 @@ func (v Value) Kind() Kind { return v.k }
 
 func (v Value) IsNil() bool { return v.k == KNil }
 
-// Truthy implements D6: only nil and false are falsy. 0, 0.0, "", [], [:] and NaN are
+// Truthy implements D6: only nil and false are falsy. 0, 0.0, "", [], {} and NaN are
 // all truthy. It is why `s.index(/re/)` returning 0 — a match at position 0 — still
 // counts as a hit (§7.3).
 func (v Value) Truthy() bool {

@@ -7,16 +7,16 @@
 # tracks movement between rounds, and computes the percentile that decides the cut.
 
 rounds = [
-  [ann: 120, bob: 95,  cleo: 120, dmi: 60,  eve: 80,  fred: 95],
-  [ann: 140, bob: 130, cleo: 100, dmi: 90,  eve: 80,  fred: 145],
-  [ann: 160, bob: 150, cleo: 155, dmi: 150, eve: 110, fred: 120],
+  {ann: 120, bob: 95,  cleo: 120, dmi: 60,  eve: 80,  fred: 95},
+  {ann: 140, bob: 130, cleo: 100, dmi: 90,  eve: 80,  fred: 145},
+  {ann: 160, bob: 150, cleo: 155, dmi: 150, eve: 110, fred: 120},
 ]
 
 PLAYERS = rounds.first.keys
 
 # --- totals, then the three rankings ------------------------------------------
 
-totals = PLAYERS.map { (p) -> [name: p, score: rounds.sum { (r) -> r[p] }] }.sort_by { -it["score"] }
+totals = PLAYERS.map { (p) -> {name: p, score: rounds.sum { (r) -> r[p] }} }.sort_by { -it["score"] }
 
 fn rank_competition(sorted) {
   seen = 0
@@ -27,7 +27,7 @@ fn rank_competition(sorted) {
     rank = row["score"] == last_score ? last_rank : seen
     last_score = row["score"]
     last_rank = rank
-    row.merge([rank: rank])
+    row.merge({rank: rank})
   }
 }
 
@@ -37,7 +37,7 @@ fn rank_dense(sorted) {
   sorted.map { (row) ->
     rank += 1 if row["score"] != last_score
     last_score = row["score"]
-    row.merge([dense: rank])
+    row.merge({dense: rank})
   }
 }
 

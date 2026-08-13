@@ -99,10 +99,10 @@ fn table(rows, columns, aligns) {
 }
 
 items = [
-  [item: "Signature haircut", qty: 2, price: 1500, total: 3000],
-  [item: "Beard trim", qty: 1, price: 800, total: 800],
-  [item: "Colour, premium", qty: 1, price: 3200, total: 3200],
-  [item: "Уход (care)", qty: 3, price: 600, total: 1800],
+  {item: "Signature haircut", qty: 2, price: 1500, total: 3000},
+  {item: "Beard trim", qty: 1, price: 800, total: 800},
+  {item: "Colour, premium", qty: 1, price: 3200, total: 3200},
+  {item: "Уход (care)", qty: 3, price: 600, total: 1800},
 ]
 
 say("")
