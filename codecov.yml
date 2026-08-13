@@ -1,0 +1,22 @@
+# Codecov configuration (https://docs.codecov.com/docs/codecov-yaml).
+# Validate a change before pushing it:
+#   curl -X POST --data-binary @codecov.yml https://codecov.io/validate
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto # never below the merge base…
+        threshold: 1% # …with room for a refactor that moves lines around
+    patch:
+      default:
+        target: 80% # new code brings its own tests — README "Verification"
+
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true # no comment on a PR that does not move coverage
+
+ignore:
+  - "editors/**" # a separate Go module (data/gen) plus generated JSON
+  - "examples/**" # .mzs programs; the acceptance suite runs them end to end
+  - "testdata/**" # the normative fixtures of SPEC §16.3
