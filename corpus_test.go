@@ -491,6 +491,11 @@ func TestAuthorFiles(t *testing.T) {
 			{"destructuring", "examples/33_destructuring.mzs", nil, "",
 				[]string{"a=2 b=1", "push 2 | push 3 | add | dup | mul → [25]",
 					"index: destructuring expects 2 values, got 3", "moved on"}},
+			{"bits and bytes", "examples/34_bits_and_bytes.mzs", nil, "",
+				[]string{`clear WRITE           → 0101  ["read","execute"]`,
+					"192.168.1.7    in 192.168.1.0/24 → true",
+					"crc32(\"123456789\") = cbf43926  ✓", "bits that differ      → 14 of 32",
+					"type(shl(1, 63))    → int"}},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -849,6 +854,64 @@ func TestUfcsUserFn(t *testing.T) {
 	}
 }
 
+// TestBitOpsStayInt is the exception §12.5 writes into D9: arithmetic promotes an
+// overflowing Int to a Float, and the bit rows do not. A bit shifted past the end is
+// gone, not rounded — which is the whole reason masks and checksums come out right — and
+// `bytes`/`pack_bytes` carry a string through the numbers and back unchanged.
+func TestBitOpsStayInt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"a mask", `0x1234.band(0xff)`, "52"},
+		{"flags together", `bor(0b0001, 0b0100).bit(2)`, "true"},
+		{"the sign bit is still an int", `type(shl(1, 63))`, "int"},
+		{"a bit shifted out is gone", `shl(1, 64)`, "0"},
+		{"the same magnitude in arithmetic promotes", `type(2 ** 64)`, "float"},
+		{"shr is arithmetic", `shr(-8, 1)`, "-4"},
+		{"a byte round trip", `"héllo 🌲".bytes.pack_bytes`, "héllo 🌲"},
+		{"bytes back into a number", `"\x01\x02".bytes.reduce(0) { (a, b) -> a.shl(8).bor(b) }`, "258"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := evalCorpus(t, tt.src, nil).Str(); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+
+	// Neither half of "no coercion" is negotiable here: a Float does not truncate into a
+	// bit operation, and a value that is not a byte does not wrap into one.
+	errs := []struct {
+		src  string
+		kind string
+		msg  string
+	}{
+		{`2.9.band(1)`, "type", "band expects an int, got float: bit operations do not round, write x.int"},
+		{`shl(1, -1)`, "argument", "shl: shift count -1 is negative; the other direction is shr"},
+		{`bit(1, 64)`, "argument", "bit: index 64 is outside 0..63"},
+		{`[65, 300].pack_bytes`, "argument", "pack_bytes: expected a byte in 0..255 at element 1, got 300"},
+	}
+	for _, tt := range errs {
+		t.Run(tt.src, func(t *testing.T) {
+			t.Parallel()
+			_, err := corpusInterp(io.Discard).Eval(context.Background(), tt.src, nil)
+			if err == nil {
+				t.Fatalf("%s returned no error", tt.src)
+			}
+			e := firstError(t, err)
+			if e.Msg != tt.msg || e.Kind != tt.kind {
+				t.Errorf("%s error = %s: %q, want %s: %q", tt.src, e.Kind, e.Msg, tt.kind, tt.msg)
+			}
+		})
+	}
+}
+
 func TestTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -1176,6 +1239,12 @@ func TestDiagnostics(t *testing.T) {
 			`closure parameters are parenthesised: { (x) -> … }`, 1, 3},
 		{"the Ruby safe call", `x &. y`,
 			`'&.' is not an mzs operator; use '?.'`, 1, 3},
+		{"bitwise and", `a & b`,
+			`'&' is not an mzs operator; use band(a, b), or '&&' for logical and`, 1, 3},
+		{"bitwise or", `a | b`,
+			`'|' is not an mzs operator; use bor(a, b), or '||' for logical or`, 1, 3},
+		{"bitwise xor", `a ^ b`,
+			`'^' is not an mzs operator; use bxor(a, b), or '**' to raise to a power`, 1, 3},
 		{"rescue", `a rescue b`,
 			`'rescue' is not an mzs keyword; use 'try a else b'`, 1, 3},
 		{"hash interpolation", `"#{x}"`,

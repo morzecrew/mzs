@@ -181,6 +181,11 @@
     "sem": "without a closure, tests truthiness",
     "ex": ""
    },
+   "pack_bytes": {
+    "sig": "`-> string`",
+    "sem": "the inverse of String#`bytes`: one element, one byte; each must be an int in `0..255`",
+    "ex": ""
+   },
    "partition": {
     "sig": "`{ (x) -> … } -> …`",
     "sem": "",
@@ -286,11 +291,6 @@
     "sem": "",
     "ex": ""
    }
-  },
-  "bool": {
-   "&": {},
-   "^": {},
-   "|": {}
   },
   "dict": {
    "all": {
@@ -826,6 +826,11 @@
     "sem": "without a closure, tests truthiness",
     "ex": ""
    },
+   "pack_bytes": {
+    "sig": "`-> string`",
+    "sem": "the inverse of String#`bytes`: one element, one byte; each must be an int in `0..255`",
+    "ex": ""
+   },
    "partition": {
     "sig": "`{ (x) -> … } -> …`",
     "sem": "",
@@ -943,7 +948,7 @@
    },
    "bytes": {
     "sig": "`-> array`",
-    "sem": "integer byte values",
+    "sem": "integer byte values; `array.pack_bytes` (§12.3) puts them back",
     "ex": ""
    },
    "capitalize": {
@@ -1188,10 +1193,35 @@
    "sem": "raises when falsy",
    "ex": ""
   },
+  "band": {
+   "sig": "`(a: int, b: int) -> int`",
+   "sem": "and, or, xor, bit for bit",
+   "ex": ""
+  },
+  "bit": {
+   "sig": "`(a: int, i: int) -> bool`",
+   "sem": "is bit `i` set; `i` outside `0..63` is an error",
+   "ex": ""
+  },
+  "bnot": {
+   "sig": "`(a: int) -> int`",
+   "sem": "one's complement; `bnot(0) == -1`",
+   "ex": ""
+  },
   "bool": {
    "sig": "`bool(x) -> bool`",
    "sem": "truthiness of `x`",
    "ex": "`\"\".bool == true`"
+  },
+  "bor": {
+   "sig": "`(a: int, b: int) -> int`",
+   "sem": "and, or, xor, bit for bit",
+   "ex": ""
+  },
+  "bxor": {
+   "sig": "`(a: int, b: int) -> int`",
+   "sem": "and, or, xor, bit for bit",
+   "ex": ""
   },
   "ceil": {
    "sig": "`(x: number, digits: int = 0) -> number`",
@@ -1288,6 +1318,11 @@
    "sem": "runs the closure, returns **its** value",
    "ex": "`x.pipe { it * 2 }`"
   },
+  "popcount": {
+   "sig": "`(a: int) -> int`",
+   "sem": "set bits in the two's-complement form; `popcount(-1) == 64`",
+   "ex": ""
+  },
   "print": {
    "sig": "`print(*args) -> nil`",
    "sem": "writes `str` of each arg to `Options.Stdout`, no separator, no newline",
@@ -1322,6 +1357,16 @@
    "sig": "`say(*args) -> nil`",
    "sem": "like `print` but appends `\\n` after each arg; `say()` writes one `\\n`; an Array arg prints one element per line",
    "ex": "`say(\"hi\")`"
+  },
+  "shl": {
+   "sig": "`(a: int, n: int) -> int`",
+   "sem": "left shift; bits past 63 are dropped",
+   "ex": ""
+  },
+  "shr": {
+   "sig": "`(a: int, n: int) -> int`",
+   "sem": "**arithmetic** right shift: the sign bit is copied in, so `shr(-8, 1) == -4`",
+   "ex": ""
   },
   "sort": {
    "sig": "`sort(xs: array) [{ (a, b) -> int }] -> array`",

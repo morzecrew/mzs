@@ -364,25 +364,14 @@ func TestNilBoolAndFunctionReceivers(t *testing.T) {
 		})
 	}
 
-	boolOps := []struct {
-		name string
-		recv Value
-		meth string
-		arg  Value
-		want Value
-	}{
-		{"bool and", Bool(true), "&", Bool(false), Bool(false)},
-		{"bool or", Bool(false), "|", Bool(true), Bool(true)},
-		{"bool xor", Bool(true), "^", Bool(true), Bool(false)},
-	}
-	for _, tt := range boolOps {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := stdCall(t, c, tt.recv, tt.meth, tt.arg)
-			if err != nil {
-				t.Fatalf("%s: unexpected error %v", tt.meth, err)
-			}
-			if !stdSame(got, tt.want) {
-				t.Errorf("%s = %s; want %s", tt.meth, got.Inspect(), tt.want.Inspect())
+	// §12.9: `&&`, `||` and `!` are the whole set. A row named `&` on bool would be a
+	// second spelling of `&&` reachable only from Go — `&` is not a lexeme (§3.9) and
+	// `.` is followed by an identifier — which is what D17 forbids. It is also the
+	// reason the bit operations of §12.5 are functions rather than operators.
+	for _, name := range []string{"&", "|", "^"} {
+		t.Run("bool does not answer "+name, func(t *testing.T) {
+			if HasMethod(KBool, name) {
+				t.Errorf("bool answers %q; §12.9 leaves only && || !", name)
 			}
 		})
 	}

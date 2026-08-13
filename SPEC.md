@@ -381,6 +381,10 @@ Two lexemes exist only to produce a good error and are never valid tokens:
 * `=~` → `'=~' is not an mzs operator; use '~'`
 * `=!` → `unexpected '!' after '='; did you mean '!='?`
 
+`&`, `|` and `^` are not lexemes at all: the bit operations are functions (§12.5), because
+`&` beside `&&` is the ambiguity D16 refuses. Each of the three runes carries its own fix-it
+naming that function (§5.6), reported by the lexer since the parser never sees them.
+
 ### 3.10 Statement termination and line continuation
 
 The lexer emits `NEWLINE` for a source line break **unless** the last significant token is
@@ -811,6 +815,9 @@ cascade.
 | `k => v` | `'=>' is not an mzs operator; write [k: v] for a dict, { (x) -> … } for a closure` |
 | `{ \|x\| … }` | `closure parameters are parenthesised: { (x) -> … }` |
 | `x &. y` | `'&.' is not an mzs operator; use '?.'` |
+| `a & b` | `'&' is not an mzs operator; use band(a, b), or '&&' for logical and` |
+| `a \| b` | `'\|' is not an mzs operator; use bor(a, b), or '\|\|' for logical or` |
+| `a ^ b` | `'^' is not an mzs operator; use bxor(a, b), or '**' to raise to a power` |
 | `a rescue b` | `'rescue' is not an mzs keyword; use 'try a else b'` |
 | `import lib from "…"`, `require "…"`, `use lib` | `'import' is not an mzs keyword; use 'include': include lib from "./lib.mzs"` |
 | `"#{x}"` | `string interpolation is "${x}"` |
@@ -1605,7 +1612,7 @@ Conventions used in the tables:
 | `matches` | `(re: regex) -> array` | every match; with groups, an array of group-arrays | `d.matches(/(Mon\|Tue)/).first` |
 | `captures` | `(re: regex) -> array \| nil` | element 0 is the whole match, 1..n the groups; named groups also reachable as `m["name"]` | |
 | `chars` | `-> array` | one-rune strings | |
-| `bytes` | `-> array` | integer byte values | |
+| `bytes` | `-> array` | integer byte values; `array.pack_bytes` (§12.3) puts them back | |
 | `lines` | `-> array` | split on `\n`, terminator dropped | |
 | `reverse` | `-> string` | rune-wise | |
 | `first` / `last` | `(n: int = 1) -> string` | first/last `n` runes | |
@@ -1666,9 +1673,16 @@ Strings are immutable. There are no in-place string operations under any spellin
 | `take` / `drop` | `(n: int) -> array` | |
 | `take_while` / `drop_while` | `{ (x) -> … } -> array` | |
 | `zip` | `(*others: array) -> array` | |
+| `pack_bytes` | `-> string` | the inverse of String#`bytes`: one element, one byte; each must be an int in `0..255` |
 | `concat` | `(other: array) -> array` | mutates |
 | `sample` / `shuffle` | `-> any \| array` | require `Options.Rand` |
 | `sort_in_place` / `reverse_in_place` | `-> array` | the mutating variants, named so at the call site |
+
+`pack_bytes` works in bytes, not runes, so it can build a string that is not valid UTF-8 —
+the same thing `io.read` of a binary file produces (§12.13). Nothing raises: the rune-based
+rows of §12.2 then see U+FFFD where a byte does not decode, and `json` escapes it the same
+way. An element that is not an int in `0..255` **is** an error, and it names the index:
+a byte silently truncated from 300 to 44 would surface as corruption much later.
 
 ### 12.4 Dicts
 
@@ -1712,6 +1726,35 @@ Strings are immutable. There are no in-place string operations under any spellin
 | `pow` | `(e) -> number` | same as `**` |
 | `chr` | `-> string` | code point → string |
 | `days` / `hours` / `minutes` / `seconds` / `weeks` | `-> duration` | only with the `time` module installed (§12.8) |
+
+**Bit operations.** Functions, not operators, and that is normative: `&` and `|` one
+keystroke away from `&&` and `||` is the ambiguity D16 refuses to introduce, and `<<`/`>>`
+are reserved (§20). Writing one of the operators is a diagnostic naming the function
+(§5.6). Under UFCS each row is also a method, which is how they are meant to be read:
+`flags.band(0xff)`.
+
+| Name | Signature | Semantics |
+|---|---|---|
+| `band` / `bor` / `bxor` | `(a: int, b: int) -> int` | and, or, xor, bit for bit |
+| `bnot` | `(a: int) -> int` | one's complement; `bnot(0) == -1` |
+| `shl` | `(a: int, n: int) -> int` | left shift; bits past 63 are dropped |
+| `shr` | `(a: int, n: int) -> int` | **arithmetic** right shift: the sign bit is copied in, so `shr(-8, 1) == -4` |
+| `popcount` | `(a: int) -> int` | set bits in the two's-complement form; `popcount(-1) == 64` |
+| `bit` | `(a: int, i: int) -> bool` | is bit `i` set; `i` outside `0..63` is an error |
+
+These rows are **pure `int64` and never promote**. D9's rule that an overflowing Int
+becomes a Float stops here: `shl(1, 63)` is the most negative int64 and `shl(1, 64)` is `0`,
+because a bit shifted out is gone — that is what makes masks and checksums come out right.
+Two consequences follow, and both are errors rather than guesses (§9.1, I5):
+
+* a Float argument does not truncate — `2.9.band(1)` says so and points at `x.int`;
+* a negative shift count is not a shift the other way — each direction has its own name.
+
+A shift count above 63 saturates instead of wrapping: `shl` and `shr` of a non-negative
+value give `0`, and `shr` of a negative value gives `-1`.
+
+Building a number out of bytes is the pair `"…".bytes` (§12.2) and `array.pack_bytes`
+(§12.3).
 
 ### 12.6 Regex
 
@@ -2669,6 +2712,7 @@ if $__sent.int > 5 { print("big") }
 | `TestUfcsUserFn` | `fn shout(s) { s.upper + "!" }; "да".shout` → `"ДА!"` |
 | `TestDestructureMismatch` | `a, b = [1,2,3]`, `a, b = [1]`, `a, b = 1` and `a, b = [x: 1, y: 2]` each raise, with the kind and text of §8.15 |
 | `TestArrayPatternBinds` | `[x, [y, z]]`, `[x, y]`, `[]` and `else` pick the arm by shape; a literal element still compares |
+| `TestBitOpsStayInt` | `shl(1, 63)` is still an `int` and `shl(1, 64)` is `0` where `2 ** 64` promotes to a Float; `2.9.band(1)`, `shl(1, -1)`, `bit(1, 64)` and a non-byte in `pack_bytes` each raise with the text of §12.5 |
 | `TestTimeout` | `Bool("while true { }")` returns `ErrTimeout` in ≤ 1.2 s |
 | `TestStepBudget` | a 10⁹-iteration loop returns `ErrBudget` without OOM |
 | `TestNoHostPanic` | fuzz corpus of 10⁴ random byte strings: `Compile`+`Run` never panic |
@@ -2889,6 +2933,11 @@ diagnoses with that fix-it when it is written in the dependency shape (§5.6).
 Destructuring is no longer reserved: `a, b = pair` and the binding `match` arm `[x, y] -> …`
 are §8.15. What stayed behind is the **rest element** — `a, *rest = xs` — which is reserved
 together with `*splat` at a call site and lands with it or not at all.
+
+`<<` and `>>` stay reserved even though the shifts arrived: they are the functions `shl`
+and `shr` (§12.5), so nothing spends the lexeme. `&`, `|` and `^` are not reserved either —
+each is a diagnostic naming its function (§5.6), and that is where they will stay, because
+`&` beside `&&` is exactly what D16 exists to prevent.
 
 Deliberately reserved for the feature most likely to be wanted next:
 

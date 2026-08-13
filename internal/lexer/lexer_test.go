@@ -313,6 +313,9 @@ func TestLexErrors(t *testing.T) {
 		{"integer overflow", "99999999999999999999", 1, "integer literal \"99999999999999999999\" does not fit in an int", 1, 1},
 		{"the ruby safe call", "x &. y", 1, "'&.' is not an mzs operator; use '?.'", 1, 3},
 		{"ruby closure parameters", "{ |x| x }", 2, "closure parameters are parenthesised: { (x) -> … }", 1, 3},
+		{"bitwise and", "a & b", 1, "'&' is not an mzs operator; use band(a, b), or '&&' for logical and", 1, 3},
+		{"bitwise or", "a | b", 1, "'|' is not an mzs operator; use bor(a, b), or '||' for logical or", 1, 3},
+		{"bitwise xor", "a ^ b", 1, "'^' is not an mzs operator; use bxor(a, b), or '**' to raise to a power", 1, 3},
 		// §3.2 promises '//' is not a comment; under §3.8 the first '/' here is a
 		// division and the second opens a regex that never closes.
 		{"slash slash after a value", "a // b", 1, "unterminated regex literal", 1, 4},

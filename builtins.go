@@ -564,20 +564,15 @@ func sortBuiltin(c *Ctx, args []Value) (Value, error) {
 //
 // nil needs no rows: `str`, `int`, `float`, `array`, `inspect` and `json` are the free
 // functions above, and every one of them already answers for nil the way §12.9 says.
+//
+// bool needs none either, for the same reason — and it must not have `&`, `|` and `^`.
+// §12.9 is explicit that `&&`/`||`/`!` are the whole set, `&`/`|`/`^` are not lexemes
+// (§3.9), and `.` is followed by an identifier, so rows under those names were
+// unreachable from any program: a second spelling of `&&` that only Go could call, which
+// is exactly what D17 forbids. They are also why the bit operations of §12.5 are
+// functions.
 
 func init() {
-	RegisterMethods(KBool,
-		Method{Name: "&", Min: 1, Max: 1, Fn: func(c *Ctx, recv Value, args []Value) (Value, error) {
-			return Bool(recv.Truthy() && args[0].Truthy()), nil
-		}},
-		Method{Name: "|", Min: 1, Max: 1, Fn: func(c *Ctx, recv Value, args []Value) (Value, error) {
-			return Bool(recv.Truthy() || args[0].Truthy()), nil
-		}},
-		Method{Name: "^", Min: 1, Max: 1, Fn: func(c *Ctx, recv Value, args []Value) (Value, error) {
-			return Bool(recv.Truthy() != args[0].Truthy()), nil
-		}},
-	)
-
 	RegisterMethods(KFunc,
 		Method{Name: "call", Max: -1, Fn: func(c *Ctx, recv Value, args []Value) (Value, error) {
 			// A trailing closure is already the last element of args (§4.2), so there is
