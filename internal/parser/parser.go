@@ -1380,18 +1380,17 @@ func (p *parser) closureParams(lb token.Token) (params []ast.Param, implicit boo
 // A closure body can never begin with `name :`, which is what keeps the two readings
 // apart, and it is why this may run inside a header where a `{` otherwise opens the
 // body (§3.11): `if x == {a: 1} { … }` needs no parentheses.
+// A line break right after `{` is never a token — §3.10 suppresses it, `LBRACE` being in
+// the continuation set — so the scan reads the first real token at p.pos+1 and needs no
+// newline handling of its own. That is what lets braceDictHere use the same three shapes
+// from p.pos, and what makes `f {` + newline + `a: 1` reach the §5.6 fix-it.
 func (p *parser) braceDict() (ast.Expr, bool) {
-	i := p.pos + 1
-	for p.toks[i].Kind == token.NEWLINE {
-		i++
-	}
-	if p.toks[i].Kind != token.RBRACE && !p.dictFollowsAt(i) {
+	if i := p.pos + 1; p.toks[i].Kind != token.RBRACE && !p.dictFollowsAt(i) {
 		return nil, false
 	}
 	lb := p.advance().Pos
 	saved := p.push()
 	defer p.pop(saved)
-	p.skipNewlines()
 	if p.kind() == token.RBRACE {
 		rb := p.advance()
 		return &ast.DictLit{Lbrack: lb, Rbrack: rb.End}, true

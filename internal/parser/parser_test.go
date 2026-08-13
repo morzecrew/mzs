@@ -937,6 +937,12 @@ func TestAmbiguityDiagnostics(t *testing.T) {
 			msg: "a dict after a call is written (a: 1) or ({a: 1})", line: 1, col: 3},
 		{name: "brace dict in a body", src: "if c {a: 1}",
 			msg: "this '{' opens the if body; write { {a: 1} } for a dict", line: 1, col: 6},
+		// §3.10 suppresses the newline after `{`, so the lookahead of §3.12 reads the
+		// key from the next line unaided and these reach the same two fix-its.
+		{name: "multi-line brace dict after a call", src: "f {\n  a: 1\n}",
+			msg: "a dict after a call is written (a: 1) or ({a: 1})", line: 1, col: 3},
+		{name: "multi-line brace dict in a body", src: "if c {\n  a: 1\n}",
+			msg: "this '{' opens the if body; write { {a: 1} } for a dict", line: 1, col: 6},
 		{name: "hash rocket", src: "k => v",
 			msg: "'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure", line: 1, col: 3},
 		{name: "pipe closure parameters", src: "{ |x| x }",
@@ -1038,8 +1044,8 @@ func TestBraceIsAClosureOrADict(t *testing.T) {
 	if _, err := Parse("t", `if {a: 1}.has("a") { 1 } else { 2 }`); err != nil {
 		t.Errorf("a dict literal in a header needs no parentheses: %v", err)
 	}
-	if _, err := Parse("t", `if {a: 1}.has("a") { 1 } else { 2 }`); err != nil {
-		t.Errorf("a brace dict in a header needs no parentheses: %v", err)
+	if got, want := parse(t, "{ nil }"), "Closure"; !strings.Contains(got, want) {
+		t.Errorf("{ nil } is the empty closure value, got\n%s", got)
 	}
 	if _, err := Parse("t", "if x == {a: 1} { 1 }"); err != nil {
 		t.Errorf("a brace dict as a header operand must parse: %v", err)
