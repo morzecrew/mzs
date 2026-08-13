@@ -1,9 +1,6 @@
 # mzs
 
-**A small scripting language in pure Go — so that one-liners are quick to write and
-`ruby -e` stops forking.**
-
-[Русская версия](README.ru.md)
+**A small scripting language for Morze Assistant**
 
 ```sh
 mzs -e '"  ОПЕРАТОР ".lower.trim == "оператор"'          # true
