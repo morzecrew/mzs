@@ -11,23 +11,6 @@ mzs -e '(1..10).filter { it.even }.sum'         # 30
 mzs -e '"a,b,a".split(",").tally' --json        # {"a":2,"b":1}
 ```
 
-Four rules carry the whole syntax:
-
-* **Everything is an expression.** `if`, `while`, `for` and `match` all have a value, and the last
-  expression is the result.
-* **`{ … }` is a closure, unless it is a dict.** Position decides and nothing else — `if`, `while`,
-  `for`, `fn` and `match` arms simply call it for you; in operand position `{name: "Ivan"}` is a dict.
-  So `{}` is the empty dict there, while `xs.each { }` after a call is still the empty closure —
-  an empty closure *value* is `{ nil }`.
-* **`[ … ]` is always an array, `{ key: … }` always a dict.** `[1, 2]`, `[]`, `{name: "Ivan"}`,
-  `{}` — one spelling each, which is JSON's, so a JSON document pastes in as source unedited.
-* **`x.f(y)` is exactly `f(x, y)`.** One flat namespace, so every function is also a method — your
-  own included — and chains read left to right.
-
-Sixteen keywords, exactly one name per operation, no implicit conversions, and an ambiguity is a
-diagnostic with a fix-it rather than a silent reading. The implementation is one Go module with
-**no dependencies** — no cgo, no subprocesses, no code generation.
-
 📚 [Documentation](docs/README.md) · 📐 [Specification](SPEC.md) · 🧪 [Examples](examples/README.md)
 
 ---
