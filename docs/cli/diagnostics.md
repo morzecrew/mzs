@@ -94,7 +94,7 @@ from it. Only the first diagnostic on a line is shown, and at most 10 per compil
 | `"#{x}"` | `string interpolation is "${x}"` |
 | `1...5` | `'...' is not an mzs operator; use '..<'` |
 | `a::B` | `'::' is not an mzs operator; use '.'` |
-| `@ivar` | `'@' is reserved; instance variables do not exist in v2.0` |
+| `@ivar` | `'@' is reserved; instance variables do not exist in v0.1` |
 | `x.to_s`, `.to_i`, `.to_f`, `.to_a`, `.to_h`, `.to_json` | `undefined method; use 'str' / 'int' / 'float' / 'array' / 'dict' / 'json'` |
 
 `import lib` and `use lib` produce the same message with their own name in it.

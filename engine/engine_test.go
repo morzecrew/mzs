@@ -134,7 +134,7 @@ func TestString(t *testing.T) {
 }
 
 // TestStringFallsBackToSourceText pins §13.6 rule 5, which is where the bareword
-// shim of the 1.0 draft went (§9.3): a plain-text answer is not a program, so a
+// shim of the earlier draft went (§9.3): a plain-text answer is not a program, so a
 // need_eval accidentally enabled on one sends the text instead of failing. A
 // *runtime* error is a different thing and still an error.
 func TestStringFallsBackToSourceText(t *testing.T) {

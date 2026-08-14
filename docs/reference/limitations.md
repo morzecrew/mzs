@@ -29,7 +29,7 @@ Each of these is a diagnostic today so that the lexeme is free later.
 
 | Written | Diagnostic |
 |---|---|
-| `@ivar = 1` | `syntax: '@' is reserved; instance variables do not exist in v2.0` |
+| `@ivar = 1` | `syntax: '@' is reserved; instance variables do not exist in v0.1` |
 | `class Foo { }` | `syntax: unexpected 'Foo' after statement` |
 | `yield 1` | `syntax: unexpected 1 after statement` |
 | `1 << 3` | `syntax: unexpected '<'` — the shifts are `shl` / `shr` |

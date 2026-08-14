@@ -303,7 +303,7 @@ func TestLexErrors(t *testing.T) {
 		line  int
 		col   int
 	}{
-		{"instance variable is reserved", "@x", 1, "'@' is reserved; instance variables do not exist in v2.0", 1, 1},
+		{"instance variable is reserved", "@x", 1, "'@' is reserved; instance variables do not exist in v0.1", 1, 1},
 		{"bare dollar", "$ = 1", 1, "'$' must be followed by a variable name", 1, 1},
 		{"unterminated double quote", `"abc`, 1, "unterminated string literal", 1, 1},
 		{"unterminated single quote", `'abc`, 1, "unterminated string literal", 1, 1},

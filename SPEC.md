@@ -1,6 +1,6 @@
 # mzs — Morze Script Language Specification
 
-**Version:** 2.0 (normative)
+**Version:** 0.1 (normative)
 **Module:** `mzs` (Go 1.26, stdlib only, no cgo, no subprocess)
 **Status:** This document is the single source of truth. Where an implementation and this
 document disagree, this document wins. Everything marked **MUST** is required for the
@@ -9,7 +9,7 @@ morzebot-backend-v2 migration to be accepted.
 mzs is its own language. It takes the *approach* of expression-oriented scripting with method
 chains — every construct is an expression, the last value is the result, one-liners are first
 class — and nothing else. It is not Ruby-shaped, there is no compatibility dialect, and there
-is no mode switch. Code written for the 1.0 draft of this document does not run; §19 is the
+is no mode switch. Code written for the earlier draft of this document does not run; §19 is the
 migration.
 
 ---
@@ -67,7 +67,7 @@ migration.
 
 * Not Ruby, not Kotlin, not Go. mzs borrows the *approach* of expression-oriented scripting
   with method chains, and nothing else. No metaclasses, no `method_missing`, no modules/mixins,
-  no user-defined types in v2.0, no `require`. No threads either, in the sense that matters:
+  no user-defined types in v0.1, no `require`. No threads either, in the sense that matters:
   `async fn` (§8.14) runs tasks on goroutines but never two at a time, so a script has
   concurrency and no shared-memory parallelism — no locks, no atomics, no memory model.
 * No mutation of strings (strings are immutable values).
@@ -224,7 +224,7 @@ ident       ::= ident_start ident_part*
   (`{ (_, v) -> v }`), but the language attaches no special meaning to it.
 * `$` + `ident_part+` lexes as `GVAR`. The name **includes** the `$` (`Token.Value ==
   "$__sent"`). A `$` alone, outside a string literal, is a lex error.
-* `@name` is reserved and is a lex error in v2.0 (§20).
+* `@name` is reserved and is a lex error in v0.1 (§20).
 
 ### 3.5 Keywords
 
@@ -495,7 +495,7 @@ A bare-identifier key becomes a string literal, so dicts are JSON-serialisable w
 symbol type in the language — and a JSON document is already an mzs dict literal, which
 is why the brace is the dict's only spelling.
 
-**Brackets never carry keys.** `[a: 1]` and `[:]` were the v2.0 dict literals; both are
+**Brackets never carry keys.** `[a: 1]` and `[:]` were the earlier draft's dict literals; both are
 now diagnostics that name the replacement, so no such source is read as something else:
 
 | You wrote | Message |
@@ -1226,7 +1226,7 @@ argument (§4.2), so it is evaluated — that is, constructed as a `KFunc` — i
 Keyword arguments (`f(a: 1)`) are collected into one trailing Dict argument; a function that
 declares fewer positional parameters than were given receives them as its last parameter only
 if that parameter is `*rest`, otherwise the dict is passed positionally. There is no
-keyword-parameter binding in v2.0.
+keyword-parameter binding in v0.1.
 
 Dispatch for `recv.name(args)` is UFCS (§4.3), resolved at compile time (§6.3):
 
@@ -2975,7 +2975,7 @@ arithmetic or ordering operator — and it covers corpus rows 14, 15 and 29.
    Then apply the codemod to the live storage.
 
 ---
-## 20. Reserved and out of scope for v2.0
+## 20. Reserved and out of scope for v0.1
 
 Reserved syntax — lexed or parsed as an error today so it can be added later without breaking
 anyone: `@ivar`, `@@cvar`, `class`, `module`, `yield`, `defer`,

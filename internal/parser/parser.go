@@ -1204,7 +1204,7 @@ func (p *parser) parseCollection() ast.Expr {
 	return p.parseArrayBody(lb) // rule 5
 }
 
-// bracketDict reports a dict written in brackets — the v2.0 spelling — and names the
+// bracketDict reports a dict written in brackets — the earlier draft's spelling — and names the
 // brace form that replaces it. The literal is skipped whole from its '[' at lbIdx, so
 // nothing inside it can cascade, and a DictLit stands in for the rest of the parse.
 func (p *parser) bracketDict(lbIdx int, lb token.Pos, msg string) ast.Expr {

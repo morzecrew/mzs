@@ -235,7 +235,7 @@ func (l *Lexer) scan() token.Token {
 		case r == '@':
 			// Reserved for a later version (§3.4, §20): report and skip the sigil only.
 			l.bump()
-			l.errorf(start, "'@' is reserved; instance variables do not exist in v2.0")
+			l.errorf(start, "'@' is reserved; instance variables do not exist in v0.1")
 			continue
 		case r >= '0' && r <= '9':
 			return l.scanNumber(start)
