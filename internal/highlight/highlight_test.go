@@ -49,6 +49,8 @@ func TestColors(t *testing.T) {
 		{"a bracket that closes nothing", `1 + 2)`, ")", Mismatch},
 		{"a bracket closing the wrong thing", `[1, 2}`, "}", Mismatch},
 		{"a matched bracket is left alone", `(1 + 2)`, ")", ""},
+		{"a matched square bracket too", `[1, 2][0]`, "]", ""},
+		{"a matched brace too", `xs.map { it }`, "}", ""},
 		{"an unclosed bracket is not an error here", `[1, 2,`, "[", ""},
 		{"the '}' of an interpolation is not a block brace", `"${x}"`, "}", Global},
 	}

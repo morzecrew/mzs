@@ -173,6 +173,11 @@ func TestKeyDecoding(t *testing.T) {
 		{"right at the end does nothing", "a" + right + "b\r", "ab"},
 		{"left at the start does nothing", "a" + left + left + "b\r", "ba"},
 		{"a nul byte is not text", "a\x00b\r", "ab"},
+		{"ctrl-b and ctrl-f are the arrows", "ac\x02b\x06d\r", "abcd"},
+		{"an extra CSI parameter is still a modifier", "one two\x1b[1;5;9DX\r", "one Xtwo"},
+		{"transpose at the start of the line", "ab" + homeKey + "\x14\r", "ba"},
+		{"down at the newest line stays there", "b" + down + "c\r", "bc"},
+		{"word motion crosses the blanks", "one two" + homeKey + right + right + right + "\x1bfX\r", "one twoX"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -185,6 +190,68 @@ func TestKeyDecoding(t *testing.T) {
 				t.Errorf("line = %q, want %q", line, tc.want)
 			}
 		})
+	}
+}
+
+// TestTruncatedEscapeSequences: the input can end anywhere, including three bytes into an
+// arrow key. Each of those is the end of the input, not a hang and not a stray character.
+func TestTruncatedEscapeSequences(t *testing.T) {
+	t.Parallel()
+
+	for _, keys := range []string{"ab\x1b", "ab\x1b[", "ab\x1bO", "ab\x1b[1;"} {
+		line, err, _ := read(t, keys, nil)
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("keys %q = %q, %v; want io.EOF", keys, line, err)
+		}
+	}
+}
+
+// TestDownAtTheNewestLine: Down on the line being typed has nowhere to go and must leave
+// it alone rather than blanking it.
+func TestDownAtTheNewestLine(t *testing.T) {
+	t.Parallel()
+
+	term := newTerm("one\r"+"half"+down+"\r", 80)
+	ed := New(term)
+	for i, want := range []string{"one", "half"} {
+		line, err := ed.ReadLine("> ")
+		if err != nil {
+			t.Fatalf("line %d: %v", i, err)
+		}
+		if line != want {
+			t.Errorf("line %d = %q, want %q", i, line, want)
+		}
+	}
+}
+
+// TestNarrowTerminal: a prompt wider than the terminal leaves no room for the line, and
+// the editor still has to take one.
+func TestNarrowTerminal(t *testing.T) {
+	t.Parallel()
+
+	term := newTerm("1 + 2\r", 20)
+	line, err := New(term).ReadLine(strings.Repeat("prompt", 5) + "> ")
+	if err != nil || line != "1 + 2" {
+		t.Errorf("ReadLine = %q, %v; want %q, nil", line, err, "1 + 2")
+	}
+}
+
+// TestCompletionListWiderThanTheTerminal: a candidate that does not fit gets its own row
+// rather than a division by the zero columns it would otherwise fill.
+func TestCompletionListWiderThanTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	long := []string{strings.Repeat("a", 30), strings.Repeat("a", 29) + "b"}
+	term := newTerm("a\t\r", 20)
+	ed := New(term)
+	ed.Complete = func([]rune, int) (int, []string) { return 0, long }
+	if _, err := ed.ReadLine("> "); err != nil {
+		t.Fatalf("ReadLine: %v", err)
+	}
+	for _, want := range long {
+		if !strings.Contains(term.out.String(), want) {
+			t.Errorf("drew %q, want it to list %q", term.out.String(), want)
+		}
 	}
 }
 
@@ -420,6 +487,26 @@ func TestScrollsSideways(t *testing.T) {
 	}
 }
 
+// TestScrollsBackToTheHead is the other end of the same window: Home on a line longer
+// than the terminal shows its beginning, and no more of it than fits.
+func TestScrollsBackToTheHead(t *testing.T) {
+	t.Parallel()
+
+	// The keys end at Home rather than at Enter: accepting the line parks the cursor back
+	// at its end, which would redraw the tail this test is here to look away from.
+	term := newTerm("y"+strings.Repeat("x", 60)+homeKey, 30)
+	if _, err := New(term).ReadLine("mzs> "); !errors.Is(err, io.EOF) {
+		t.Fatalf("ReadLine = %v, want io.EOF at the end of the keys", err)
+	}
+	screen := term.screen()
+	if !strings.HasPrefix(screen, "mzs> y") {
+		t.Errorf("screen = %q, want it to start at the head of the line", screen)
+	}
+	if w := displayWidth([]rune(screen)); w > 30 {
+		t.Errorf("screen is %d columns wide, want no more than 30: %q", w, screen)
+	}
+}
+
 // TestCursorColumnIgnoresPromptColour: the prompt may carry SGR escapes, and they take no
 // columns — a cursor placed as if they did would sit inside the prompt.
 func TestCursorColumnIgnoresPromptColour(t *testing.T) {
@@ -446,11 +533,13 @@ func TestDisplayWidth(t *testing.T) {
 		{"abc", 3},
 		{"привет", 6},
 		{"日本語", 6},
-		{"é", 1},         // e + combining acute
-		{"\U0001f600", 2}, // emoji
-		{"a‍b", 2},        // zero-width joiner
-		{"❤️", 1},         // a heart and its variation selector
-		{"\x01", 0},       // a control byte is never drawn
+		{"é", 1},          // e + combining acute
+		{"\U0001f600", 2},  // emoji
+		{"a‍b", 2},         // zero-width joiner
+		{"❤️", 1},          // a heart and its variation selector
+		{"\x01", 0},        // a control byte is never drawn
+		{"a\U000E0101", 1}, // a variation selector from the supplement
+		{"\U000F0000", 1},  // a private-use rune the table does not know
 	}
 	for _, tc := range tests {
 		if got := displayWidth([]rune(tc.s)); got != tc.want {

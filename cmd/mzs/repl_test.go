@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -48,6 +49,191 @@ func replRun(t *testing.T, argv []string, steps ...scriptedLine) (out, errOut st
 		t.Fatalf("exit = %d, stderr: %s", code, stderr.String())
 	}
 	return stdout.String(), stderr.String(), lines.prompts
+}
+
+// TestREPLCommands drives the dot-commands, which are the session's whole control panel.
+func TestREPLCommands(t *testing.T) {
+	t.Parallel()
+
+	t.Run("help prints the help", func(t *testing.T) {
+		t.Parallel()
+		out, _, _ := replRun(t, []string{"--repl"},
+			scriptedLine{line: ".help"},
+			scriptedLine{line: ":q"},
+		)
+		if !strings.Contains(out, ".clear   forget every line of this session") {
+			t.Errorf("stdout = %q, want the help text", out)
+		}
+	})
+
+	t.Run("clear forgets the bindings", func(t *testing.T) {
+		t.Parallel()
+		out, errOut, _ := replRun(t, []string{"--repl"},
+			scriptedLine{line: "a = 1"},
+			scriptedLine{line: ".clear"},
+			scriptedLine{line: "a"},
+			scriptedLine{line: ".exit"},
+		)
+		if !strings.Contains(out, "session cleared") {
+			t.Errorf("stdout = %q, want the confirmation", out)
+		}
+		if !strings.Contains(errOut, "undefined variable 'a'") {
+			t.Errorf("stderr = %q, want the binding to be gone", errOut)
+		}
+	})
+
+	t.Run("vars prints the bound $variables", func(t *testing.T) {
+		t.Parallel()
+		out, _, _ := replRun(t, []string{"--repl", "-v", "name=Ivan", "-v", "n=3"},
+			scriptedLine{line: ".vars"},
+			scriptedLine{line: ".quit"},
+		)
+		for _, want := range []string{`$n = "3"`, `$name = "Ivan"`} {
+			if !strings.Contains(out, want) {
+				t.Errorf("stdout = %q, want it to list %s", out, want)
+			}
+		}
+		if strings.Index(out, "$n =") > strings.Index(out, "$name =") {
+			t.Errorf("stdout = %q, want the names sorted", out)
+		}
+	})
+
+	t.Run("a blank line is not a line", func(t *testing.T) {
+		t.Parallel()
+		out, errOut, prompts := replRun(t, []string{"--repl"},
+			scriptedLine{line: "   "},
+			scriptedLine{line: ":q"},
+		)
+		if errOut != "" {
+			t.Errorf("stderr = %q, want nothing", errOut)
+		}
+		if _, body, _ := strings.Cut(out, "\n"); body != "" {
+			t.Errorf("stdout after the banner = %q, want nothing", body)
+		}
+		if len(prompts) != 2 || prompts[1] != "mzs> " {
+			t.Errorf("prompts = %q, want the main prompt again", prompts)
+		}
+	})
+}
+
+// TestREPLEndOfInput: the session ends on the reader's EOF — Ctrl-D on a terminal, the
+// end of the file on a pipe — with a newline so the shell prompt starts on its own row.
+func TestREPLEndOfInput(t *testing.T) {
+	t.Parallel()
+
+	out, errOut, _ := replRun(t, []string{"--repl"},
+		scriptedLine{line: "1 + 1"},
+		scriptedLine{err: io.EOF},
+	)
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing", errOut)
+	}
+	if !strings.HasSuffix(out, "2\n\n") {
+		t.Errorf("stdout = %q, want the value and then a bare newline", out)
+	}
+}
+
+// TestREPLPrintsOnlyTheNewOutput guards the replay trick from the other side: the session
+// re-runs every line that worked, and the output of those lines must not be printed
+// again. A `say` from line one stays a single "hi" however many lines follow it.
+func TestREPLPrintsOnlyTheNewOutput(t *testing.T) {
+	t.Parallel()
+
+	out, _, _ := replRun(t, []string{"--repl"},
+		scriptedLine{line: `say("hi")`},
+		scriptedLine{line: `say("there")`},
+		scriptedLine{line: "1"},
+		scriptedLine{line: ":q"},
+	)
+	if n := strings.Count(out, "hi"); n != 1 {
+		t.Errorf("stdout = %q, want \"hi\" once, got %d", out, n)
+	}
+	if n := strings.Count(out, "there"); n != 1 {
+		t.Errorf("stdout = %q, want \"there\" once, got %d", out, n)
+	}
+}
+
+// TestREPLRuntimeErrorKeepsTheSession: a line that compiles and then fails reports and is
+// dropped — the next line must not inherit it through the replay.
+func TestREPLRuntimeErrorKeepsTheSession(t *testing.T) {
+	t.Parallel()
+
+	out, errOut, _ := replRun(t, []string{"--repl"},
+		scriptedLine{line: "a = 2"},
+		scriptedLine{line: "1 / 0"},
+		scriptedLine{line: "a * 21"},
+		scriptedLine{line: ":q"},
+	)
+	if !strings.Contains(errOut, "zero-division") {
+		t.Errorf("stderr = %q, want the runtime error", errOut)
+	}
+	if !strings.Contains(out, "42") {
+		t.Errorf("stdout = %q, want the session to carry on", out)
+	}
+	if strings.Count(errOut, "zero-division") != 1 {
+		t.Errorf("stderr = %q, want the failed line dropped from the replay", errOut)
+	}
+}
+
+// TestScannerSourceEndsAndFails: the plain reader's two exits. EOF is the end of a
+// session; a line it cannot hold is an error, and either way the loop stops asking.
+func TestScannerSourceEndsAndFails(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	src := &scannerSource{sc: bufio.NewScanner(strings.NewReader("")), out: &out}
+	if _, err := src.read("mzs> "); !errors.Is(err, io.EOF) {
+		t.Errorf("read at the end = %v, want io.EOF", err)
+	}
+	if out.String() != "mzs> " {
+		t.Errorf("the scanner drew %q, want it to print the prompt", out.String())
+	}
+
+	sc := bufio.NewScanner(strings.NewReader(strings.Repeat("x", 100) + "\n"))
+	sc.Buffer(make([]byte, 0, 8), 8)
+	if _, err := (&scannerSource{sc: sc, out: &out}).read("mzs> "); err == nil || errors.Is(err, io.EOF) {
+		t.Errorf("read of an over-long line = %v, want the scanner's error", err)
+	}
+}
+
+func TestColorOK(t *testing.T) {
+	tests := []struct {
+		name     string
+		noColor  string
+		term     string
+		setColor bool
+		want     bool
+	}{
+		{name: "a normal terminal", term: "xterm-256color", want: true},
+		{name: "NO_COLOR at any value", noColor: "", setColor: true, term: "xterm", want: false},
+		{name: "NO_COLOR set to something", noColor: "1", setColor: true, term: "xterm", want: false},
+		{name: "a dumb terminal", term: "dumb", want: false},
+		{name: "no TERM at all", term: "", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			unsetEnv(t, "NO_COLOR")
+			if tc.setColor {
+				t.Setenv("NO_COLOR", tc.noColor)
+			}
+			t.Setenv("TERM", tc.term)
+			if got := colorOK(); got != tc.want {
+				t.Errorf("colorOK() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// unsetEnv is t.Setenv's missing other half: it removes a variable for the duration of
+// the test and puts back whatever the environment had.
+func unsetEnv(t *testing.T, name string) {
+	t.Helper()
+	old, had := os.LookupEnv(name)
+	if !had {
+		return
+	}
+	os.Unsetenv(name)
+	t.Cleanup(func() { os.Setenv(name, old) })
 }
 
 // TestREPLInterruptKeepsTheSession: Ctrl-C throws away the line and nothing else. The
@@ -205,7 +391,7 @@ func TestREPLCompleter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseArgs: %v", err)
 	}
-	session := &replSession{history: []string{`greeting = "hi"`, "fn double(n) { n * 2 }"}}
+	session := &replSession{history: []string{`greeting = "hi"`, "fn double(n) { n * 2 }", "$total = 5"}}
 	complete := replCompleter(cfg, session)
 
 	tests := []struct {
@@ -223,6 +409,7 @@ func TestREPLCompleter(t *testing.T) {
 		{"a name the session bound", "greet", "greeting", 0},
 		{"a function the session defined", "doub", "double", 0},
 		{"a $var from the command line", "$na", "$name", 0},
+		{"a $var the session assigned", "$to", "$total", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

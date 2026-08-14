@@ -383,9 +383,10 @@ func (s *session) refresh() {
 }
 
 // window is the slice of the buffer that fits in avail columns with the cursor inside
-// it. It walks back from the cursor first — the cursor must be visible, whatever else
-// is — and then forward, and then back again to spend any slack left at the end of a
-// short line, so that a line which fits is never drawn scrolled.
+// it. It walks back from the cursor first — the cursor must be visible, whatever else is
+// — and then forward with whatever room is left. Walking back first is also what keeps a
+// line that fits from ever being drawn scrolled: there the walk reaches the start of the
+// buffer before it runs out of columns.
 func (s *session) window(avail int) (start, end int) {
 	used := 0
 	start = s.pos
@@ -405,14 +406,6 @@ func (s *session) window(avail int) (start, end int) {
 		}
 		used += w
 		end++
-	}
-	for start > 0 {
-		w := runeWidth(s.buf[start-1])
-		if used+w > avail {
-			break
-		}
-		used += w
-		start--
 	}
 	return start, end
 }

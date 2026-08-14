@@ -4,11 +4,11 @@ package lineedit
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -24,6 +24,26 @@ const (
 	tiocsptlck = 0x40045431 // ioctl(ptmx, …, 0) → unlock the slave
 )
 
+// ioctlOn is the test's own ioctl, and it goes through SyscallConn rather than Fd()
+// because Fd() takes the file out of the runtime's poller: after one call to it a read
+// deadline is silently ignored, which is a very quiet way to hang a test.
+func ioctlOn(f *os.File, req uintptr, arg unsafe.Pointer) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var errno syscall.Errno
+	if cerr := rc.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
+	}); cerr != nil {
+		return cerr
+	}
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
 // openPTY returns the two ends of a fresh pseudo-terminal.
 func openPTY(t *testing.T) (master, slave *os.File) {
 	t.Helper()
@@ -32,12 +52,12 @@ func openPTY(t *testing.T) (master, slave *os.File) {
 		t.Skipf("no pseudo-terminals here: %v", err)
 	}
 	var unlock int32
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, m.Fd(), tiocsptlck, uintptr(unsafe.Pointer(&unlock))); e != 0 {
+	if e := ioctlOn(m, tiocsptlck, unsafe.Pointer(&unlock)); e != nil {
 		m.Close()
 		t.Skipf("cannot unlock a pseudo-terminal: %v", e)
 	}
 	var n uint32
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, m.Fd(), tiocgptn, uintptr(unsafe.Pointer(&n))); e != 0 {
+	if e := ioctlOn(m, tiocgptn, unsafe.Pointer(&n)); e != nil {
 		m.Close()
 		t.Skipf("cannot name a pseudo-terminal: %v", e)
 	}
@@ -62,7 +82,7 @@ func termiosOf(t *testing.T, f *os.File) syscall.Termios {
 func setWinsize(t *testing.T, f *os.File, cols uint16) {
 	t.Helper()
 	ws := struct{ rows, cols, xpixel, ypixel uint16 }{24, cols, 0, 0}
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), syscall.TIOCSWINSZ, uintptr(unsafe.Pointer(&ws))); e != 0 {
+	if e := ioctlOn(f, syscall.TIOCSWINSZ, unsafe.Pointer(&ws)); e != nil {
 		t.Fatalf("setting the window size: %v", e)
 	}
 }
@@ -138,6 +158,21 @@ func TestMakeRawSwitchesTheLineDiscipline(t *testing.T) {
 	}
 }
 
+// TestMakeRawNeedsATerminal: the ioctl is the check. A file descriptor that is not a
+// console fails it, and the caller gets an error it can fall back from.
+func TestMakeRawNeedsATerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if restore, err := (&fileTerm{in: r, out: w}).MakeRaw(); err == nil {
+		restore()
+		t.Error("MakeRaw succeeded on a pipe")
+	}
+}
+
 func TestWidth(t *testing.T) {
 	master, slave := openPTY(t)
 	term, ok := FileTerminal(slave, slave)
@@ -183,14 +218,6 @@ func TestReadLineOverAPTY(t *testing.T) {
 	}
 	defer restore()
 
-	// Drain whatever the editor draws: a console nobody reads fills up and blocks.
-	drawn := make(chan string, 1)
-	go func() {
-		var b strings.Builder
-		io.Copy(&b, master)
-		drawn <- b.String()
-	}()
-
 	keys := "1 + 2\r" + // a plain line
 		"12" + left + "0\r" + // an arrow into the middle of it
 		up + up + "\r" // and back through the history
@@ -221,8 +248,27 @@ func TestReadLineOverAPTY(t *testing.T) {
 		}
 	}
 
-	master.Close()
-	if out := <-drawn; !strings.Contains(out, "\x1b[33m") || !strings.Contains(out, "mzs> ") {
-		t.Errorf("the terminal was sent %q, want the prompt and the colours", out)
+	// What the editor drew is waiting in the terminal's own buffer — three short lines,
+	// far less than a pty holds, so it is read here rather than drained in parallel. The
+	// deadline is what ends the read: the console stays open, so there is no EOF to wait
+	// for.
+	if err := master.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Skipf("this terminal takes no read deadline: %v", err)
 	}
+	var out strings.Builder
+	buf := make([]byte, 4096)
+	for !drawnEverything(out.String()) {
+		n, err := master.Read(buf)
+		out.Write(buf[:n])
+		if err != nil {
+			break // the deadline: whatever is here is what was drawn
+		}
+	}
+	if drawn := out.String(); !drawnEverything(drawn) {
+		t.Errorf("the terminal was sent %q, want the prompt and the colours", drawn)
+	}
+}
+
+func drawnEverything(s string) bool {
+	return strings.Contains(s, "\x1b[33m") && strings.Contains(s, "mzs> ")
 }

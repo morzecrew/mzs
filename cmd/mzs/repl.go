@@ -305,22 +305,25 @@ func replCommands() []string {
 	return []string{".clear", ".exit", ".help", ".quit", ".src", ".vars"}
 }
 
+// completionKinds is every receiver a method can be registered for, KAny — the universal
+// table of §12.1 — included. It mirrors the evaluator's own dispatch list rather than
+// counting up to the last Kind, so a table that is empty today still gets asked.
+var completionKinds = []mzs.Kind{
+	mzs.KNil, mzs.KBool, mzs.KInt, mzs.KFloat, mzs.KString, mzs.KRegex,
+	mzs.KArray, mzs.KDict, mzs.KFunc, mzs.KTime, mzs.KRange, mzs.KTask, mzs.KAny,
+}
+
 // methodNames is every method of every kind, which is the best a completer can do: a
 // receiver's kind is not known until the line runs (§6.3), so `"a".` and `[1].` are the
 // same question here and the answer is the union.
 func methodNames() []string {
 	seen := map[string]bool{}
 	var out []string
-	for k := mzs.KNil; k <= mzs.KTask; k++ {
+	for _, k := range completionKinds {
 		for _, n := range mzs.MethodNames(k) {
 			if !seen[n] {
 				seen[n], out = true, append(out, n)
 			}
-		}
-	}
-	for _, n := range mzs.MethodNames(mzs.KAny) {
-		if !seen[n] {
-			seen[n], out = true, append(out, n)
 		}
 	}
 	sortStrings(out)
@@ -361,10 +364,10 @@ func sessionNames(session *replSession) []string {
 	var out []string
 	for _, t := range toks {
 		switch t.Kind {
-		case token.IDENT:
+		case token.IDENT, token.GVAR:
+			// A GVAR's Value keeps its '$' (§3.4), so both kinds are already spelled the
+			// way the line will be typed again.
 			out = append(out, t.Value)
-		case token.GVAR:
-			out = append(out, "$"+t.Value)
 		}
 	}
 	return out

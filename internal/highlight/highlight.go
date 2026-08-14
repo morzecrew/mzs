@@ -47,14 +47,11 @@ func Colors(src []rune) []string {
 	if src[0] == '\ufeff' {
 		shift = 1
 	}
+	// The bounds are clamped rather than trusted. Nothing the lexer reports today falls
+	// outside the source it was handed, and a REPL that panicked on a keystroke because
+	// one day something did would be a poor trade for two saved comparisons.
 	paint := func(from, to int, c string) {
-		if from < 0 {
-			from = 0
-		}
-		if to > len(src) {
-			to = len(src)
-		}
-		for i := from; i < to; i++ {
+		for i := max(from, 0); i < min(to, len(src)); i++ {
 			covered[i] = true
 			if c != "" {
 				out[i] = c
