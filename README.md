@@ -20,7 +20,7 @@ mzs -e '"a,b,a".split(",").tally' --json        # {"a":2,"b":1}
 ```sh
 git clone https://github.com/morzecrew/mzs.git && cd mzs
 go install ./cmd/mzs           # → $(go env GOPATH)/bin/mzs
-mzs --version                  # mzs 2.0.0
+mzs --version                  # mzs 0.1.0
 ```
 
 Go 1.26 or newer, and nothing else. `CGO_ENABLED=0 go build ./cmd/mzs` gives one fully static

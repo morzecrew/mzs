@@ -26,7 +26,7 @@ import (
 	"mzs/internal/token"
 )
 
-const version = "mzs 2.0.0"
+const version = "mzs 0.1.0"
 
 // Exit codes (§15). 3 is separate from 1 so a supervisor can tell "this condition
 // is wrong" from "this condition ran away".

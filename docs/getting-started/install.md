@@ -30,7 +30,7 @@ Copy that file anywhere — no interpreter, no shared library, no `GOPATH`.
 
 ```sh
 $ mzs --version
-mzs 2.0.0
+mzs 0.1.0
 ```
 
 ## Run a file
@@ -122,7 +122,7 @@ explicitly, which is how the program can come through the pipe at the same time.
 
 ```sh
 $ mzs
-mzs 2.0.0 — .help for help, .exit to quit
+mzs 0.1.0 — .help for help, .exit to quit
 mzs> 6 * 7
 42
 ```

@@ -133,9 +133,9 @@ func TestCLI(t *testing.T) {
 			errHas:   []string{"name=value"},
 		},
 		{
-			name:     "version is 2.0.0",
+			name:     "version is 0.1.0",
 			argv:     []string{"--version"},
-			contains: []string{"mzs 2.0.0"},
+			contains: []string{"mzs 0.1.0"},
 		},
 		{
 			name:     "help lists the flags and no compat mode",
@@ -934,7 +934,7 @@ func TestREPL(t *testing.T) {
 		t.Fatalf("exit = %d, stderr: %s", code, errOut)
 	}
 	for _, want := range []string{
-		"mzs 2.0.0 — .help for help, .exit to quit\n",
+		"mzs 0.1.0 — .help for help, .exit to quit\n",
 		`"привет"`,
 		"#<fn double>",
 		"42",

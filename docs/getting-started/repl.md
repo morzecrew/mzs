@@ -6,7 +6,7 @@ An interactive session: `mzs` with a terminal on stdin and no program, or `mzs -
 
 ```
 $ mzs
-mzs 2.0.0 — .help for help, .exit to quit
+mzs 0.1.0 — .help for help, .exit to quit
 mzs> s = "  HELLO "
 "  HELLO "
 mzs> s.lower.trim
@@ -88,7 +88,7 @@ b = 2
 
 ```
 $ mzs --repl -v name=Ivan -v n=3
-mzs 2.0.0 — .help for help, .exit to quit
+mzs 0.1.0 — .help for help, .exit to quit
 mzs> .vars
 $n = "3"
 $name = "Ivan"
