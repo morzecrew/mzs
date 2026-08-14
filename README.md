@@ -51,7 +51,7 @@ binary you can copy anywhere.
 | `mzs -e 'expr'` | a one-liner; its value is printed for you |
 | `cat data \| mzs -n -e '$_…'` | run the program once per input line, the line in `$_` |
 | `cat script.mzs \| mzs` | take the program from stdin |
-| `mzs` | the REPL |
+| `mzs` | the REPL — arrow keys, history, Tab completion, coloured as you type |
 
 → [every flag](docs/cli/README.md) · [pipes and line mode](docs/cli/input.md)
 

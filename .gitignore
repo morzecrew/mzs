@@ -1,0 +1,10 @@
+# Editor and IDE state. The project files GoLand writes are one developer's setup —
+# window layout, run configurations, the caret's last position — and none of it is part
+# of the build: `go build ./cmd/mzs` needs nothing but the module.
+.idea/
+.vscode/
+*.swp
+
+# Build and coverage output, all reproducible from the source.
+/mzs
+coverage.out

@@ -49,10 +49,12 @@ jobs:
         run: go test -race ./...
 
       # Coverage runs separately and without -race: the acceptance corpus gives each
-      # example a 2 s Run deadline (corpus_test.go), and race detection on top of
-      # coverage instrumentation is slow enough to trip it on a shared runner.
-      # -coverpkg=./... credits the library for what the cmd/mzs and engine tests
-      # exercise in it; drop it if the examples ever start timing out here too.
+      # example a Run deadline (corpus_test.go), and race detection on top of coverage
+      # instrumentation is slow enough to trip it on a shared runner. That deadline used
+      # to be 2 s and did trip here on its own; it is ten now, which is why this step
+      # keeps -coverpkg=./... — the flag credits the library for what the cmd/mzs and
+      # engine tests exercise in it, and dropping it would cost real coverage to fix a
+      # clock.
       - name: coverage profile
         run: go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
 
