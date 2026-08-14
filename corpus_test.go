@@ -37,11 +37,18 @@ const (
 	modeNil  = "nil"  // an unbound global (§9.2)
 )
 
-// corpusInterp is the interpreter every row runs on. Two seconds instead of the default
-// one so a loaded CI box cannot turn an acceptance failure into a flake, and stdout wired
-// to out so row 56 can see what say wrote.
+// corpusInterp is the interpreter every row runs on, with stdout wired to out so row 56
+// can see what say wrote.
+//
+// The deadline is a runaway guard and not a performance budget, which is why it is ten
+// seconds and not the default one. Two was not enough: the coverage job instruments every
+// package and runs each package's binary alongside the others, and the heaviest example
+// — 26_memoization, which calls fib naively up to n=22 — has already crossed two seconds
+// of wall clock on a shared runner while computing exactly what it should. A deadline
+// that close to the real time is a coin toss, and one that fires only on a genuine loop
+// is the one worth keeping: an example stuck forever still fails here in ten seconds.
 func corpusInterp(out io.Writer) *mzs.Interp {
-	return mzs.New(mzs.Options{Timeout: 2 * time.Second, Stdout: out})
+	return mzs.New(mzs.Options{Timeout: 10 * time.Second, Stdout: out})
 }
 
 // bind lifts the host's string table into $vars. Keys are written without the `$` in the
