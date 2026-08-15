@@ -5,7 +5,7 @@ the sign of `%`, no implicit conversion, and the three runes that are not operat
 
 ## Precedence
 
-Tightest (1) to loosest (14); left-associative unless the table says otherwise.
+Tightest (1) to loosest (15); left-associative unless the table says otherwise.
 
 | # | Operators | Assoc |
 |---|---|---|
@@ -15,14 +15,15 @@ Tightest (1) to loosest (14); left-associative unless the table says otherwise.
 | 4 | `*` `/` `%` | left |
 | 5 | `+` `-` | left |
 | 6 | `..` `..<` | non-assoc |
-| 7 | `<` `<=` `>` `>=` `<=>` | left |
-| 8 | `==` `!=` `~` `!~` | left |
-| 9 | `&&` | left |
-| 10 | `\|\|` | left |
-| 11 | `??` | left |
-| 12 | `? :` and `try … else …` | right |
-| 13 | `=` `:=` `+=` `-=` `*=` `/=` `%=` `**=` `\|\|=` `&&=` `??=` | right |
-| 14 | modifiers `if` `while` | statement level |
+| 7 | `in` | non-assoc |
+| 8 | `<` `<=` `>` `>=` `<=>` | left |
+| 9 | `==` `!=` `~` `!~` | left |
+| 10 | `&&` | left |
+| 11 | `\|\|` | left |
+| 12 | `??` | left |
+| 13 | `? :` and `try … else …` | right |
+| 14 | `=` `:=` `+=` `-=` `*=` `/=` `%=` `**=` `\|\|=` `&&=` `??=` | right |
+| 15 | modifiers `if` `while` | statement level |
 
 ```
 2 + 3 * 4              # 14
@@ -139,6 +140,35 @@ evaluated: `inspect(nil?.upper.len)` is `nil`, `{a: 1}?.get("a")` is `1`.
 1..2..3            # syntax: range operator is non-associative
 0..5.map { it }    # syntax: ambiguous range: write (0..5).map
 ```
+
+## Membership: `in`
+
+`x in xs` asks `xs` whether it holds `x`, and always returns a Bool. It is `xs.has(x)`
+under a second spelling, so every kind that answers `has` answers `in`, and a kind that
+grows a `has` grows `in` with it.
+
+```
+5 in 1..20            # true
+20 in 1..<20          # false
+2 in [1, 2, 3]        # true
+"k" in {k: 1}         # true    a dict answers about its keys
+"вет" in "привет"     # true    a string about its substrings
+1 in 5                # type: the right side of 'in' must have members … got int
+```
+
+It binds looser than a range and tighter than a comparison, which is what makes both of
+these read the way they are written:
+
+```
+if code in 200..<300 { … }        # in (200..<300)
+if a in xs && b in ys { … }       # (a in xs) && (b in ys)
+```
+
+There is no `not in`; the negation is `!(x in xs)`. Chaining is refused —
+`a in b in c` is `syntax: 'in' is non-associative`.
+
+`in` is also the arm form of a `match` (`in 1..5 -> "low"`) and the loop word of
+`for x in xs`; all three ask the same question of the same operand.
 
 ## Assignment
 

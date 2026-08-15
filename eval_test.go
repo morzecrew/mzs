@@ -271,6 +271,153 @@ func TestMatchOperators(t *testing.T) {
 	}
 }
 
+// TestInOperator is §8.5's membership operator. It is the `in` of a `match` arm written
+// infix, so it asks the same question the same way — by dispatching `has` — and every
+// kind that answers one answers the other (I6).
+func TestInOperator(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"an int inside a range", `5 in 1..20`, "true"},
+		{"an int outside a range", `99 in 1..20`, "false"},
+		{"an exclusive range excludes its end", `20 in 1..<20`, "false"},
+		{"an element of an array", `2 in [1, 2, 3]`, "true"},
+		{"a missing element of an array", `9 in [1, 2, 3]`, "false"},
+		{"a key of a dict", `"k" in {k: 1}`, "true"},
+		{"a value is not a key", `1 in {k: 1}`, "false"},
+		{"a substring of a string", `"вет" in "привет"`, "true"},
+		{"in is a condition", `a = 5; if a in 1..20 { "yes" } else { "no" }`, "yes"},
+		{"in is an ordinary value", `ok = 5 in 1..20; ok`, "true"},
+		{"in inside a closure", `[1, 5, 9].filter { it in 2..8 }.json`, "[5]"},
+		{"the result is a Bool, not the receiver", `("вет" in "привет") == true`, "true"},
+		// §5.1: the range is the operand of `in`, and `&&` is looser than both.
+		{"the range binds tighter than in", `5 in 1..20 && 5 > 3`, "true"},
+		{"a user function may answer in", `fn has(box, x) { box == x }; 5 in 5`, "true"},
+	}
+
+	in := evInterp()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, in, tt.src); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestInOperatorErrors: a right operand with no members gets the operator's own message
+// rather than the `undefined method 'has'` the dispatch underneath it would produce
+// (§5.6) — the source never wrote `has`.
+func TestInOperatorErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		msg  string
+	}{
+		{"an int has no members", `1 in 5`, "the right side of 'in' must have members"},
+		{"nil has no members", `1 in nil`, "the right side of 'in' must have members"},
+		{"the kind is named", `1 in 5`, "got int"},
+	}
+
+	in := evInterp()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := evErr(t, in, tt.src, nil)
+			if e.Kind != ErrKindType {
+				t.Errorf("%s kind = %q, want %q", tt.src, e.Kind, ErrKindType)
+			}
+			if !strings.Contains(e.Msg, tt.msg) {
+				t.Errorf("%s message = %q, want it to contain %q", tt.src, e.Msg, tt.msg)
+			}
+		})
+	}
+}
+
+// TestNamedArguments is §8.7's parameter binding. A name reaches the parameter it spells
+// wherever the call goes — a plain `fn`, a closure, a UFCS method call, a module member
+// and an `async fn` are all the same binding code.
+func TestNamedArguments(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"a name skips a defaulted parameter", `fn f(a, b = 2, c = 3) { "${a}${b}${c}" }; f(1, c = 5)`, "125"},
+		{"names may be given in any order", `fn f(a, b, c) { "${a}${b}${c}" }; f(c = 3, a = 1, b = 2)`, "123"},
+		{"a name beats a default", `fn f(a = 1) { a }; f(a = 9)`, "9"},
+		{"every argument may be named", `fn f(a, b) { a - b }; f(b = 1, a = 9)`, "8"},
+		{"a default sees a parameter a name filled", `fn f(a = 1, b = a * 2) { b }; f(a = 5)`, "10"},
+		{"a rest function still binds its own names", `fn f(a, b = 2, *rest) { "${a}${b}${rest.len}" }; f(1, b = 9)`, "190"},
+		{"a closure binds by name too", `g = { (x, y) -> x - y }; g(y = 1, x = 9)`, "8"},
+		{"an anonymous fn binds by name", `g = fn(x, y = 2) { x * y }; g(x = 5)`, "10"},
+		{"ufcs passes the receiver and keeps the name", `fn area(w, h = 2) { w * h }; 3.area(h = 4)`, "12"},
+		{"an async fn binds by name", `async fn f(a, b = 2) { a + b }; f(1, b = 40).await`, "41"},
+		{"the value is an ordinary expression", `fn f(a) { a }; n = 2; f(a = n * 3)`, "6"},
+		// §8.7: `f(x = 5)` names a parameter, so an assignment in argument position is
+		// written with its own parentheses.
+		{"a parenthesised assignment is still an assignment", `fn f(a) { a }; x = 0; f((x = 5)) + x`, "10"},
+	}
+
+	in := evInterp()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, in, tt.src); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNamedArgumentErrors covers the four mistakes only the callee's parameter list can
+// catch. The parser owns the other two — a repeated name and a positional argument after
+// a named one — because the call site alone decides those (§5.6).
+func TestNamedArgumentErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		msg  string
+	}{
+		{"no such parameter", `fn f(a, b = 2) { a }; f(1, z = 3)`, "f has no parameter named 'z'"},
+		{"the hint lists the parameters", `fn f(a, b = 2) { a }; f(1, z = 3)`, "it takes 'a' and 'b'"},
+		{"a parameter given twice", `fn f(a, b = 2) { a }; f(1, a = 3)`, "got two values for parameter 'a'"},
+		{"a parameter left without a value", `fn f(a, b) { a }; f(b = 3)`, "missing a value for parameter 'a'"},
+		{"a rest parameter is not nameable", `fn f(a, *rest) { a }; f(1, rest = 3)`, "cannot be given by name"},
+		{"a builtin takes no names", `print(len = "x")`, "takes its arguments by position"},
+		{"a stdlib method takes no names", `[1, 2].map(f = { it })`, "takes its arguments by position"},
+		// `defined` takes a name rather than a value (§12.1), so it owns its own message.
+		{"defined takes a name", `defined(x = 1)`, "takes a name to test, not a named argument"},
+	}
+
+	in := evInterp()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := evErr(t, in, tt.src, nil)
+			if e.Kind != ErrKindArgument {
+				t.Errorf("%s kind = %q, want %q", tt.src, e.Kind, ErrKindArgument)
+			}
+			if !strings.Contains(e.Msg, tt.msg) {
+				t.Errorf("%s message = %q, want it to contain %q", tt.src, e.Msg, tt.msg)
+			}
+		})
+	}
+}
+
+// TestNamedArgumentsEvaluateInOrder: positions before names is the source order, since a
+// positional argument may not follow a named one (§8.7).
+func TestNamedArgumentsEvaluateInOrder(t *testing.T) {
+	var sb strings.Builder
+	in := New(Options{Stdout: &sb})
+	const src = `fn f(a, b, c) { 0 }; f(say("1"), c = say("3"), b = say("2"))`
+	if _, err := in.Eval(context.Background(), src, nil); err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := sb.String(); got != "1\n3\n2\n" {
+		t.Errorf("side effects ran in order %q, want %q", got, "1\n3\n2\n")
+	}
+}
+
 // TestMatchOperatorTypeErrors pins the other half of §8.4: `~` does not coerce, and `==`
 // against a regex literal is rejected at compile time (D5, §6.3).
 func TestMatchOperatorTypeErrors(t *testing.T) {
@@ -418,7 +565,8 @@ func TestCalls(t *testing.T) {
 		{"ufcs passes the receiver first", `fn pair(a, b) { a + "/" + b }; "l".pair("r")`, "l/r"},
 		{"a stdlib method wins over a user function", `fn len(x) { "mine" }; "abc".len`, "3"},
 		{"rest parameters", `fn f(a, *rest) { rest.json }; f(1, 2, 3)`, "[2,3]"},
-		{"keyword arguments arrive as one dict", `fn f(d) { d.json }; f(a: 1, b: 2)`, `{"a":1,"b":2}`},
+		{"default parameters", `fn f(a, b = 2) { a + b }; f(1)`, "3"},
+		{"a named argument binds its parameter", `fn f(a, b = 2, c = 3) { "${a}${b}${c}" }; f(1, c = 5)`, "125"},
 		{"safe navigation on nil is nil", `nil?.lower`, ""},
 		// §8.7: "if recv is nil the whole postfix chain is nil" — every trailer after
 		// the `?.`, not only the one it introduces.

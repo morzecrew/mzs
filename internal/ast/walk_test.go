@@ -63,8 +63,10 @@ kind = match label {
   else -> nil
 }
 for key, qty in order { say(key) }
-total(mapped, rate: 0.1)
-order.get("qty", default: 0)
+hit = n in span
+total(mapped, rate = 0.1)
+mapped.total(rate = 0.1)
+order.get("qty", 0)
 `
 
 // parseEveryNode is the shared fixture: the program above, parsed once per test.
@@ -275,8 +277,8 @@ func TestDumpShape(t *testing.T) {
 		`Match`, `Try e`, `Ternary`, `Destructure =`, `Pattern`,
 		`Range ..<`, `Global $greeting`, `Regex /^m/`,
 		`Closure (x)`, `Closure implicit (it)`, `MethodCall .map`,
-		`MethodCall ?.name`, `kwargs`, `guard`, `For key, qty`,
-		`Binary +`, `Logical ??`, `Unary -`, `Assign +=`, `Group`,
+		`MethodCall ?.name`, `arg rate =`, `guard`, `For key, qty`,
+		`Binary +`, `Binary in`, `Logical ??`, `Unary -`, `Assign +=`, `Group`,
 	} {
 		if !strings.Contains(dump, want) {
 			t.Errorf("dump has no %q line:\n%s", want, dump)

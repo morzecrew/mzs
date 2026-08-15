@@ -400,7 +400,13 @@ INTERP_BEGIN, and any token inside an interpolation
 
 Consecutive `NEWLINE`s collapse into one (blank lines never produce empty statements). The
 parser additionally skips a pending `NEWLINE` when the **next** significant token is
-`DOT`, `SAFEDOT`, `KW_ELSE`, `ARROW`, `RPAREN`, `RBRACKET`, `RBRACE`, or a binary operator.
+`DOT`, `SAFEDOT`, `KW_ELSE`, `ARROW`, `RPAREN`, `RBRACKET`, `RBRACE`, or a binary operator
+**other than `KW_IN`**. `in` is excluded from that last set, and has to be: a line that
+*starts* with `in` is the `in` arm of a `match` (§5.3), so swallowing the newline in front
+of it would glue that arm onto the previous one's body. The continuation still works from
+the other side — `KW_IN` is in the set above — so `x in\n  xs` is one expression while
+`-> "low"\nin 6..10 ->` stays two arms.
+
 This gives leading-dot method chains, hanging `else`, and multi-line `match` arms:
 
 ```
@@ -458,9 +464,10 @@ Trailing position keeps its meaning too, so a dict argument is spelled with the 
 parentheses. `{}` there is the empty closure, not the empty dict:
 
 ```
-f {a: 1}                        # ERROR: a dict after a call is written (a: 1) or ({a: 1})
-f(a: 1)                         # keyword arguments collect into one dict (§4.2)
+f {a: 1}                        # ERROR: a dict after a call is written f({a: 1})
+f(a: 1)                         # ERROR: `a = 1` names a parameter; `f({a: 1})` is the dict
 f({a: 1})                       # an explicit dict argument
+f(a = 1)                        # a named argument, binding the parameter `a` (§8.7)
 xs.each { }                     # an empty trailing closure
 ```
 
@@ -600,7 +607,8 @@ NilExpr        = OrExpr  { "??" OrExpr } ;
 OrExpr         = AndExpr { "||" AndExpr } ;
 AndExpr        = EqExpr  { "&&" EqExpr } ;
 EqExpr         = CmpExpr { ( "==" | "!=" | "~" | "!~" ) CmpExpr } ;
-CmpExpr        = RangeExpr { ( "<" | "<=" | ">" | ">=" | "<=>" ) RangeExpr } ;
+CmpExpr        = InExpr { ( "<" | "<=" | ">" | ">=" | "<=>" ) InExpr } ;
+InExpr         = RangeExpr [ "in" RangeExpr ] ;                       (* non-associative *)
 RangeExpr      = AddExpr [ ( ".." | "..<" ) AddExpr ] ;               (* non-associative *)
 AddExpr        = MulExpr { ( "+" | "-" ) MulExpr } ;
 MulExpr        = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
@@ -613,7 +621,7 @@ Trailer        = ( "." | "?." ) MethodName [ "(" ArgList ")" ] [ Closure ]
                | "[" Expr [ "," Expr ] "]" ;
 MethodName     = IDENT | KEYWORD ;
 ArgList        = [ Arg { "," Arg } [ "," ] ] ;
-Arg            = [ IDENT ":" ] Expr ;              (* keyword argument -> dict entry, §8.7 *)
+Arg            = Expr | IDENT "=" Expr ;           (* named argument -> parameter, §8.7 *)
 
 Primary        = INT | FLOAT | String | Regex | "true" | "false" | "nil"
                | IDENT | GVAR
@@ -729,7 +737,10 @@ g.call(1)                # 1 — a closure takes what it is given (§7.7)
   `xs.map { … }` ≡ `map(xs, { … })`, and `xs.reduce(0) { … }` ≡ `reduce(xs, 0, { … })`.
 * A trailing closure binds to the **nearest preceding call**: `a.map { … }.join(",")` parses
   as `((a.map{…}).join(","))`.
-* Keyword arguments (`f(a: 1, b: 2)`) are collected into one trailing dict argument.
+* An argument written `name = value` binds the callee's **parameter** of that name
+  (`f(1, c = 5)`, §8.7). Named arguments follow every positional one, and each name may be
+  given once. There is no second spelling: `f(a: 1)` is a §5.6 diagnostic, and an
+  assignment in argument position is written with its own parentheses, `f((x = 5))`.
 
 ### 4.3 UFCS
 
@@ -797,14 +808,19 @@ From tightest (1) to loosest (14). All levels are left-associative unless noted.
 | 4 | `*` `/` `%` | left | integer `/` when both sides are Int |
 | 5 | `+` `-` | left | `+` also concatenates String/Array |
 | 6 | `..` `..<` | **non-assoc** | `1..2..3` is a parse error |
-| 7 | `<` `<=` `>` `>=` `<=>` | left | |
-| 8 | `==` `!=` `~` `!~` | left | `~` is regex match, always Bool (D5) |
-| 9 | `&&` | left | short-circuit, returns an operand |
-| 10 | `\|\|` | left | short-circuit, returns an operand |
-| 11 | `??` | left | fires on `nil` only, not on `false` |
-| 12 | `? :` and `try … else …` | **right** | |
-| 13 | `=` `:=` `+=` `-=` `*=` `/=` `%=` `**=` `\|\|=` `&&=` `??=` | **right** | |
-| 14 | modifiers `if` `while` | left | statement level only |
+| 7 | `in` | **non-assoc** | membership, always Bool (§8.5); `a in b in c` is a parse error |
+| 8 | `<` `<=` `>` `>=` `<=>` | left | |
+| 9 | `==` `!=` `~` `!~` | left | `~` is regex match, always Bool (D5) |
+| 10 | `&&` | left | short-circuit, returns an operand |
+| 11 | `\|\|` | left | short-circuit, returns an operand |
+| 12 | `??` | left | fires on `nil` only, not on `false` |
+| 13 | `? :` and `try … else …` | **right** | |
+| 14 | `=` `:=` `+=` `-=` `*=` `/=` `%=` `**=` `\|\|=` `&&=` `??=` | **right** | |
+| 15 | modifiers `if` `while` | left | statement level only |
+
+`in` sits where it does so that both of its neighbours read the way they are written: the
+range is its operand (`a in 1..20` is `a in (1..20)`, never `(a in 1)..20`), and a
+condition joined with `&&` groups around it (`a in xs && b` is `(a in xs) && b`).
 
 Consequences worth pinning as tests:
 
@@ -814,6 +830,8 @@ a = b || c          # (a = (b || c))
 1 + 2 == 3          # ((1+2) == 3) => true
 'a' + 'b' == 'ab'   # true
 a ?? b ?? c         # ((a ?? b) ?? c)
+a in 1..20          # (a in (1..20))
+a in xs && b        # ((a in xs) && b)
 x = 1 if c          # the modifier binds loosest
 ```
 
@@ -927,6 +945,10 @@ cascade.
 | `-2 ** 2` | `ambiguous: write -(2 ** 2) or (-2) ** 2` |
 | `0..5.map { it }` | `ambiguous range: write (0..5).map` |
 | `1..2..3` | `range operator is non-associative` |
+| `a in b in c` | `'in' is non-associative: write (a in b) in c if that is what you meant` |
+| `f(1, a: 2)` | `a named argument is written 'a = …'; for a dict argument write f({a: …})` |
+| `f(a = 1, 2)` | `a positional argument may not follow a named one; move it before 'a = …'` |
+| `f(a = 1, a = 2)` | `argument 'a' is named twice` |
 | `s == /re/` | `'==' with a regex operand: use '~' to match` |
 | `s =~ /re/` | `'=~' is not an mzs operator; use '~'` |
 | `x.empty?` | `'?' is not part of an identifier; did you mean 'empty'?` |
@@ -944,7 +966,7 @@ cascade.
 | `[:]` | `the empty dict is written {}` |
 | `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
 | `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
-| `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
+| `f {a: 1}` | `a dict after a call is written f({a: 1})` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
 | `k => v` | `'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure` |
 | `{ \|x\| … }` | `closure parameters are parenthesised: { (x) -> … }` |
@@ -1014,7 +1036,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `Ident` | `Name string` |
 | `GlobalVar` | `Name string` (includes the `$`) |
 | `UnaryExpr` | `Op token.Kind`, `X Expr` |
-| `BinaryExpr` | `Op token.Kind`, `L, R Expr` — arithmetic, comparison, match, range |
+| `BinaryExpr` | `Op token.Kind`, `L, R Expr` — arithmetic, comparison, match, and `in` (§8.5) |
 | `LogicalExpr` | `Op token.Kind` (`&&`, `\|\|`, `??`), `L, R Expr` — short-circuit |
 | `TernaryExpr` | `Cond, Then, Else Expr` |
 | `RangeExpr` | `Lo, Hi Expr`, `Exclusive bool` (set by `..<`) |
@@ -1022,8 +1044,8 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `ArrayPattern` | `Elems []Expr`, `Brackets bool` — one entry per position; a target or a nested pattern on the left of `=`, a binding name or a compared expression in a `match` arm (§8.15) |
 | `DestructureAssign` | `Pattern *ArrayPattern`, `Op token.Kind` (`=` or `:=`), `Value Expr` |
 | `IndexExpr` | `X Expr`, `Index Expr`, `Index2 Expr` (nil unless `a[i, n]`) |
-| `CallExpr` | `Fn Expr`, `Args []Expr`, `KwArgs *DictLit` (nil if none) |
-| `MethodCall` | `Recv Expr`, `Name string`, `Args []Expr`, `KwArgs *DictLit`, `Safe bool` (`?.`) |
+| `CallExpr` | `Fn Expr`, `Args []Expr`, `Named []NamedArg` (the `name = value` arguments, §8.7) |
+| `MethodCall` | `Recv Expr`, `Name string`, `Args []Expr`, `Named []NamedArg`, `Safe bool` (`?.`) |
 | `FuncLit` | `Params []Param`, `Body *BlockStmt`, `ImplicitIt bool` |
 | `GroupExpr` | `Stmts []Stmt` — `( a; b; c )`, value is the last |
 
@@ -1031,6 +1053,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 
 ```go
 type Param struct { Name string; Default ast.Expr; Rest bool; Pos token.Pos }
+type NamedArg struct { Name string; Value ast.Expr; NamePos token.Pos }  // `name = v` at a call (§8.7)
 type StrPart struct { Text string; Expr ast.Expr }   // exactly one of the two is set
 
 type ArmKind uint8
@@ -1075,7 +1098,8 @@ concept in the language (§4.1).
 | `a \|\|= b` | `AssignExpr{Op: OR_EQ}` — `b` evaluated only if `a` is falsy |
 | `a ??= b` | `AssignExpr{Op: NIL_EQ}` — `b` evaluated only if `a` is nil |
 | `"a${b}c$d"` | `StrLit{Parts: [text "a", expr b, text "c", expr GlobalVar("$d")]}` |
-| `f(a: 1, b: 2)` | `CallExpr{KwArgs: DictLit{"a":1,"b":2}}` — passed as one trailing dict argument |
+| `f(1, b = 2)` | `CallExpr{Args: [1], Named: [{b, 2}]}` — the name binds a parameter at the call (§8.7) |
+| `a in xs` | `BinaryExpr{Op: KW_IN}` — evaluated as `xs.has(a)`, always a Bool (§8.5) |
 | `x.foo` (no parens) | `MethodCall{Args: nil}` |
 | `a, b = xs`, `[a, b] = xs` | `DestructureAssign{Pattern: ArrayPattern{[a, b]}}` (§8.15) |
 | `[x, y] ->` in a `match` arm | `MatchArm{Kind: ArmArray, Pats: [ArrayPattern{[x, y]}]}` |
@@ -1309,6 +1333,25 @@ operand if it is truthy, else the right operand. `??` returns the left operand u
 only if it is `nil`. In each case the right side is not evaluated otherwise. An undefined
 local on the left of `||=`/`??=` is treated as `nil`, not as an error.
 
+**`in`** asks the right operand whether it holds the left one, and always returns a Bool:
+
+```
+if code in 200..<300 { … }
+if name in ["да", "yes"] { … }
+if "key" in order { … }             # a dict answers about its keys
+if "вет" in "привет" { … }          # a string about its substrings
+ready = flag in allowed             # an ordinary value, like any other expression
+```
+
+It is the `in` of a `match` arm written infix (§5.3) and it is answered the same way — by
+dispatching `has` on the right operand — so `x in xs` and `xs.has(x)` are one operation
+under two spellings, and a kind that grows a `has` row grows `in` with it (I6, D18). A
+right operand of a kind that answers membership nowhere is an error naming `in`, not the
+`has` the source never wrote.
+
+Both operands are evaluated, left first; `in` does not short-circuit and there is no `not
+in` — the negation is `!(x in xs)`.
+
 ### 8.6 Ranges
 
 `a..b` (inclusive) and `a..<b` (exclusive) over Int endpoints produce a lazy `Range`, an
@@ -1320,13 +1363,50 @@ an array-only method is called; materialising a range longer than `Options.MaxCo
 
 ### 8.7 Calls
 
-Argument evaluation is strictly **left to right**. A trailing closure is an ordinary last
-argument (§4.2), so it is evaluated — that is, constructed as a `KFunc` — in that same order.
+Argument evaluation is strictly **left to right**.
 
-Keyword arguments (`f(a: 1)`) are collected into one trailing Dict argument; a function that
-declares fewer positional parameters than were given receives them as its last parameter only
-if that parameter is `*rest`, otherwise the dict is passed positionally. There is no
-keyword-parameter binding in v0.1.
+**Named arguments.** An argument written `name = value` binds the callee's parameter of
+that name instead of the next free position:
+
+```
+fn area(w, h = 2, unit = "cm") { "${w * h} ${unit}²" }
+
+area(3)                    # "6 cm²"
+area(3, 5)                 # "15 cm²"
+area(3, unit = "m")        # "6 m²"      — the defaulted `h` is skipped, not shifted
+area(h = 5, w = 3)         # "15 cm²"    — every argument may be named, in any order
+```
+
+The rules, and where each is caught:
+
+| Rule | Diagnosed |
+|---|---|
+| Named arguments follow every positional one | parse time (§5.6) |
+| A name is given at most once | parse time (§5.6) |
+| The name must be a parameter of the callee | run time, `has no parameter named 'z'` |
+| A parameter filled by position may not also be named | run time, `got two values for parameter 'a'` |
+| A `*rest` parameter collects positions and cannot be named | run time |
+| A parameter no rule reached is the arity error, by name | run time |
+
+Binding runs in declaration order, so a default may read a parameter a name filled:
+`fn f(a = 1, b = a * 2)` called as `f(a = 5)` gives `b` the value 10.
+
+Only a script function has parameter names. A builtin, a host function and a stdlib method
+take their arguments by position, so a name there is an error rather than a guess — which
+is also what makes `xs.map(f = …)` say something useful instead of binding nothing.
+
+`f(a: 1)` is **not** a call form: `:` builds a dict, and a dict argument is written
+`f({a: 1})` (§3.11, §5.6). Nor is `f(x = 5)` an assignment any more — write `f((x = 5))`
+when the assignment is the point.
+
+**Order.** Left to right across both halves: positional arguments first, then named ones,
+which *is* source order because a positional argument may not follow a named one. A
+trailing closure is an ordinary last argument (§4.2) and is evaluated — that is,
+constructed as a `KFunc` — in that same order, with one exception nothing can observe:
+§4.2 appends it to the positional list, so where a call has both a trailing closure and
+named arguments the closure is constructed before the named values are evaluated. A
+closure literal only captures the scope it stands in, so no evaluation of the script's can
+tell the difference.
 
 Dispatch for `recv.name(args)` is UFCS (§4.3), resolved at compile time (§6.3):
 

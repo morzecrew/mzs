@@ -69,6 +69,18 @@ type Param struct {
 	Slot    int // filled by the compile pass; -1 until then
 }
 
+// NamedArg is one `name = value` argument at a call site (§8.7). It names a *parameter*
+// of the callee, so unlike a Param it carries no slot: which frame slot it fills is
+// decided at the call, where the callee's parameter list is known.
+//
+// Named arguments follow every positional one, and a name may appear once; both rules
+// are the parser's (§5.6), so a NamedArg that reached the tree is well formed.
+type NamedArg struct {
+	Name    string
+	Value   Expr
+	NamePos token.Pos
+}
+
 // StrPart is one piece of a string literal: exactly one of Text and Expr is meaningful.
 // A part with a nil Expr is a text part, even when Text is empty.
 type StrPart struct {
@@ -373,8 +385,9 @@ type UnaryExpr struct {
 	OpPos token.Pos
 }
 
-// BinaryExpr covers arithmetic, comparison and the match operators. Ranges have their
-// own node; short-circuit operators have their own node.
+// BinaryExpr covers arithmetic, comparison, the match operators and `in` — membership,
+// which is KW_IN in Op and spells the same question as an `in` arm of a `match` (§5.3).
+// Ranges have their own node; short-circuit operators have their own node.
 type BinaryExpr struct {
 	Op    token.Kind
 	L, R  Expr
@@ -449,12 +462,12 @@ type IndexExpr struct {
 	Rbrack token.Pos
 }
 
-// CallExpr is `f(...)`. KwArgs collects `f(a: 1)` into one trailing dict argument (§8.7).
-// A trailing closure is not a field: the parser appends it to Args (§4.2).
+// CallExpr is `f(...)`. Named holds the `f(c = 5)` arguments, which bind by parameter
+// name (§8.7). A trailing closure is not a field: the parser appends it to Args (§4.2).
 type CallExpr struct {
 	Fn     Expr
 	Args   []Expr
-	KwArgs *DictLit
+	Named  []NamedArg
 	Lparen token.Pos
 	Stop   token.Pos
 }
@@ -467,7 +480,7 @@ type MethodCall struct {
 	Recv    Expr
 	Name    string
 	Args    []Expr
-	KwArgs  *DictLit
+	Named   []NamedArg
 	Safe    bool
 	Cache   any
 	NamePos token.Pos

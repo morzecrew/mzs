@@ -688,8 +688,8 @@ func (c *compiler) call(n *ast.CallExpr) ast.Expr {
 	for i := range n.Args {
 		n.Args[i] = c.expr(n.Args[i])
 	}
-	if n.KwArgs != nil {
-		c.dict(n.KwArgs)
+	for i := range n.Named {
+		n.Named[i].Value = c.expr(n.Named[i].Value)
 	}
 	if !isName {
 		n.Fn = c.expr(n.Fn)
@@ -709,7 +709,7 @@ func (c *compiler) call(n *ast.CallExpr) ast.Expr {
 		c.markUsed(id.Name)
 	case c.hasFunc(id.Name):
 		id.Ref = ast.RefFunc
-	case len(n.Args) > 0 && c.hasMethod(id.Name):
+	case len(n.Args)+len(n.Named) > 0 && c.hasMethod(id.Name):
 		// One namespace, not two (§12): `filter(xs, f)` is `xs.filter(f)`, so a name
 		// that is only a stdlib row of some kind is callable in prefix position too.
 		// Which kind it belongs to depends on the first argument's value, so the
@@ -748,8 +748,8 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 	for i := range n.Args {
 		n.Args[i] = c.expr(n.Args[i])
 	}
-	if n.KwArgs != nil {
-		c.dict(n.KwArgs)
+	for i := range n.Named {
+		n.Named[i].Value = c.expr(n.Named[i].Value)
 	}
 	if module || c.hasMethod(n.Name) {
 		// A module member and a real method are both resolved by the receiver's value,
@@ -772,7 +772,7 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 		}
 		args := make([]ast.Expr, 0, len(n.Args)+1)
 		args = append(append(args, n.Recv), n.Args...)
-		return &ast.CallExpr{Fn: fn, Args: args, KwArgs: n.KwArgs, Lparen: n.NamePos, Stop: n.Stop}
+		return &ast.CallExpr{Fn: fn, Args: args, Named: n.Named, Lparen: n.NamePos, Stop: n.Stop}
 	}
 	c.undefinedMethod(n.Name, n.NamePos)
 	return n

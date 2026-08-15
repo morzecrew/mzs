@@ -372,6 +372,8 @@ func TestPrecedence(t *testing.T) {
 		{"pow over mul", POW, STAR, true},
 		{"mul over add", STAR, PLUS, true},
 		{"add over range", PLUS, DOTDOT, true},
+		{"range over in", DOTDOT, KW_IN, true},
+		{"in over compare", KW_IN, LT, true},
 		{"range over compare", DOTLT, LT, true},
 		{"compare over equality", SPACESHIP, EQ, true},
 		{"equality over and", TILDE, ANDAND, true},
@@ -396,6 +398,22 @@ func TestPrecedence(t *testing.T) {
 	}
 	if !IsNonAssoc(DOTDOT) || !IsNonAssoc(DOTLT) {
 		t.Errorf("ranges must be non-associative")
+	}
+	// `in` is non-associative in §5.1 but not through this predicate: it is read after a
+	// range's right operand, where `1..5 in xs` is the ordinary reading.
+	if IsNonAssoc(KW_IN) {
+		t.Errorf("IsNonAssoc must not claim 'in': it would break 1..5 in xs")
+	}
+	// A line that starts with `in` is a match arm, so the newline in front of it stands
+	// even though `in` is a binary operator (§3.10, §5.3).
+	if !IsBinaryOp(KW_IN) {
+		t.Errorf("'in' must be a binary operator")
+	}
+	if SuppressesNewlineBefore(KW_IN) {
+		t.Errorf("a newline before 'in' must stand: the next line may be a match arm")
+	}
+	if !SuppressesNewlineAfter(KW_IN) {
+		t.Errorf("a newline after 'in' must be swallowed: the operand follows")
 	}
 	if Precedence(ASSIGN) != PrecNone {
 		t.Errorf("assignment is not a binary operator level")

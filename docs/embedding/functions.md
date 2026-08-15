@@ -45,6 +45,14 @@ sum(1, 2, 3, 4)                    => 10
 slugify(1, 2)  => eval:1:1: argument: slugify expects 1 argument(s), got 2
 ```
 
+A host function takes its arguments **by position only**: a Go function has no parameter
+names the script could spell, so the named-argument form of
+[../language/functions.md](../language/functions.md) is an error rather than a guess.
+
+```
+slugify(s = "x")  => eval:1:1: argument: slugify takes its arguments by position, so 's = …' has no parameter to bind
+```
+
 A registered function is a method too, for free: `"…".slugify` is UFCS, not a second
 registration. See [../stdlib/README.md](../stdlib/README.md).
 

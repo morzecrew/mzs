@@ -65,6 +65,10 @@ from it. Only the first diagnostic on a line is shown, and at most 10 per compil
 | `-2 ** 2` | `ambiguous: write -(2 ** 2) or (-2) ** 2` |
 | `0..5.map { it }` | `ambiguous range: write (0..5).map` |
 | `1..2..3` | `range operator is non-associative` |
+| `a in b in c` | `'in' is non-associative: write (a in b) in c if that is what you meant` |
+| `f(1, a: 2)` | `a named argument is written 'a = …'; for a dict argument write f({a: …})` |
+| `f(a = 1, 2)` | `a positional argument may not follow a named one; move it before 'a = …'` |
+| `f(a = 1, a = 2)` | `argument 'a' is named twice` |
 | `s == /re/` | `'==' with a regex operand: use '~' to match` |
 | `s =~ /re/` | `'=~' is not an mzs operator; use '~'` |
 | `str =! "x"` | `unexpected '!' after '='; did you mean '!='?` |
@@ -87,7 +91,7 @@ from it. Only the first diagnostic on a line is shown, and at most 10 per compil
 | `(x) -> x * 2` | `an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }` |
 | `async (x) -> { x }` | ``an async function is written `async fn(a, b) { … }` `` |
 | `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
-| `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
+| `f {a: 1}` | `a dict after a call is written f({a: 1})` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
 | `[k => v]` | `'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure` |
 | `{ \|x\| … }` | `closure parameters are parenthesised: { (x) -> … }` |

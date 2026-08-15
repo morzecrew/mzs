@@ -91,7 +91,7 @@ trailing closure. Both cases have a fix-it:
 
 ```
 status = if ready { {code: 200} } else { {code: 503} }   # body, then the dict inside it
-f(a: 1)                  # a dict argument — `f {a: 1}` is a diagnostic
+f({a: 1})                # a dict argument — `f {a: 1}` and `f(a: 1)` are diagnostics
 xs.each { }              # still an empty closure; an empty closure value is { nil }
 ```
 

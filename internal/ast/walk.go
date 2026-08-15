@@ -105,15 +105,11 @@ func Walk(n Node, f func(Node) bool) {
 	case *CallExpr:
 		Walk(x.Fn, f)
 		walkExprs(x.Args, f)
-		if x.KwArgs != nil {
-			Walk(x.KwArgs, f)
-		}
+		walkNamed(x.Named, f)
 	case *MethodCall:
 		Walk(x.Recv, f)
 		walkExprs(x.Args, f)
-		if x.KwArgs != nil {
-			Walk(x.KwArgs, f)
-		}
+		walkNamed(x.Named, f)
 	case *FuncLit:
 		walkParams(x.Params, f)
 		Walk(x.Body, f)
@@ -131,6 +127,14 @@ func walkStmts(ss []Stmt, f func(Node) bool) {
 func walkExprs(es []Expr, f func(Node) bool) {
 	for _, e := range es {
 		Walk(e, f)
+	}
+}
+
+// walkNamed visits the values of `name = value` arguments. The name itself is not a
+// node: it labels a parameter of the callee, not an expression of this scope.
+func walkNamed(as []NamedArg, f func(Node) bool) {
+	for _, a := range as {
+		Walk(a.Value, f)
 	}
 }
 
@@ -453,8 +457,9 @@ func dump(sb *strings.Builder, n Node, depth int) {
 			sb.WriteString(ind + "  arg\n")
 			dump(sb, a, depth+2)
 		}
-		if x.KwArgs != nil {
-			labeled("kwargs:", x.KwArgs)
+		for _, a := range x.Named {
+			sb.WriteString(ind + "  arg " + a.Name + " =\n")
+			dump(sb, a.Value, depth+2)
 		}
 	case *MethodCall:
 		op := "."
@@ -467,8 +472,9 @@ func dump(sb *strings.Builder, n Node, depth int) {
 			sb.WriteString(ind + "  arg\n")
 			dump(sb, a, depth+2)
 		}
-		if x.KwArgs != nil {
-			labeled("kwargs:", x.KwArgs)
+		for _, a := range x.Named {
+			sb.WriteString(ind + "  arg " + a.Name + " =\n")
+			dump(sb, a.Value, depth+2)
 		}
 	case *FuncLit:
 		kind := "Closure"

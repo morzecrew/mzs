@@ -19,6 +19,31 @@ import (
 // name to test for boundness, not an expression to evaluate (§12.1).
 const definedName = "defined"
 
+// namedArg is one evaluated `name = value` argument (§8.7). The name is the callee's
+// parameter, so the value stays unplaced until bindParams knows what that list looks
+// like.
+type namedArg struct {
+	Name string
+	Val  Value
+}
+
+// namedArgs is the named half of one call site's argument list. It is nil for every call
+// the language makes on a script's behalf — a stdlib row invoking a closure, a host
+// function calling back, a task's body — because only a call *expression* can spell a
+// parameter name.
+type namedArgs []namedArg
+
+// reject is the answer for every callee that has no parameter names to bind: a host
+// function, a builtin and a stdlib row all take their arguments by position (§8.7), so
+// the name has nowhere to go and saying so beats binding it somewhere plausible.
+func (na namedArgs) reject(name string) error {
+	if len(na) == 0 {
+		return nil
+	}
+	return argErrorf("%s takes its arguments by position, so '%s = …' has no parameter to bind",
+		name, na[0].Name)
+}
+
 // init installs the evaluator behind the seam the stdlib calls through. Rebuilding an
 // ev from the Ctx is sound because an ev is only ever those pointers, and a call always
 // starts a fresh scope from the callee's captured Env.
@@ -31,7 +56,7 @@ func init() {
 			all := make([]Value, 0, len(args)+1)
 			args = append(append(all, args...), closure)
 		}
-		return e.invoke(fn, args, c.pos)
+		return e.invoke(fn, args, nil, c.pos)
 	}
 }
 
@@ -62,8 +87,9 @@ func (e ev) makeFunc(name string, params []ast.Param, body *ast.BlockStmt, lambd
 	})
 }
 
-// invoke calls a function value: a host function, or a script `fn`/closure.
-func (e ev) invoke(fn Value, args []Value, pos token.Pos) (Value, error) {
+// invoke calls a function value: a host function, or a script `fn`/closure. named is the
+// `name = value` half of the call site's arguments and is nil everywhere but there.
+func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Value, error) {
 	if fn.Kind() != KFunc {
 		return Nil(), e.at(typeErrorf("not a function: %s", fn.Kind()), pos)
 	}
@@ -80,6 +106,9 @@ func (e ev) invoke(fn Value, args []Value, pos token.Pos) (Value, error) {
 	defer e.rs.leave()
 
 	if f.Host != nil {
+		if err := named.reject(fnName(f)); err != nil {
+			return Nil(), e.at(err, pos)
+		}
 		if f.Arity >= 0 && len(args) != f.Arity {
 			return Nil(), e.at(argErrorf("%s expects %d argument(s), got %d",
 				fnName(f), f.Arity, len(args)), pos)
@@ -99,10 +128,10 @@ func (e ev) invoke(fn Value, args []Value, pos token.Pos) (Value, error) {
 		// `async fn` differs from `fn` at exactly one point, and this is it: the call
 		// starts the body on a task and hands back the handle (§8.14). Everything above
 		// — the step, the frame, the depth check — is charged to the caller either way.
-		return e.spawnTask(f, args, pos)
+		return e.spawnTask(f, args, named, pos)
 	}
 
-	env, err := e.bindParams(f, args)
+	env, err := e.bindParams(f, args, named)
 	if err != nil {
 		return Nil(), e.at(err, pos)
 	}
@@ -133,8 +162,8 @@ func (e ev) invoke(fn Value, args []Value, pos token.Pos) (Value, error) {
 
 // call invokes fn and converts a `break` that escaped it into the value of this call,
 // which is §8.10's rule that `break` ends the call a closure was passed to.
-func (e ev) call(fn Value, args []Value, pos token.Pos) (Value, error) {
-	v, err := e.invoke(fn, args, pos)
+func (e ev) call(fn Value, args []Value, named namedArgs, pos token.Pos) (Value, error) {
+	v, err := e.invoke(fn, args, named, pos)
 	if bv, ok := isBreak(err); ok {
 		return bv, nil
 	}
@@ -152,16 +181,21 @@ func (e ev) enterCall(name string, pos token.Pos, args []Value) func() {
 	return e.cx.setCall(name, pos, args, closure)
 }
 
-// bindParams builds the callee's frame. A closure literal is exempt from the arity
-// check because library functions decide how many values to pass it: extra arguments
-// are dropped and missing ones become nil (§7.7).
-func (e ev) bindParams(f *Func, args []Value) (*Env, error) {
+// bindParams builds the callee's frame. Positions come first, then the `name = value`
+// arguments of §8.7, then the declared defaults; a parameter no rule reached is the
+// arity error. A closure literal is exempt from that check because library functions
+// decide how many values to pass it: extra arguments are dropped and missing ones become
+// nil (§7.7).
+func (e ev) bindParams(f *Func, args []Value, named namedArgs) (*Env, error) {
 	size := f.Frame
 	if size < len(f.Params) {
 		size = len(f.Params)
 	}
 	env := newEnv(f.Env, size)
 	fe := e.in(env)
+	if err := checkNamed(f, args, named); err != nil {
+		return nil, err
+	}
 	for i, p := range f.Params {
 		if p.Rest {
 			rest := []Value{}
@@ -175,8 +209,13 @@ func (e ev) bindParams(f *Func, args []Value) (*Env, error) {
 			env.Define(p.Name, args[i])
 			continue
 		}
+		if j := named.index(p.Name); j >= 0 {
+			env.Define(p.Name, named[j].Val)
+			continue
+		}
 		if p.Default != nil {
-			// Defaults see the parameters bound before them.
+			// Defaults see the parameters bound before them — including one another and
+			// any parameter a name filled, since binding runs in declaration order.
 			dv, err := fe.eval(p.Default)
 			if err != nil {
 				return nil, err
@@ -188,12 +227,89 @@ func (e ev) bindParams(f *Func, args []Value) (*Env, error) {
 			env.Define(p.Name, Nil())
 			continue
 		}
-		return nil, argErrorf("%s expects %d argument(s), got %d", fnName(f), len(f.Params), len(args))
+		return nil, missingArgError(f, args, named, p.Name)
 	}
 	if len(args) > len(f.Params) && !f.LenientArity() {
 		return nil, argErrorf("%s expects %d argument(s), got %d", fnName(f), len(f.Params), len(args))
 	}
 	return env, nil
+}
+
+// index finds the named argument for parameter name, or -1.
+func (na namedArgs) index(name string) int {
+	for i, a := range na {
+		if a.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// checkNamed rejects the three named-argument mistakes the call site cannot see for
+// itself, all of which need the callee's parameter list: a name that is not a parameter,
+// a name for a parameter a position already filled, and a name for `*rest`, which
+// collects positions and so has no single value to be given. The parser has already
+// ruled out a repeated name and a positional argument after a named one (§5.6).
+func checkNamed(f *Func, args []Value, named namedArgs) error {
+	for _, a := range named {
+		i := paramIndex(f.Params, a.Name)
+		switch {
+		case i < 0:
+			return argErrorf("%s has no parameter named '%s'%s", fnName(f), a.Name,
+				paramHint(f.Params))
+		case f.Params[i].Rest:
+			return argErrorf("%s collects '*%s' from the remaining positions, so it cannot be given by name",
+				fnName(f), a.Name)
+		case i < len(args):
+			return argErrorf("%s got two values for parameter '%s': one by position and one by name",
+				fnName(f), a.Name)
+		}
+	}
+	return nil
+}
+
+// missingArgError names the parameter that was left without a value. Where the call used
+// no names at all the count is the whole story and §8.7's original wording still says it
+// best; once names are in play the counts stop lining up and the parameter's name is the
+// only useful thing to print.
+func missingArgError(f *Func, args []Value, named namedArgs, param string) error {
+	if len(named) == 0 {
+		return argErrorf("%s expects %d argument(s), got %d", fnName(f), len(f.Params), len(args))
+	}
+	return argErrorf("%s is missing a value for parameter '%s'%s", fnName(f), param, paramHint(f.Params))
+}
+
+// paramHint lists what the callee will answer to, which is the whole fix for a misspelled
+// or misremembered parameter name.
+func paramHint(params []ast.Param) string {
+	if len(params) == 0 {
+		return ""
+	}
+	out := "; it takes "
+	for i, p := range params {
+		switch {
+		case i == 0:
+		case i == len(params)-1:
+			out += " and "
+		default:
+			out += ", "
+		}
+		if p.Rest {
+			out += "'*" + p.Name + "'"
+			continue
+		}
+		out += "'" + p.Name + "'"
+	}
+	return out
+}
+
+func paramIndex(params []ast.Param, name string) int {
+	for i, p := range params {
+		if p.Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 func fnName(f *Func) string {
@@ -214,14 +330,14 @@ func (e ev) evalCallExpr(n *ast.CallExpr) (Value, error) {
 				return e.evalDefined(n)
 			}
 		}
-		args, err := e.evalArgs(n.Args, n.KwArgs)
+		args, named, err := e.evalArgs(n.Args, n.Named)
 		if err != nil {
 			return Nil(), err
 		}
 		// RefFunc is the compile pass saying this name is the function rather than a
 		// binding of the same name — the UFCS rewrite of `x.f(y)` reaches here that way
 		// even when `f` also names a module (§12.8).
-		v, ok, err := e.callNamed(id.Name, args, id.Start, id.Ref == ast.RefFunc)
+		v, ok, err := e.callNamed(id.Name, args, named, id.Start, id.Ref == ast.RefFunc)
 		if !ok {
 			return Nil(), e.at(undefinedFunctionError(id.Name, e.scriptFuncNames()), id.Start)
 		}
@@ -233,11 +349,11 @@ func (e ev) evalCallExpr(n *ast.CallExpr) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	args, err := e.evalArgs(n.Args, n.KwArgs)
+	args, named, err := e.evalArgs(n.Args, n.Named)
 	if err != nil {
 		return Nil(), err
 	}
-	return e.call(fn, args, n.Stop)
+	return e.call(fn, args, named, n.Stop)
 }
 
 // callFunction resolves a bare name to something callable and invokes it: a binding in
@@ -246,7 +362,7 @@ func (e ev) evalCallExpr(n *ast.CallExpr) (Value, error) {
 // the two can never disagree. ok is false when no such function exists, which is the
 // caller's cue to produce its own diagnostic.
 func (e ev) callFunction(name string, args []Value, pos token.Pos) (Value, bool, error) {
-	return e.callNamed(name, args, pos, false)
+	return e.callNamed(name, args, nil, pos, false)
 }
 
 // callNamed is callFunction with one extra decision exposed: overName steps over a
@@ -255,11 +371,11 @@ func (e ev) callFunction(name string, args []Value, pos token.Pos) (Value, bool,
 // same spelling, so `nil.json` still encodes (§4.3 step 2). A direct `f(…)` passes
 // false, because there the binding *is* what was called and `not a function` is the
 // answer.
-func (e ev) callNamed(name string, args []Value, pos token.Pos, overName bool) (Value, bool, error) {
+func (e ev) callNamed(name string, args []Value, named namedArgs, pos token.Pos, overName bool) (Value, bool, error) {
 	if fv, ok := e.env.Lookup(name); ok {
 		switch {
 		case fv.Kind() == KFunc:
-			v, err := e.call(fv, args, pos)
+			v, err := e.call(fv, args, named, pos)
 			return v, true, err
 		case !overName:
 			return Nil(), true, e.at(typeErrorf("not a function: %s", fv.Kind()), pos)
@@ -267,10 +383,13 @@ func (e ev) callNamed(name string, args []Value, pos token.Pos, overName bool) (
 	}
 	if !e.rs.in.isRemoved(name) {
 		if fv, ok := e.rs.in.hostFunc(name); ok {
-			v, err := e.call(fv, args, pos)
+			v, err := e.call(fv, args, named, pos)
 			return v, true, err
 		}
 		if b, ok := LookupBuiltin(name); ok && b.Available(e.rs.opts) {
+			if err := named.reject(b.Name); err != nil {
+				return Nil(), true, e.at(err, pos)
+			}
 			v, err := e.invokeBuiltin(b, args, pos)
 			return v, true, err
 		}
@@ -282,6 +401,9 @@ func (e ev) callNamed(name string, args []Value, pos token.Pos, overName bool) (
 	// two cannot recur.
 	if len(args) > 0 && !e.rs.in.isRemoved(name) {
 		if m, ok := LookupMethod(args[0].Kind(), name); ok && m.Available(e.rs.opts) {
+			if err := named.reject(name); err != nil {
+				return Nil(), true, e.at(err, pos)
+			}
 			v, err := e.invokeMethod(m, name, args[0], args[1:], pos)
 			return v, true, err
 		}
@@ -327,6 +449,13 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 // not an expression to evaluate, which is why an unbound `$price` is legal here and
 // nowhere else.
 func (e ev) evalDefined(n *ast.CallExpr) (Value, error) {
+	if len(n.Named) > 0 {
+		// `defined` takes a name to test for boundness, so `defined(x = 1)` reads as an
+		// argument named after the very thing being asked about. Say which one it is
+		// rather than counting to zero at it.
+		return Nil(), e.at(argErrorf("%s takes a name to test, not a named argument: write %s(%s)",
+			definedName, definedName, n.Named[0].Name), n.Stop)
+	}
 	if len(n.Args) != 1 {
 		return Nil(), e.at(argErrorf("%s expects 1 argument, got %d", definedName, len(n.Args)), n.Stop)
 	}
@@ -357,30 +486,35 @@ func (e ev) evalDefined(n *ast.CallExpr) (Value, error) {
 // evalArgs evaluates arguments strictly left to right (§8.7) and folds keyword
 // arguments into the one trailing dict argument. A trailing closure is not special: it
 // is already an element of Args.
-func (e ev) evalArgs(exprs []ast.Expr, kw *ast.DictLit) ([]Value, error) {
-	n := len(exprs)
-	if kw != nil {
-		n++
+func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs, error) {
+	if len(exprs) == 0 && len(named) == 0 {
+		return nil, nil, nil
 	}
-	if n == 0 {
-		return nil, nil
-	}
-	args := make([]Value, 0, n)
+	args := make([]Value, 0, len(exprs))
 	for _, a := range exprs {
 		v, err := e.eval(a)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		args = append(args, v)
 	}
-	if kw != nil {
-		d, err := e.evalDict(kw)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, d)
+	if len(named) == 0 {
+		return args, nil, nil
 	}
-	return args, nil
+	// Positions before names is the source order, since the parser refuses a positional
+	// argument after a named one (§5.6). The one exception is a trailing closure, which
+	// §4.2 appends to the positional list and so is *constructed* before the named values
+	// are evaluated; a closure literal only captures the scope it stands in, so no
+	// evaluation of the script's can observe the difference (§8.7).
+	out := make(namedArgs, 0, len(named))
+	for _, a := range named {
+		v, err := e.eval(a.Value)
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, namedArg{Name: a.Name, Val: v})
+	}
+	return args, out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +535,7 @@ func (e ev) evalMethodCall(n *ast.MethodCall) (Value, error) {
 	if n.Safe && recv.IsNil() {
 		return Nil(), errNilChain
 	}
-	args, err := e.evalArgs(n.Args, n.KwArgs)
+	args, named, err := e.evalArgs(n.Args, n.Named)
 	if err != nil {
 		return Nil(), err
 	}
@@ -409,10 +543,10 @@ func (e ev) evalMethodCall(n *ast.MethodCall) (Value, error) {
 	// already decided that this receiver names one. An ordinary dict never dispatches
 	// `.` to its own keys (§8.7), which is what keeps UFCS unambiguous.
 	if id, ok := n.Recv.(*ast.Ident); ok && id.Ref == ast.RefModule {
-		v, err := e.moduleCall(recv, id.Name, n.Name, args, n.NamePos)
+		v, err := e.moduleCall(recv, id.Name, n.Name, args, named, n.NamePos)
 		return v, e.at(err, n.NamePos)
 	}
-	v, err := e.dispatch(recv, n.Name, args, n.NamePos)
+	v, err := e.dispatch(recv, n.Name, args, named, n.NamePos)
 	return v, e.at(err, n.NamePos)
 }
 
@@ -420,11 +554,14 @@ func (e ev) evalMethodCall(n *ast.MethodCall) (Value, error) {
 // a module answers like any other value (`json.len`). It deliberately stops short of
 // UFCS step 2 — rewriting `math.max(1, 2)` to `max(math, 1, 2)` can never be what was
 // meant, and the error it produces names the wrong thing entirely.
-func (e ev) moduleCall(mod Value, modName, name string, args []Value, pos token.Pos) (Value, error) {
-	if v, ok, err := e.moduleMember(mod, name, args, pos); ok {
+func (e ev) moduleCall(mod Value, modName, name string, args []Value, named namedArgs, pos token.Pos) (Value, error) {
+	if v, ok, err := e.moduleMember(mod, name, args, named, pos); ok {
 		return v, err
 	}
 	if m, ok := LookupMethod(mod.Kind(), name); ok && m.Available(e.rs.opts) {
+		if err := named.reject(modName + "." + name); err != nil {
+			return Nil(), err
+		}
 		return e.invokeMethod(m, name, mod, args, pos)
 	}
 	return Nil(), undefinedMemberError(modName, name, mod.Keys())
@@ -433,11 +570,14 @@ func (e ev) moduleCall(mod Value, modName, name string, args []Value, pos token.
 // dispatch is §8.7's lookup order: the receiver kind's stdlib table (falling back to
 // the universal table), then a function of that name in lexical scope taking the
 // receiver as its first argument, then `undefined method` with a suggestion.
-func (e ev) dispatch(recv Value, name string, args []Value, pos token.Pos) (Value, error) {
+func (e ev) dispatch(recv Value, name string, args []Value, named namedArgs, pos token.Pos) (Value, error) {
 	// Unregister narrows the surface a script can reach, and UFCS gives every row two
 	// spellings, so a removed name has to disappear from both of them.
 	if !e.rs.in.isRemoved(name) {
 		if m, ok := LookupMethod(recv.Kind(), name); ok && m.Available(e.rs.opts) {
+			if err := named.reject(name); err != nil {
+				return Nil(), err
+			}
 			return e.invokeMethod(m, name, recv, args, pos)
 		}
 	}
@@ -447,7 +587,7 @@ func (e ev) dispatch(recv Value, name string, args []Value, pos token.Pos) (Valu
 	// take `nil.json` down with it.
 	ufcs := make([]Value, 0, len(args)+1)
 	ufcs = append(append(ufcs, recv), args...)
-	if v, ok, err := e.callNamed(name, ufcs, pos, true); ok {
+	if v, ok, err := e.callNamed(name, ufcs, named, pos, true); ok {
 		return v, err
 	}
 	return Nil(), undefinedMethodError(recv.Kind(), name)
@@ -480,7 +620,7 @@ func (e ev) invokeMethod(m Method, name string, recv Value, args []Value, pos to
 // moduleMember reads `json.parse` and `math.pi` off a module value. A member that is a
 // function is called; any other member is the value itself, so a module constant needs
 // no parentheses.
-func (e ev) moduleMember(mod Value, name string, args []Value, pos token.Pos) (Value, bool, error) {
+func (e ev) moduleMember(mod Value, name string, args []Value, named namedArgs, pos token.Pos) (Value, bool, error) {
 	if mod.Kind() != KDict {
 		return Nil(), false, nil
 	}
@@ -489,8 +629,13 @@ func (e ev) moduleMember(mod Value, name string, args []Value, pos token.Pos) (V
 		return Nil(), false, nil
 	}
 	if member.Kind() == KFunc {
-		v, err := e.call(member, args, pos)
+		// A module's exported `fn` is an ordinary script function, so `m.f(c = 5)` binds
+		// by name exactly as `f(c = 5)` does inside the module (§12.8).
+		v, err := e.call(member, args, named, pos)
 		return v, true, err
+	}
+	if err := named.reject(name); err != nil {
+		return Nil(), true, err
 	}
 	if len(args) == 0 {
 		return member, true, nil

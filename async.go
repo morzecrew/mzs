@@ -230,7 +230,7 @@ func (rs *runState) reportUnawaited() {
 // goroutine cannot run before the caller releases the lock — at an `await`, at a
 // blocking call, or by finishing — so starting a task interleaves nothing: the call
 // returns a handle and the caller carries straight on.
-func (e ev) spawnTask(f *Func, args []Value, pos token.Pos) (Value, error) {
+func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Value, error) {
 	rs := e.rs
 	switch {
 	case rs.opts.MaxTasks <= 0:
@@ -242,7 +242,7 @@ func (e ev) spawnTask(f *Func, args []Value, pos token.Pos) (Value, error) {
 	}
 	// The frame is built here, under the caller's lock, because a default argument
 	// (`async fn f(x = g())`) is the *caller's* code and must not run beside it.
-	env, err := e.bindParams(f, args)
+	env, err := e.bindParams(f, args, named)
 	if err != nil {
 		return Nil(), e.at(err, pos)
 	}

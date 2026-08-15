@@ -97,15 +97,56 @@ tag("div", "big", "red")                   # ["big","red"]
 tag("div")                                 # []
 ```
 
-Arity is checked for every `fn`, named or not; `*rest` makes it variadic (`arity` is `-1`). Keyword
-arguments are collected into one trailing dict argument — there is no keyword-parameter
-binding.
+Arity is checked for every `fn`, named or not; `*rest` makes it variadic (`arity` is `-1`).
 
 ```
 fn add(a, b) { a + b }; add(1)
 # -e:1:25: argument: add expects 2 argument(s), got 1
-fn f(a, b) { [a, b.json] }; f(1, x: 2, y: 3)     # [1,"{\"x\":2,\"y\":3}"]
 ```
+
+## Named arguments
+
+An argument written `name = value` binds the parameter of that name, so a defaulted
+parameter in the middle can be skipped instead of shifted:
+
+```
+fn area(w, h = 2, unit = "cm") { "${w * h} ${unit}²" }
+
+area(3)                    # 6 cm²
+area(3, 5)                 # 15 cm²
+area(3, unit = "m")        # 6 m²      — `h` keeps its default
+area(h = 5, w = 3)         # 15 cm²    — any order, once every argument is named
+```
+
+Names come after the positional arguments, each name is given once, and both of those are
+caught while parsing. The rest is caught at the call, where the parameter list is known:
+
+```
+fn area(w, h = 2) { w * h }
+
+area(3, z = 1)     # argument: area has no parameter named 'z'; it takes 'w' and 'h'
+area(3, w = 1)     # argument: area got two values for parameter 'w': one by position and one by name
+area(h = 1)        # argument: area is missing a value for parameter 'w'; it takes 'w' and 'h'
+area(w = 1, 2)     # syntax: a positional argument may not follow a named one
+```
+
+Named arguments work wherever a script function does — a closure, an anonymous `fn`, a
+UFCS method call, an `async fn`, a module's exported function:
+
+```
+g = { (x, y) -> x - y }; g(y = 1, x = 9)          # 8
+fn area(w, h = 2) { w * h }; 3.area(h = 4)        # 12   the receiver is still `w`
+```
+
+Only a script function has parameter names. Builtins, host functions and stdlib methods
+take their arguments by position, and a name there is an error rather than a guess:
+
+```
+print(len = "x")   # argument: print takes its arguments by position, so 'len = …' has no parameter to bind
+```
+
+Two spellings that are *not* named arguments: `f(a: 1)` (a dict is written `f({a: 1})`),
+and an assignment in argument position, which needs its own parentheses — `f((x = 5))`.
 
 ## Closures and `it`
 

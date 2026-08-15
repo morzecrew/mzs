@@ -100,6 +100,9 @@ filesystem before any of these names exist.
 | One-liner | Result |
 |---|---|
 | `match 7 { in 1..5 -> "small"; else -> "big" }` | `big` |
+| `a = 7; if a in 1..20 { "hit" } else { "miss" }` | `hit` |
+| `"вет" in "привет"` | `true` |
+| `fn area(w, h = 2) { w * h }; area(3, h = 5)` | `15` |
 | `x = 5; x > 3 ? "yes" : "no"` | `yes` |
 | `n = 0; n += 1 while n < 5; n` | `5` |
 | `a, b = [1, 2]; a + b` | `3` |

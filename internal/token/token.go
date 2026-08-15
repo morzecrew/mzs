@@ -394,10 +394,18 @@ func SuppressesNewlineAfter(k Kind) bool {
 // SuppressesNewlineBefore reports whether a pending NEWLINE is dropped because the next
 // significant token is k (SPEC §3.10). This is what makes leading-dot method chains, a
 // hanging `else` and multi-line `match` arms work.
+//
+// `in` is the one binary operator excluded, and it has to be: a line that *starts* with
+// `in` is the `in` arm of a `match` (§5.3), so swallowing the newline in front of it
+// would glue that arm onto the previous one's body. The continuation still works from
+// the other side — SuppressesNewlineAfter(KW_IN) — so `x in\n  xs` reads as one
+// expression while `-> "low"\nin 6..10 ->` stays two arms.
 func SuppressesNewlineBefore(k Kind) bool {
 	switch k {
 	case DOT, SAFEDOT, KW_ELSE, ARROW, RPAREN, RBRACKET, RBRACE:
 		return true
+	case KW_IN:
+		return false
 	}
 	return IsBinaryOp(k)
 }
@@ -425,6 +433,7 @@ const (
 	PrecAnd      = 30 // &&
 	PrecEquality = 40 // == != ~ !~
 	PrecCompare  = 50 // < <= > >= <=>
+	PrecIn       = 55 // in
 	PrecRange    = 60 // .. ..<
 	PrecAdd      = 70 // + -
 	PrecMul      = 80 // * / %
@@ -444,6 +453,11 @@ func Precedence(k Kind) int {
 		return PrecEquality
 	case LT, LTE, GT, GTE, SPACESHIP:
 		return PrecCompare
+	case KW_IN:
+		// Membership sits between comparison and the ranges so that `a in 1..20` reads
+		// as `a in (1..20)` — the range is the operand — while `a in xs && b` still
+		// groups as `(a in xs) && b` (§5.1).
+		return PrecIn
 	case DOTDOT, DOTLT:
 		return PrecRange
 	case PLUS, MINUS:
@@ -467,9 +481,13 @@ func IsUnaryOp(k Kind) bool { return k == BANG || k == MINUS || k == PLUS }
 func IsRightAssoc(k Kind) bool { return k == POW }
 
 // IsNonAssoc reports whether chaining k is a parse error; `1..2..3` is (SPEC §5.1 level 6).
+// `in` is non-associative too (level 7) and deliberately absent: this predicate is read
+// after a range's right operand, where the next token being `in` is the ordinary
+// `1..5 in xs` and not a chain at all. The parser refuses `a in b in c` where it builds
+// the node instead.
 func IsNonAssoc(k Kind) bool { return k == DOTDOT || k == DOTLT }
 
-// IsAssignOp reports whether k is `=` or one of the compound assignments (§5.1 level 13).
+// IsAssignOp reports whether k is `=` or one of the compound assignments (§5.1 level 14).
 func IsAssignOp(k Kind) bool {
 	switch k {
 	case ASSIGN, DECLARE, PLUS_EQ, MINUS_EQ, STAR_EQ, SLASH_EQ, PERCENT_EQ, POW_EQ,
