@@ -91,6 +91,21 @@ func TestAsyncIsPositional(t *testing.T) {
 	}
 }
 
+// TestAsyncAnonymous pins §8.14 on the anonymous form: `async fn(…) { … }` is a value, so
+// the modifier is read in expression position too and the task it starts is an ordinary
+// one.
+func TestAsyncAnonymous(t *testing.T) {
+	t.Parallel()
+
+	if v := asyncMustEval(t, "f = async fn(x) { x * 2 }\nf(21).await"); v.Str() != "42" {
+		t.Fatalf("anonymous async fn = %s; want 42", v.Str())
+	}
+	// The task is started by the call, not by the literal, exactly as the named form is.
+	if v := asyncMustEval(t, "fs = [async fn() { 1 }, async fn() { 2 }]\nfs.map { it().await }.sum"); v.Str() != "3" {
+		t.Fatalf("array of anonymous async fns = %s; want 3", v.Str())
+	}
+}
+
 // TestAsyncErrors pins where a failure surfaces: at the await, catchable there like any
 // other error, and never at the call that started the task.
 func TestAsyncErrors(t *testing.T) {
@@ -462,7 +477,7 @@ func TestAsyncDiagnostics(t *testing.T) {
 	}{
 		{"await on a value that is not a task", "5.await", "undefined method 'await' for int", false},
 		{"done on a value that is not a task", "x = 5\nx.done", "undefined method 'done' for int", false},
-		{"an anonymous async fn", "async fn () { 1 }", "expected a function name after 'fn'", true},
+		{"an exported async fn needs a name", "export async fn (a) { a }", "'export' needs a name", true},
 	}
 
 	for _, tt := range tests {

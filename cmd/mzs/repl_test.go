@@ -38,6 +38,17 @@ func (s *scriptedLines) read(prompt string) (string, error) {
 
 func replRun(t *testing.T, argv []string, steps ...scriptedLine) (out, errOut string, prompts []string) {
 	t.Helper()
+	code, out, errOut, prompts := replCode(t, argv, steps...)
+	if code != exitOK {
+		t.Fatalf("exit = %d, stderr: %s", code, errOut)
+	}
+	return out, errOut, prompts
+}
+
+// replCode is replRun for the sessions that end on purpose with a status of their own:
+// `exit(code)`, and the second Ctrl-C.
+func replCode(t *testing.T, argv []string, steps ...scriptedLine) (code int, out, errOut string, prompts []string) {
+	t.Helper()
 	cfg, _, _, err := parseArgs(argv)
 	if err != nil {
 		t.Fatalf("parseArgs: %v", err)
@@ -45,10 +56,8 @@ func replRun(t *testing.T, argv []string, steps ...scriptedLine) (out, errOut st
 	var stdout, stderr bytes.Buffer
 	lines := &scriptedLines{steps: steps}
 	session := &replSession{prompt: "mzs> ", contPrompt: "...> "}
-	if code := replLoop(cfg, &stdout, &stderr, lines, session); code != exitOK {
-		t.Fatalf("exit = %d, stderr: %s", code, stderr.String())
-	}
-	return stdout.String(), stderr.String(), lines.prompts
+	code = replLoop(cfg, &stdout, &stderr, lines, session)
+	return code, stdout.String(), stderr.String(), lines.prompts
 }
 
 // TestREPLCommands drives the dot-commands, which are the session's whole control panel.
@@ -252,6 +261,82 @@ func TestREPLInterruptKeepsTheSession(t *testing.T) {
 	}
 	if errOut != "" {
 		t.Errorf("stderr = %q, want nothing", errOut)
+	}
+}
+
+// TestREPLTwoInterruptsLeave: the second Ctrl-C in a row ends the session. It is the one
+// way out that needs no line typed, which is the whole reason it exists — and the first
+// press still says so, so nobody has to guess.
+func TestREPLTwoInterruptsLeave(t *testing.T) {
+	t.Parallel()
+
+	code, out, errOut, _ := replCode(t, []string{"--repl"},
+		scriptedLine{err: errInterrupted},
+		scriptedLine{err: errInterrupted},
+		scriptedLine{line: ":q"}, // never reached
+	)
+	if code != exitOK {
+		t.Errorf("exit = %d, want %d", code, exitOK)
+	}
+	if !strings.Contains(out, "press Ctrl-C again to leave") {
+		t.Errorf("stdout = %q, want the first press to name the second", out)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing", errOut)
+	}
+}
+
+// TestREPLInterruptsMustBeConsecutive: a line between them starts the count again, so a
+// Ctrl-C now and another one ten lines later leave the session alone.
+func TestREPLInterruptsMustBeConsecutive(t *testing.T) {
+	t.Parallel()
+
+	out, _, _ := replRun(t, []string{"--repl"},
+		scriptedLine{err: errInterrupted},
+		scriptedLine{line: "1 + 1"},
+		scriptedLine{err: errInterrupted},
+		scriptedLine{line: "6 * 7"},
+		scriptedLine{line: ":q"},
+	)
+	if !strings.Contains(out, "42") {
+		t.Errorf("stdout = %q, want the session to survive both interrupts", out)
+	}
+}
+
+// TestREPLContinuationInterruptCounts: the Ctrl-C that abandons a `...>` continuation is
+// the same press as any other, so it and the next one leave together.
+func TestREPLContinuationInterruptCounts(t *testing.T) {
+	t.Parallel()
+
+	code, _, _, _ := replCode(t, []string{"--repl"},
+		scriptedLine{line: "fn f() {"},
+		scriptedLine{err: errInterrupted},
+		scriptedLine{err: errInterrupted},
+		scriptedLine{line: ":q"}, // never reached
+	)
+	if code != exitOK {
+		t.Errorf("exit = %d, want %d", code, exitOK)
+	}
+}
+
+// TestREPLExitBuiltin: `exit(code)` ends the session with the status it names — the same
+// builtin a script uses, doing the same thing (§12.1).
+func TestREPLExitBuiltin(t *testing.T) {
+	t.Parallel()
+
+	code, out, errOut, _ := replCode(t, []string{"--repl"},
+		scriptedLine{line: `say("bye")`},
+		scriptedLine{line: "exit(7)"},
+		scriptedLine{line: ":q"}, // never reached
+	)
+	if code != 7 {
+		t.Errorf("exit = %d, want 7", code)
+	}
+	if !strings.Contains(out, "bye") {
+		t.Errorf("stdout = %q, want the output before the exit", out)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want no diagnostic for an exit", errOut)
 	}
 }
 

@@ -41,17 +41,30 @@ func replLoop(cfg *config, stdout, stderr io.Writer, lines lineSource, session *
 
 	shown := 0
 
+	// One Ctrl-C abandons the line and nothing else: the session, its variables and its
+	// history are all still there at the next prompt. Two in a row leave, because a
+	// session that has stopped answering is the one case where there is no line left to
+	// type `.exit` on — and the first press says so, so nobody has to guess.
+	interrupts := 0
+	notice := func() { fmt.Fprintln(stdout, "(press Ctrl-C again to leave, or .exit)") }
+
 	for {
 		line, err := lines.read(session.prompt)
 		switch {
 		case errors.Is(err, errInterrupted):
-			// Ctrl-C abandons the line and nothing else: the session, its variables and
-			// its history are all still there at the next prompt.
+			if interrupts++; interrupts >= 2 {
+				fmt.Fprintln(stdout)
+				return exitOK
+			}
+			notice()
 			continue
 		case err != nil:
 			fmt.Fprintln(stdout)
 			return exitOK
 		}
+		// The two presses have to be consecutive, so any line that was actually read —
+		// even an empty one, even `.help` — starts the count again.
+		interrupts = 0
 		switch strings.TrimSpace(line) {
 		case "":
 			continue
@@ -79,6 +92,11 @@ func replLoop(cfg *config, stdout, stderr io.Writer, lines lineSource, session *
 		prog, pending, full, err := compileMaybeContinued(in, session, line, lines)
 		if err != nil {
 			if errors.Is(err, errInterrupted) {
+				// The line that opened the continuation reset the count, so this press is
+				// always the first of its run: it abandons the construct, and the next one
+				// at the prompt is what leaves.
+				interrupts++
+				notice()
 				continue
 			}
 			reportErr(stderr, "repl", full, err)
@@ -90,6 +108,11 @@ func replLoop(cfg *config, stdout, stderr io.Writer, lines lineSource, session *
 		produced := sink.String()
 		if len(produced) > shown {
 			fmt.Fprint(stdout, produced[shown:])
+		}
+		if code, ok := mzs.ExitCode(runErr); ok {
+			// `exit(code)` is the session's own way out, with the status it asked for —
+			// the same builtin a script uses, doing the same thing (§12.1).
+			return code
 		}
 		if runErr != nil {
 			reportErr(stderr, "repl", full, runErr)
@@ -413,7 +436,7 @@ func sortedVarNames(vars map[string]mzs.Value) []string {
 }
 
 const replHelp = `  .help    this text
-  .exit    leave (:q and Ctrl-D work too)
+  .exit    leave (:q, exit(code), Ctrl-D and Ctrl-C twice work too)
   .clear   forget every line of this session
   .src     show the session's accumulated source
   .vars    show the bound $variables
@@ -424,8 +447,9 @@ const replHelp = `  .help    this text
 
   On a terminal the line is edited, not just read: ← → move, ↑ ↓ walk the
   history, Home/End and Ctrl-A/E jump, Ctrl-W and Ctrl-U erase, Tab
-  completes a name, Ctrl-C throws the line away, and what you type is
-  coloured as you type it. NO_COLOR turns the colour off.
+  completes a name, Ctrl-C throws the line away — twice in a row leaves —
+  and what you type is coloured as you type it. NO_COLOR turns the colour
+  off.
 
   mzs> s = "  ОПЕРАТОР ".lower.trim
   mzs> s ~ /оператор/i

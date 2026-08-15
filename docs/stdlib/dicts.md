@@ -124,13 +124,35 @@ d = {}; d.set([1], 2)
 d = {}; d.set(1.0, "a"); d.set(1, "b"); d      # {"1.0":"b"} — one entry
 ```
 
-The literal syntax takes a bare identifier or a string, and the identifier is a literal
-key rather than a variable reference. Other kinds go in through `set` or `array.dict`.
+The literal syntax takes a bare identifier or a string before `:`, and the identifier is a
+literal key rather than a variable reference.
 
 ```
 {"a b": 1}                  # {"a b":1}
 k = "x"; {k: 1}             # {"k":1}  — the key is "k", not "x"
 [[1, 2], [3, 4]].dict       # {"1":2,"3":4}
+```
+
+`->` separates an entry wherever `:` does, and it is what puts a key that is **not** a
+string in a literal — a number, a bool, `nil`, a regex:
+
+```
+{1 -> "A", 2 -> "B"}[1]     # A
+{-2.5 -> "cold"}            # a signed number is a key too
+{true -> 1, nil -> 2}       # bool and nil keys
+{1 -> "A", a: 2, "b" -> 3}  # the two separators mix freely
+{a -> 1} == {a: 1}          # true — a bare word is the string either way
+```
+
+A computed key keeps its own spelling, `(k): v`, because `(k) ->` is a closure's parameter
+list. The two wrong separators each name their replacement:
+
+```
+k = "x"; {(k): 1}           # {"x":1}
+{1: "A"}
+# -e:1:3: syntax: a dict key that is not a string takes '->', not ':'
+{a: 1, (k) -> 2}
+# -e:1:12: syntax: a computed dict key takes ':', not '->': write (k): v
 ```
 
 ## JSON

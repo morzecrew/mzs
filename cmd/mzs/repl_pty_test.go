@@ -139,3 +139,56 @@ func TestREPLOverATerminal(t *testing.T) {
 		t.Errorf("stderr = %q, want nothing: the interrupted line leaves no diagnostic", errOut.String())
 	}
 }
+
+// TestTwoInterruptsOverATerminal is the same rule as TestREPLTwoInterruptsLeave with the
+// real key rather than a scripted error: two Ctrl-Cs and no `.exit` end the session,
+// which is what a user reaches for when the prompt is the only thing left to talk to.
+//
+// The `.exit` after them is a backstop, not part of the test: without the rule the loop
+// would wait for a line that never comes, and a hung test says less than a failed one.
+// It is what the count below distinguishes — one notice means the second press left.
+func TestTwoInterruptsOverATerminal(t *testing.T) {
+	master, slave := openPTY(t)
+	cfg, _, _, err := parseArgs([]string{"--repl"})
+	if err != nil {
+		t.Fatalf("parseArgs: %v", err)
+	}
+	t.Setenv("TERM", "xterm-256color")
+	unsetEnv(t, "NO_COLOR")
+
+	lines, session := newLineSource(cfg, slave, slave)
+	ed, ok := lines.(*editorSource)
+	if !ok {
+		t.Fatalf("lines = %T, want the line editor", lines)
+	}
+	term, ok := lineedit.FileTerminal(slave, slave)
+	if !ok {
+		t.Fatal("FileTerminal said no to a pseudo-terminal")
+	}
+	restore, err := term.MakeRaw()
+	if err != nil {
+		t.Fatalf("raw mode: %v", err)
+	}
+	defer restore()
+
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := master.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	if _, err := master.WriteString("\x03\x03.exit\r"); err != nil {
+		t.Fatalf("writing the keys: %v", err)
+	}
+
+	var out, errOut strings.Builder
+	if code := replLoop(cfg, &out, &errOut, ed, session); code != exitOK {
+		t.Fatalf("exit = %d, stderr: %s", code, errOut.String())
+	}
+	if got := strings.Count(out.String(), "press Ctrl-C again to leave"); got != 1 {
+		t.Errorf("stdout = %q, want the notice once and the second press to leave", out.String())
+	}
+}

@@ -74,6 +74,8 @@ is already a valid mzs literal.
 {name: "Ivan", price: 1500}
 {"name": "Ivan"}         # the same dict; a bare key becomes a string
 k = "key"; {(k): 1}      # a computed key is parenthesised
+{1 -> "A", 1.5 -> "B"}   # `->` is the separator a key that is not a string takes
+{name -> "Ivan"}         # the same as `name:` — a bare word is the string either way
 ```
 
 Keys in brackets are a diagnostic naming the replacement, never a silent reading:

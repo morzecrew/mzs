@@ -202,6 +202,24 @@ func init() {
 			}
 			return Nil(), c.position(raiseError(msg, data))
 		}},
+		// `exit` ends the Run and hands the host a status; it is not a failure and not a
+		// script error, so `try` never catches it (§8.11) and no diagnostic is printed
+		// for it. Nothing here touches the process: an embedder's Run returns the error
+		// and decides what a script asking to stop means (§12.1, §13.5).
+		Builtin{Name: "exit", Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
+			code := int64(0)
+			if len(args) > 0 {
+				n, err := argInt(c, args[0])
+				if err != nil {
+					return Nil(), err
+				}
+				if n < 0 || n > 255 {
+					return Nil(), c.position(argErrorf("exit code must be between 0 and 255, got %d", n))
+				}
+				code = n
+			}
+			return Nil(), c.position(exitError(code))
+		}},
 		Builtin{Name: "assert", Min: 1, Max: 2, Fn: func(c *Ctx, args []Value) (Value, error) {
 			if args[0].Truthy() {
 				return Nil(), nil

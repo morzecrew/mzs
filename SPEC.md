@@ -95,7 +95,7 @@ These are decided. No alternatives are offered anywhere in this document.
 | # | Decision |
 |---|---|
 | D1 | Newline **and** `;` both terminate a statement. Newlines are suppressed after an operator, comma, opening bracket, `->`, `?`, `:`, and before a leading `.`/`?.`/`else`/`)`/`]`/`}`/`->`. |
-| D2 | `{ … }` is a **closure literal** everywhere except operand position, where the §3.12 lookahead may read it as a **dict**. Constructs that take a body (`if`, `while`, `for`, `fn`, `match` arms) invoke it immediately with no arguments; after a call it is appended as the last argument. A closure body can never begin with `name :`, so the two readings never overlap and the parser still carries no state. |
+| D2 | `{ … }` is a **closure literal** everywhere except operand position, where the §3.12 lookahead may read it as a **dict**. Constructs that take a body (`if`, `while`, `for`, `fn`, `match` arms) invoke it immediately with no arguments; after a call it is appended as the last argument. A closure body can never begin with a key and its separator — `name :`, `name ->`, `1 ->` — so the two readings never overlap and the parser still carries no state. |
 | D3 | `[ … ]` is **always an array literal**; `[]` is the empty array. There is no other meaning of `[`. A dict is `{a: 1}` and the empty dict is `{}` — one spelling each (D17), and the one a JSON document already uses. |
 | D4 | The value of the last evaluated statement is the value of a script, a function body, and a closure. `return` is optional and exists for early exit. |
 | D5 | Regex matching is the `~` operator (and `!~`), always returning Bool. The index of a match is `s.index(/re/)`. `==` with a regex operand is a compile error. |
@@ -426,9 +426,9 @@ language, and nothing may be added that reintroduces the ambiguity.
 | directly after a call-shaped expression (§4.2) | the **trailing closure** |
 | operand position | a **dict** if the §3.12 lookahead says so, otherwise a **closure** |
 
-The three never overlap, because a closure body and a block can never begin with `name :`
-— the shape §3.12 keys on. Each position has exactly one reading, so no token is ever
-re-read and no node is ever undone.
+The three never overlap, because a closure body and a block can never begin with a key
+and its separator — `name :`, `name ->`, `1 ->` — the shapes §3.12 keys on. Each position
+has exactly one reading, so no token is ever re-read and no node is ever undone.
 
 One restriction, the same one Go uses: **inside the header of `if`, `while`, `for` or
 `match`, a `{` at bracket depth 0 ends the header and opens the body.** A call with a
@@ -471,29 +471,48 @@ operand position — and only there (§3.11) — it decides closure or dict by a
 deterministic scan run one token past the brace:
 
 1. `}` immediately → the empty dict `{}`.
-2. First token is `IDENT` or a string literal and the second is `:` → **dict**.
+2. First token is `IDENT` or a string literal and the second is `:` or `->` → **dict**.
 3. First token is `(` → skip to the matching `)`; if the next token is `:` → **dict**,
-   otherwise closure.
-4. Otherwise → **closure**.
+   otherwise closure. A `->` there is a parameter list (§4.1) and never a key.
+4. First token is a literal — a number with an optional sign, `true`, `false`, `nil`, a
+   regex — and the token after it is `->` or `:` → **dict**.
+5. Otherwise → **closure**.
 
 No parse action is ever undone, and nothing is consumed unless the scan commits. A
 ternary does not interfere: in `{x ? a : b}` the first token is `IDENT` and the second is
-`?`, so it is a closure whose body is a ternary.
+`?`, so it is a closure whose body is a ternary. Neither does a body that opens with a
+number: `{ -1 }` is a closure, because the token after the literal is `}`.
 
 ```
 {}                  # empty dict
 {a: 1, b: 2}        # dict with the string keys "a" and "b"
 {"a": 1}            # a quoted key is the same dict
+{a -> 1}            # `->` ends a key wherever `:` does — the same dict again
 {(k): 1}            # computed key
+{1 -> "A"}          # the Int key 1 (§7.6)
+{-2.5 -> a, true -> b, nil -> c}    # every other literal key
 {(x) -> x * 2}      # closure: the token after the matching ')' is '->', not ':'
 { it * 2 }          # closure
 {x ? a : b}         # closure whose body is a ternary
+{ -1 }              # closure: a literal is a key only in front of a separator
 { nil }             # the empty closure value, since `{}` is the empty dict
 ```
 
 A bare-identifier key becomes a string literal, so dicts are JSON-serialisable with no
 symbol type in the language — and a JSON document is already an mzs dict literal, which
-is why the brace is the dict's only spelling.
+is why the brace is the dict's only spelling. `->` changes nothing about that: `{a -> 1}`
+and `{a: 1}` are the same dict, and the identifier is the string "a" either way, never
+the variable `a` — that is what `(a): 1` is for.
+
+**One spelling per key.** A key that is not a string takes `->`, a computed key takes
+`:`, and each other spelling is a diagnostic that names its replacement (§5.6):
+
+| You wrote | Message |
+|---|---|
+| `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
+| `(x) -> x * 2` | `an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }` |
+| `async (x) -> { x }` | ``an async function is written `async fn(a, b) { … }` `` |
+| `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
 
 **Brackets never carry keys.** `[a: 1]` and `[:]` were the earlier draft's dict literals; both are
 now diagnostics that name the replacement, so no such source is read as something else:
@@ -542,7 +561,9 @@ NextStmt       = "next"   [ Expr ] ;
 
 (* ---------- functions and closures ---------- *)
 
-FnDecl         = [ "async" ] "fn" IDENT "(" ParamList ")" Closure ;  (* §8.14; "async" is positional *)
+FnDecl         = [ "async" ] "fn" [ IDENT ] "(" ParamList ")" Closure ;  (* §8.14; "async" is positional *)
+               (* the named form is a declaration and hoists (§8.2); the anonymous form
+                  is a value and binds nothing (§4.1) *)
 ParamList      = [ Param { "," Param } [ "," ] ] ;
 Param          = IDENT [ "=" Expr ]                (* default value *)
                | "*" IDENT ;                       (* rest parameter, last only *)
@@ -598,22 +619,28 @@ Primary        = INT | FLOAT | String | Regex | "true" | "false" | "nil"
                | IDENT | GVAR
                | Collection
                | Closure                           (* a function value *)
+               | ArrowFn                           (* the same, spelled with "->" *)
                | GroupExpr
                | IfExpr | WhileExpr | ForExpr | MatchExpr
                | FnDecl ;
+ArrowFn        = "(" ParamList ")" "->" Closure ;  (* an anonymous FnDecl, §4.1 *)
 
 GroupExpr      = "(" StmtList ")" ;                (* value = last statement *)
 Collection     = "[" ( ArrayBody | DictBody | ":" ) "]" ;
 ArrayBody      = [ Expr { "," Expr } [ "," ] ] ;
 DictBody       = DictEntry { "," DictEntry } [ "," ] ;
-DictEntry      = ( IDENT | String | "(" Expr ")" ) ":" Expr ;
+DictEntry      = ( IDENT | String ) ( ":" | "->" ) Expr   (* a string key *)
+               | "(" Expr ")" ":" Expr                    (* computed; never "->", §3.12 *)
+               | LiteralKey "->" Expr ;                   (* a key that is not a string, §7.6 *)
+LiteralKey     = [ "-" | "+" ] ( INT | FLOAT ) | "true" | "false" | "nil" | Regex ;
 String         = STR_BEGIN { STR_TEXT | STR_GVAR | INTERP_BEGIN Expr INTERP_END } STR_END ;
 Regex          = REGEX ;
 ```
 
 ### 4.1 Closures
 
-`{ … }` is the one and only function-value form.
+`{ … }` is the closure literal, and with the anonymous `fn` below it is one of the two
+function-value forms — the short one, which a library calls.
 
 ```
 { it * 2 }               # no parameter list -> one implicit parameter, `it`
@@ -647,6 +674,50 @@ A closure is an ordinary value. There is no separate concept of a "block", and t
 double = { it * 2 }
 [1,2,3].map(double)      # same as
 [1,2,3].map { it * 2 }   # trailing closure = last argument
+```
+
+**The anonymous `fn`.** Dropping the name from a `fn` makes it an expression and nothing
+else: it is not hoisted, it binds nothing, and its value is the only way to reach it.
+
+```
+add  = fn(a, b) { a + b }        # a function value
+add(2, 3)                        # 5
+fn(x) { x * 3 }(5)               # 15 — called where it stands
+[1,2,3].map(fn(x) { x * 2 })     # a closure would do as well
+task = async fn(u) { http.get(u) }   # §8.14, the same modifier
+```
+
+**The arrow form.** `(params) -> { body }` is that same anonymous `fn` with the keyword
+left out — the same node, the same value, nothing else changed. The parameters are outside
+the braces, so the braces are a **body** and not a value, which is the whole difference
+from the closure literal that reverses them:
+
+```
+add = (a, b) -> { a + b }        # the same function as fn(a, b) { a + b }
+(x) -> { x * 3 }(5)              # 15
+[1,2,3].map((x) -> { x * 2 })    # [2,4,6]
+{ (x) -> x * 2 }                 # a closure: the braces are the value (§4.1 above)
+```
+
+The body is braced, and the braceless arrow keeps its one meaning — the closure's
+parameter list — so `(x) -> x * 2` is a diagnostic that names both replacements (§5.6).
+`async` has no keyword to stand in front of here and stays with `fn` (§8.14). Two
+positions read these tokens before this rule does, and each keeps its reading: a header,
+where the `{` opens the body (§3.11), and a `match` arm's pattern, where the `->` opens the
+arm (§5.3). Both take parentheses when an arrow function is really meant:
+`if ((x) -> { x })(1) { … }`.
+
+Either spelling is a **function**, not a closure, in the two ways a program can tell
+(§7.7): its arity is checked, and a `return` inside it returns from it rather than from the
+function around it. Which form to reach for is therefore a question of what the body does —
+`{ … }` for the short one that a library calls, `fn(…) { … }` or `(…) -> { … }` for the one
+with an interface of its own:
+
+```
+f = fn(a, b) { a + b }
+f(1)                     # error: function expects 2 argument(s), got 1
+g = { (a, _) -> a }
+g.call(1)                # 1 — a closure takes what it is given (§7.7)
 ```
 
 ### 4.2 Calls
@@ -776,6 +847,17 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 Several patterns in one arm, separated by `,`, mean "or". An `if Guard` after the patterns is
 an additional "and".
 
+**Inside a pattern or a guard, a `->` at bracket depth zero ends it** — the same kind of
+rule §3.11 has for the `{` of a header, over the other token that can close a construct.
+That is what keeps `(1) -> { … }` an arm with a parenthesised pattern and a block body
+instead of the arrow function of §4.1; inside a bracket, an argument list or the arm's own
+body the arrow means what it means everywhere else:
+
+```
+match n { (1) -> { "one" }; else -> "many" }      # a pattern, then the arm's body
+match n { 1 -> (y) -> { y + 1 }; else -> nil }    # the body is an arrow function
+```
+
 An array pattern is the one form that **binds**, so it must be the only pattern in its arm —
 "or" over patterns that bind different names has no reading the body could rely on — and it
 needs a subject, because with none every pattern is a condition (§5.4). The names it binds
@@ -860,6 +942,8 @@ cascade.
 | `:name` | `mzs has no symbols; write "name"` |
 | `[a: 1]` | `a dict is written {a: 1}` |
 | `[:]` | `the empty dict is written {}` |
+| `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
+| `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
 | `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
 | `k => v` | `'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure` |
@@ -902,7 +986,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `ReturnStmt` | `X Expr` (may be nil) |
 | `BreakStmt` | `X Expr` (may be nil) |
 | `NextStmt` | `X Expr` (may be nil) |
-| `FnDecl` | `Name string`, `Params []Param`, `Body *BlockStmt`, `Async bool` (§8.14) |
+| `FnDecl` | `Name string` (empty for the anonymous form, §4.1), `Params []Param`, `Body *BlockStmt`, `Async bool` (§8.14) |
 | `BlockStmt` | `Stmts []Stmt` — a statement list; carries its own scope (§8.2) |
 
 **Control flow (expressions)**
@@ -1095,6 +1179,19 @@ Keys may be `nil`, `bool`, `int`, `float`, `string`, or `regex` (hashed by
 source+flags). `1` and `1.0` are the **same** key (normalised to Int when integral).
 Array/Dict/Func keys are an error: `dict key must be hashable, got array`.
 
+A literal of any of those kinds is a key in the literal syntax too, written with `->`
+(§3.12); `set` and a computed key `(k):` take the rest. All three build the same dict:
+
+```
+{1 -> "A"}                      # the Int key 1
+{(1): "A"}                      # the same key, computed
+d = {}; d.set(1, "A"); d        # and the same again
+```
+
+The rendering is a separate question: `str`, `json` and the CLI print a dict as a JSON
+object, and JSON has string keys only, so a key is written out as `str(key)` (§12.7). Two
+keys that differ only in kind — `1` and `"1"` — are two entries that print alike.
+
 `OrderedDict` layout:
 
 ```go
@@ -1117,7 +1214,7 @@ type Func struct {
     Env     *Env          // captured lexical environment (by reference)
     Host    HostFunc      // non-nil for host/builtin functions
     Arity   int           // -1 for variadic
-    Lambda  bool           // true for a `{ … }` literal, false for a named `fn`
+    Lambda  bool           // true for a `{ … }` literal, false for a `fn`, named or not
 }
 ```
 
@@ -1127,6 +1224,9 @@ local mutates the outer local.
 Arity: calling with too few arguments fills the missing parameters with their defaults; a
 missing argument with no default is `ArgumentError: f expects 2 arguments, got 1`. Extra
 arguments are an error unless the function has a `*rest` parameter.
+
+A `fn` is checked whether or not it has a name: the anonymous form of §4.1 is the same
+value in every respect but the binding it does not make.
 
 **Closure literals are exempt from the arity check**, because they are handed to library
 functions that decide how many values to pass: extra values are dropped and missing ones
@@ -1292,7 +1392,7 @@ xs.map(double)              # where double = { (x) -> x * 2 }
 * `try X else Y` evaluates `Y` if `X` raises. `try X else (e) -> Y` additionally binds `e` to
   a Dict `{message: …, kind: …, line: …}` while `Y` is evaluated.
 * `try` catches **script errors only**. It does **not** catch timeout, step-budget,
-  depth-limit or context cancellation; those are unrecoverable and propagate to the host.
+  depth-limit, context cancellation or `exit` (§12.1); those propagate to the host.
 * To guard several statements, group them: `try (a; b) else "-"`.
 * Errors carry the script name, line, column and a short call stack.
 
@@ -1328,8 +1428,10 @@ names, `await` and `done` (§12.12); by UFCS both are also `await(t)` and `done(
 and every other name is `undefined method 'x' for task`.
 
 `async` is positional, not a keyword (§3.5), and it is legal in exactly one place: directly
-before the `fn` of a **named** declaration. `export async fn f(…)` is that declaration
-exported (§12.8). There is no `async` closure literal: `{ … }` is a closure and stays one.
+before a `fn`. Before a named one it is a declaration, and `export async fn f(…)` is that
+declaration exported (§12.8); before an anonymous one it is a value, `f = async fn(u) { … }`
+(§4.1), and calling it starts a task exactly as calling the named form does. There is no
+`async` closure literal: `{ … }` is a closure and stays one.
 
 **The body.** It is an ordinary function body: same scope rules, same frame, same hoisting,
 same arity checks, and `return` ends it with a value. Default arguments are evaluated by the
@@ -1628,6 +1730,7 @@ Conventions used in the tables:
 | `sort` | `sort(xs: array) [{ (a, b) -> int }] -> array` | stable, new array | `xs.sort { (a,b) -> b <=> a }` |
 | `format` | `format(fmt: string, *args) -> string` | §12.7 | `format("%.2f", x)` |
 | `raise` | `raise(msg: any) -> never` | raises a script error | `raise("bad")` |
+| `exit` | `exit(code: int = 0) -> never` | ends the Run with that status; not catchable, and never touches the process (§13.5) | `exit(1)` |
 | `assert` | `assert(cond: any, msg: string = "assertion failed") -> nil` | raises when falsy | |
 | `defined` | `defined(name) -> bool` | true if the identifier or `$var` is bound (parser-level special form) | `defined($price)` |
 | `rand` | `rand(n: int = 0) -> number` | **only if `Options.Rand` is set**, else `undefined function` | |
@@ -1883,7 +1986,9 @@ helper = { (x) -> x * 2 }
 export helper                      # or afterwards, naming a binding that exists
 ```
 
-Exporting a name that does not exist is a compile error. The module's value is a dict of
+Exporting a name that does not exist is a compile error, and so is exporting something
+that has none — `export fn(…) { … }` and `export async fn(…) { … }` report that `export`
+needs a name and print the two spellings that give it one. The module's value is a dict of
 its exported names in declaration order, so `cart.total(x)` and `json.parse(s)` are the
 same operation (§8.7) and `cart.keys` lists what a module offers. A name the module never
 exported is simply absent — `defined(cart.sep)` is false.
@@ -2309,22 +2414,28 @@ var (
     ErrDepth     = errors.New("mzs: max call depth exceeded")
     ErrCanceled  = errors.New("mzs: canceled")
     ErrFatal     = errors.New("mzs: fatal")       // wrap to make a host error uncatchable
+    ErrExit      = errors.New("mzs: exit")        // the `exit` builtin, §12.1
 )
 
 type Error struct {
     Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "zero-division" |
-                   // "regex" | "raise" | "limit" | "internal"
+                   // "regex" | "raise" | "limit" | "exit" | "internal"
     Msg     string
     File    string
     Line    int
     Col     int
     Stack   []Frame        // innermost first
-    Data    Value          // payload from raise(dict)
+    Data    Value          // payload from raise(dict); the status from exit(code)
     wrapped error
 }
 
 func (e *Error) Error() string  // "script.mzs:3:12: type: cannot add int to string"
 func (e *Error) Unwrap() error
+
+// ExitCode reports the status an exit(code) asked for, and false for every other error
+// — including a script that failed on its own. A host that has a process to end asks
+// here first; one that does not treats an exit as the end of the Run and nothing more.
+func ExitCode(err error) (code int, ok bool)
 
 type Frame struct { Fn string; Line int; Col int }
 
@@ -2335,6 +2446,11 @@ type Warning struct { Msg string; Line, Col int }
 `errors.Join` when recovery found several). `Run` never panics; a recovered internal panic
 becomes `Kind == "internal"` and is reported with the Go stack in `Msg` when
 `Options.StrictWarnings` is set.
+
+`Kind == "exit"` is the one error that is not a failure: `exit(code)` (§12.1) ends the Run
+the way a limit does — nothing catches it, and it always reaches the host — but it says the
+program is finished rather than broken. Nothing in the library calls `os.Exit`; a script
+inside a bot cannot end its process, and what the status means is the host's decision.
 
 ### 13.6 `mzs/engine` — the morzebot adapter
 
@@ -2526,7 +2642,7 @@ cat data | mzs -n -e '<source>'
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
 | `--check` | parse + compile only; print errors and warnings; exit 1 on error |
-| `--repl` | interactive REPL (line-based, persistent env, `:q` to quit) |
+| `--repl` | interactive REPL (line-based, persistent env; `.exit`, `:q`, `exit(code)`, Ctrl-D or Ctrl-C twice to quit) |
 | `--version` | print version |
 
 The CLI installs a `ModuleLoader` (§12.8): `include x from "./lib.mzs"` resolves against the
@@ -2580,7 +2696,9 @@ mzs -n --in access.log --bool -e '$_ ~ /ERROR/' && notify
   all — there is no REPL to fall back to when the flag says "run this for every line".
 
 `args...` are exposed to the script as the array `$ARGV` (strings). Exit code: `0` success;
-`1` script error or `--check` failure; `2` CLI usage error; `3` timeout/budget.
+`1` script error or `--check` failure; `2` CLI usage error; `3` timeout/budget. A script
+that calls `exit(n)` (§12.1) sets the status itself: the CLI prints nothing for it, and in
+`-n` mode the lines after it are never read.
 Errors print to stderr as `file:line:col: kind: message` followed by the source line and a
 caret.
 
@@ -2761,6 +2879,10 @@ if $__sent.int > 5 { print("big") }
 | `TestTrailingClosureIsArg` | `[1,2,3].map(double)` == `[1,2,3].map { it * 2 }` where `double = { it * 2 }` |
 | `TestDictLiteral` | `{a: 1}.json == "{\"a\":1}"`; `{}.len == 0`; `[].len == 0`; `type({}) == "dict"` |
 | `TestBraceIsAlwaysClosure` | `if {a: 1}.has("a") { 1 } else { 2 }` → `1` (no parens needed around the dict) |
+| `TestDictLiteralKeys` | `{1 -> "A"}[1]` → `"A"`; `{a -> 1} == {a: 1}`; `{1 -> "A"}.has("1")` → **false**; `{ -1 }` is still a closure |
+| `TestArrowFunction` | `(a) -> { a }` and `fn(a) { a }` parse to one tree; `(1) -> { … }` in a `match` arm is still an arm; `(x) -> x` names both replacements |
+| `TestExit` | `exit(3)` ends the Run with status 3 and `try` does not catch it; `ExitCode` answers for an exit and for nothing else; `exit(256)` and `exit("x")` are refused |
+| `TestAnonymousFn` | `f = fn(a, b) { a + b }; f(2, 3)` → `5`; `fn(x) { x * 3 }(5)` → `15`; `f(1)` raises on arity where a closure would not, and the literal binds no name |
 | `TestMatchFirstWins` | `match 5 { in 1..10 -> "a"; 5 -> "b"; else -> "c" }` → `"a"` |
 | `TestMatchNoArm` | `match 99 { 1 -> "a" }` → `nil` |
 | `TestSubjectEvaluatedOnce` | a subject with a side effect runs exactly once across all arms |
@@ -2803,9 +2925,9 @@ Rules:
 * Every row of §5.6 is a diagnostic with a fixed message, produced by the lexer or parser
   before any other error can cascade from it.
 * Warnings never fail a compile unless `StrictWarnings`. Current warnings:
-  `\\b` in a regex (§11.5); an unused closure parameter; a closure literal in statement
-  position whose value is discarded; `=` used where `==` was likely meant (an assignment as
-  the whole condition of an `if`).
+  `\\b` in a regex (§11.5); an unused closure parameter; a closure literal — or an
+  anonymous `fn` (§4.1) — in statement position whose value is discarded; `=` used where
+  `==` was likely meant (an assignment as the whole condition of an `if`).
 
 ---
 

@@ -69,17 +69,27 @@ type parser struct {
 	// (§3.11). While it is non-zero a `{` closes the header instead of opening a
 	// closure.
 	header int
+
+	// arm counts the `match` arm patterns we are inside at bracket depth zero (§5.3).
+	// While it is non-zero a `->` closes the pattern, so `(1) -> { … }` is an arm and
+	// not the arrow function of §4.1 — the same kind of rule as header's, over the
+	// other token that can end a construct.
+	arm int
 }
 
-// push saves the header counter and re-opens ordinary expression position; every
+// state is what push saves: both counters answer "what does this token close", and
+// both are off inside a bracket, an argument list, an interpolation or a body.
+type state struct{ header, arm int }
+
+// push saves the positional counters and re-opens ordinary expression position; every
 // descent into a bracket, an argument list, an interpolation or a body does it.
-func (p *parser) push() int {
-	saved := p.header
-	p.header = 0
+func (p *parser) push() state {
+	saved := state{header: p.header, arm: p.arm}
+	p.header, p.arm = 0, 0
 	return saved
 }
 
-func (p *parser) pop(saved int) { p.header = saved }
+func (p *parser) pop(saved state) { p.header, p.arm = saved.header, saved.arm }
 
 // Parse lexes and parses src into a program. name is the file name used in
 // diagnostics. On failure it returns a nil program and an error that is either a
@@ -190,6 +200,16 @@ func (p *parser) peek(n int) token.Token {
 }
 
 func (p *parser) peekKind(n int) token.Kind { return p.peek(n).Kind }
+
+// kindAt is the kind of the token at an absolute index, for the bounded lookaheads that
+// scan from an index of their own. Past the end it is EOF, so a scan that runs off the
+// stream declines instead of panicking.
+func (p *parser) kindAt(i int) token.Kind {
+	if i < 0 || i >= len(p.toks) {
+		return token.EOF
+	}
+	return p.toks[i].Kind
+}
 
 // advance consumes the current token and returns it. It never moves past the EOF
 // sentinel, so every caller can read p.cur() unconditionally.
@@ -414,11 +434,9 @@ func (p *parser) parseBareStmt() ast.Stmt {
 	case token.KW_FN:
 		if p.peekKind(1) == token.IDENT {
 			// A named `fn` is a declaration statement so the evaluator can hoist it
-			// (§8.2) without digging through ExprStmts.
-			if fd, ok := p.parseFn().(*ast.FnDecl); ok {
-				return fd
-			}
-			return &ast.ExprStmt{X: &ast.NilLit{Start: p.cur().Pos, Stop: p.cur().End}}
+			// (§8.2) without digging through ExprStmts. The anonymous form is a value
+			// and falls through to the expression statement below.
+			return p.parseFn()
 		}
 	case token.KW_RETURN:
 		t := p.advance()
@@ -459,14 +477,14 @@ func (p *parser) parseAsyncFn() ast.Stmt {
 		return nil
 	}
 	kw := p.advance().Pos
-	x := p.parseFn()
-	fd, ok := x.(*ast.FnDecl)
-	if !ok {
-		// An anonymous `async fn` — parseFn has already said it wants a name, and one
-		// message per mistake is the rule (§17), so nothing is added here.
-		return &ast.ExprStmt{X: x}
-	}
+	fd := p.parseFn()
 	fd.Async, fd.Kw = true, kw
+	if fd.Name == "" {
+		// An anonymous `async fn` is a value, not a declaration: there is no name to
+		// hoist and none to bind, so it reaches the statement list as an expression and
+		// §17 warns about the value nobody receives.
+		return &ast.ExprStmt{X: fd}
+	}
 	return fd
 }
 
@@ -515,13 +533,16 @@ func (p *parser) parseExport() ast.Stmt {
 	st := &ast.ExportDecl{Kw: kw.Pos, Stop: kw.End}
 
 	switch {
-	case p.kind() == token.KW_FN && p.peekKind(1) == token.IDENT,
+	case p.kind() == token.KW_FN,
 		p.kind() == token.IDENT && p.cur().Value == "async" && p.peekKind(1) == token.KW_FN:
 		// `export async fn f(…)` exports the async function like any other (§8.14):
 		// the importer calls it and gets a task, which is the whole difference.
 		inner := p.parseBareStmt()
 		fd, ok := inner.(*ast.FnDecl)
-		if !ok {
+		if !ok || fd.Name == "" {
+			// An anonymous `fn` has no name for the module table (§12.8), and the
+			// declaration form is not the only way to export one.
+			p.errorAt(kw.Pos, "'export' needs a name: write `export fn f(…) { … }` or `export f = fn(…) { … }`")
 			return st
 		}
 		st.Names, st.Decl, st.Stop = []string{fd.Name}, fd, fd.End()
@@ -1064,6 +1085,22 @@ func (p *parser) parsePrimary() ast.Expr {
 		p.advance()
 		return &ast.RegexLit{Pattern: t.Value, Flags: t.Flags, Start: t.Pos, Stop: t.End}
 	case token.IDENT:
+		if t.Value == "async" && p.header == 0 && p.arm == 0 && p.arrowFollows(p.pos+1) {
+			// §8.14 puts `async` in front of a `fn` and nowhere else; the arrow form has
+			// no keyword to put it in front of, so it has one spelling and this names it.
+			p.errorAt(t.Pos, "an async function is written `async fn(a, b) { … }`")
+			p.advance()
+			return p.parseArrowFn()
+		}
+		if t.Value == "async" && p.peekKind(1) == token.KW_FN {
+			// §8.14 in expression position: `f = async fn(…) { … }`. `async` is
+			// positional rather than a keyword (§3.5), and an identifier in front of
+			// `fn` can be nothing else, so this needs no lookahead past the two tokens.
+			kw := p.advance().Pos
+			fd := p.parseFn()
+			fd.Async, fd.Kw = true, kw
+			return fd
+		}
 		if e, ok := p.parseRubyWord(); ok {
 			return e
 		}
@@ -1073,6 +1110,14 @@ func (p *parser) parsePrimary() ast.Expr {
 		p.advance()
 		return &ast.GlobalVar{Name: t.Value, Start: t.Pos, Stop: t.End}
 	case token.LPAREN:
+		// §4.1: `(params) -> { body }` is the anonymous `fn` without the keyword. The
+		// scan is the closure's own parameter-list lookahead with the brace added, and
+		// it is off in the two positions where the tokens it reads are already spoken
+		// for: a header, where the `{` opens the body (§3.11), and a `match` arm's
+		// pattern, where the `->` opens the arm (§5.3).
+		if p.header == 0 && p.arm == 0 && p.arrowFollows(p.pos) {
+			return p.parseArrowFn()
+		}
 		return p.parseGroup()
 	case token.LBRACKET:
 		return p.parseCollection()
@@ -1215,21 +1260,46 @@ func (p *parser) bracketDict(lbIdx int, lb token.Pos, msg string) ast.Expr {
 	return &ast.DictLit{Lbrack: lb, Rbrack: stop}
 }
 
-// dictFollows is §3.12 rules 3 and 4, read from the token after the '['.
+// dictFollows is §3.12 rules 2 to 4, read from the token after the '['.
 func (p *parser) dictFollows() bool { return p.dictFollowsAt(p.pos) }
 
-// dictFollowsAt is dictFollows read from an arbitrary index, so the same three shapes
+// dictFollowsAt is dictFollows read from an arbitrary index, so the same four shapes
 // decide a `{ … }` in operand position (§3.11) without duplicating the rule.
+//
+// `->` ends a key wherever `:` does, which is what gives a dict a key that is not a
+// string (§3.12, §7.6) — with one exception, and it is the whole of why the exception
+// exists: a `)` in front of a `->` is a parameter list (§4.1), so `{(x) -> x * 2}` stays
+// the closure it has always been and a computed key keeps its one spelling, `(k): v`.
 func (p *parser) dictFollowsAt(i int) bool {
-	switch p.toks[i].Kind {
+	switch p.kindAt(i) {
 	case token.IDENT:
-		return p.toks[i+1].Kind == token.COLON
+		return endsDictKey(p.kindAt(i + 1))
 	case token.STR_BEGIN:
-		return p.toks[p.skipString(i)].Kind == token.COLON
+		return endsDictKey(p.kindAt(p.skipString(i)))
 	case token.LPAREN:
-		return p.toks[p.skipBalanced(i, token.LPAREN, token.RPAREN)].Kind == token.COLON
+		return p.kindAt(p.skipBalanced(i, token.LPAREN, token.RPAREN)) == token.COLON
 	}
-	return false
+	return p.literalKeyAt(i)
+}
+
+// endsDictKey reports whether k separates a dict key from its value.
+func endsDictKey(k token.Kind) bool { return k == token.COLON || k == token.ARROW }
+
+// literalKeyAt is §3.12 rule 4: a literal — `1`, `-2.5`, `true`, `nil`, a regex — in
+// front of a separator is a dict key, because nothing else in mzs puts one there. It
+// reads three tokens at most, decides before anything is consumed, and accepts exactly
+// what parseLiteralKey consumes; a `:` is admitted so that the JSON habit `{1: "a"}`
+// reaches the fix-it of §5.6 instead of failing as a closure body.
+func (p *parser) literalKeyAt(i int) bool {
+	if k := p.kindAt(i); k == token.MINUS || k == token.PLUS {
+		i++
+		if k := p.kindAt(i); k != token.INT && k != token.FLOAT {
+			return false
+		}
+	} else if !token.IsLiteralKind(k) {
+		return false
+	}
+	return endsDictKey(p.kindAt(i + 1))
 }
 
 func (p *parser) parseArrayBody(lb token.Pos) ast.Expr {
@@ -1250,9 +1320,22 @@ func (p *parser) parseArrayBody(lb token.Pos) ast.Expr {
 	return &ast.ArrayLit{Elems: elems, Lbrack: lb, Rbrack: rb.End}
 }
 
+// keyForm is the separator one key form takes. A bare word and a string take both, so
+// `{a: 1}` and `{a -> 1}` are the same dict; a computed key takes `:` alone, because `)`
+// in front of `->` is a parameter list (§4.1); a literal key takes `->` alone, which is
+// what keeps one spelling per thing.
+type keyForm uint8
+
+const (
+	keyEither keyForm = iota
+	keyColon
+	keyArrow
+)
+
 // parseDictBody reads `DictEntry { "," DictEntry } [ "," ]` up to the closing `}`
 // (§3.12). A bare-identifier key becomes a string literal, so a dict is
-// JSON-serialisable with no symbol type.
+// JSON-serialisable with no symbol type; a literal key written `1 -> v` is how a dict
+// gets one of the other key types of §7.6.
 func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 	const close = token.RBRACE
 	d := &ast.DictLit{Lbrack: lb}
@@ -1262,8 +1345,9 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 			break
 		}
 		var key ast.Expr
+		form := keyEither
 		switch {
-		case p.kind() == token.IDENT && p.peekKind(1) == token.COLON:
+		case p.kind() == token.IDENT && endsDictKey(p.peekKind(1)):
 			t := p.advance()
 			key = strLit(t.Value, t.Pos, t.End)
 		case p.kind() == token.STR_BEGIN:
@@ -1274,6 +1358,10 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 			key = p.parseExpr()
 			p.pop(inner)
 			p.expect(token.RPAREN, "computed dict key")
+			form = keyColon
+		case p.literalKeyAt(p.pos):
+			key = p.parseLiteralKey()
+			form = keyArrow
 		default:
 			p.errorAt(p.cur().Pos, "expected a dict key, found %s", describe(p.cur()))
 			before := p.pos
@@ -1289,7 +1377,7 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 			}
 			continue
 		}
-		p.expect(token.COLON, "dict entry")
+		p.dictSeparator(form)
 		p.skipNewlines()
 		d.Keys = append(d.Keys, key)
 		d.Vals = append(d.Vals, p.parseExpr())
@@ -1304,12 +1392,44 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 	return d
 }
 
+// parseLiteralKey consumes the shape literalKeyAt promised: a literal primary, or a sign
+// and a number. It reads no trailer and no operator, so the separator is the next token
+// however the entry continues.
+func (p *parser) parseLiteralKey() ast.Expr {
+	if k := p.kind(); k == token.MINUS || k == token.PLUS {
+		op := p.advance()
+		return &ast.UnaryExpr{Op: op.Kind, X: p.parsePrimary(), OpPos: op.Pos}
+	}
+	return p.parsePrimary()
+}
+
+// dictSeparator consumes the `:` or `->` between a key and its value and reports the two
+// spellings §3.12 does not have: `:` after a literal key, which is the JSON habit, and
+// `->` after a computed one, which is the closure's parameter list. Each names its
+// replacement and each keeps going, so one wrong separator costs one diagnostic and the
+// entry still reaches the dict.
+func (p *parser) dictSeparator(form keyForm) {
+	switch k := p.kind(); {
+	case k == token.COLON && form != keyArrow, k == token.ARROW && form != keyColon:
+		p.advance()
+	case k == token.COLON:
+		p.errorAt(p.cur().Pos, "a dict key that is not a string takes '->', not ':'")
+		p.advance()
+	case k == token.ARROW:
+		p.errorAt(p.cur().Pos, "a computed dict key takes ':', not '->': write (k): v")
+		p.advance()
+	default:
+		p.errorAt(p.cur().Pos, "expected ':' or '->' in dict entry, found %s", describe(p.cur()))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Closures, bodies and functions (§4.1)
 // ---------------------------------------------------------------------------
 
-// parseFuncLit reads `{ … }` in expression position: the one and only function-value
-// form. With no `(params) ->` list the closure implicitly declares `it` (§8.9).
+// parseFuncLit reads `{ … }` in expression position: the closure form of a function
+// value, the other being an anonymous `fn` (§4.1). With no `(params) ->` list the closure
+// implicitly declares `it` (§8.9).
 func (p *parser) parseFuncLit() ast.Expr {
 	lb := p.advance()
 	// Reached from operand position only after braceDict declined, so a dict shape here
@@ -1350,8 +1470,13 @@ func (p *parser) parseBody(what string) *ast.BlockStmt {
 		return &ast.BlockStmt{Start: lb.Pos, Stop: p.cur().Pos}
 	}
 	saved := p.push()
-	if params, implicit := p.closureParams(lb); !implicit && len(params) > 0 {
-		p.errorAt(params[0].NamePos, "the body of %s cannot declare parameters", what)
+	// A `(…) -> {` in body position is an arrow function opening the body's first
+	// statement (§4.1), not a parameter list the body may not have — the brace is what
+	// tells them apart, so `{ (x) -> x }` still reaches the diagnostic below.
+	if !p.arrowFnFollows(p.pos) {
+		if params, implicit := p.closureParams(lb); !implicit && len(params) > 0 {
+			p.errorAt(params[0].NamePos, "the body of %s cannot declare parameters", what)
+		}
 	}
 	stmts := p.parseStmtList(token.RBRACE)
 	p.pop(saved)
@@ -1451,15 +1576,56 @@ func (p *parser) parseParams() []ast.Param {
 	return params
 }
 
-// parseFn reads `fn name(params) { body }`. The named form yields the FnDecl node, which
-// is both a statement and an expression (§6.1).
-func (p *parser) parseFn() ast.Expr {
+// arrowFollows reports whether the '(' at i is followed by its match and a `->` — the
+// arrow form of §4.1, whatever comes after the arrow. It is the closure's own
+// parameter-list lookahead (§4.1) read from an index instead of from the cursor.
+func (p *parser) arrowFollows(i int) bool {
+	if p.kindAt(i) != token.LPAREN {
+		return false
+	}
+	return p.kindAt(p.skipBalanced(i, token.LPAREN, token.RPAREN)) == token.ARROW
+}
+
+// arrowFnFollows is arrowFollows plus the brace: the complete form, `(params) -> {`. Body
+// position asks for this one, because a `(…) -> ` without a brace there is the parameter
+// list a body may not have and keeps its own diagnostic.
+func (p *parser) arrowFnFollows(i int) bool {
+	return p.arrowFollows(i) && p.kindAt(p.skipBalanced(i, token.LPAREN, token.RPAREN)+1) == token.LBRACE
+}
+
+// parseArrowFn reads `(params) -> { body }`. It builds the node an anonymous `fn` builds,
+// because it is that same function with the keyword left out: the parameters are outside
+// the braces, so the braces are a body and not a value (§4.1).
+//
+// A body that is not braced is §5.6: the braceless arrow is the closure's spelling, and
+// naming both replacements is more use than "unexpected '->'". The expression is read as
+// the body anyway, so one mistake stays one diagnostic (§17).
+func (p *parser) parseArrowFn() ast.Expr {
+	start := p.cur().Pos
+	params := p.parseParams()
+	arrow := p.expect(token.ARROW, "arrow function")
+	if p.kind() != token.LBRACE {
+		p.errorAt(arrow.Pos, "an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }")
+		x := p.parseExpr()
+		return &ast.FnDecl{Params: params, Body: exprBlock(x), Kw: start, Stop: x.End()}
+	}
+	body := p.parseBody("function body")
+	return &ast.FnDecl{Params: params, Body: body, Kw: start, Stop: body.Stop}
+}
+
+// parseFn reads `fn [name](params) { body }`. Both forms yield the FnDecl node, which is
+// both a statement and an expression (§6.1). The anonymous form is that node with an
+// empty Name: a value and nothing else, so it is neither hoisted nor bound, and it is a
+// function rather than a closure in the two ways that matter (§7.7) — its arity is
+// checked, and a `return` inside it returns from it.
+func (p *parser) parseFn() *ast.FnDecl {
 	kw := p.advance().Pos
 	name := ""
-	if p.kind() == token.IDENT {
+	switch {
+	case p.kind() == token.IDENT:
 		name = p.advance().Value
-	} else {
-		p.errorAt(p.cur().Pos, "expected a function name after 'fn', found %s", describe(p.cur()))
+	case p.kind() != token.LPAREN:
+		p.errorAt(p.cur().Pos, "expected a function name or '(' after 'fn', found %s", describe(p.cur()))
 	}
 	var params []ast.Param
 	if p.kind() == token.LPAREN {
@@ -1468,9 +1634,6 @@ func (p *parser) parseFn() ast.Expr {
 		p.errorAt(p.cur().Pos, "expected '(' in parameter list, found %s", describe(p.cur()))
 	}
 	body := p.parseBody("function body")
-	if name == "" {
-		return &ast.FuncLit{Params: params, Body: body, Start: kw, Stop: body.Stop}
-	}
 	return &ast.FnDecl{Name: name, Params: params, Body: body, Kw: kw, Stop: body.Stop}
 }
 
@@ -1615,7 +1778,7 @@ func (p *parser) parseMatchArm() ast.MatchArm {
 		} else if kind != arm.Kind {
 			p.errorAt(p.cur().Pos, "every pattern in one arm must use the same form")
 		}
-		arm.Pats = append(arm.Pats, p.parseExpr())
+		arm.Pats = append(arm.Pats, p.armExpr())
 		if !p.accept(token.COMMA) {
 			break
 		}
@@ -1623,10 +1786,21 @@ func (p *parser) parseMatchArm() ast.MatchArm {
 	}
 	p.armArrayPattern(&arm)
 	if p.accept(token.KW_IF) {
-		arm.Guard = p.parseExpr()
+		arm.Guard = p.armExpr()
 	}
 	arm.Body = p.parseArmBody()
 	return arm
+}
+
+// armExpr parses one pattern or guard of a `match` arm with the arm counter raised, so
+// that a `->` at bracket depth zero ends it (§5.3). Without this `(1) -> { … }` — a
+// parenthesised pattern with a block body — would read as the arrow function of §4.1 and
+// swallow the arm.
+func (p *parser) armExpr() ast.Expr {
+	p.arm++
+	e := p.parseExpr()
+	p.arm--
+	return e
 }
 
 // armArrayPattern turns `[x, y] ->` into a destructuring arm (§5.3, §8.15). This is the

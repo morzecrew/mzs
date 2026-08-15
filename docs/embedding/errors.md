@@ -64,11 +64,35 @@ var (
 	ErrDepth    = errors.New("mzs: max call depth exceeded")
 	ErrCanceled = errors.New("mzs: canceled")
 	ErrFatal    = errors.New("mzs: fatal")   // wrap to make a host error uncatchable
+	ErrExit     = errors.New("mzs: exit")    // the script called exit(code)
 )
 ```
 
 The first four are the unrecoverable limits: `try` never catches them, and they always
 reach the host. `ErrCanceled` is what a cancelled `context.Context` produces.
+
+## `exit`
+
+`exit(code)` ends the Run and names a status. It travels like a limit — uncatchable, always
+reaching the host — but it is not a failure, so ask for it before you report anything:
+
+```go
+res, err := in.RunResult(ctx, prog, vars)
+if code, ok := mzs.ExitCode(err); ok {
+	// The script says it is done. Nothing was printed for it, and `res.Globals`
+	// still holds everything it wrote.
+	os.Exit(code)      // …or ignore the number: it is a request, not an act
+}
+```
+
+A host function can end a Run the same way, by returning an error that wraps the sentinel —
+`fmt.Errorf("shutting down: %w", mzs.ErrExit)`. It named no status, so `ExitCode` reports 0,
+and `try` does not catch it either.
+
+`ExitCode` answers only for an actual `exit`, so a script that failed on its own is never
+mistaken for one. Nothing in the library calls `os.Exit` itself: a script inside a server
+has no business ending the process, and whether the status means anything is the host's
+decision. The code is an integer from 0 to 255 — `exit(256)` is refused in the script.
 
 ## Script error or limit
 

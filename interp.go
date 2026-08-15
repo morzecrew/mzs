@@ -242,8 +242,15 @@ func (c *compiler) stmts(list []ast.Stmt) {
 		// which is what `xs.each` written on the line above its `{ … }` looks like.
 		if i < len(list)-1 {
 			if x, ok := list[i].(*ast.ExprStmt); ok {
-				if fn, ok := x.X.(*ast.FuncLit); ok {
+				switch fn := x.X.(type) {
+				case *ast.FuncLit:
 					c.warnAt(fn.Start, "closure literal in statement position: its value is discarded")
+				case *ast.FnDecl:
+					// A named `fn` is a declaration and never reaches here; an anonymous
+					// one is a value, and a value nobody receives is the same mistake.
+					if fn.Name == "" {
+						c.warnAt(fn.Kw, "anonymous 'fn' in statement position: its value is discarded")
+					}
 				}
 			}
 		}

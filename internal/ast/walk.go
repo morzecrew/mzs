@@ -298,13 +298,18 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		line("Export " + strings.Join(x.Names, ", "))
 		child(x.Decl)
 	case *FnDecl:
-		kind := "FnDecl "
+		kind := "FnDecl"
 		if x.Async {
 			// The modifier is the whole difference at the call (§8.14), so a dump that
 			// hid it would show two identical trees for two different programs.
-			kind = "FnDecl async "
+			kind = "FnDecl async"
 		}
-		line(kind + x.Name + " (" + paramsText(x.Params) + ")")
+		if x.Name != "" {
+			// The anonymous form has no name to print, and a blank where one would go
+			// reads as a bug in the dump rather than as the node it is.
+			kind += " " + x.Name
+		}
+		line(kind + " (" + paramsText(x.Params) + ")")
 		labeled("body:", x.Body)
 	case *BlockStmt:
 		line("Block")

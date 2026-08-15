@@ -70,6 +70,7 @@ repl:1:4: syntax: unexpected end of input
 |---|---|
 | `.help` | the built-in help text |
 | `.exit` | leave — `.quit`, `:q` and Ctrl-D do the same |
+| `exit(code)` | leave with a status of your own: the [builtin](../stdlib/core.md#errors), not a command |
 | `.clear` | forget every line of the session |
 | `.src` | print the session's accumulated source |
 | `.vars` | print the bound `$variables` |
@@ -82,6 +83,30 @@ mzs> b = 2
 mzs> .src
 a = 1
 b = 2
+```
+
+## Ctrl-C
+
+One Ctrl-C throws the line away and keeps everything else — the session, its variables, its
+history — and says so. A second one straight after it leaves, which is the way out that
+needs no line typed at all. Anything in between, even an empty line, starts the count
+again.
+
+```
+mzs> a = 41
+41
+mzs> some line I do not want^C
+(press Ctrl-C again to leave, or .exit)
+mzs> a + 1
+42
+```
+
+`exit(code)` is the other way out, and the only one that chooses the status:
+
+```
+mzs> exit(2)
+$ echo $?
+2
 ```
 
 `$variables` come from the command line, not from the session, and `.vars` lists them by name:

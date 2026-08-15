@@ -87,6 +87,7 @@ inspect(assert(true, "ok"))                      # nil
 | `regex` | a pattern that does not compile |
 | `raise` | `raise` and `assert` |
 | `limit` | a timeout, the step budget, the depth limit, a size cap |
+| `exit` | `exit(code)` — the program saying it is done, not that it failed |
 | `internal` | a recovered internal failure |
 
 ```
@@ -113,6 +114,14 @@ try (fn r() { r() }; r()) else "caught"
 With the step budget disabled the wall clock is what ends the run —
 `mzs --steps 0 -t 300ms -e 'try (while true { }) else "caught"'` prints
 `limit: execution timed out after 300ms`. A cancelled context behaves the same way.
+
+`exit(code)` is not catchable either, for the opposite reason: it is not a failure at all,
+so there is nothing for an `else` to stand in for. It ends the run with the status it names
+and prints nothing.
+
+```
+try exit(2) else "caught"     # the program ends; echo $? is 2
+```
 
 Compile-time errors are not catchable either, for a different reason: the program never runs.
 

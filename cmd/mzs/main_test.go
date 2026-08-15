@@ -221,6 +221,34 @@ func TestCLI(t *testing.T) {
 			wantOut:  "",
 		},
 		{
+			// §12.1: `exit` is the program naming its own status. It is not a failure, so
+			// nothing is printed for it, and nothing after it runs.
+			name:     "exit sets the status and prints nothing",
+			argv:     []string{"-e", `say("done"); exit(2); say("never")`},
+			wantCode: 2,
+			wantOut:  "done\n",
+			errLacks: []string{"exit", "error"},
+		},
+		{
+			name:     "exit with no argument is zero",
+			argv:     []string{"--no-print", "-e", "exit()"},
+			wantCode: 0,
+			wantOut:  "",
+		},
+		{
+			name:     "one line asking to exit ends the whole -n run",
+			argv:     []string{"-n", "--no-print", "-e", `say($_); exit(4) if $_ == "b"`},
+			stdin:    "a\nb\nc\n",
+			wantCode: 4,
+			wantOut:  "a\nb\n",
+		},
+		{
+			name:     "an exit code is a status, and 256 is not one",
+			argv:     []string{"-e", "exit(256)"},
+			wantCode: 1,
+			errHas:   []string{"argument", "between 0 and 255"},
+		},
+		{
 			name:     "runaway loop hits the step budget and exits 3",
 			argv:     []string{"--steps", "10000", "-e", "while true { }"},
 			wantCode: 3,
