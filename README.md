@@ -76,7 +76,9 @@ s = "hello"   'raw \n stays two characters'       # string, indexed in runes
 re = /hello|hi/i                                  # regex
 xs = [1, 2, "three"]                              # array
 d  = {name: "Ivan", price: 1500}                  # dict, insertion-ordered
+m  = {1 -> "A", 2.5 -> "B", nil -> "C"}           # `->` for a key that is not a string
 f  = { (x) -> x * 2 }                             # closure
+g  = fn(a, b) { a + b }                           # anonymous fn: a function value
 ```
 
 ```

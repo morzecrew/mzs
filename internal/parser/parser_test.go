@@ -198,6 +198,60 @@ Program "t"
 `,
 		},
 		{
+			// §4.1: the anonymous form is the same node with no name, so it is a value
+			// and nothing else — nothing is hoisted and nothing is bound.
+			name: "anonymous fn",
+			src:  "f = fn(a, b) { a + b }; g = async fn() { 1 }",
+			want: `
+Program "t"
+  ExprStmt
+    Assign =
+      Ident f
+      FnDecl (a, b)
+        body:
+          Block
+            ExprStmt
+              Binary +
+                Ident a
+                Ident b
+  ExprStmt
+    Assign =
+      Ident g
+      FnDecl async ()
+        body:
+          Block
+            ExprStmt
+              Int 1
+`,
+		},
+		{
+			// §3.12: `->` ends a key wherever `:` does, and it is the only separator a
+			// key that is not a string may take (§7.6).
+			name: "dict keys that are not strings",
+			src:  `{1 -> "a", -2.5 -> b, nil -> c, "s" -> d, k -> e}`,
+			want: `
+Program "t"
+  ExprStmt
+    Dict
+      entry
+        Int 1
+        Str "a"
+      entry
+        Unary -
+          Float 2.5
+        Ident b
+      entry
+        Nil
+        Ident c
+      entry
+        Str "s"
+        Ident d
+      entry
+        Str "k"
+        Ident e
+`,
+		},
+		{
 			name: "a trailing closure is the last argument",
 			src:  "xs.reduce(0) { (a, b) -> a + b }",
 			want: `
@@ -1095,6 +1149,16 @@ func TestCollectionLookahead(t *testing.T) {
 		{"brace: parameters are not a key", "{(x) -> x}", "Closure"},
 		{"brace: implicit it", "{ it * 2 }", "Closure"},
 		{"brace: ternary body", "{x ? a : b}", "Closure"},
+		// The arrow ends a key wherever the colon does (rule 2), and a literal in front
+		// of one is a key and nothing else (rule 4) — but never after a `)`, which is a
+		// parameter list first.
+		{"brace: arrow after an identifier", "{a -> 1}", "Dict"},
+		{"brace: arrow after a string", `{"a" -> 1}`, "Dict"},
+		{"brace: literal key", "{1 -> 1}", "Dict"},
+		{"brace: signed literal key", "{-1.5 -> 1}", "Dict"},
+		{"brace: literal keys of every kind", "{true -> 1, nil -> 2, /re/ -> 3}", "Dict"},
+		{"brace: a negative number is not a key", "{ -1 }", "Closure"},
+		{"brace: a literal body is not a key", "{ 1 }", "Closure"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1125,7 +1189,11 @@ func TestParseErrors(t *testing.T) {
 		{"missing arm arrow", "match x { 1 2 }", "expected '->' in match arm, found 2", 1, 13},
 		{"empty match", "match x { }", "a match needs at least one arm", 1, 11},
 		{"missing for variable", "for in xs { }", "expected a loop variable, found 'in'", 1, 5},
-		{"missing function name", "fn (a) { a }", "expected a function name after 'fn', found '('", 1, 4},
+		{"a function name is a name", "fn 1(a) { a }", "expected a function name or '(' after 'fn', found 1", 1, 4},
+		{"an exported fn needs a name", "export fn (a) { a }", "'export' needs a name: write `export fn f(…) { … }` or `export f = fn(…) { … }`", 1, 1},
+		{"a literal dict key takes an arrow", "{1: 2}", "a dict key that is not a string takes '->', not ':'", 1, 3},
+		{"a computed dict key takes a colon", "{a: 1, (k) -> 2}", "a computed dict key takes ':', not '->': write (k): v", 1, 12},
+		{"a dict entry needs a separator", "{a: 1, \"b\" 2}", "expected ':' or '->' in dict entry, found 2", 1, 12},
 		{"a body may not take parameters", "if c { (x) -> x }", "the body of if body cannot declare parameters", 1, 9},
 		{"a rest parameter must be last", "fn f(*a, b) { a }", "a rest parameter must be last", 1, 7},
 		{"destructuring is = or :=", "a, b += xs", "destructuring assigns with '=' or ':=', not '+='", 1, 6},

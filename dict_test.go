@@ -1,8 +1,10 @@
 package mzs
 
 import (
+	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -197,6 +199,55 @@ func TestDictEachIsSnapshotted(t *testing.T) {
 	}
 	if got.Kind() != KDict {
 		t.Errorf("each = %s; want the receiver", got.Inspect())
+	}
+}
+
+// TestDictLiteralKeys is §3.12 on the key side: `->` separates an entry wherever `:`
+// does, and it is what lets a literal of any hashable kind (§7.6) be a key without going
+// through `set`.
+func TestDictLiteralKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"an int key", `{1 -> "A"}[1]`, `"A"`},
+		{"a float key", `{1.5 -> "A"}[1.5]`, `"A"`},
+		{"a signed key", `{-2 -> "A"}[-2]`, `"A"`},
+		{"a bool key", `{true -> 1, false -> 2}[false]`, "2"},
+		{"a nil key", `{nil -> "A"}[nil]`, `"A"`},
+		{"a string key", `{"a" -> 1}["a"]`, "1"},
+		{"a bare word is a string either way", `{a -> 1} == {a: 1}`, "true"},
+		{"the two separators mix", `{1 -> "A", a: 2, "b" -> 3}.len`, "3"},
+		{"1 and 1.0 are one key (§7.6)", `{1 -> "A", 1.0 -> "B"}.len`, "1"},
+		{"an int key is not a string key", `{1 -> "A"}.has("1")`, "false"},
+		{"the value may be a function", `{1 -> fn(a, b) { a + b }}[1](2, 3)`, "5"},
+		{"insertion order survives", `{2 -> "b", 1 -> "a"}.keys`, "[2,1]"},
+		{"a computed key keeps its spelling", `k = 7; {(k): "A"}[7]`, `"A"`},
+		{"nested", `{1 -> {2 -> "A"}}[1][2]`, `"A"`},
+		// A literal is a key only in front of a separator: §3.12 rule 4 reads three
+		// tokens, and a body that opens with a number is still a body.
+		{"a literal body is still a closure", `type({ -1 })`, `"function"`},
+	}
+
+	in := New(DefaultOptions())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, err := in.Eval(context.Background(), tt.src, nil)
+			if err != nil {
+				t.Fatalf("Eval(%s): %v", tt.src, err)
+			}
+			if got := v.Inspect(); got != tt.want {
+				t.Errorf("%s = %s; want %s", tt.src, got, tt.want)
+			}
+		})
+	}
+
+	// An unhashable key is the §7.6 error wherever it is written, and a literal is no
+	// exception — the only key form that can carry one is the computed key.
+	_, err := in.Eval(context.Background(), `{([1]): 1}`, nil)
+	if err == nil || !strings.Contains(err.Error(), "dict key must be hashable") {
+		t.Errorf("an array key in a literal = %v; want the §7.6 error", err)
 	}
 }
 

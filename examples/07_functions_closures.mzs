@@ -67,6 +67,22 @@ say("partial application: ${[1, 2, 3].map(double).json} ${[1, 2, 3].map(treble).
 # A closure passed by name and a closure written at the call site are the same thing.
 say("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it * 2 }.json}")
 
+# --- an anonymous `fn` is a value too, and it is a function, not a closure -----
+#
+# Dropping the name makes the `fn` an expression: nothing is hoisted, nothing is bound,
+# and the value is the only way to reach it. Its arity is checked and `return` returns
+# from it — which is the whole difference from `{ … }`.
+
+area = {
+  "circle" -> fn(r) { (3.14159 * r ** 2).round(2) },
+  "square" -> fn(a) { a * a },
+  "rect"   -> fn(w, h) { w * h },
+}
+say("")
+say("dispatch table: circle(2)=${area["circle"](2)} square(3)=${area["square"](3)} rect(2,5)=${area["rect"](2, 5)}")
+say("arity is checked: ${try area["rect"](2) else "rect needs two sides"}")
+say("called where it stands: ${fn(n) { n * n }(12)}")
+
 # --- a validation chain: named checks, each a closure, run in order -----------
 
 checks = [

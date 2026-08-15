@@ -31,6 +31,32 @@ A `fn` written inside any `{ … }` is an ordinary declaration in that scope: vi
 point on, and gone afterwards. Both `if true { fn g() { 1 } }; g()` and
 `fn f() { g(); fn g() { 1 } }` report `name: undefined function 'g'`.
 
+## Anonymous `fn`
+
+Leave the name out and the `fn` is an expression: a value that is not hoisted and binds
+nothing, so the only way to reach it is the value itself.
+
+```
+add = fn(a, b) { a + b }
+add(2, 3)                                  # 5
+fn(x) { x * 3 }(5)                         # 15 — called where it stands
+[1, 2, 3].map(fn(x) { x * 2 })             # [2,4,6]
+ops = {add: fn(a, b) { a + b }}; ops["add"](1, 2)      # 3
+```
+
+It is a **function**, not a closure, in the two ways you can tell them apart: its arity is
+checked, and `return` returns from it rather than from the function around it.
+
+```
+f = fn(a, b) { a + b }; f(1)
+# -e:1:25: argument: function expects 2 argument(s), got 1
+fn outer() { g = fn() { return 1 }; g(); "still here" }; outer()    # still here
+```
+
+So the choice is about what the body does: `{ … }` for the short one a library calls,
+`fn(…) { … }` for the one with an interface of its own. `async fn(…) { … }` is a value the
+same way — see [async](async.md).
+
 ## Default parameters and `*rest`
 
 Defaults are ordinary expressions evaluated at the call, and may read the parameters bound

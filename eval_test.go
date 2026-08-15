@@ -577,6 +577,56 @@ func TestClosuresAndIt(t *testing.T) {
 	}
 }
 
+// TestAnonymousFn is §4.1 and §7.7 on the nameless `fn`: it is a value, and it is a
+// function rather than a closure in the two ways a program can tell — its arity is
+// checked, and a `return` inside it returns from it.
+func TestAnonymousFn(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"a value with parameters", `f = fn(a, b) { a + b }; f(2, 3)`, "5"},
+		{"called where it stands", `fn(x) { x * 3 }(5)`, "15"},
+		{"passed to a library function", `[1, 2, 3].map(fn(x) { x * 2 }).json`, "[2,4,6]"},
+		{"return leaves it", `f = fn(x) { if x > 0 { return "+" }; "-" }; f(1) + f(-1)`, "+-"},
+		{"it closes over a local", `n = 10; f = fn(x) { x + n }; f(1)`, "11"},
+		{"it is a value in a dict", `ops = {add: fn(a, b) { a + b }}; ops["add"](1, 2)`, "3"},
+		{"nested", `mk = fn(n) { fn(x) { x * n } }; mk(3)(5)`, "15"},
+		{"arity", `fn(a, b) { a }.arity`, "2"},
+		{"it has no name", `fn(a) { a }.str`, "#<fn>"},
+	}
+
+	in := evInterp()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, in, tt.src); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+
+	// A closure is lenient about its arguments because a library decides how many to
+	// pass (§7.7); a `fn` is an interface and is checked, named or not.
+	if got := evErr(t, in, `f = fn(a, b) { a }; f(1)`, nil).Msg; !strings.Contains(got, "expects 2 argument") {
+		t.Errorf("anonymous fn arity = %q, want the argument-count error", got)
+	}
+	// Nothing is declared: the value is the only way to reach it.
+	if got := evErr(t, in, "fn(a) { a }\nf(1)", nil).Msg; !strings.Contains(got, "undefined function 'f'") {
+		t.Errorf("anonymous fn binding = %q, want it to bind nothing", got)
+	}
+	// …so a statement that only writes one throws it away, which is §17's warning for a
+	// closure literal and the same mistake here.
+	prog, err := in.Compile("t", "fn(a) { a }\n1")
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	warns := prog.Warnings()
+	if len(warns) != 1 || !strings.Contains(warns[0].Msg, "anonymous 'fn' in statement position") {
+		t.Errorf("warnings = %v, want the discarded-value warning", warns)
+	}
+}
+
 // TestReturnBreakNext is §8.10. All three are sentinel values on the eval chain, never
 // Go panics, so `break` out of a closure ends the call the closure was passed to.
 func TestReturnBreakNext(t *testing.T) {

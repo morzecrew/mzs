@@ -166,11 +166,19 @@ $ mzs --tasks 0 -e 'async fn f() { 1 }; f()'
 
 ## Where `async` may be written
 
-Directly before the `fn` of a named declaration, and nowhere else. `async fn` nested inside
-another function body is fine, and `export async fn f(…)` is that declaration exported —
-`lib.twice(21).await` is `42`. There is no async closure
-— `f = async fn (a) { a }` is `syntax: unexpected 'fn' after statement`, and `async` is
-positional, so `async = 1` is an ordinary variable.
+Directly before a `fn`, and nowhere else. Before a named one it is a declaration, and
+`export async fn f(…)` is that declaration exported — `lib.twice(21).await` is `42`.
+Before an anonymous one it is a value, so the modifier is read in expression position too:
+
+```
+f = async fn(n) { n * 2 }
+f(21).await                                        # 42
+[async fn() { 1 }, async fn() { 2 }].map { it().await }.sum    # 3
+```
+
+`async fn` nested inside another function body is fine. There is still no async *closure* —
+`{ … }` is a closure and stays one — and `async` is positional, so `async = 1` is an
+ordinary variable.
 
 [examples/28_async_tasks.mzs](../../examples/28_async_tasks.mzs) is the runnable tour.
 

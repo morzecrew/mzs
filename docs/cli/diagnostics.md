@@ -83,6 +83,8 @@ from it. Only the first diagnostic on a line is shown, and at most 10 per compil
 | `:name` | `mzs has no symbols; write "name"` |
 | `[a: 1]` | `a dict is written {a: 1}` |
 | `[:]` | `the empty dict is written {}` |
+| `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
+| `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
 | `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
 | `[k => v]` | `'=>' is not an mzs operator; write {k: v} for a dict, { (x) -> … } for a closure` |
@@ -137,6 +139,7 @@ Warnings print in the same format and never fail a compile (an embedder can set
 | `'=' assigns; did you mean '==' ?` — an assignment as a whole `if` condition |
 | `closure parameter 'x' is never used` |
 | `closure literal in statement position: its value is discarded` |
+| `anonymous 'fn' in statement position: its value is discarded` |
 | `'<name>' is already bound; the include replaces it` |
 
 ```sh

@@ -112,13 +112,17 @@ say("config keys: ${config.keys.json}   — dup kept the original whole (one lev
 
 # --- keys are values, not names ------------------------------------------------
 
-mixed = {}
-mixed[1] = "int key"
-mixed[true] = "bool key"
-mixed["1"] = "string key — a different key"
-mixed[nil] = "nil key"
+# `->` is the separator a key that is not a string takes; `:` keeps the bare word, so
+# `{a -> 1}` and `{a: 1}` are the same dict and a computed key stays `(k): v`.
+mixed = {
+  1 -> "int key",
+  true -> "bool key",
+  "1" -> "string key — a different key",
+  nil -> "nil key",
+}
 say("")
 say("mixed keys: ${mixed.len} entries, [1] is ${inspect(mixed[1])}, [\"1\"] is ${inspect(mixed["1"])}")
+say("written by hand or by index — ${mixed == {}.set(1, "int key").set(true, "bool key").set("1", "string key — a different key").set(nil, "nil key")}")
 
 # --- counting is a dict, and so is a histogram ---------------------------------
 
