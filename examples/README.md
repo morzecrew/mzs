@@ -48,7 +48,7 @@ does not have it at all.
 | 05 | `05_arrays_pipeline.mzs` | a month of sales through `map`/`filter`/`reduce`/`group_by`/`partition`/`each_cons`/`zip` |
 | 06 | `06_dicts_records.mzs` | records, indexes and config: `dig`, `fetch`, `merge`, a recursive deep merge, insertion order |
 | 07 | `07_functions_closures.mzs` | defaults, rest args, closures over state, `compose`, partial application, recursion, UFCS |
-| 08 | `08_errors_and_validation.mzs` | `raise` with data, `try … else (e) ->`, validation that collects instead of raising, retry, `assert` |
+| 08 | `08_errors_and_validation.mzs` | `raise` with data, `try … else (e) ->`, the kind of every failure, validation that collects instead of raising, retry, `assert` |
 | 09 | `09_host_variables.mzs` | `$vars`: unbound reads as nil, explicit conversion, writing values back for the host |
 | 33 | `33_destructuring.mzs` | `a, b = pair`, nested patterns, `for k, v`, binding `match` arms, and what a mismatch does |
 | 34 | `34_bits_and_bytes.mzs` | flags and masks with `band`/`bor`/`shl`, an IPv4 subnet test, `bytes`/`pack_bytes`, CRC-32, and why they are functions |

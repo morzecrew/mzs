@@ -6,6 +6,9 @@
 # `else` side replaces the value of the failed side. What `try` may catch is limited on
 # purpose — a timeout, a step budget or a depth limit is the host ending the Run, and no
 # script gets to swallow that.
+#
+# The braced form, the `ensure` clause and handling by `e["kind"]` are the next file over:
+# examples/36_ensure_and_error_kinds.mzs.
 
 # --- the failure kinds a script can produce ------------------------------------
 
@@ -14,9 +17,11 @@ fn kind_of(f) { try (f.call(); "no error") else (e) -> "${e["kind"]}: ${e["messa
 println("what the runtime raises")
 [
   ["a type mismatch",  { 1 + "two" }],
-  ["a bad index",      { {a: 1}.fetch("b") }],
+  ["a missing key",    { {a: 1}.fetch("b") }],
+  ["a bad index",      { [1, 2].insert(9, 3) }],
   ["division by zero", { 7 / 0 }],
   ["your own raise",   { raise("out of stock") }],
+  ["a kind of your own", { raise("no funds", "billing") }],
   ["a bad argument",   { "abc".slice("x") }],
 ].each { (row) -> println("  ${row[0].ljust(20)}${kind_of(row[1])}") }
 
