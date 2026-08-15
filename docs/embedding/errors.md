@@ -85,6 +85,10 @@ if code, ok := mzs.ExitCode(err); ok {
 }
 ```
 
+A host function can end a Run the same way, by returning an error that wraps the sentinel —
+`fmt.Errorf("shutting down: %w", mzs.ErrExit)`. It named no status, so `ExitCode` reports 0,
+and `try` does not catch it either.
+
 `ExitCode` answers only for an actual `exit`, so a script that failed on its own is never
 mistaken for one. Nothing in the library calls `os.Exit` itself: a script inside a server
 has no business ending the process, and whether the status means anything is the host's

@@ -3,6 +3,7 @@ package mzs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -677,6 +678,17 @@ func TestExit(t *testing.T) {
 				t.Errorf("Eval(%s) exit code = %d; want %d", tt.src, code, tt.code)
 			}
 		})
+	}
+
+	// A host function may end the Run the same way, by returning an error that wraps the
+	// sentinel. It named no status, so the status is 0.
+	hosted := New(Options{})
+	hosted.Register("stop", 0, func(c *Ctx, args []Value) (Value, error) {
+		return Nil(), fmt.Errorf("the host is done: %w", ErrExit)
+	})
+	_, err := hosted.Eval(context.Background(), `try stop() else "caught"`, nil)
+	if code, ok := ExitCode(err); !ok || code != 0 {
+		t.Errorf("a host ErrExit = %d, %v (%v); want an uncatchable exit with status 0", code, ok, err)
 	}
 
 	// ExitCode answers for an exit and for nothing else, which is what lets a host tell

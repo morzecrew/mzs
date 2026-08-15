@@ -44,25 +44,19 @@ func replLoop(cfg *config, stdout, stderr io.Writer, lines lineSource, session *
 	// One Ctrl-C abandons the line and nothing else: the session, its variables and its
 	// history are all still there at the next prompt. Two in a row leave, because a
 	// session that has stopped answering is the one case where there is no line left to
-	// type `.exit` on. interrupted counts them and reports whether this was the second.
+	// type `.exit` on — and the first press says so, so nobody has to guess.
 	interrupts := 0
-	interrupted := func() bool {
-		interrupts++
-		if interrupts >= 2 {
-			fmt.Fprintln(stdout)
-			return true
-		}
-		fmt.Fprintln(stdout, "(press Ctrl-C again to leave, or .exit)")
-		return false
-	}
+	notice := func() { fmt.Fprintln(stdout, "(press Ctrl-C again to leave, or .exit)") }
 
 	for {
 		line, err := lines.read(session.prompt)
 		switch {
 		case errors.Is(err, errInterrupted):
-			if interrupted() {
+			if interrupts++; interrupts >= 2 {
+				fmt.Fprintln(stdout)
 				return exitOK
 			}
+			notice()
 			continue
 		case err != nil:
 			fmt.Fprintln(stdout)
@@ -98,9 +92,11 @@ func replLoop(cfg *config, stdout, stderr io.Writer, lines lineSource, session *
 		prog, pending, full, err := compileMaybeContinued(in, session, line, lines)
 		if err != nil {
 			if errors.Is(err, errInterrupted) {
-				if interrupted() {
-					return exitOK
-				}
+				// The line that opened the continuation reset the count, so this press is
+				// always the first of its run: it abandons the construct, and the next one
+				// at the prompt is what leaves.
+				interrupts++
+				notice()
 				continue
 			}
 			reportErr(stderr, "repl", full, err)
