@@ -131,7 +131,7 @@
       "\t$0",
       "}"
     ],
-    "description": "Run a release on every way out of the block"
+    "description": "Release on every way out of the block that leaves the Run alive"
   },
   "ternary": {
     "prefix": "?:",

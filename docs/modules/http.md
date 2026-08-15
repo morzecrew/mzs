@@ -233,7 +233,8 @@ timed out / timed out      # real 0m2,005s
 ```
 
 Responses are read under `MaxStringBytes`; a larger one is a catchable error of kind
-`http` and never a prefix — `http: response exceeds the 8388608 byte limit`.
+`http` — uncaught, `http: response exceeds the 8388608 byte limit` — and never the first
+8 MiB of the body: the reader stops at the limit and reports it rather than truncating.
 
 Worked programs: [../../examples/30_http_service.mzs](../../examples/30_http_service.mzs) (both
 halves) and [../../examples/31_api_pipeline.mzs](../../examples/31_api_pipeline.mzs) (a client

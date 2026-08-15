@@ -53,7 +53,7 @@ does not have it at all.
 | 33 | `33_destructuring.mzs` | `a, b = pair`, nested patterns, `for k, v`, binding `match` arms, and what a mismatch does |
 | 34 | `34_bits_and_bytes.mzs` | flags and masks with `band`/`bor`/`shl`, an IPv4 subnet test, `bytes`/`pack_bytes`, CRC-32, and why they are functions |
 | 35 | `35_named_args_and_in.mzs` | `name = value` at a call site, defaults skipped rather than shifted, and `in` as an operator over ranges, arrays, dicts and strings |
-| 36 | `36_ensure_and_error_kinds.mzs` | the braced `try { … } else (e) { … } ensure { … }`, a release that runs on every way out, and `match e["kind"]` over a closed list of kinds |
+| 36 | `36_ensure_and_error_kinds.mzs` | the braced `try { … } else (e) { … } ensure { … }`, a release that runs on every way out that leaves the run alive, and `match e["kind"]` over the runtime's kinds plus the ones a script names |
 
 ## Text, patterns and data
 

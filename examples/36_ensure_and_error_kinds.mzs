@@ -10,7 +10,7 @@
 #   try { a; b } else { "-" }        the braces are a block and a scope, not a closure
 #   try { a } else (e) { … }         the binder needs no arrow in front of a block
 #   try { take() } ensure { give() } the ensure runs on every way out
-#   match e["kind"] { … }            the kind is from a closed list, not from prose
+#   match e["kind"] { … }            the runtime's kinds are a closed list; a script adds its own
 #
 # The one thing `ensure` is not is a way to outlive a limit: a timeout, the step budget,
 # the depth limit and a cancelled context end the Run, and nothing else runs after them —
