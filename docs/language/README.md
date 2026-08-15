@@ -71,7 +71,9 @@ fix-it instead. A few of the ~30 in [../cli/diagnostics.md](../cli/diagnostics.m
 | `[:]` | `the empty dict is written {}` |
 | `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
 | `(x) -> x * 2` | `an arrow function's body is braced: (x) -> { x * 2 }, …` |
-| `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
+| `f {a: 1}` | `a dict after a call is written f({a: 1})` |
+| `f(a: 1)` | `a named argument is written 'a = …'; for a dict argument write f({a: …})` |
+| `f(a = 1) { … }` | `a trailing closure is a positional argument, so it cannot follow the named argument 'a = …'` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
 | `x.empty?` | `'?' is not part of an identifier; did you mean 'empty'?` |
 
@@ -116,7 +118,7 @@ start one. Both tests are lexical, one token wide; indentation is never part of 
 | A newline is suppressed | Tokens |
 |---|---|
 | after | any operator, `=` and every compound assign, `,` `(` `[` `{` `->` `?` `:` `.` `?.` `..` `..<`, the keywords `fn if else match while for in return try`, and anything inside `${…}` |
-| before | `.` `?.` `->` `else` `)` `]` `}`, and any binary operator |
+| before | `.` `?.` `->` `else` `)` `]` `}`, and any binary operator except `in` — a line that *starts* with `in` is a `match` arm, so the newline in front of it stands |
 
 After anything else — a name, a literal, `)` `]` `}`, `break`, `next`, `include` — the newline
 terminates. That is what makes the three usual shapes legal:

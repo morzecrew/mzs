@@ -79,7 +79,7 @@ fn step(stack, tok) {
     ["mul"]      -> (b, a = [stack.pop, stack.pop]; stack.push(a * b))
     ["dup"]      -> stack.push(stack.last)
     []           -> stack
-    else         -> raise("unknown token: ${tok}", kind: "user")
+    else         -> raise({message: "unknown token: ${tok}", kind: "user"})
   }
 }
 

@@ -590,7 +590,7 @@ func exprBlock(e ast.Expr) *ast.BlockStmt {
 
 func (p *parser) parseExpr() ast.Expr { return p.parseAssign() }
 
-// parseAssign is level 13, right associative.
+// parseAssign is level 14, right associative.
 func (p *parser) parseAssign() ast.Expr {
 	l := p.parseTernary()
 	// §5.6: `k => v` lexes as ASSIGN followed by GT, and is the commonest paste from a
@@ -735,7 +735,7 @@ func (p *parser) matchPattern(lit *ast.ArrayLit) *ast.ArrayPattern {
 	return pat
 }
 
-// parseTernary is level 12: `? :` and `try … else …`, both right associative.
+// parseTernary is level 13: `? :` and `try … else …`, both right associative.
 func (p *parser) parseTernary() ast.Expr {
 	if p.kind() == token.KW_TRY {
 		return p.parseTry()
@@ -807,8 +807,8 @@ func (p *parser) parseTry() ast.Expr {
 	return &ast.TryExpr{X: x, Var: name, Fallback: p.parseExpr(), Kw: kw}
 }
 
-// parseBinary is the precedence-climbing core of §5.1 levels 4..11 plus the ranges of
-// level 6. Levels 1, 2, 3, 12, 13 and 14 are structural and live in the callers.
+// parseBinary is the precedence-climbing core of §5.1 levels 4..12 plus the ranges of
+// level 6. Levels 1, 2, 3, 13, 14 and 15 are structural and live in the callers.
 func (p *parser) parseBinary(min int) ast.Expr {
 	l := p.parseUnary()
 	for {
@@ -835,6 +835,15 @@ func (p *parser) parseBinary(min int) ast.Expr {
 				p.checkRegexEquality(k, op.Pos, l, r)
 			}
 			l = &ast.BinaryExpr{Op: k, L: l, R: r, OpPos: op.Pos}
+			if k == token.KW_IN && p.kind() == token.KW_IN {
+				// `a in b in c` asks a question with two readings — "is (a in b) in c"
+				// and Python's chained "a in b and b in c" — so it is refused rather
+				// than guessed at (§5.1, §5.6). The third operand is read and dropped so
+				// one mistake stays one diagnostic (§17).
+				p.errorAt(p.cur().Pos, "'in' is non-associative: write (a in b) in c if that is what you meant")
+				p.advance()
+				p.parseBinary(prec + 1)
+			}
 		}
 	}
 }
@@ -904,7 +913,7 @@ func (p *parser) parsePostfix() ast.Expr {
 			x = p.parseMethodTail(x, safe)
 		case token.LPAREN:
 			call := &ast.CallExpr{Fn: x, Lparen: p.cur().Pos}
-			call.Args, call.KwArgs, call.Stop = p.parseCallArgs()
+			call.Args, call.Named, call.Stop = p.parseCallArgs()
 			x = call
 		case token.LBRACKET:
 			x = p.parseIndexTail(x)
@@ -948,15 +957,33 @@ func (p *parser) attachClosure(x ast.Expr) ast.Expr {
 	fl := p.parseFuncLit()
 	switch e := x.(type) {
 	case *ast.CallExpr:
+		p.checkClosureAfterNamed(e.Named, fl)
 		e.Args = append(e.Args, fl)
 		e.Stop = fl.End()
 		return e
 	case *ast.MethodCall:
+		p.checkClosureAfterNamed(e.Named, fl)
 		e.Args = append(e.Args, fl)
 		e.Stop = fl.End()
 		return e
 	}
 	return &ast.CallExpr{Fn: x, Args: []ast.Expr{fl}, Lparen: x.Pos(), Stop: fl.End()}
+}
+
+// checkClosureAfterNamed refuses `f(c = 5) { … }`. A trailing closure is an ordinary
+// positional argument (§4.2), and a positional argument may not follow a named one
+// (§8.7) — but this one is written after the parentheses, so the two rules point at
+// different parameters and the call has no single reading. Refusing it is §5.6's rule
+// and it is what keeps the ordering statement of §8.7 true with no exception: `f(3) { … }`
+// gives the closure the position it is written in, `f(times = 3, body = { … })` gives it
+// a name, and nothing in between has to be guessed at.
+func (p *parser) checkClosureAfterNamed(named []ast.NamedArg, fl ast.Expr) {
+	if len(named) == 0 {
+		return
+	}
+	p.errorAt(fl.Pos(),
+		"a trailing closure is a positional argument, so it cannot follow the named argument '%s = …': pass the closure by name too, or give every argument by position",
+		named[0].Name)
 }
 
 func (p *parser) parseMethodTail(recv ast.Expr, safe bool) ast.Expr {
@@ -969,7 +996,7 @@ func (p *parser) parseMethodTail(recv ast.Expr, safe bool) ast.Expr {
 	}
 	mc := &ast.MethodCall{Recv: recv, Name: name, Safe: safe, NamePos: nameTok.Pos, Stop: nameTok.End}
 	if p.kind() == token.LPAREN {
-		mc.Args, mc.KwArgs, mc.Stop = p.parseCallArgs()
+		mc.Args, mc.Named, mc.Stop = p.parseCallArgs()
 	}
 	return mc
 }
@@ -1008,7 +1035,12 @@ func (p *parser) methodName() string {
 
 // parseCallArgs reads `( ArgList )`, collecting keyword arguments into the single
 // trailing dict of §8.7.
-func (p *parser) parseCallArgs() (args []ast.Expr, kwargs *ast.DictLit, stop token.Pos) {
+// parseCallArgs reads `( … )` at a call site. An argument is positional, or `name = expr`
+// binding the callee's parameter of that name (§8.7). The two orders that have no reading
+// — a positional argument after a named one, and the same name twice — are §5.6
+// diagnostics here rather than a run-time surprise, because the call site alone decides
+// both.
+func (p *parser) parseCallArgs() (args []ast.Expr, named []ast.NamedArg, stop token.Pos) {
 	p.expect(token.LPAREN, "argument list")
 	saved := p.push()
 	for {
@@ -1016,19 +1048,34 @@ func (p *parser) parseCallArgs() (args []ast.Expr, kwargs *ast.DictLit, stop tok
 		if p.kind() == token.RPAREN || p.kind() == token.EOF {
 			break
 		}
-		if p.kind() == token.IDENT && p.peekKind(1) == token.COLON {
-			key := p.advance()
+		switch {
+		case p.kind() == token.IDENT && p.peekKind(1) == token.COLON:
+			// §5.6: `f(a: 1)` used to build a trailing dict, and `a = 1` is now the one
+			// spelling for naming an argument (I3). Both replacements are named, because
+			// which one was meant depends on what the callee wants.
+			key := p.cur()
+			p.errorAt(key.Pos, "a named argument is written '%s = …'; for a dict argument write f({%s: …})",
+				key.Value, key.Value)
+			p.advance()
 			p.advance() // ':'
 			p.skipNewlines()
+			p.parseExpr() // read the value anyway, so one mistake stays one diagnostic
+		case p.kind() == token.IDENT && p.peekKind(1) == token.ASSIGN:
+			key := p.advance()
+			p.advance() // '='
+			p.skipNewlines()
 			val := p.parseExpr()
-			if kwargs == nil {
-				kwargs = &ast.DictLit{Lbrack: key.Pos}
+			if namedIndex(named, key.Value) >= 0 {
+				p.errorAt(key.Pos, "argument '%s' is named twice", key.Value)
 			}
-			kwargs.Keys = append(kwargs.Keys, strLit(key.Value, key.Pos, key.End))
-			kwargs.Vals = append(kwargs.Vals, val)
-			kwargs.Rbrack = val.End()
-		} else {
-			args = append(args, p.parseExpr())
+			named = append(named, ast.NamedArg{Name: key.Value, Value: val, NamePos: key.Pos})
+		default:
+			arg := p.parseExpr()
+			if len(named) > 0 {
+				p.errorAt(arg.Pos(), "a positional argument may not follow a named one; move it before '%s = …'",
+					named[0].Name)
+			}
+			args = append(args, arg)
 		}
 		p.skipNewlines()
 		if !p.accept(token.COMMA) {
@@ -1038,7 +1085,18 @@ func (p *parser) parseCallArgs() (args []ast.Expr, kwargs *ast.DictLit, stop tok
 	p.skipNewlines()
 	p.pop(saved)
 	rp := p.expect(token.RPAREN, "argument list")
-	return args, kwargs, rp.End
+	return args, named, rp.End
+}
+
+// namedIndex finds a named argument by name, or -1. Argument lists are short enough that
+// a scan beats a map by every measure that matters here.
+func namedIndex(as []ast.NamedArg, name string) int {
+	for i, a := range as {
+		if a.Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 func strLit(text string, start, stop token.Pos) *ast.StrLit {
@@ -1434,7 +1492,7 @@ func (p *parser) parseFuncLit() ast.Expr {
 	lb := p.advance()
 	// Reached from operand position only after braceDict declined, so a dict shape here
 	// is the trailing-closure slot of §4.2 — where a dict argument has its own spelling.
-	if e, ok := p.braceDictHere(lb, "a dict after a call is written (a: 1) or ({a: 1})"); ok {
+	if e, ok := p.braceDictHere(lb, "a dict after a call is written f({a: 1})"); ok {
 		return e
 	}
 	saved := p.push()

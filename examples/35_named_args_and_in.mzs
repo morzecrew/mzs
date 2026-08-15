@@ -1,0 +1,160 @@
+# 35 — named arguments and `in`: calls that read like sentences, membership as an operator.
+#
+#   mzs examples/35_named_args_and_in.mzs
+#
+# Two small things that mostly show up in the same code — a call with more parameters than
+# a reader can count, and a condition about a set of values.
+#
+# `name = value` at a call site binds the *parameter* of that name. That is the whole
+# feature, and it buys one thing worth having: a defaulted parameter in the middle of a
+# list is **skipped**, not shifted, so adding a parameter to a function does not renumber
+# anybody's arguments. Two spellings that look close are not this: `f(a: 1)` builds a dict
+# and is a diagnostic here (write `f({a: 1})`), and `f((x = 5))` needs its own parentheses
+# because a bare `x = 5` is now a name and not an assignment.
+#
+# `x in xs` asks the right operand whether it holds the left one, and it is `xs.has(x)`
+# under a second spelling — same question, same answer, for a range, an array, a dict's
+# keys and a string's substrings. It binds looser than a range and tighter than a
+# comparison, which is what lets `code in 200..<300` read as it is written.
+
+say("=== named arguments: the middle parameter you do not have to count to ===")
+say("")
+
+fn shipping(weight, zone = "local", insured = false, express = false) {
+  base = weight * 40
+  base += match zone { "local" -> 0; "region" -> 120; else -> 350 }
+  base += insured ? 90 : 0
+  base *= express ? 2 : 1
+  base.int
+}
+
+say("shipping(2)                            → ${shipping(2)}")
+say("shipping(2, \"region\")                  → ${shipping(2, "region")}")
+say("shipping(2, express = true)            → ${shipping(2, express = true)}")
+say("shipping(2, insured = true, zone = \"region\") → ${shipping(2, insured = true, zone = "region")}")
+say("shipping(zone = \"far\", weight = 2)      → ${shipping(zone = "far", weight = 2)}")
+say("")
+say("`express = true` reached the fourth parameter without naming the second or third,")
+say("which is the only thing this syntax is for.")
+
+# A default is an ordinary expression evaluated at the call, in declaration order — so it
+# may read a parameter that a *name* filled, not only one that a position did.
+fn window(lo, hi = lo + 9, label = "${lo}..${hi}") { label }
+
+say("")
+say("window(1)                → ${window(1)}")
+say("window(lo = 100)         → ${window(lo = 100)}")
+say("window(1, label = \"one\")  → ${window(1, label = "one")}")
+
+# --- what the call site cannot get wrong quietly -----------------------------
+
+say("")
+say("=== every mistake is a message that names the parameter ===")
+say("")
+
+fn area(w, h = 2) { w * h }
+
+say("area(3, z = 1)  → ${try (area(3, z = 1)) else (e) -> e["message"]}")
+say("area(3, w = 1)  → ${try (area(3, w = 1)) else (e) -> e["message"]}")
+say("area(h = 4)     → ${try (area(h = 4)) else (e) -> e["message"]}")
+say("[1,2].map(f={it}) → ${try ([1, 2].map(f = { it })) else (e) -> e["message"]}")
+say("")
+say("Only a script function has parameter names. A builtin, a host function and a stdlib")
+say("row take their arguments by position, so a name there is an error and not a guess.")
+
+# One combination has no reading and is refused while parsing, so it cannot be shown as a
+# caught error the way the four above are: a trailing closure is a positional argument
+# written *after* the parentheses, so `retry(times = 3) { … }` would have to be both the
+# last argument and an argument before the named one. Give the closure a name as well, or
+# give everything a position.
+fn retry(times = 1, body) { "ran ${times}× → ${body()}" }
+
+say("")
+say("retry(3) { 7 }                 → ${retry(3) { 7 }}")
+say("retry(times = 3, body = { 7 }) → ${retry(times = 3, body = { 7 })}")
+say("retry(times = 3) { 7 }         → syntax error: a trailing closure cannot follow a named argument")
+
+# --- `in` --------------------------------------------------------------------
+
+say("")
+say("=== in: one question, four kinds of container ===")
+say("")
+
+say("200 in 200..<300        → ${200 in 200..<300}")
+say("300 in 200..<300        → ${300 in 200..<300}   (..< excludes its end)")
+say("\"да\" in [\"да\", \"yes\"]    → ${"да" in ["да", "yes"]}")
+say("\"port\" in {port: 443}    → ${"port" in {port: 443}}   (a dict answers about its keys)")
+say("\"вет\" in \"привет\"        → ${"вет" in "привет"}   (a string, about its substrings)")
+say("")
+say("in is has: (200..<300).has(200) → ${(200..<300).has(200)}")
+
+# It is an operator, so it is an expression, so it goes wherever an expression goes.
+codes = [200, 204, 301, 404, 500, 503]
+ok = codes.filter { it in 200..<300 }
+moved = codes.filter { it in [301, 302, 307, 308] }
+retryable = codes.filter { it in [429, 500, 502, 503] }
+
+say("")
+say("codes            ${codes.json}")
+say("  2xx            ${ok.json}")
+say("  redirects      ${moved.json}")
+say("  worth retrying ${retryable.json}")
+
+# Precedence, in the two places it matters: the range is `in`'s operand, and `&&` groups
+# around the whole membership test. Neither needs parentheses.
+fn classify(code, body) {
+  match {
+    code in 200..<300 && "error" in body -> "lying: 2xx with an error body"
+    code in 200..<300                    -> "ok"
+    code in [301, 302, 307, 308]         -> "redirect"
+    code in 500..<600                    -> "server said no"
+    else                                 -> "something else"
+  }
+}
+
+say("")
+for c in [[200, "{}"], [200, "{\"error\":1}"], [301, ""], [503, ""], [418, ""]] {
+  say("classify(${c[0]}) → ${classify(c[0], c[1])}")
+}
+
+# The negation is `!(x in xs)`; there is no `not in`, and `a in b in c` is refused rather
+# than guessed at.
+blocked = ["spam", "bot"]
+names = ["ann", "bot", "cleo"]
+say("")
+say("allowed: ${names.filter { !(it in blocked) }.json}")
+
+# A right operand of a kind that answers membership nowhere is an error naming `in` —
+# not the `has` this source never wrote.
+say("1 in 5 → ${try (1 in 5) else (e) -> e["message"]}")
+
+say("")
+say("=== both at once ===")
+say("")
+
+# The two features meet in the shape they were both added for: a predicate with several
+# knobs, called at each site with only the knob that site cares about.
+fn matches(entry, status = 0..<600, path = "", method = "", slow_ms = 0) {
+  entry["status"] in status &&
+    (path == "" || path in entry["path"]) &&
+    (method == "" || entry["method"] == method) &&
+    (slow_ms == 0 || entry["ms"] >= slow_ms)
+}
+
+log = [
+  {method: "GET",  path: "/api/users",   status: 200, ms: 12},
+  {method: "POST", path: "/api/payment", status: 502, ms: 310},
+  {method: "GET",  path: "/api/payment", status: 200, ms: 940},
+  {method: "GET",  path: "/health",      status: 200, ms: 1},
+  {method: "POST", path: "/api/users",   status: 422, ms: 45},
+]
+
+fn report(label, hits) { say("${label.ljust(28)} ${hits.len} ${hits.map { it["path"] }.json}") }
+
+report("failures", log.filter { matches(it, status = 400..<600) })
+report("anything under /api", log.filter { matches(it, path = "/api") })
+report("slow reads", log.filter { matches(it, method = "GET", slow_ms = 500) })
+report("everything", log.filter { matches(it) })
+
+say("")
+say("Five parameters, and not one call site had to spell a placeholder.")

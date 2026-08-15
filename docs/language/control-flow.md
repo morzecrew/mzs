@@ -14,6 +14,15 @@ inspect(if false { 1 })                                      # nil
 `else if` is two words; `elsif` is not a keyword. Only `nil` and `false` are falsy
 ([./values.md](./values.md)).
 
+A condition may ask about membership with `in` — a range, an array, a dict's keys or a
+string's substrings ([./operators.md](./operators.md)):
+
+```
+code = 250
+if code in 200..<300 { "ok" } else { "failed" }              # ok
+if name in ["да", "yes"] && !(name in blocked) { … }
+```
+
 ## while
 
 The value is `nil` unless a `break` supplies one.

@@ -501,6 +501,12 @@ func TestAuthorFiles(t *testing.T) {
 			{"destructuring", "examples/33_destructuring.mzs", nil, "",
 				[]string{"a=2 b=1", "push 2 | push 3 | add | dup | mul → [25]",
 					"index: destructuring expects 2 values, got 3", "moved on"}},
+			{"named arguments and in", "examples/35_named_args_and_in.mzs", nil, "",
+				[]string{"shipping(2, express = true)            → 160",
+					"area has no parameter named 'z'; it takes 'w' and 'h'",
+					`"вет" in "привет"        → true`,
+					"classify(200) → lying: 2xx with an error body",
+					"slow reads                   1 [\"/api/payment\"]"}},
 			{"bits and bytes", "examples/34_bits_and_bytes.mzs", nil, "",
 				[]string{`clear WRITE           → 0101  ["read","execute"]`,
 					"192.168.1.7    in 192.168.1.0/24 → true",
@@ -864,6 +870,80 @@ func TestUfcsUserFn(t *testing.T) {
 	}
 }
 
+// TestInIsHas is I6 read from the operator side: `in` and `has` are one operation under
+// two spellings (§8.5), so every kind that answers one answers the other with the same
+// value. A drift between them would let a condition and the method it is documented as
+// disagree, which is exactly what one namespace is meant to prevent.
+func TestInIsHas(t *testing.T) {
+	t.Parallel()
+
+	pairs := []struct {
+		name      string
+		container string
+		hit, miss string
+	}{
+		{"a range", `1..20`, `5`, `99`},
+		{"an exclusive range", `1..<20`, `19`, `20`},
+		{"an array", `[1, 2, 3]`, `2`, `9`},
+		{"a dict's keys", `{k: 1, n: 2}`, `"k"`, `"zz"`},
+		{"a string's substrings", `"привет"`, `"вет"`, `"zzz"`},
+	}
+
+	for _, p := range pairs {
+		t.Run(p.name, func(t *testing.T) {
+			t.Parallel()
+			for _, c := range []struct {
+				x    string
+				want bool
+			}{{p.hit, true}, {p.miss, false}} {
+				// `in` needs no parentheses around a range and `.has` does (§4.5), which
+				// is half of why the operator is worth having.
+				in := evalCorpus(t, c.x+" in "+p.container, nil)
+				has := evalCorpus(t, "("+p.container+").has("+c.x+")", nil)
+				if in.Kind() != mzs.KBool {
+					t.Errorf("%s in %s is a %s; `in` is always a Bool (§8.5)", c.x, p.container, in.Kind())
+				}
+				if in.Truthy() != c.want {
+					t.Errorf("%s in %s = %v, want %v", c.x, p.container, in.Truthy(), c.want)
+				}
+				if in.Truthy() != has.Truthy() {
+					t.Errorf("%s in %s = %v but %s.has(%s) = %v; they are one operation (I6)",
+						c.x, p.container, in.Truthy(), p.container, c.x, has.Truthy())
+				}
+			}
+		})
+	}
+}
+
+// TestNamedArgumentsSkipDefaults is the point of §8.7's parameter binding: a defaulted
+// parameter in the middle of the list is skipped rather than shifted, so adding one to a
+// function does not renumber its callers' arguments.
+func TestNamedArgumentsSkipDefaults(t *testing.T) {
+	t.Parallel()
+
+	const decl = `fn area(w, h = 2, unit = "cm") { "${w * h} ${unit}" }; `
+	tests := []struct {
+		name string
+		call string
+		want string
+	}{
+		{"defaults all the way", `area(3)`, "6 cm"},
+		{"one position", `area(3, 5)`, "15 cm"},
+		{"a name past a default", `area(3, unit = "m")`, "6 m"},
+		{"names in any order", `area(unit = "m", h = 5, w = 3)`, "15 m"},
+		{"a position and a name", `area(3, h = 5)`, "15 cm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := evalCorpus(t, decl+tt.call, nil).Str(); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.call, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestBitOpsStayInt is the exception §12.5 writes into D9: arithmetic promotes an
 // overflowing Int to a Float, and the bit rows do not. A bit shifted past the end is
 // gone, not rounded — which is the whole reason masks and checksums come out right — and
@@ -1211,6 +1291,16 @@ func TestDiagnostics(t *testing.T) {
 			`ambiguous range: write (0..5).map`, 1, 2},
 		{"chained range", `1..2..3`,
 			`range operator is non-associative`, 1, 5},
+		{"chained in", `a in b in c`,
+			`'in' is non-associative: write (a in b) in c if that is what you meant`, 1, 8},
+		{"a dict-style keyword argument", `f(1, a: 2)`,
+			`a named argument is written 'a = …'; for a dict argument write f({a: …})`, 1, 6},
+		{"a positional argument after a named one", `f(a = 1, 2)`,
+			`a positional argument may not follow a named one; move it before 'a = …'`, 1, 10},
+		{"the same argument named twice", `f(a = 1, a = 2)`,
+			`argument 'a' is named twice`, 1, 10},
+		{"a trailing closure after a named argument", `f(a = 1) { 2 }`,
+			`a trailing closure is a positional argument, so it cannot follow the named argument 'a = …': pass the closure by name too, or give every argument by position`, 1, 10},
 		{"equality against a regex", `s == /re/`,
 			`'==' with a regex operand: use '~' to match`, 1, 3},
 		{"the Ruby match operator", `s =~ /re/`,
@@ -1254,7 +1344,7 @@ func TestDiagnostics(t *testing.T) {
 		{"an arrow after a computed key", `{a: 1, (k) -> 2}`,
 			`a computed dict key takes ':', not '->': write (k): v`, 1, 12},
 		{"brace dict after a call", `f {a: 1}`,
-			`a dict after a call is written (a: 1) or ({a: 1})`, 1, 3},
+			`a dict after a call is written f({a: 1})`, 1, 3},
 		{"brace dict in a body", `if c {a: 1}`,
 			`this '{' opens the if body; write { {a: 1} } for a dict`, 1, 6},
 		{"hash rocket", `k => v`,

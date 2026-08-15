@@ -328,8 +328,8 @@ Program "t"
 `,
 		},
 		{
-			name: "keyword arguments collect into one dict",
-			src:  "f(1, a: 2, b: 3)",
+			name: "named arguments bind by parameter name",
+			src:  "f(1, a = 2, b = 3)",
 			want: `
 Program "t"
   ExprStmt
@@ -338,14 +338,23 @@ Program "t"
         Ident f
       arg
         Int 1
-      kwargs:
-        Dict
-          entry
-            Str "a"
-            Int 2
-          entry
-            Str "b"
-            Int 3
+      arg a =
+        Int 2
+      arg b =
+        Int 3
+`,
+		},
+		{
+			name: "in is a binary operator under the range",
+			src:  "a in 1..20",
+			want: `
+Program "t"
+  ExprStmt
+    Binary in
+      Ident a
+      Range ..
+        Int 1
+        Int 20
 `,
 		},
 		{
@@ -757,6 +766,10 @@ func TestPrecedence(t *testing.T) {
 		{"* is tighter than +", "1 + 2 * 3", "Binary +(Int 1, Binary *(Int 2, Int 3))"},
 		{"comparison is tighter than equality", "a < b == c", "Binary ==(Binary <(Ident a, Ident b), Ident c)"},
 		{"range is tighter than comparison", "a..b < c", "Binary <(Range ..(Ident a, Ident b), Ident c)"},
+		{"range is tighter than in", "a in 1..20", "Binary in(Ident a, Range ..(Int 1, Int 20))"},
+		{"in is tighter than comparison", "a in xs < c", "Binary <(Binary in(Ident a, Ident xs), Ident c)"},
+		{"&& is looser than in", "a in xs && b", "Logical &&(Binary in(Ident a, Ident xs), Ident b)"},
+		{"+ is tighter than in", "a + 1 in xs", "Binary in(Binary +(Ident a, Int 1), Ident xs)"},
 		{"&& is tighter than ||", "a && b || c", "Logical ||(Logical &&(Ident a, Ident b), Ident c)"},
 		{"|| is tighter than ??", "a || b ?? c", "Logical ??(Logical ||(Ident a, Ident b), Ident c)"},
 		{"ternary is right associative", "a ? b : c ? d : e", "Ternary(Ident a, Ident b, Ternary(Ident c, Ident d, Ident e))"},
@@ -985,6 +998,20 @@ func TestAmbiguityDiagnostics(t *testing.T) {
 			msg: "ambiguous range: write (0..5).map", line: 1, col: 2},
 		{name: "chained range", src: "1..2..3",
 			msg: "range operator is non-associative", line: 1, col: 5},
+		{name: "chained in", src: "a in b in c",
+			msg: "'in' is non-associative: write (a in b) in c if that is what you meant", line: 1, col: 8},
+		{name: "a dict-style keyword argument", src: "f(1, a: 2)",
+			msg: "a named argument is written 'a = …'; for a dict argument write f({a: …})", line: 1, col: 6},
+		{name: "a positional argument after a named one", src: "f(a = 1, 2)",
+			msg: "a positional argument may not follow a named one; move it before 'a = …'", line: 1, col: 10},
+		{name: "the same argument named twice", src: "f(a = 1, a = 2)",
+			msg: "argument 'a' is named twice", line: 1, col: 10},
+		{name: "a trailing closure after a named argument", src: "f(a = 1) { 2 }",
+			msg:  "a trailing closure is a positional argument, so it cannot follow the named argument 'a = …': pass the closure by name too, or give every argument by position",
+			line: 1, col: 10},
+		{name: "a trailing closure after a named argument on a method", src: "x.f(a = 1) { 2 }",
+			msg:  "a trailing closure is a positional argument, so it cannot follow the named argument 'a = …': pass the closure by name too, or give every argument by position",
+			line: 1, col: 12},
 		{name: "equality against a regex", src: "s == /re/",
 			msg: "'==' with a regex operand: use '~' to match", line: 1, col: 3},
 		{name: "the Ruby match operator", src: "s =~ /re/",
@@ -1022,13 +1049,13 @@ func TestAmbiguityDiagnostics(t *testing.T) {
 		{name: "bracket empty dict", src: "[:]",
 			msg: "the empty dict is written {}", line: 1, col: 1},
 		{name: "brace dict after a call", src: "f {a: 1}",
-			msg: "a dict after a call is written (a: 1) or ({a: 1})", line: 1, col: 3},
+			msg: "a dict after a call is written f({a: 1})", line: 1, col: 3},
 		{name: "brace dict in a body", src: "if c {a: 1}",
 			msg: "this '{' opens the if body; write { {a: 1} } for a dict", line: 1, col: 6},
 		// §3.10 suppresses the newline after `{`, so the lookahead of §3.12 reads the
 		// key from the next line unaided and these reach the same two fix-its.
 		{name: "multi-line brace dict after a call", src: "f {\n  a: 1\n}",
-			msg: "a dict after a call is written (a: 1) or ({a: 1})", line: 1, col: 3},
+			msg: "a dict after a call is written f({a: 1})", line: 1, col: 3},
 		{name: "multi-line brace dict in a body", src: "if c {\n  a: 1\n}",
 			msg: "this '{' opens the if body; write { {a: 1} } for a dict", line: 1, col: 6},
 		{name: "hash rocket", src: "k => v",

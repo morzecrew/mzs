@@ -76,7 +76,7 @@ mzs -e 'unless c { 1 }'
 # -e:1:1: syntax: 'unless' is not an mzs keyword; use 'if !(c)'
 mzs -e '1...5'        # -e:1:2: syntax: '...' is not an mzs operator; use '..<'
 mzs -e '"#{1}"'       # -e:1:2: syntax: string interpolation is "${x}"
-mzs -e 'f {a: 1}'     # -e:1:3: syntax: a dict after a call is written (a: 1) or ({a: 1})
+mzs -e 'f {a: 1}'     # -e:1:3: syntax: a dict after a call is written f({a: 1})
 mzs -e ':name'        # -e:1:1: syntax: mzs has no symbols; write "name"
 ```
 

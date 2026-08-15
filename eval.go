@@ -342,8 +342,32 @@ func (e ev) evalBinary(n *ast.BinaryExpr) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
+	if n.Op == token.KW_IN {
+		return e.evalIn(l, r, n.OpPos)
+	}
 	v, err := e.binary(n.Op, l, r)
 	return v, e.at(err, n.OpPos)
+}
+
+// evalIn is `a in xs` (§8.5): membership, asked of the right operand. It is the same
+// question an `in` arm of a `match` asks and it is answered the same way — by dispatching
+// `has` — so an array, a range, a dict's keys and a string's substrings all mean by `in`
+// exactly what they already meant by `has`, and a kind that grows a `has` row grows `in`
+// with it (I6). The result is a Bool, because `has` returns one.
+func (e ev) evalIn(x, container Value, pos token.Pos) (Value, error) {
+	v, err := e.dispatch(container, "has", []Value{x}, nil, pos)
+	if err != nil {
+		// A kind that answers membership nowhere fails inside dispatch as
+		// `undefined method 'has' for int`, naming an operation the source never wrote.
+		// The operator owns its own diagnostic (§5.6); anything else — a raise from a
+		// user's own `has`, a budget — travels out untouched.
+		if x, ok := err.(*Error); ok && x.Msg == undefinedMethodError(container.Kind(), "has").Msg {
+			err = typeErrorf("the right side of 'in' must have members — an array, a range, a dict or a string — got %s",
+				container.Kind())
+		}
+		return Nil(), e.at(err, pos)
+	}
+	return Bool(v.Truthy()), nil
 }
 
 // evalLogical short-circuits and returns an operand, not a Bool (§8.5). `??` fires on
@@ -584,7 +608,7 @@ func (e ev) armFires(arm *ast.MatchArm, subject Value, hasSubject bool) (*Env, b
 		case arm.Kind == ast.ArmIn:
 			// `in expr` is membership: an array, a range, a dict's keys, or a
 			// substring of a string — all of which spell it `has`.
-			v, err := e.dispatch(p, "has", []Value{subject}, arm.Pos)
+			v, err := e.dispatch(p, "has", []Value{subject}, nil, arm.Pos)
 			if err != nil {
 				return nil, false, err
 			}

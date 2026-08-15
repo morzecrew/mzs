@@ -84,6 +84,7 @@ h  = (a, b) -> { a + b }                          # …the same function, arrow-
 
 ```
 if x > 3 { "big" } else { "small" }               # every form has a value
+if code in 200..<300 { "ok" }                     # `in` asks a range, array, dict or string
 while x < 5 { x += 1 }
 for k, v in d { say("${k}=${v}") }
 x = 1 if ready                                    # statement modifiers
@@ -98,6 +99,7 @@ intent = match text {                             # instead of an if/else-if lad
 
 ```
 fn greet(name, greeting = "Hello") { "${greeting}, ${name}!" }
+greet("Ann", greeting = "Привет")                 # a named argument binds by parameter
 fn sum_all(*nums) { nums.sum }
 xs.map { it * 2 }                                 # `it` when you name no parameter
 a, b = [b, a]                                     # destructuring: a swap needs no temporary
