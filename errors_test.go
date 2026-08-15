@@ -144,6 +144,58 @@ func TestErrorValue(t *testing.T) {
 	}
 }
 
+// §13.5: the kinds the runtime keeps for itself are the ones a script could otherwise
+// lie with — `try` reads two of them and a host reads the third.
+func TestCheckKind(t *testing.T) {
+	tests := []struct {
+		kind string
+		ok   bool
+	}{
+		{"user", true},
+		{"billing", true},
+		{"json", true},   // a runtime kind a script may still name: it claims nothing
+		{"limit", false}, // what `try` refuses to catch
+		{"exit", false},  // what a host reads as a status
+		{"internal", false},
+		{"syntax", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			err := checkKind(tt.kind)
+			if (err == nil) != tt.ok {
+				t.Fatalf("checkKind(%q) = %v; want ok = %v", tt.kind, err, tt.ok)
+			}
+			if err != nil && err.Kind != ErrKindArgument {
+				t.Errorf("checkKind(%q).Kind = %q; want %q", tt.kind, err.Kind, ErrKindArgument)
+			}
+		})
+	}
+}
+
+// §8.11: the dict a handler binds knows the error it came from, and nothing in the
+// language can see that link. It is what `raise(e)` re-throws with.
+func TestErrorValueRemembersItsError(t *testing.T) {
+	e := raiseError("нет", Nil())
+	e.At("s.mzs", 3, 4)
+	v := e.ErrorValue()
+
+	if got := errorSource(v); got != e {
+		t.Fatalf("errorSource() = %v; want the error the dict was made from", got)
+	}
+	if got := len(v.odict().Keys()); got != 3 {
+		t.Errorf("the dict has %d keys; want the 3 of §8.11 and nothing else", got)
+	}
+	// A copy is a value like any other: provenance does not travel through the language.
+	if got := errorSource(dictOf(v.odict().Clone())); got != nil {
+		t.Errorf("a cloned dict kept the source %v; only the bound dict carries it", got)
+	}
+	if got := errorSource(Dict(Str("message"), Str("нет"))); got != nil {
+		t.Errorf("a hand-built dict has a source %v; want none", got)
+	}
+}
+
 func TestAsErrorKeepsSentinels(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -715,13 +715,17 @@ func TestClosureScope(t *testing.T) {
 		t.Errorf("x = %s, want 1 (§8.2)", v.Inspect())
 	}
 
-	// A binding first created inside a block does not outlive it.
-	_, err := corpusInterp(io.Discard).Eval(context.Background(), `if true { y = 1 }; y`, nil)
-	if err == nil {
-		t.Fatal("`if true { y = 1 }; y` compiled; every { … } is a scope (D2)")
-	}
-	if got, want := firstError(t, err).Msg, "undefined variable 'y'"; !strings.Contains(got, want) {
-		t.Errorf("error = %q, want it to contain %q", got, want)
+	// A binding first created inside a block does not outlive it. A braced `try` is a
+	// block like any other (§8.11), which is the whole difference between it and the
+	// `try (a; b)` grouping it reads like.
+	for _, src := range []string{`if true { y = 1 }; y`, `try { y = 1 } else 0; y`} {
+		_, err := corpusInterp(io.Discard).Eval(context.Background(), src, nil)
+		if err == nil {
+			t.Fatalf("`%s` compiled; every { … } is a scope (D2)", src)
+		}
+		if got, want := firstError(t, err).Msg, "undefined variable 'y'"; !strings.Contains(got, want) {
+			t.Errorf("`%s` error = %q, want it to contain %q", src, got, want)
+		}
 	}
 }
 
@@ -1000,6 +1004,115 @@ func TestBitOpsStayInt(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEnsureRunsOnEveryExit is §8.11 for the clause a script cannot write itself: the
+// release has to happen on the value, on the error, and on the `return` that leaves in
+// the middle — and it has to stop happening at the one boundary where more script code
+// is not allowed to run, which is a limit (§14.1).
+func TestEnsureRunsOnEveryExit(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+		fn use(n) {
+			$log += "open${n} "
+			try {
+				raise("no ${n}") if n == 2
+				return "got ${n}" if n == 3
+				"used ${n}"
+			} ensure {
+				$log += "close${n} "
+			}
+		}
+		[try use(1) else "-", try use(2) else "-", use(3)].join(",")`
+
+	vars := map[string]mzs.Value{"$log": mzs.Str("")}
+	in := corpusInterp(io.Discard)
+	p, err := in.Compile("ensure.mzs", src)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	res, err := in.RunResult(context.Background(), p, vars)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got, want := res.Value.Str(), "used 1,-,got 3"; got != want {
+		t.Errorf("= %q, want %q; an ensure does not change the value", got, want)
+	}
+	want := "open1 close1 open2 close2 open3 close3 "
+	if got := res.Globals["$log"].Str(); got != want {
+		t.Errorf("log = %q, want %q", got, want)
+	}
+}
+
+// TestErrorKindsAreClosed is §13.5 and the reason T6 exists: a handler tells failures
+// apart by a kind from a known list, not by reading the message. Every kind here is
+// stamped where the failure is born, a script may name a kind of its own, and the four
+// the runtime keeps for itself are refused.
+func TestErrorKindsAreClosed(t *testing.T) {
+	t.Parallel()
+
+	kinds := []struct {
+		kind string
+		src  string
+	}{
+		{"type", `1 + "x"`},
+		{"name", `fn f(x) { x.upper }; f(1)`},
+		{"index", `[1, 2].insert(9, 3)`},
+		{"key", `{a: 1}.fetch("b")`},
+		{"zero-division", `7 / 0`},
+		{"regex", `regex("(")`},
+		{"json", `include json; json.parse("{")`},
+		{"raise", `raise("boom")`},
+		{"billing", `raise("no funds", "billing")`},
+		{"user", `raise({message: "no funds", kind: "user"})`},
+	}
+
+	for _, tt := range kinds {
+		t.Run(tt.kind, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf(`try (%s) else (e) -> e["kind"]`, tt.src)
+			if got := evalCorpus(t, src, nil).Str(); got != tt.kind {
+				t.Errorf("%s → kind %q, want %q", tt.src, got, tt.kind)
+			}
+		})
+	}
+
+	// The kinds that mean "the Run is over" or "the compiler said so" are not a script's
+	// to claim: a raise wearing them would lie to `try` and to the host (§13.5).
+	for _, kind := range []string{"limit", "exit", "internal", "syntax"} {
+		t.Run("reserved "+kind, func(t *testing.T) {
+			t.Parallel()
+			src := fmt.Sprintf(`raise("x", %q)`, kind)
+			_, err := corpusInterp(io.Discard).Eval(context.Background(), src, nil)
+			if err == nil {
+				t.Fatalf("%s raised nothing; the kind is the runtime's", src)
+			}
+			e := firstError(t, err)
+			want := fmt.Sprintf("kind %q belongs to the runtime", kind)
+			if e.Kind != "argument" || !strings.Contains(e.Msg, want) {
+				t.Errorf("error = %s: %q, want argument: %q…", e.Kind, e.Msg, want)
+			}
+		})
+	}
+
+	// A re-raise is the arm that did not know what to do: the error keeps the position
+	// and the stack of the failure, not of the handler that passed it on.
+	t.Run("re-raise keeps the origin", func(t *testing.T) {
+		t.Parallel()
+		const src = "fn deep() {\n  raise(\"original\", \"user\")\n}\nfn mid() {\n  try deep() else (e) -> raise(e)\n}\nmid()"
+		_, err := corpusInterp(io.Discard).Eval(context.Background(), src, nil)
+		if err == nil {
+			t.Fatal("the re-raise was swallowed")
+		}
+		e := firstError(t, err)
+		if e.Line != 2 || e.Msg != "original" || e.Kind != "user" {
+			t.Errorf("error = %d: %s: %q, want 2: user: %q", e.Line, e.Kind, e.Msg, "original")
+		}
+		if len(e.Stack) == 0 {
+			t.Error("the re-raised error lost its stack")
+		}
+	})
 }
 
 func TestTimeout(t *testing.T) {

@@ -92,7 +92,7 @@ under `MaxStringBytes`, and a larger one never reaches the handler:
 ```sh
 $ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Expect:' --data-binary @9mb.bin localhost:8080/echo
 400
-# server's stderr: http: POST /echo: echo.mzs:2:6: raise: http: request body exceeds the 8388608 byte limit
+# server's stderr: http: POST /echo: echo.mzs:2:6: http: request body exceeds the 8388608 byte limit
 ```
 
 ## What a handler returns
@@ -193,7 +193,9 @@ an error is the wire, and that is catchable.
 $ mzs -t 15 -e 'include http; http.get("https://example.com/no-such-page")["status"]'
 404
 $ mzs -t 10 -e 'include http; try http.get("http://localhost:9/x") else (e) -> e["message"]'
-http: GET http://localhost:9/x: Get "http://localhost:9/x": dial tcp 127.0.0.1:9: connect: connection refused
+GET http://localhost:9/x: Get "http://localhost:9/x": dial tcp 127.0.0.1:9: connect: connection refused
+$ mzs -t 10 -e 'include http; try http.get("http://localhost:9/x") else (e) -> e["kind"]'
+http
 $ mzs -e 'include http; http.get("localhost:8080/health")'
 -e:1:20: argument: http: url must start with http:// or https://, got "localhost:8080/health"
 ```
@@ -207,7 +209,7 @@ fetches wants `-t 30` and not the default `-t 1s`.
 
 ```sh
 $ mzs -t 20 -e 'include http; try http.get("http://10.255.255.1/x", {timeout: 2}) else (e) -> e["message"]'
-http: GET http://10.255.255.1/x: Get "http://10.255.255.1/x": context deadline exceeded
+GET http://10.255.255.1/x: Get "http://10.255.255.1/x": context deadline exceeded
 $ mzs -e 'include http; try http.get("http://10.255.255.1/x") else "caught"'
 -e:1:24: limit: execution timed out after 1s
 $ echo $?
@@ -230,8 +232,8 @@ $ mzs -t 20 probe.mzs      # -t 20 lifts the Run deadline past the requests' own
 timed out / timed out      # real 0m2,005s
 ```
 
-Responses are read under `MaxStringBytes`; a larger one is a catchable error and never a
-prefix — `http: response exceeds the 8388608 byte limit`.
+Responses are read under `MaxStringBytes`; a larger one is a catchable error of kind
+`http` and never a prefix — `http: response exceeds the 8388608 byte limit`.
 
 Worked programs: [../../examples/30_http_service.mzs](../../examples/30_http_service.mzs) (both
 halves) and [../../examples/31_api_pipeline.mzs](../../examples/31_api_pipeline.mzs) (a client

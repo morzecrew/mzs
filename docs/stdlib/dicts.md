@@ -39,11 +39,11 @@ d = {a: 1, b: 2}; d.delete("a"); d.set("a", 9); d.keys   # ["b","a"]
 {a: 1}.dig("x", "y")        # nil
 ```
 
-`get` never raises. `fetch` raises an `index` error on a miss and names the key:
+`get` never raises. `fetch` raises a `key` error on a miss and names the key:
 
 ```
 {a: 1}.fetch("b")
-# -e:1:8: index: key not found: "b"
+# -e:1:8: key: key not found: "b"
 ```
 
 `dig` walks dicts and arrays and stops at the first `nil`, so half-present data reads as

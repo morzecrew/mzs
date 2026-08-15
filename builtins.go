@@ -190,17 +190,8 @@ func init() {
 			return Str(out), nil
 		}},
 
-		Builtin{Name: "raise", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
-			// raise(dict) attaches the dict as err.data and takes its `message` key as
-			// the message when it has one (§8.11).
-			msg, data := args[0].Str(), Nil()
-			if args[0].Kind() == KDict {
-				data = args[0]
-				if m := args[0].Get(Str("message")); !m.IsNil() {
-					msg = m.Str()
-				}
-			}
-			return Nil(), c.position(raiseError(msg, data))
+		Builtin{Name: "raise", Min: 1, Max: 2, Fn: func(c *Ctx, args []Value) (Value, error) {
+			return Nil(), raiseValue(c, args)
 		}},
 		// `exit` ends the Run and hands the host a status; it is not a failure and not a
 		// script error, so `try` never catches it (§8.11) and no diagnostic is printed
@@ -294,7 +285,7 @@ func writeOut(c *Ctx, w io.Writer, s string) error {
 		return err
 	}
 	if _, err := io.WriteString(w, s); err != nil {
-		return c.Errorf("write failed: %s", err)
+		return c.ErrorfKind(ErrKindIO, "write failed: %s", err)
 	}
 	return nil
 }

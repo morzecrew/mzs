@@ -32,6 +32,11 @@ import (
 // charges no steps. Each request instead gets the whole per-Run budget and a fresh
 // deadline (§14.1), so a slow handler fails that one request and the server keeps
 // serving.
+//
+// Errors here carry the kind `http` when the failure is the network's — a refused
+// connection, a body over the cap — and the ordinary `argument`/`type` kinds when the
+// script called the member wrongly (§13.5). That is also why only the second group spells
+// `http:` in its message: the prefix says which module when the kind does not.
 
 func init() {
 	RegisterModuleFunc("http", "serve", 2, 3, httpServe)
@@ -134,7 +139,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 
 	ln, lerr := net.Listen("tcp", addr)
 	if lerr != nil {
-		return Nil(), c.Errorf("http.serve: %v", lerr)
+		return Nil(), c.ErrorfKind(ErrKindHTTP, "http.serve: %v", lerr)
 	}
 	hs := &http.Server{Handler: mux, ReadHeaderTimeout: httpReadHeaderTimeout}
 	go func() { _ = hs.Serve(ln) }()
@@ -308,10 +313,10 @@ func httpRequestValue(c *Ctx, job *httpJob) (Value, error) {
 	max := c.rs.opts.MaxStringBytes
 	body, err := io.ReadAll(io.LimitReader(r.Body, int64(max)+1))
 	if err != nil {
-		return Nil(), c.Errorf("http: reading the request body: %v", err)
+		return Nil(), c.ErrorfKind(ErrKindHTTP, "reading the request body: %v", err)
 	}
 	if len(body) > max {
-		return Nil(), c.Errorf("http: request body exceeds the %d byte limit", max)
+		return Nil(), c.ErrorfKind(ErrKindHTTP, "request body exceeds the %d byte limit", max)
 	}
 
 	params := NewOrderedDictCap(len(job.params))
@@ -416,7 +421,7 @@ func httpResponse(c *Ctx, v Value) (status int, headers Value, body []byte, ctyp
 func httpJSONBytes(c *Ctx, v Value) ([]byte, error) {
 	b, err := v.MarshalJSON()
 	if err != nil {
-		return nil, c.Errorf("http: encoding the response: %v", err)
+		return nil, c.ErrorfKind(ErrKindHTTP, "encoding the response: %v", err)
 	}
 	if err := c.CheckString(len(b)); err != nil {
 		return nil, err
@@ -627,7 +632,7 @@ func httpDo(c *Ctx, method string, urlV, bodyV, opts Value) (Value, error) {
 		if errors.Is(derr, context.Canceled) {
 			return Nil(), limitErrorf(ErrCanceled, "canceled")
 		}
-		return Nil(), c.Errorf("http: %s %s: %v", method, url, derr)
+		return Nil(), c.ErrorfKind(ErrKindHTTP, "%s %s: %v", method, url, derr)
 	}
 	defer resp.Body.Close()
 
@@ -638,10 +643,10 @@ func httpDo(c *Ctx, method string, urlV, bodyV, opts Value) (Value, error) {
 	)
 	c.blocking(func() { body, berr = io.ReadAll(io.LimitReader(resp.Body, int64(max)+1)) })
 	if berr != nil {
-		return Nil(), c.Errorf("http: reading the response of %s %s: %v", method, url, berr)
+		return Nil(), c.ErrorfKind(ErrKindHTTP, "reading the response of %s %s: %v", method, url, berr)
 	}
 	if len(body) > max {
-		return Nil(), c.Errorf("http: response exceeds the %d byte limit", max)
+		return Nil(), c.ErrorfKind(ErrKindHTTP, "response exceeds the %d byte limit", max)
 	}
 
 	headers := NewOrderedDictCap(len(resp.Header))

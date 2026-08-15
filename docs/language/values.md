@@ -86,8 +86,8 @@ Keys in brackets are a diagnostic naming the replacement, never a silent reading
 ```
 
 A dict is read in operand position, because elsewhere the brace is already spoken for:
-after an `if`/`while`/`for`/`fn` header it opens the body, and after a call it opens the
-trailing closure. Both cases have a fix-it:
+after an `if`/`while`/`for`/`fn` header it opens the body, in a `try` clause it opens that
+clause's block, and after a call it opens the trailing closure. Each case has a fix-it:
 
 ```
 status = if ready { {code: 200} } else { {code: 503} }   # body, then the dict inside it

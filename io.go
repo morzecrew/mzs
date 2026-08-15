@@ -128,7 +128,7 @@ func iovRead(c *Ctx, args []Value) (Value, error) {
 	)
 	c.blocking(func() { rc, oerr = fs.Open(path) })
 	if oerr != nil {
-		return Nil(), c.Errorf("io.read %s: %v", quoteString(path), oerr)
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.read %s: %v", quoteString(path), oerr)
 	}
 	defer rc.Close()
 
@@ -177,7 +177,7 @@ func ioPut(c *Ctx, name string, args []Value, open func(FileSystem, string) (io.
 	)
 	c.blocking(func() { wc, oerr = open(fs, path) })
 	if oerr != nil {
-		return Nil(), c.Errorf("%s %s: %v", name, quoteString(path), oerr)
+		return Nil(), c.ErrorfKind(ErrKindIO, "%s %s: %v", name, quoteString(path), oerr)
 	}
 
 	var (
@@ -191,10 +191,10 @@ func ioPut(c *Ctx, name string, args []Value, open func(FileSystem, string) (io.
 		cerr = wc.Close()
 	})
 	if werr != nil {
-		return Nil(), c.Errorf("%s %s: %v", name, quoteString(path), werr)
+		return Nil(), c.ErrorfKind(ErrKindIO, "%s %s: %v", name, quoteString(path), werr)
 	}
 	if cerr != nil {
-		return Nil(), c.Errorf("%s %s: %v", name, quoteString(path), cerr)
+		return Nil(), c.ErrorfKind(ErrKindIO, "%s %s: %v", name, quoteString(path), cerr)
 	}
 	return Int(int64(n)), nil
 }
@@ -214,7 +214,7 @@ func iovExists(c *Ctx, args []Value) (Value, error) {
 	)
 	c.blocking(func() { ok, _, _, serr = fs.Stat(path) })
 	if serr != nil {
-		return Nil(), c.Errorf("io.exists %s: %v", quoteString(path), serr)
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.exists %s: %v", quoteString(path), serr)
 	}
 	return Bool(ok), nil
 }
@@ -238,7 +238,7 @@ func iovLs(c *Ctx, args []Value) (Value, error) {
 	)
 	c.blocking(func() { names, lerr = fs.List(path) })
 	if lerr != nil {
-		return Nil(), c.Errorf("io.ls %s: %v", quoteString(path), lerr)
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.ls %s: %v", quoteString(path), lerr)
 	}
 	if err := c.CheckCollection(len(names)); err != nil {
 		return Nil(), err
@@ -289,7 +289,7 @@ func ioTarget(c *Ctx, v Value) (FileSystem, string, error) {
 	}
 	fs := c.rs.opts.FS
 	if fs == nil {
-		return nil, "", c.Errorf("%s: the host did not install Options.FS", c.Name())
+		return nil, "", c.ErrorfKind(ErrKindIO, "%s: the host did not install Options.FS", c.Name())
 	}
 	if err := c.Step(ioStepCost); err != nil {
 		return nil, "", err
@@ -324,10 +324,10 @@ func ioReadLimited(c *Ctx, r io.Reader, what string, unlocked bool) ([]byte, err
 		read()
 	}
 	if rerr != nil {
-		return nil, c.Errorf("%s: %v", what, rerr)
+		return nil, c.ErrorfKind(ErrKindIO, "%s: %v", what, rerr)
 	}
 	if len(b) > max {
-		return nil, c.Errorf("%s: exceeds the %d byte limit", what, max)
+		return nil, c.ErrorfKind(ErrKindIO, "%s: exceeds the %d byte limit", what, max)
 	}
 	return b, nil
 }

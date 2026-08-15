@@ -225,6 +225,12 @@ func TestIOFailuresAreCatchable(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `io.read "/nope"`) {
 		t.Fatalf("error = %v; want it to name the file", err)
 	}
+
+	// And its kind says which module failed, so a handler can tell a missing file from a
+	// bad argument without reading the message (§13.5).
+	if got := mustEvalIO(t, o, `try io.read("/nope") else (e) -> e["kind"]`); got != "io" {
+		t.Errorf("kind = %q; want %q", got, "io")
+	}
 }
 
 // TestIOStatFailureIsNotFalse pins the other half of io.exists: a filesystem that cannot

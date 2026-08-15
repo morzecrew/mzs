@@ -33,12 +33,25 @@ func (e *Error) ErrorValue() Value  // the dict a `try X else (e) -> …` arm bi
 | `name` | `ErrKindName` | undefined variable, method, member, module |
 | `type` | `ErrKindType` | wrong operand or argument kind |
 | `argument` | `ErrKindArgument` | arity and argument-shape failures |
-| `index` | `ErrKindIndex` | index out of range, e.g. `[1,2][-9] = 1` |
+| `index` | `ErrKindIndex` | index out of range, e.g. `[1,2].insert(9, 3)` |
+| `key` | `ErrKindKey` | a key that is not in the dict — `fetch` |
 | `zero-division` | `ErrKindZeroDiv` | integer `/` or `%` by 0 |
 | `regex` | `ErrKindRegex` | a pattern that will not compile |
+| `json` | `ErrKindJSON` | `json.parse` on bad input, a value that will not encode |
+| `http` | `ErrKindHTTP` | a transport failure, a response over `MaxStringBytes` |
+| `io` | `ErrKindIO` | a filesystem or stream failure, a read over `MaxStringBytes` |
 | `raise` | `ErrKindRaise` | the `raise` builtin, and host `c.Errorf` |
 | `limit` | `ErrKindLimit` | timeout, step budget, depth, cancel, collection, string size |
+| `exit` | `ErrKindExit` | the `exit` builtin; read it with `ExitCode` |
 | `internal` | `ErrKindInternal` | a recovered panic |
+
+The list is closed for the runtime, but not for a script: `raise(msg, kind)` puts any other
+name on an error — `"user"`, `"billing"` — so a `switch` over `Kind` needs a `default`. Four
+are refused to a script, because a host reads them as facts about the Run rather than as
+something the program said: `syntax`, `limit`, `exit` and `internal`.
+
+A host function picks its own kind with `c.ErrorfKind(mzs.ErrKindIO, …)`; plain `c.Errorf`
+is kind `raise`.
 
 Observed shapes:
 

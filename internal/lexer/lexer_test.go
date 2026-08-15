@@ -64,9 +64,9 @@ func TestLexTokens(t *testing.T) {
 
 		// §3.5 keywords, and the words that are not.
 		{
-			"the fourteen keywords",
-			"fn if else match while for in break next return try true false nil",
-			"fn if else match while for in break next return try true false nil",
+			"the fifteen keywords that are not include/export",
+			"fn if else match while for in break next return try ensure true false nil",
+			"fn if else match while for in break next return try ensure true false nil",
 		},
 		{
 			"ruby words are identifiers",
@@ -173,6 +173,7 @@ func TestLexTokens(t *testing.T) {
 		{"leading safe call joins the chain", "a\n  ?.b", "IDENT(a) ?. IDENT(b)"},
 		{"leading binary operator joins", "a\n== b", "IDENT(a) == IDENT(b)"},
 		{"hanging else joins", "if c { a }\nelse { b }", "if IDENT(c) { IDENT(a) } else { IDENT(b) }"},
+		{"hanging ensure joins", "try { a }\nensure { b }", "try { IDENT(a) } ensure { IDENT(b) }"},
 		{"leading arrow joins", "match s {\n  1\n  -> 2 }", "match IDENT(s) { INT(1) -> INT(2) }"},
 		{"closing bracket joins", "[1,\n2\n]", "[ INT(1) , INT(2) ]"},
 		{"newline inside interpolation is suppressed", "\"${a\n+ 1}\"", "STR_BEGIN INTERP_BEGIN IDENT(a) + INT(1) INTERP_END STR_END"},

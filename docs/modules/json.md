@@ -82,14 +82,14 @@ d = json.parse('{"a":{"b":1}}')
 
 ## Malformed input
 
-A parse failure is an ordinary catchable `argument` error:
+A parse failure is an ordinary catchable `json` error:
 
 ```sh
 mzs -e 'include json; json.parse("{oops")'
 ```
 
 ```
--e:1:20: argument: json.parse: invalid character 'o'
+-e:1:20: json: json.parse: invalid character 'o'
   include json; json.parse("{oops")
                      ^
 ```
@@ -98,7 +98,7 @@ mzs -e 'include json; json.parse("{oops")'
 include json
 try json.parse("{oops") else (e) -> e["message"]        # json.parse: invalid character 'o'
 try json.parse("") else (e) -> e["message"]             # json.parse: EOF
-try json.parse('{"a":}') else (e) -> e["kind"]          # argument
+try json.parse('{"a":}') else (e) -> e["kind"]          # json
 ```
 
 Two things that are *not* errors: text after a complete value is ignored

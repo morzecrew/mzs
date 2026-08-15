@@ -74,11 +74,11 @@ func jsonvParse(c *Ctx, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	if d := jsonvNesting(src); d > jsonvMaxDepth {
-		return Nil(), c.ArgErrorf("json.parse: input is nested too deeply (%d levels)", d)
+		return Nil(), c.ErrorfKind(ErrKindJSON, "json.parse: input is nested too deeply (%d levels)", d)
 	}
 	v, derr := decodeJSON([]byte(src))
 	if derr != nil {
-		return Nil(), c.ArgErrorf("json.parse: %s", derr.Error())
+		return Nil(), c.ErrorfKind(ErrKindJSON, "json.parse: %s", derr.Error())
 	}
 	return v, nil
 }
@@ -110,13 +110,13 @@ func jsonvText(c *Ctx, v Value, indent string) (string, error) {
 // not a cycle, and it serialises perfectly well.
 func jsonvWalk(c *Ctx, v Value, open map[any]bool, depth int) error {
 	if depth > jsonvMaxDepth {
-		return c.ArgErrorf("json: value is nested too deeply (%d levels)", depth)
+		return c.ErrorfKind(ErrKindJSON, "json: value is nested too deeply (%d levels)", depth)
 	}
 	switch v.Kind() {
 	case KArray:
 		p := any(v.arr())
 		if open[p] {
-			return c.ArgErrorf("json: value contains a cycle")
+			return c.ErrorfKind(ErrKindJSON, "json: value contains a cycle")
 		}
 		open[p] = true
 		xs := *v.arr()
@@ -142,7 +142,7 @@ func jsonvWalk(c *Ctx, v Value, open map[any]bool, depth int) error {
 		d := v.odict()
 		p := any(d)
 		if open[p] {
-			return c.ArgErrorf("json: value contains a cycle")
+			return c.ErrorfKind(ErrKindJSON, "json: value contains a cycle")
 		}
 		open[p] = true
 		if err := c.Step(int64(d.Len()) + 1); err != nil {

@@ -79,10 +79,10 @@ fix-it instead. A few of the ~30 in [../cli/diagnostics.md](../cli/diagnostics.m
 
 ## Keywords
 
-Sixteen, and this is the whole list (`internal/token/token.go`):
+Seventeen, and this is the whole list (`internal/token/token.go`):
 
 ```
-fn  if  else  match  while  for  in  break  next  return  try  true  false  nil
+fn  if  else  match  while  for  in  break  next  return  try  ensure  true  false  nil
 include  export
 ```
 
@@ -117,8 +117,8 @@ start one. Both tests are lexical, one token wide; indentation is never part of 
 
 | A newline is suppressed | Tokens |
 |---|---|
-| after | any operator, `=` and every compound assign, `,` `(` `[` `{` `->` `?` `:` `.` `?.` `..` `..<`, the keywords `fn if else match while for in return try`, and anything inside `${…}` |
-| before | `.` `?.` `->` `else` `)` `]` `}`, and any binary operator except `in` — a line that *starts* with `in` is a `match` arm, so the newline in front of it stands |
+| after | any operator, `=` and every compound assign, `,` `(` `[` `{` `->` `?` `:` `.` `?.` `..` `..<`, the keywords `fn if else match while for in return try ensure`, and anything inside `${…}` |
+| before | `.` `?.` `->` `else` `ensure` `)` `]` `}`, and any binary operator except `in` — a line that *starts* with `in` is a `match` arm, so the newline in front of it stands |
 
 After anything else — a name, a literal, `)` `]` `}`, `break`, `next`, `include` — the newline
 terminates. That is what makes the three usual shapes legal:
@@ -159,7 +159,7 @@ x = 1; x = 5
 | [./destructuring.md](./destructuring.md) | one shape rule in assignment, `match` arms and `for` |
 | [./functions.md](./functions.md) | `fn`, closures, `it`, defaults, varargs, UFCS, scope |
 | [./strings.md](./strings.md) | literals, interpolation, runes, escapes |
-| [./errors.md](./errors.md) | `try` / `else`, `raise`, what is not catchable |
+| [./errors.md](./errors.md) | `try` / `else` / `ensure`, error kinds, `raise`, what is not catchable |
 | [./host-variables.md](./host-variables.md) | `$variables` and the globals table |
 | [./async.md](./async.md) | `async fn`, `await`, `done`, the scheduling model |
 | [./regex.md](./regex.md) | the two engines, flags, dynamic patterns |

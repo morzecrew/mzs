@@ -94,11 +94,12 @@ $ echo 'include io; io.lines' | mzs --in data.txt - --json
 
 ## Errors
 
-Everything the outside world can refuse is an ordinary catchable error naming the path.
+Everything the outside world can refuse is an ordinary catchable error of kind `io`
+naming the path.
 
 ```sh
 $ mzs -e 'include io; io.read("gone.txt")'
--e:1:16: raise: io.read "gone.txt": open gone.txt: no such file or directory
+-e:1:16: io: io.read "gone.txt": open gone.txt: no such file or directory
   include io; io.read("gone.txt")
                  ^
 $ mzs -e 'include io; try io.read("gone.txt") else "(default)"'
