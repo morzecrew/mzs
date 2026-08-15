@@ -613,7 +613,7 @@ MatchElem      = IDENT              (* binds this position *)
 TryExpr        = "try" TryClause [ "else" [ TryBinder ] TryClause ] [ "ensure" Block ] ;
                (* at least one of "else" and "ensure" is required (§8.11) *)
 TryClause      = Block | Expr ;     (* §3.12 reads a dict operand first: try {a: 1} is a dict *)
-TryBinder      = "(" IDENT ")" [ "->" ] ;   (* the arrow is required before an Expr, optional before a Block *)
+TryBinder      = "(" IDENT ")" [ "->" ] ;   (* optional before a "{" — block or dict; required before any other Expr *)
 Block          = "{" StmtList "}" ; (* a body, not a closure: it declares no parameters *)
 
 (* ---------- expressions, loosest to tightest ---------- *)
@@ -1510,11 +1510,12 @@ xs.map(double)              # where double = { (x) -> x * 2 }
   depth-limit, context cancellation or `exit` (§12.1); those propagate to the host.
 * Errors carry the script name, line, column and a short call stack.
 
-**The braced form.** Every clause takes either an expression or a block:
+**The braced form.** `try` and `else` take either an expression or a block; `ensure`
+takes a block and nothing else, since its value is discarded either way:
 
 ```
 try { a; b } else { "-" }
-try { a } else (e) { e["message"] }         # before a block the binder needs no arrow
+try { a } else (e) { e["message"] }         # before a brace the binder needs no arrow
 try { take() } ensure { release() }
 try { … } else { … } ensure { … }
 ```

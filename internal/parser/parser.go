@@ -853,8 +853,14 @@ func (p *parser) headerBrace(reported *bool) {
 }
 
 // tryBinder reads the optional `(e)` that names the error dict. The arrow is what the
-// expression form needs to separate the name from the value; before a block it is
-// optional, because the brace already separates them.
+// expression form needs to separate the name from the value; before a `{` it is optional,
+// because the brace already separates them.
+//
+// That is a brace of either sort, and deliberately so: what the §3.12 lookahead goes on to
+// decide — block or dict — answers a different question than "where does the binder end",
+// and letting it answer both would make `else (e) {code: 1}` an undefined variable while
+// `else (e) { code(1) }` binds. The binder rule stays one token wide and free of the
+// lookahead, as §3.11 asks of everything that reads a brace.
 func (p *parser) tryBinder() string {
 	if p.kind() != token.LPAREN || p.peekKind(1) != token.IDENT || p.peekKind(2) != token.RPAREN {
 		return ""
@@ -873,17 +879,17 @@ func (p *parser) tryBinder() string {
 	return name
 }
 
-// tryStop is the end of the whole form, which is the end of its last clause.
+// tryStop is the end of the whole form, which is the end of its last clause. The body is
+// always there — a clause that failed to parse is still a node (§17 recovery) — so there
+// is no fourth case.
 func tryStop(n *ast.TryExpr) token.Pos {
 	switch {
 	case n.Ensure != nil:
 		return n.Ensure.End()
 	case n.Fallback != nil:
 		return n.Fallback.End()
-	case n.X != nil:
-		return n.X.End()
 	}
-	return n.Kw
+	return n.X.End()
 }
 
 // parseBinary is the precedence-climbing core of §5.1 levels 4..12 plus the ranges of

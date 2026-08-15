@@ -933,6 +933,8 @@ func TestTryElse(t *testing.T) {
 		{"a block binds the error without an arrow", `try { 1 / 0 } else (e) { e["message"] }`, "divided by 0"},
 		{"a block binds the error with one", `try { 1 / 0 } else (e) -> { e["kind"] }`, "zero-division"},
 		{"a dict in operand position is still a dict", `try {a: 1} else 0`, `{"a":1}`},
+		{"the binder ends at the brace, dict or not", `try raise("x") else (e) {m: e["message"]}`, `{"m":"x"}`},
+		{"the same fallback with the arrow", `try raise("x") else (e) -> {m: e["message"]}`, `{"m":"x"}`},
 		{"the empty dict is still the empty dict", `try {} else 0`, "{}"},
 	}
 

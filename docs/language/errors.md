@@ -20,8 +20,9 @@ try (a := 1; a + nil) else "-"                   # -
 
 ## The braced form
 
-Every clause takes a block as readily as an expression, and a block is a body: statements,
-the last one is the value, and the braces are a scope.
+The `try` and `else` clauses take a block as readily as an expression, and `ensure` takes
+one always. A block is a body: statements, the last one is the value, and the braces are a
+scope.
 
 ```
 n = try {
@@ -104,14 +105,16 @@ mzs --steps 5000 -e 'try { while true { } } ensure { println("released") }'
 
 ## The error dict
 
-`try X else (e) -> Y` binds `e` while `Y` is evaluated. Before a block the arrow is
-optional, because the brace already separates the name from the handler:
+`try X else (e) -> Y` binds `e` while `Y` is evaluated. Before a brace the arrow is
+optional, because the brace already separates the name from the handler — whether that
+brace turns out to be a block or a dict (§3.12) is a separate question:
 
 ```
 try (1 + "two") else (e) -> e.json
 # {"message":"cannot add string to int","kind":"type","line":1}
 
 try { 1 + "two" } else (e) { e["kind"] }         # type
+try raise("x") else (e) {code: 1, m: e["message"]}   # {"code":1,"m":"x"} — a dict fallback
 ```
 
 | Key | Value |
