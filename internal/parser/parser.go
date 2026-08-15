@@ -470,8 +470,8 @@ func (p *parser) parseBareStmt() ast.Stmt {
 // identifier is not that shape, so the caller carries on with an ordinary expression.
 //
 // `async` is positional, not a keyword (§3.5): it means something only immediately
-// before `fn`, exactly as `from` does only inside an `include`. The keyword table stays
-// at sixteen entries and a variable may still be called `async`.
+// before `fn`, exactly as `from` does only inside an `include`. It costs the keyword table
+// no entry, so a variable may still be called `async`.
 func (p *parser) parseAsyncFn() ast.Stmt {
 	if p.cur().Value != "async" || p.peekKind(1) != token.KW_FN {
 		return nil

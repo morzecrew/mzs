@@ -1,5 +1,5 @@
 // Package token defines the lexical vocabulary of mzs: the token kinds of SPEC §3.3, the
-// fourteen keywords of §3.5, the longest-match operator table of §3.9, and the small set
+// seventeen keywords of §3.5, the longest-match operator table of §3.9, and the small set
 // of predicates that the lexer and the parser must agree on — newline suppression (§3.10),
 // the regex-versus-division rule (§3.8) and the precedence levels of §5.1.
 //
@@ -525,7 +525,7 @@ func AssignBinaryOp(k Kind) Kind {
 	return EOF
 }
 
-// IsKeywordKind reports whether k is one of the sixteen KW_* kinds. Keywords are legal
+// IsKeywordKind reports whether k is one of the KW_* kinds of §3.5. Keywords are legal
 // method names after '.' (§3.5, §4 MethodName), which is the only place the parser needs
 // this.
 func IsKeywordKind(k Kind) bool { return k >= KW_FN && k <= KW_EXPORT }
