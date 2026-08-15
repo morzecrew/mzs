@@ -69,17 +69,27 @@ type parser struct {
 	// (§3.11). While it is non-zero a `{` closes the header instead of opening a
 	// closure.
 	header int
+
+	// arm counts the `match` arm patterns we are inside at bracket depth zero (§5.3).
+	// While it is non-zero a `->` closes the pattern, so `(1) -> { … }` is an arm and
+	// not the arrow function of §4.1 — the same kind of rule as header's, over the
+	// other token that can end a construct.
+	arm int
 }
 
-// push saves the header counter and re-opens ordinary expression position; every
+// state is what push saves: both counters answer "what does this token close", and
+// both are off inside a bracket, an argument list, an interpolation or a body.
+type state struct{ header, arm int }
+
+// push saves the positional counters and re-opens ordinary expression position; every
 // descent into a bracket, an argument list, an interpolation or a body does it.
-func (p *parser) push() int {
-	saved := p.header
-	p.header = 0
+func (p *parser) push() state {
+	saved := state{header: p.header, arm: p.arm}
+	p.header, p.arm = 0, 0
 	return saved
 }
 
-func (p *parser) pop(saved int) { p.header = saved }
+func (p *parser) pop(saved state) { p.header, p.arm = saved.header, saved.arm }
 
 // Parse lexes and parses src into a program. name is the file name used in
 // diagnostics. On failure it returns a nil program and an error that is either a
@@ -1075,6 +1085,13 @@ func (p *parser) parsePrimary() ast.Expr {
 		p.advance()
 		return &ast.RegexLit{Pattern: t.Value, Flags: t.Flags, Start: t.Pos, Stop: t.End}
 	case token.IDENT:
+		if t.Value == "async" && p.header == 0 && p.arm == 0 && p.arrowFollows(p.pos+1) {
+			// §8.14 puts `async` in front of a `fn` and nowhere else; the arrow form has
+			// no keyword to put it in front of, so it has one spelling and this names it.
+			p.errorAt(t.Pos, "an async function is written `async fn(a, b) { … }`")
+			p.advance()
+			return p.parseArrowFn()
+		}
 		if t.Value == "async" && p.peekKind(1) == token.KW_FN {
 			// §8.14 in expression position: `f = async fn(…) { … }`. `async` is
 			// positional rather than a keyword (§3.5), and an identifier in front of
@@ -1093,6 +1110,14 @@ func (p *parser) parsePrimary() ast.Expr {
 		p.advance()
 		return &ast.GlobalVar{Name: t.Value, Start: t.Pos, Stop: t.End}
 	case token.LPAREN:
+		// §4.1: `(params) -> { body }` is the anonymous `fn` without the keyword. The
+		// scan is the closure's own parameter-list lookahead with the brace added, and
+		// it is off in the two positions where the tokens it reads are already spoken
+		// for: a header, where the `{` opens the body (§3.11), and a `match` arm's
+		// pattern, where the `->` opens the arm (§5.3).
+		if p.header == 0 && p.arm == 0 && p.arrowFollows(p.pos) {
+			return p.parseArrowFn()
+		}
 		return p.parseGroup()
 	case token.LBRACKET:
 		return p.parseCollection()
@@ -1445,8 +1470,13 @@ func (p *parser) parseBody(what string) *ast.BlockStmt {
 		return &ast.BlockStmt{Start: lb.Pos, Stop: p.cur().Pos}
 	}
 	saved := p.push()
-	if params, implicit := p.closureParams(lb); !implicit && len(params) > 0 {
-		p.errorAt(params[0].NamePos, "the body of %s cannot declare parameters", what)
+	// A `(…) -> {` in body position is an arrow function opening the body's first
+	// statement (§4.1), not a parameter list the body may not have — the brace is what
+	// tells them apart, so `{ (x) -> x }` still reaches the diagnostic below.
+	if !p.arrowFnFollows(p.pos) {
+		if params, implicit := p.closureParams(lb); !implicit && len(params) > 0 {
+			p.errorAt(params[0].NamePos, "the body of %s cannot declare parameters", what)
+		}
 	}
 	stmts := p.parseStmtList(token.RBRACE)
 	p.pop(saved)
@@ -1544,6 +1574,43 @@ func (p *parser) parseParams() []ast.Param {
 	p.pop(saved)
 	p.expect(token.RPAREN, "parameter list")
 	return params
+}
+
+// arrowFollows reports whether the '(' at i is followed by its match and a `->` — the
+// arrow form of §4.1, whatever comes after the arrow. It is the closure's own
+// parameter-list lookahead (§4.1) read from an index instead of from the cursor.
+func (p *parser) arrowFollows(i int) bool {
+	if p.kindAt(i) != token.LPAREN {
+		return false
+	}
+	return p.kindAt(p.skipBalanced(i, token.LPAREN, token.RPAREN)) == token.ARROW
+}
+
+// arrowFnFollows is arrowFollows plus the brace: the complete form, `(params) -> {`. Body
+// position asks for this one, because a `(…) -> ` without a brace there is the parameter
+// list a body may not have and keeps its own diagnostic.
+func (p *parser) arrowFnFollows(i int) bool {
+	return p.arrowFollows(i) && p.kindAt(p.skipBalanced(i, token.LPAREN, token.RPAREN)+1) == token.LBRACE
+}
+
+// parseArrowFn reads `(params) -> { body }`. It builds the node an anonymous `fn` builds,
+// because it is that same function with the keyword left out: the parameters are outside
+// the braces, so the braces are a body and not a value (§4.1).
+//
+// A body that is not braced is §5.6: the braceless arrow is the closure's spelling, and
+// naming both replacements is more use than "unexpected '->'". The expression is read as
+// the body anyway, so one mistake stays one diagnostic (§17).
+func (p *parser) parseArrowFn() ast.Expr {
+	start := p.cur().Pos
+	params := p.parseParams()
+	arrow := p.expect(token.ARROW, "arrow function")
+	if p.kind() != token.LBRACE {
+		p.errorAt(arrow.Pos, "an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }")
+		x := p.parseExpr()
+		return &ast.FnDecl{Params: params, Body: exprBlock(x), Kw: start, Stop: x.End()}
+	}
+	body := p.parseBody("function body")
+	return &ast.FnDecl{Params: params, Body: body, Kw: start, Stop: body.Stop}
 }
 
 // parseFn reads `fn [name](params) { body }`. Both forms yield the FnDecl node, which is
@@ -1711,7 +1778,7 @@ func (p *parser) parseMatchArm() ast.MatchArm {
 		} else if kind != arm.Kind {
 			p.errorAt(p.cur().Pos, "every pattern in one arm must use the same form")
 		}
-		arm.Pats = append(arm.Pats, p.parseExpr())
+		arm.Pats = append(arm.Pats, p.armExpr())
 		if !p.accept(token.COMMA) {
 			break
 		}
@@ -1719,10 +1786,21 @@ func (p *parser) parseMatchArm() ast.MatchArm {
 	}
 	p.armArrayPattern(&arm)
 	if p.accept(token.KW_IF) {
-		arm.Guard = p.parseExpr()
+		arm.Guard = p.armExpr()
 	}
 	arm.Body = p.parseArmBody()
 	return arm
+}
+
+// armExpr parses one pattern or guard of a `match` arm with the arm counter raised, so
+// that a `->` at bracket depth zero ends it (§5.3). Without this `(1) -> { … }` — a
+// parenthesised pattern with a block body — would read as the arrow function of §4.1 and
+// swallow the arm.
+func (p *parser) armExpr() ast.Expr {
+	p.arm++
+	e := p.parseExpr()
+	p.arm--
+	return e
 }
 
 // armArrayPattern turns `[x, y] ->` into a destructuring arm (§5.3, §8.15). This is the

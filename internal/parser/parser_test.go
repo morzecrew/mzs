@@ -225,6 +225,25 @@ Program "t"
 `,
 		},
 		{
+			// §4.1: `(params) -> { body }` is the anonymous `fn` without the keyword, so
+			// it is the same node — the parameters are outside the braces either way.
+			name: "arrow function",
+			src:  "f = (a, b) -> { a + b }",
+			want: `
+Program "t"
+  ExprStmt
+    Assign =
+      Ident f
+      FnDecl (a, b)
+        body:
+          Block
+            ExprStmt
+              Binary +
+                Ident a
+                Ident b
+`,
+		},
+		{
 			// A named `fn` is a declaration statement, so it is hoisted; an anonymous one
 			// is a value, so it reaches the list as an expression and nothing is hoisted.
 			name: "an anonymous fn is a statement's expression",
@@ -1140,6 +1159,44 @@ func TestBraceIsAClosureOrADict(t *testing.T) {
 	}
 }
 
+// TestArrowFunction covers §4.1's arrow form and the two positions where the tokens it
+// reads are already spoken for: a `match` arm, where the `->` opens the arm (§5.3), and a
+// body, where a `(…) ->` is the parameter list a body may not have.
+func TestArrowFunction(t *testing.T) {
+	// The arrow form and the keyword form build the same tree, which is the whole claim.
+	if got, want := parse(t, "(a) -> { a }"), parse(t, "fn(a) { a }"); got != want {
+		t.Errorf("(a) -> { a } parsed as\n%s\nwant the tree of fn(a) { a }:\n%s", got, want)
+	}
+	for _, src := range []string{
+		"() -> { 42 }",
+		"f((x) -> { x })",
+		"[(x) -> { x }]",
+		"{k: (x) -> { x }}",
+		"(n) -> { (x) -> { x * n } }",           // nested, the inner one in body position
+		"fn f() { (x) -> { x } }",               // body position again, with a keyword
+		`match x { (1) -> { "a" }; else -> 2 }`, // an arm pattern keeps its arrow
+		`match x { in (1..5) -> "y"; else -> 2 }`,
+		"try f() else (e) -> 0", // the error binder of §8.11 is not an arrow function
+	} {
+		if _, err := Parse("t", src); err != nil {
+			t.Errorf("Parse(%q) error = %v; want nil", src, err)
+		}
+	}
+	// A header's `{` opens the body (§3.11), so an arrow function in one needs its own
+	// parentheses — exactly as a trailing closure does.
+	if _, err := Parse("t", "if (x) -> { 1 } { 2 }"); err == nil {
+		t.Error("an unparenthesised arrow function in a header parsed; want the §3.11 rule to hold")
+	}
+	if _, err := Parse("t", "if ((x) -> { 1 })(2) { 3 }"); err != nil {
+		t.Errorf("a parenthesised arrow function in a header: %v", err)
+	}
+	// The body of an `if` still may not declare parameters: that shape has its own
+	// diagnostic and the brace is what tells the two apart.
+	if _, err := Parse("t", "if c { (x) -> x }"); err == nil {
+		t.Error("a parameter list on an if body parsed; want the §4.1 diagnostic")
+	}
+}
+
 // TestCollectionLookahead walks the five rules of §3.12 in order.
 func TestCollectionLookahead(t *testing.T) {
 	tests := []struct {
@@ -1206,6 +1263,9 @@ func TestParseErrors(t *testing.T) {
 		{"missing for variable", "for in xs { }", "expected a loop variable, found 'in'", 1, 5},
 		{"a function name is a name", "fn 1(a) { a }", "expected a function name or '(' after 'fn', found 1", 1, 4},
 		{"an exported fn needs a name", "export fn (a) { a }", "'export' needs a name: write `export fn f(…) { … }` or `export f = fn(…) { … }`", 1, 1},
+		{"an arrow function's body is braced", "f = (x) -> x * 2",
+			"an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }", 1, 9},
+		{"async has one spelling", "f = async (x) -> { x }", "an async function is written `async fn(a, b) { … }`", 1, 5},
 		{"a literal dict key takes an arrow", "{1: 2}", "a dict key that is not a string takes '->', not ':'", 1, 3},
 		{"a computed dict key takes a colon", "{a: 1, (k) -> 2}", "a computed dict key takes ':', not '->': write (k): v", 1, 12},
 		{"a dict entry needs a separator", "{a: 1, \"b\" 2}", "expected ':' or '->' in dict entry, found 2", 1, 12},

@@ -510,6 +510,8 @@ the variable `a` — that is what `(a): 1` is for.
 | You wrote | Message |
 |---|---|
 | `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
+| `(x) -> x * 2` | `an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }` |
+| `async (x) -> { x }` | ``an async function is written `async fn(a, b) { … }` `` |
 | `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
 
 **Brackets never carry keys.** `[a: 1]` and `[:]` were the earlier draft's dict literals; both are
@@ -617,9 +619,11 @@ Primary        = INT | FLOAT | String | Regex | "true" | "false" | "nil"
                | IDENT | GVAR
                | Collection
                | Closure                           (* a function value *)
+               | ArrowFn                           (* the same, spelled with "->" *)
                | GroupExpr
                | IfExpr | WhileExpr | ForExpr | MatchExpr
                | FnDecl ;
+ArrowFn        = "(" ParamList ")" "->" Closure ;  (* an anonymous FnDecl, §4.1 *)
 
 GroupExpr      = "(" StmtList ")" ;                (* value = last statement *)
 Collection     = "[" ( ArrayBody | DictBody | ":" ) "]" ;
@@ -683,11 +687,31 @@ fn(x) { x * 3 }(5)               # 15 — called where it stands
 task = async fn(u) { http.get(u) }   # §8.14, the same modifier
 ```
 
-It is a **function**, not a closure, in the two ways a program can tell (§7.7): its arity
-is checked, and a `return` inside it returns from it rather than from the function around
-it. Which of the two forms to reach for is therefore a question of what the body does —
-`{ … }` for the short one that a library calls, `fn(…) { … }` for the one with an
-interface of its own:
+**The arrow form.** `(params) -> { body }` is that same anonymous `fn` with the keyword
+left out — the same node, the same value, nothing else changed. The parameters are outside
+the braces, so the braces are a **body** and not a value, which is the whole difference
+from the closure literal that reverses them:
+
+```
+add = (a, b) -> { a + b }        # the same function as fn(a, b) { a + b }
+(x) -> { x * 3 }(5)              # 15
+[1,2,3].map((x) -> { x * 2 })    # [2,4,6]
+{ (x) -> x * 2 }                 # a closure: the braces are the value (§4.1 above)
+```
+
+The body is braced, and the braceless arrow keeps its one meaning — the closure's
+parameter list — so `(x) -> x * 2` is a diagnostic that names both replacements (§5.6).
+`async` has no keyword to stand in front of here and stays with `fn` (§8.14). Two
+positions read these tokens before this rule does, and each keeps its reading: a header,
+where the `{` opens the body (§3.11), and a `match` arm's pattern, where the `->` opens the
+arm (§5.3). Both take parentheses when an arrow function is really meant:
+`if ((x) -> { x })(1) { … }`.
+
+Either spelling is a **function**, not a closure, in the two ways a program can tell
+(§7.7): its arity is checked, and a `return` inside it returns from it rather than from the
+function around it. Which form to reach for is therefore a question of what the body does —
+`{ … }` for the short one that a library calls, `fn(…) { … }` or `(…) -> { … }` for the one
+with an interface of its own:
 
 ```
 f = fn(a, b) { a + b }
@@ -822,6 +846,17 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 
 Several patterns in one arm, separated by `,`, mean "or". An `if Guard` after the patterns is
 an additional "and".
+
+**Inside a pattern or a guard, a `->` at bracket depth zero ends it** — the same kind of
+rule §3.11 has for the `{` of a header, over the other token that can close a construct.
+That is what keeps `(1) -> { … }` an arm with a parenthesised pattern and a block body
+instead of the arrow function of §4.1; inside a bracket, an argument list or the arm's own
+body the arrow means what it means everywhere else:
+
+```
+match n { (1) -> { "one" }; else -> "many" }      # a pattern, then the arm's body
+match n { 1 -> (y) -> { y + 1 }; else -> nil }    # the body is an arrow function
+```
 
 An array pattern is the one form that **binds**, so it must be the only pattern in its arm —
 "or" over patterns that bind different names has no reading the body could rely on — and it
@@ -1357,7 +1392,7 @@ xs.map(double)              # where double = { (x) -> x * 2 }
 * `try X else Y` evaluates `Y` if `X` raises. `try X else (e) -> Y` additionally binds `e` to
   a Dict `{message: …, kind: …, line: …}` while `Y` is evaluated.
 * `try` catches **script errors only**. It does **not** catch timeout, step-budget,
-  depth-limit or context cancellation; those are unrecoverable and propagate to the host.
+  depth-limit, context cancellation or `exit` (§12.1); those propagate to the host.
 * To guard several statements, group them: `try (a; b) else "-"`.
 * Errors carry the script name, line, column and a short call stack.
 
@@ -1695,6 +1730,7 @@ Conventions used in the tables:
 | `sort` | `sort(xs: array) [{ (a, b) -> int }] -> array` | stable, new array | `xs.sort { (a,b) -> b <=> a }` |
 | `format` | `format(fmt: string, *args) -> string` | §12.7 | `format("%.2f", x)` |
 | `raise` | `raise(msg: any) -> never` | raises a script error | `raise("bad")` |
+| `exit` | `exit(code: int = 0) -> never` | ends the Run with that status; not catchable, and never touches the process (§13.5) | `exit(1)` |
 | `assert` | `assert(cond: any, msg: string = "assertion failed") -> nil` | raises when falsy | |
 | `defined` | `defined(name) -> bool` | true if the identifier or `$var` is bound (parser-level special form) | `defined($price)` |
 | `rand` | `rand(n: int = 0) -> number` | **only if `Options.Rand` is set**, else `undefined function` | |
@@ -2378,22 +2414,28 @@ var (
     ErrDepth     = errors.New("mzs: max call depth exceeded")
     ErrCanceled  = errors.New("mzs: canceled")
     ErrFatal     = errors.New("mzs: fatal")       // wrap to make a host error uncatchable
+    ErrExit      = errors.New("mzs: exit")        // the `exit` builtin, §12.1
 )
 
 type Error struct {
     Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "zero-division" |
-                   // "regex" | "raise" | "limit" | "internal"
+                   // "regex" | "raise" | "limit" | "exit" | "internal"
     Msg     string
     File    string
     Line    int
     Col     int
     Stack   []Frame        // innermost first
-    Data    Value          // payload from raise(dict)
+    Data    Value          // payload from raise(dict); the status from exit(code)
     wrapped error
 }
 
 func (e *Error) Error() string  // "script.mzs:3:12: type: cannot add int to string"
 func (e *Error) Unwrap() error
+
+// ExitCode reports the status an exit(code) asked for, and false for every other error
+// — including a script that failed on its own. A host that has a process to end asks
+// here first; one that does not treats an exit as the end of the Run and nothing more.
+func ExitCode(err error) (code int, ok bool)
 
 type Frame struct { Fn string; Line int; Col int }
 
@@ -2404,6 +2446,11 @@ type Warning struct { Msg string; Line, Col int }
 `errors.Join` when recovery found several). `Run` never panics; a recovered internal panic
 becomes `Kind == "internal"` and is reported with the Go stack in `Msg` when
 `Options.StrictWarnings` is set.
+
+`Kind == "exit"` is the one error that is not a failure: `exit(code)` (§12.1) ends the Run
+the way a limit does — nothing catches it, and it always reaches the host — but it says the
+program is finished rather than broken. Nothing in the library calls `os.Exit`; a script
+inside a bot cannot end its process, and what the status means is the host's decision.
 
 ### 13.6 `mzs/engine` — the morzebot adapter
 
@@ -2595,7 +2642,7 @@ cat data | mzs -n -e '<source>'
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
 | `--check` | parse + compile only; print errors and warnings; exit 1 on error |
-| `--repl` | interactive REPL (line-based, persistent env, `:q` to quit) |
+| `--repl` | interactive REPL (line-based, persistent env; `.exit`, `:q`, `exit(code)`, Ctrl-D or Ctrl-C twice to quit) |
 | `--version` | print version |
 
 The CLI installs a `ModuleLoader` (§12.8): `include x from "./lib.mzs"` resolves against the
@@ -2649,7 +2696,9 @@ mzs -n --in access.log --bool -e '$_ ~ /ERROR/' && notify
   all — there is no REPL to fall back to when the flag says "run this for every line".
 
 `args...` are exposed to the script as the array `$ARGV` (strings). Exit code: `0` success;
-`1` script error or `--check` failure; `2` CLI usage error; `3` timeout/budget.
+`1` script error or `--check` failure; `2` CLI usage error; `3` timeout/budget. A script
+that calls `exit(n)` (§12.1) sets the status itself: the CLI prints nothing for it, and in
+`-n` mode the lines after it are never read.
 Errors print to stderr as `file:line:col: kind: message` followed by the source line and a
 caret.
 
@@ -2831,6 +2880,8 @@ if $__sent.int > 5 { print("big") }
 | `TestDictLiteral` | `{a: 1}.json == "{\"a\":1}"`; `{}.len == 0`; `[].len == 0`; `type({}) == "dict"` |
 | `TestBraceIsAlwaysClosure` | `if {a: 1}.has("a") { 1 } else { 2 }` → `1` (no parens needed around the dict) |
 | `TestDictLiteralKeys` | `{1 -> "A"}[1]` → `"A"`; `{a -> 1} == {a: 1}`; `{1 -> "A"}.has("1")` → **false**; `{ -1 }` is still a closure |
+| `TestArrowFunction` | `(a) -> { a }` and `fn(a) { a }` parse to one tree; `(1) -> { … }` in a `match` arm is still an arm; `(x) -> x` names both replacements |
+| `TestExit` | `exit(3)` ends the Run with status 3 and `try` does not catch it; `ExitCode` answers for an exit and for nothing else; `exit(256)` and `exit("x")` are refused |
 | `TestAnonymousFn` | `f = fn(a, b) { a + b }; f(2, 3)` → `5`; `fn(x) { x * 3 }(5)` → `15`; `f(1)` raises on arity where a closure would not, and the literal binds no name |
 | `TestMatchFirstWins` | `match 5 { in 1..10 -> "a"; 5 -> "b"; else -> "c" }` → `"a"` |
 | `TestMatchNoArm` | `match 99 { 1 -> "a" }` → `nil` |

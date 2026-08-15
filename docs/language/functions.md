@@ -31,7 +31,7 @@ A `fn` written inside any `{ … }` is an ordinary declaration in that scope: vi
 point on, and gone afterwards. Both `if true { fn g() { 1 } }; g()` and
 `fn f() { g(); fn g() { 1 } }` report `name: undefined function 'g'`.
 
-## Anonymous `fn`
+## Anonymous functions: `fn(…) { … }` and `(…) -> { … }`
 
 Leave the name out and the `fn` is an expression: a value that is not hoisted and binds
 nothing, so the only way to reach it is the value itself.
@@ -44,8 +44,31 @@ fn(x) { x * 3 }(5)                         # 15 — called where it stands
 ops = {add: fn(a, b) { a + b }}; ops["add"](1, 2)      # 3
 ```
 
-It is a **function**, not a closure, in the two ways you can tell them apart: its arity is
-checked, and `return` returns from it rather than from the function around it.
+The same function has a second spelling, with the keyword dropped and an arrow in its
+place. The parameters sit outside the braces either way, so the braces are the **body**:
+
+```
+add = (a, b) -> { a + b }
+add(2, 3)                                  # 5
+(x) -> { x * 3 }(5)                        # 15
+[1, 2, 3].map((x) -> { x * 2 })            # [2,4,6]
+```
+
+The body is braced. `(x) -> x * 2` is a diagnostic naming both replacements, because the
+braceless arrow already means the closure below:
+
+```
+f = (x) -> x * 2
+# -e:1:9: syntax: an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }
+```
+
+Two places read `(…) ->` before this rule does and keep their own meaning: the header of an
+`if`/`while`/`for`/`match`, where the `{` opens the body, and a `match` arm's pattern, where
+the `->` opens the arm. Parentheses settle both — `if ((x) -> { x })(1) { … }` — exactly as
+they do for a trailing closure.
+
+Either spelling is a **function**, not a closure, in the two ways you can tell them apart:
+its arity is checked, and `return` returns from it rather than from the function around it.
 
 ```
 f = fn(a, b) { a + b }; f(1)
@@ -54,8 +77,8 @@ fn outer() { g = fn() { return 1 }; g(); "still here" }; outer()    # still here
 ```
 
 So the choice is about what the body does: `{ … }` for the short one a library calls,
-`fn(…) { … }` for the one with an interface of its own. `async fn(…) { … }` is a value the
-same way — see [async](async.md).
+`fn(…) { … }` or `(…) -> { … }` for the one with an interface of its own. `async` keeps the
+keyword spelling, `async fn(…) { … }` — see [async](async.md).
 
 ## Default parameters and `*rest`
 

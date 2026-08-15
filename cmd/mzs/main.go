@@ -167,6 +167,11 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if cfg.stats {
 		fmt.Fprintf(stderr, "mzs: %d steps in %s\n", res.Steps, res.Elapsed.Round(time.Microsecond))
 	}
+	if code, ok := mzs.ExitCode(err); ok {
+		// `exit(n)` is the program choosing its own status, not a failure: nothing is
+		// printed and nothing after it runs (§12.1).
+		return code
+	}
 	if err != nil {
 		reportErr(stderr, name, src, err)
 		return codeFor(err)
@@ -283,6 +288,12 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 		res, err := in.RunResult(ctx, prog, vars)
 		steps += res.Steps
 		elapsed += res.Elapsed
+		if code, ok := mzs.ExitCode(err); ok {
+			// One line asking to stop stops the whole run: `exit` is about the process,
+			// and the lines after it are never read (§12.1).
+			stats()
+			return code
+		}
 		if err != nil {
 			stats()
 			// Which line of the input broke is the one thing the diagnostic below cannot

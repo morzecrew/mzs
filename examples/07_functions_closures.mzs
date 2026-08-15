@@ -83,6 +83,11 @@ say("dispatch table: circle(2)=${area["circle"](2)} square(3)=${area["square"](3
 say("arity is checked: ${try area["rect"](2) else "rect needs two sides"}")
 say("called where it stands: ${fn(n) { n * n }(12)}")
 
+# The same function, spelled with an arrow instead of the keyword: the parameters are
+# outside the braces either way, so the braces are the body and not a value.
+perimeter = (w, h) -> { 2 * (w + h) }
+say("arrow form: perimeter(3, 4)=${perimeter(3, 4)} squares=${[1, 2, 3].map((n) -> { n * n }).json}")
+
 # --- a validation chain: named checks, each a closure, run in order -----------
 
 checks = [

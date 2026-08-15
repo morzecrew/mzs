@@ -13,13 +13,15 @@ import (
 // Sentinel errors (§13.5). ErrTimeout, ErrBudget, ErrDepth and ErrCanceled are the
 // unrecoverable limits: `try … else …` never catches them, they always reach the host
 // (§8.11, §14.1). ErrFatal is what a host function wraps to make its own error
-// uncatchable too.
+// uncatchable too. ErrExit is the `exit` builtin (§12.1): not a failure at all, but it
+// travels the same way — nothing catches it and the host decides what it means.
 var (
 	ErrTimeout  = errors.New("mzs: execution timed out")
 	ErrBudget   = errors.New("mzs: step budget exceeded")
 	ErrDepth    = errors.New("mzs: max call depth exceeded")
 	ErrCanceled = errors.New("mzs: canceled")
 	ErrFatal    = errors.New("mzs: fatal")
+	ErrExit     = errors.New("mzs: exit")
 )
 
 // Error kinds (§13.5). These are the exact strings that appear between the position
@@ -34,6 +36,7 @@ const (
 	ErrKindRegex    = "regex"
 	ErrKindRaise    = "raise"
 	ErrKindLimit    = "limit"
+	ErrKindExit     = "exit"
 	ErrKindInternal = "internal"
 )
 
@@ -105,11 +108,12 @@ func (e *Error) Catchable() bool {
 	if e == nil {
 		return false
 	}
-	if e.Kind == ErrKindLimit || e.Kind == ErrKindInternal {
+	if e.Kind == ErrKindLimit || e.Kind == ErrKindInternal || e.Kind == ErrKindExit {
 		return false
 	}
 	switch {
-	case errors.Is(e.wrapped, ErrFatal),
+	case errors.Is(e.wrapped, ErrExit),
+		errors.Is(e.wrapped, ErrFatal),
 		errors.Is(e.wrapped, ErrTimeout),
 		errors.Is(e.wrapped, ErrBudget),
 		errors.Is(e.wrapped, ErrDepth),
@@ -170,6 +174,30 @@ func limitErrorf(sentinel error, format string, a ...any) *Error {
 	return wrapError(ErrKindLimit, sentinel, format, a...)
 }
 
+// exitError is what the `exit` builtin raises (§12.1). The code rides in Data, where
+// ExitCode reads it back; nothing else in the language produces this kind, so a host
+// that asks for the code gets an answer only from an actual `exit`.
+func exitError(code int64) *Error {
+	e := wrapError(ErrKindExit, ErrExit, "exit with code %d", code)
+	e.Data = Int(code)
+	return e
+}
+
+// ExitCode reports the status an `exit(code)` asked for. ok is false for every other
+// error, including a script that failed on its own: a host distinguishes "the program
+// chose to stop" from "the program broke" by asking here first (§12.1, §13.5).
+//
+//	if code, ok := mzs.ExitCode(err); ok {
+//	    os.Exit(code)
+//	}
+func ExitCode(err error) (code int, ok bool) {
+	var e *Error
+	if !errors.As(err, &e) || e.Kind != ErrKindExit {
+		return 0, false
+	}
+	return int(e.Data.Int()), true
+}
+
 // zeroDivError is the one arithmetic error mzs raises; float division by zero is IEEE
 // and never errors (§8.3).
 func zeroDivError() *Error { return newError(ErrKindZeroDiv, "divided by 0") }
@@ -194,6 +222,8 @@ func asError(err error) *Error {
 	case errors.Is(err, ErrTimeout), errors.Is(err, ErrBudget),
 		errors.Is(err, ErrDepth), errors.Is(err, ErrCanceled):
 		kind = ErrKindLimit
+	case errors.Is(err, ErrExit):
+		kind = ErrKindExit
 	}
 	return &Error{Kind: kind, Msg: err.Error(), wrapped: err}
 }

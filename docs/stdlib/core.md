@@ -152,6 +152,7 @@ An unknown verb or a missing argument raises: `format("%q", 1)` → `argument: u
 | `raise` | `raise(msg: any) -> never` | raises a script error; a Dict is attached under the caught error's `"data"` key | `raise("bad")` |
 | `assert` | `assert(cond: any, msg: string = "assertion failed") -> nil` | raises when falsy | `assert(x.len == 1, "bad name")` |
 | `defined` | `defined(name) -> bool` | is the identifier or `$var` bound; never evaluates its operand | `defined($price)` |
+| `exit` | `exit(code: int = 0) -> never` | ends the run with that status; `try` never catches it | `exit(1)` |
 
 ```
 try raise("bad") else "caught"                       # caught
@@ -161,6 +162,26 @@ defined(zzz)                                         # false
 ```
 
 `assert(0)` does not raise — `0` is truthy.
+
+`exit` stops the program where it stands and hands the status to whoever ran it. Nothing
+after it runs, no diagnostic is printed, and `try` does not catch it — it is not a failure,
+it is the program saying it is done.
+
+```sh
+$ mzs -e 'say("done"); exit(2); say("never")'
+done
+$ echo $?
+2
+```
+
+Inside an `async fn` it travels like any other error the task produced: the `await` is where
+it reaches the program, and a task nobody awaited is reported on stderr instead ([async](../language/async.md)).
+
+The code is a status, so it is an integer from 0 to 255: `exit(256)` and `exit("x")` are
+refused where they are written. Inside an embedder nothing touches the process — the Run
+ends and `mzs.ExitCode(err)` reports the number, which the host is free to ignore. In `-n`
+line mode the first line that exits ends the whole run, and in the REPL `exit` leaves the
+session (see [the REPL](../getting-started/repl.md#ctrl-c)).
 
 ## Host-gated
 

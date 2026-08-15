@@ -595,6 +595,14 @@ func TestAnonymousFn(t *testing.T) {
 		{"nested", `mk = fn(n) { fn(x) { x * n } }; mk(3)(5)`, "15"},
 		{"arity", `fn(a, b) { a }.arity`, "2"},
 		{"it has no name", `fn(a) { a }.str`, "#<fn>"},
+		// §4.1: the arrow form is the same function with the keyword left out, so every
+		// row above holds for it too.
+		{"the arrow form", `f = (a, b) -> { a + b }; f(2, 3)`, "5"},
+		{"the arrow form takes no parameters", `f = () -> { 42 }; f()`, "42"},
+		{"the arrow form is called where it stands", `(x) -> { x * 3 }(5)`, "15"},
+		{"the arrow form returns from itself",
+			`f = (x) -> { if x > 0 { return "+" }; "-" }; f(1) + f(-1)`, "+-"},
+		{"the two forms are the same function", `((x) -> { x + 1 })(1) == fn(x) { x + 1 }(1)`, "true"},
 	}
 
 	in := evInterp()
@@ -637,6 +645,60 @@ func TestAnonymousFn(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	} else if w := prog.Warnings(); len(w) != 0 {
 		t.Errorf("warnings on a final anonymous fn = %v, want none", w)
+	}
+}
+
+// TestExit is §12.1's `exit`: the program says it is done and names a status. It is not
+// a failure, so nothing catches it and nothing after it runs — and it never touches the
+// process, because a Run inside a bot has no business ending one.
+func TestExit(t *testing.T) {
+	in := evInterp()
+
+	tests := []struct {
+		name string
+		src  string
+		code int
+	}{
+		{"a status of its own", `exit(3)`, 3},
+		{"no argument is zero", `exit()`, 0},
+		{"nothing after it runs", `say("a"); exit(1); raise("never")`, 1},
+		{"from inside a function", `fn f() { exit(2) }; f(); 9`, 2},
+		{"from inside a closure", `[1, 2].each { exit(4) }`, 4},
+		{"try does not catch it", `try exit(5) else "caught"`, 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, err := in.Eval(context.Background(), tt.src, nil)
+			code, ok := ExitCode(err)
+			if !ok {
+				t.Fatalf("Eval(%s) = %s, %v; want an exit", tt.src, v.Inspect(), err)
+			}
+			if code != tt.code {
+				t.Errorf("Eval(%s) exit code = %d; want %d", tt.src, code, tt.code)
+			}
+		})
+	}
+
+	// ExitCode answers for an exit and for nothing else, which is what lets a host tell
+	// "the program chose to stop" from "the program broke".
+	if _, err := in.Eval(context.Background(), `raise("boom")`, nil); err == nil {
+		t.Error("raise returned no error")
+	} else if _, ok := ExitCode(err); ok {
+		t.Error("ExitCode claimed a raise was an exit")
+	}
+	if _, ok := ExitCode(nil); ok {
+		t.Error("ExitCode claimed a nil error was an exit")
+	}
+
+	// The code is a status, so it is bounded and it is an integer.
+	for _, src := range []string{`exit(256)`, `exit(-1)`, `exit("x")`} {
+		err := evErr(t, in, src, nil)
+		if _, ok := ExitCode(err); ok {
+			t.Errorf("Eval(%s) exited; want the argument refused", src)
+		}
+		if err.Kind != ErrKindArgument && err.Kind != ErrKindType {
+			t.Errorf("Eval(%s) kind = %q; want argument or type", src, err.Kind)
+		}
 	}
 }
 

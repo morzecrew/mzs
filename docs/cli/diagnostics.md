@@ -84,6 +84,8 @@ from it. Only the first diagnostic on a line is shown, and at most 10 per compil
 | `[a: 1]` | `a dict is written {a: 1}` |
 | `[:]` | `the empty dict is written {}` |
 | `{1: "A"}` | `a dict key that is not a string takes '->', not ':'` |
+| `(x) -> x * 2` | `an arrow function's body is braced: (x) -> { x * 2 }, or write the closure { (x) -> x * 2 }` |
+| `async (x) -> { x }` | ``an async function is written `async fn(a, b) { … }` `` |
 | `{a: 1, (k) -> 2}` | `a computed dict key takes ':', not '->': write (k): v` |
 | `f {a: 1}` | `a dict after a call is written (a: 1) or ({a: 1})` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |

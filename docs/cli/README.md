@@ -78,6 +78,14 @@ mzs --json -e 'nil'       # null
 3 is separate from 1 so a supervisor can retry a run that ran away and never one that is
 simply wrong.
 
+A script that calls [`exit(code)`](../stdlib/core.md#errors-and-introspection) sets the
+status itself and nothing is printed for it — that is the one way any number from 0 to 255
+comes out of `mzs`. In `-n` mode the first line that exits ends the run.
+
+```sh
+mzs -e 'exit(7)'; echo $?          # 7
+```
+
 ## `$ARGV`
 
 Positional arguments after a script file arrive as an array of strings.

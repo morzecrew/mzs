@@ -79,6 +79,7 @@ d  = {name: "Ivan", price: 1500}                  # dict, insertion-ordered
 m  = {1 -> "A", 2.5 -> "B", nil -> "C"}           # `->` for a key that is not a string
 f  = { (x) -> x * 2 }                             # closure
 g  = fn(a, b) { a + b }                           # anonymous fn: a function value
+h  = (a, b) -> { a + b }                          # …the same function, arrow-spelled
 ```
 
 ```
@@ -102,7 +103,7 @@ xs.map { it * 2 }                                 # `it` when you name no parame
 a, b = [b, a]                                     # destructuring: a swap needs no temporary
 
 v = try json.parse(s) else {}                    # an error is a value you decide about
-raise("not allowed")     assert(x > 0, "x > 0")
+raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way out
 ```
 
 → [the language, page by page](docs/language/README.md)
