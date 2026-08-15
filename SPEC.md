@@ -635,7 +635,8 @@ Regex          = REGEX ;
 
 ### 4.1 Closures
 
-`{ … }` is the one and only function-value form.
+`{ … }` is the closure literal, and with the anonymous `fn` below it is one of the two
+function-value forms — the short one, which a library calls.
 
 ```
 { it * 2 }               # no parameter list -> one implicit parameter, `it`

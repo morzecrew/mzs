@@ -74,7 +74,7 @@ tag("div", "big", "red")                   # ["big","red"]
 tag("div")                                 # []
 ```
 
-Arity is checked for a named function; `*rest` makes it variadic (`arity` is `-1`). Keyword
+Arity is checked for every `fn`, named or not; `*rest` makes it variadic (`arity` is `-1`). Keyword
 arguments are collected into one trailing dict argument — there is no keyword-parameter
 binding.
 
@@ -86,8 +86,8 @@ fn f(a, b) { [a, b.json] }; f(1, x: 2, y: 3)     # [1,"{\"x\":2,\"y\":3}"]
 
 ## Closures and `it`
 
-`{ … }` is the one and only function-value form. With no parameter list it declares one
-implicit parameter named `it`.
+`{ … }` is the closure form of a function value — the other is the anonymous `fn` above.
+With no parameter list it declares one implicit parameter named `it`.
 
 ```
 [1, 2, 3].map { it * 2 }                   # [2,4,6]

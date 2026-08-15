@@ -225,6 +225,21 @@ Program "t"
 `,
 		},
 		{
+			// A named `fn` is a declaration statement, so it is hoisted; an anonymous one
+			// is a value, so it reaches the list as an expression and nothing is hoisted.
+			name: "an anonymous fn is a statement's expression",
+			src:  "async fn(u) { u }",
+			want: `
+Program "t"
+  ExprStmt
+    FnDecl async (u)
+      body:
+        Block
+          ExprStmt
+            Ident u
+`,
+		},
+		{
 			// §3.12: `->` ends a key wherever `:` does, and it is the only separator a
 			// key that is not a string may take (§7.6).
 			name: "dict keys that are not strings",

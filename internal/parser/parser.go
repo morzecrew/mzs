@@ -1402,8 +1402,9 @@ func (p *parser) dictSeparator(form keyForm) {
 // Closures, bodies and functions (§4.1)
 // ---------------------------------------------------------------------------
 
-// parseFuncLit reads `{ … }` in expression position: the one and only function-value
-// form. With no `(params) ->` list the closure implicitly declares `it` (§8.9).
+// parseFuncLit reads `{ … }` in expression position: the closure form of a function
+// value, the other being an anonymous `fn` (§4.1). With no `(params) ->` list the closure
+// implicitly declares `it` (§8.9).
 func (p *parser) parseFuncLit() ast.Expr {
 	lb := p.advance()
 	// Reached from operand position only after braceDict declined, so a dict shape here

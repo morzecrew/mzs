@@ -615,15 +615,28 @@ func TestAnonymousFn(t *testing.T) {
 	if got := evErr(t, in, "fn(a) { a }\nf(1)", nil).Msg; !strings.Contains(got, "undefined function 'f'") {
 		t.Errorf("anonymous fn binding = %q, want it to bind nothing", got)
 	}
-	// …so a statement that only writes one throws it away, which is §17's warning for a
-	// closure literal and the same mistake here.
-	prog, err := in.Compile("t", "fn(a) { a }\n1")
-	if err != nil {
-		t.Fatalf("Compile: %v", err)
+	// …so a statement that only writes one throws it away, which is §17's warning — the
+	// same one a closure literal in that position has always had.
+	discarded := []struct{ src, want string }{
+		{"fn(a) { a }\n1", "anonymous 'fn' in statement position"},
+		{"async fn() { 1 }\n1", "anonymous 'fn' in statement position"},
+		{"{ it }\n1", "closure literal in statement position"},
 	}
-	warns := prog.Warnings()
-	if len(warns) != 1 || !strings.Contains(warns[0].Msg, "anonymous 'fn' in statement position") {
-		t.Errorf("warnings = %v, want the discarded-value warning", warns)
+	for _, tt := range discarded {
+		prog, err := in.Compile("t", tt.src)
+		if err != nil {
+			t.Fatalf("Compile(%q): %v", tt.src, err)
+		}
+		warns := prog.Warnings()
+		if len(warns) != 1 || !strings.Contains(warns[0].Msg, tt.want) {
+			t.Errorf("Compile(%q) warnings = %v, want one saying %q", tt.src, warns, tt.want)
+		}
+	}
+	// The last statement of a block is its value, so the same literal there is received.
+	if prog, err := in.Compile("t", "1\nfn(a) { a }"); err != nil {
+		t.Fatalf("Compile: %v", err)
+	} else if w := prog.Warnings(); len(w) != 0 {
+		t.Errorf("warnings on a final anonymous fn = %v, want none", w)
 	}
 }
 

@@ -474,9 +474,10 @@ type MethodCall struct {
 	Stop    token.Pos
 }
 
-// FuncLit is a closure literal `{ … }` — the one and only function-value form (D2,
-// §4.1). A literal with no `(params) ->` list gets ImplicitIt and a single parameter
-// named "it" (§8.9). The frame a call allocates is Body.FrameSize.
+// FuncLit is a closure literal `{ … }` — one of the two function-value forms (D2, §4.1),
+// the other being an FnDecl with no name. A literal with no `(params) ->` list gets
+// ImplicitIt and a single parameter named "it" (§8.9). The frame a call allocates is
+// Body.FrameSize.
 type FuncLit struct {
 	Params     []Param
 	Body       *BlockStmt
