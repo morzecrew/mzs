@@ -62,6 +62,18 @@ say("")
 say("Only a script function has parameter names. A builtin, a host function and a stdlib")
 say("row take their arguments by position, so a name there is an error and not a guess.")
 
+# One combination has no reading and is refused while parsing, so it cannot be shown as a
+# caught error the way the four above are: a trailing closure is a positional argument
+# written *after* the parentheses, so `retry(times = 3) { … }` would have to be both the
+# last argument and an argument before the named one. Give the closure a name as well, or
+# give everything a position.
+fn retry(times = 1, body) { "ran ${times}× → ${body()}" }
+
+say("")
+say("retry(3) { 7 }                 → ${retry(3) { 7 }}")
+say("retry(times = 3, body = { 7 }) → ${retry(times = 3, body = { 7 })}")
+say("retry(times = 3) { 7 }         → syntax error: a trailing closure cannot follow a named argument")
+
 # --- `in` --------------------------------------------------------------------
 
 say("")

@@ -388,6 +388,18 @@ func TestNamedArgumentErrors(t *testing.T) {
 		{"a stdlib method takes no names", `[1, 2].map(f = { it })`, "takes its arguments by position"},
 		// `defined` takes a name rather than a value (§12.1), so it owns its own message.
 		{"defined takes a name", `defined(x = 1)`, "takes a name to test, not a named argument"},
+		// A stdlib row is reached through its first argument's kind, so a call that gives
+		// only names has no receiver to dispatch on. The compile pass says so, rather than
+		// letting it fall through to `undefined function 'filter'` (§6.3).
+		{"a named-only call to a stdlib row", `filter(xs = [1])`, "filter takes its arguments by position"},
+		{"a named-only call names the argument", `filter(xs = [1])`, "'xs = …' has no parameter to bind"},
+		// The hint lists what the callee answers to, so it has to survive a parameter
+		// list with nothing in it and one whose last entry is `*rest`.
+		{"no parameters, so no hint", `fn f() { 1 }; f(x = 1)`, "f has no parameter named 'x'"},
+		{"a rest parameter appears in the hint", `fn f(a, *rest) { a }; f(1, z = 2)`, "it takes 'a' and '*rest'"},
+		// §12.8: a module's own `fn` binds by name, but a stdlib row reached through the
+		// module answers by position like every other row.
+		{"a module's stdlib row takes no names", `include json; json.len(x = 1)`, "json.len takes its arguments by position"},
 	}
 
 	in := evInterp()

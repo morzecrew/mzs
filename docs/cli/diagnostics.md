@@ -69,6 +69,7 @@ from it. Only the first diagnostic on a line is shown, and at most 10 per compil
 | `f(1, a: 2)` | `a named argument is written 'a = …'; for a dict argument write f({a: …})` |
 | `f(a = 1, 2)` | `a positional argument may not follow a named one; move it before 'a = …'` |
 | `f(a = 1, a = 2)` | `argument 'a' is named twice` |
+| `f(a = 1) { … }` | `a trailing closure is a positional argument, so it cannot follow the named argument 'a = …': …` |
 | `s == /re/` | `'==' with a regex operand: use '~' to match` |
 | `s =~ /re/` | `'=~' is not an mzs operator; use '~'` |
 | `str =! "x"` | `unexpected '!' after '='; did you mean '!='?` |

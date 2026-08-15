@@ -957,15 +957,33 @@ func (p *parser) attachClosure(x ast.Expr) ast.Expr {
 	fl := p.parseFuncLit()
 	switch e := x.(type) {
 	case *ast.CallExpr:
+		p.checkClosureAfterNamed(e.Named, fl)
 		e.Args = append(e.Args, fl)
 		e.Stop = fl.End()
 		return e
 	case *ast.MethodCall:
+		p.checkClosureAfterNamed(e.Named, fl)
 		e.Args = append(e.Args, fl)
 		e.Stop = fl.End()
 		return e
 	}
 	return &ast.CallExpr{Fn: x, Args: []ast.Expr{fl}, Lparen: x.Pos(), Stop: fl.End()}
+}
+
+// checkClosureAfterNamed refuses `f(c = 5) { … }`. A trailing closure is an ordinary
+// positional argument (§4.2), and a positional argument may not follow a named one
+// (§8.7) — but this one is written after the parentheses, so the two rules point at
+// different parameters and the call has no single reading. Refusing it is §5.6's rule
+// and it is what keeps the ordering statement of §8.7 true with no exception: `f(3) { … }`
+// gives the closure the position it is written in, `f(times = 3, body = { … })` gives it
+// a name, and nothing in between has to be guessed at.
+func (p *parser) checkClosureAfterNamed(named []ast.NamedArg, fl ast.Expr) {
+	if len(named) == 0 {
+		return
+	}
+	p.errorAt(fl.Pos(),
+		"a trailing closure is a positional argument, so it cannot follow the named argument '%s = …': pass the closure by name too, or give every argument by position",
+		named[0].Name)
 }
 
 func (p *parser) parseMethodTail(recv ast.Expr, safe bool) ast.Expr {

@@ -1299,6 +1299,8 @@ func TestDiagnostics(t *testing.T) {
 			`a positional argument may not follow a named one; move it before 'a = …'`, 1, 10},
 		{"the same argument named twice", `f(a = 1, a = 2)`,
 			`argument 'a' is named twice`, 1, 10},
+		{"a trailing closure after a named argument", `f(a = 1) { 2 }`,
+			`a trailing closure is a positional argument, so it cannot follow the named argument 'a = …': pass the closure by name too, or give every argument by position`, 1, 10},
 		{"equality against a regex", `s == /re/`,
 			`'==' with a regex operand: use '~' to match`, 1, 3},
 		{"the Ruby match operator", `s =~ /re/`,

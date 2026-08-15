@@ -73,6 +73,7 @@ fix-it instead. A few of the ~30 in [../cli/diagnostics.md](../cli/diagnostics.m
 | `(x) -> x * 2` | `an arrow function's body is braced: (x) -> { x * 2 }, …` |
 | `f {a: 1}` | `a dict after a call is written f({a: 1})` |
 | `f(a: 1)` | `a named argument is written 'a = …'; for a dict argument write f({a: …})` |
+| `f(a = 1) { … }` | `a trailing closure is a positional argument, so it cannot follow the named argument 'a = …'` |
 | `if c {a: 1}` | `this '{' opens the if body; write { {a: 1} } for a dict` |
 | `x.empty?` | `'?' is not part of an identifier; did you mean 'empty'?` |
 

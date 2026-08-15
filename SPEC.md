@@ -949,6 +949,7 @@ cascade.
 | `f(1, a: 2)` | `a named argument is written 'a = …'; for a dict argument write f({a: …})` |
 | `f(a = 1, 2)` | `a positional argument may not follow a named one; move it before 'a = …'` |
 | `f(a = 1, a = 2)` | `argument 'a' is named twice` |
+| `f(a = 1) { … }` | `a trailing closure is a positional argument, so it cannot follow the named argument 'a = …': pass the closure by name too, or give every argument by position` |
 | `s == /re/` | `'==' with a regex operand: use '~' to match` |
 | `s =~ /re/` | `'=~' is not an mzs operator; use '~'` |
 | `x.empty?` | `'?' is not part of an identifier; did you mean 'empty'?` |
@@ -1052,9 +1053,9 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 **Support types**
 
 ```go
-type Param struct { Name string; Default ast.Expr; Rest bool; Pos token.Pos }
-type NamedArg struct { Name string; Value ast.Expr; NamePos token.Pos }  // `name = v` at a call (§8.7)
-type StrPart struct { Text string; Expr ast.Expr }   // exactly one of the two is set
+type Param struct { Name string; Default Expr; Rest bool; Pos token.Pos }
+type NamedArg struct { Name string; Value Expr; NamePos token.Pos }  // `name = v` at a call (§8.7)
+type StrPart struct { Text string; Expr Expr }   // exactly one of the two is set
 
 type ArmKind uint8
 const (
@@ -1402,11 +1403,21 @@ when the assignment is the point.
 **Order.** Left to right across both halves: positional arguments first, then named ones,
 which *is* source order because a positional argument may not follow a named one. A
 trailing closure is an ordinary last argument (§4.2) and is evaluated — that is,
-constructed as a `KFunc` — in that same order, with one exception nothing can observe:
-§4.2 appends it to the positional list, so where a call has both a trailing closure and
-named arguments the closure is constructed before the named values are evaluated. A
-closure literal only captures the scope it stands in, so no evaluation of the script's can
-tell the difference.
+constructed as a `KFunc` — in that same order.
+
+That last rule is why a trailing closure may not be combined with a named argument at all.
+The closure is positional and is written *after* the parentheses, so "a trailing closure
+is the last argument" and "a positional argument may not follow a named one" would name
+different parameters and the call would have no single reading. It is refused instead
+(§5.6), and both unambiguous spellings stay available:
+
+```
+fn retry(times = 1, body) { … }
+
+retry(3) { … }                  # every argument by position, closure included
+retry(times = 3, body = { … })  # every argument by name
+retry(times = 3) { … }          # ERROR: a trailing closure cannot follow a named argument
+```
 
 Dispatch for `recv.name(args)` is UFCS (§4.3), resolved at compile time (§6.3):
 

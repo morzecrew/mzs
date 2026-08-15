@@ -148,6 +148,19 @@ print(len = "x")   # argument: print takes its arguments by position, so 'len = 
 Two spellings that are *not* named arguments: `f(a: 1)` (a dict is written `f({a: 1})`),
 and an assignment in argument position, which needs its own parentheses — `f((x = 5))`.
 
+A **trailing closure cannot be combined with a named argument**. The closure is a
+positional argument written after the parentheses, so "the closure is the last argument"
+and "a positional argument may not follow a named one" would point at different
+parameters. Both unambiguous spellings stay:
+
+```
+fn retry(times = 1, body) { … }
+
+retry(3) { … }                  # every argument by position, closure included
+retry(times = 3, body = { … })  # every argument by name
+retry(times = 3) { … }          # syntax: a trailing closure is a positional argument, …
+```
+
 ## Closures and `it`
 
 `{ … }` is the closure form of a function value — the other is the anonymous `fn` above.

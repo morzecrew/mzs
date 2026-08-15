@@ -167,8 +167,9 @@ if a in xs && b in ys { … }       # (a in xs) && (b in ys)
 There is no `not in`; the negation is `!(x in xs)`. Chaining is refused —
 `a in b in c` is `syntax: 'in' is non-associative`.
 
-`in` is also the arm form of a `match` (`in 1..5 -> "low"`) and the loop word of
-`for x in xs`; all three ask the same question of the same operand.
+The same question is spelled `in 1..5 -> …` as a `match` arm ([./control-flow.md](./control-flow.md)).
+The `in` of `for x in xs` is a different word in the same spelling: it names the thing being
+iterated, and asks nothing.
 
 ## Assignment
 
