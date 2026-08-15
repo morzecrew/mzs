@@ -973,6 +973,10 @@ func TestTryEnsure(t *testing.T) {
 			`fn f() { try { return "early" } ensure { 0 }; "late" }; f()`, "early"},
 		{"the ensure's own failure replaces what was pending",
 			`try (try { raise("first") } ensure { raise("second") }) else (e) -> e["message"]`, "second"},
+		{"so does a control signal of its own",
+			`for i in 1..5 { try { i } ensure { break "stopped at ${i}" } }`, "stopped at 1"},
+		{"a return from the ensure wins too",
+			`fn f() { try { "body" } ensure { return "released" }; "after" }; f()`, "released"},
 		{"an else and an ensure are independent clauses",
 			`$log = ""; v = try { 1 } else { 2 } ensure { $log += "r" }; "${v}${$log}"`, "1r"},
 	}

@@ -1540,8 +1540,10 @@ brace is already the body's (§3.11): write `if (try { … } else { … }) { …
 `ensure` does not catch: `try { … } ensure { … }` with no `else` releases and lets the
 failure through. Nor does it survive what `try` cannot catch — a timeout, the step budget,
 the depth limit, a cancelled context and `exit` end the Run, and running script code after
-that is exactly what the limit forbids (§14.1). An `ensure` that raises replaces whatever
-was pending with its own failure: a release that itself broke is not something to swallow.
+that is exactly what the limit forbids (§14.1). An `ensure` that leaves by any way of its
+own — a raise, a `return`, a `break` — replaces whatever was pending: a release that itself
+broke is not something to swallow, and a release that decides where control goes has said
+so last.
 `e` is not in scope in an `ensure`; the binder belongs to the `else`.
 
 **Kinds.** Every error carries a `kind` from the closed list of §13.5 —

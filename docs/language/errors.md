@@ -91,9 +91,9 @@ try f() else 0 ensure g()
 # syntax: expected '{' in ensure, found 'g'
 ```
 
-An `ensure` that raises replaces whatever was pending, because a release that itself broke
-is not something to swallow. `e` is not in scope inside it — the binder belongs to the
-`else`.
+An `ensure` that leaves by a way of its own — a raise, a `return`, a `break` — replaces
+whatever was pending, because a release that itself broke is not something to swallow. `e`
+is not in scope inside it: the binder belongs to the `else`.
 
 What it does not do is outlive a limit. A timeout, the step budget, the depth limit, a
 cancelled context and `exit` all end the run, and no `ensure` runs after them:
