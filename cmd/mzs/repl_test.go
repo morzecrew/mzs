@@ -149,8 +149,8 @@ func TestREPLPrintsOnlyTheNewOutput(t *testing.T) {
 	t.Parallel()
 
 	out, _, _ := replRun(t, []string{"--repl"},
-		scriptedLine{line: `say("hi")`},
-		scriptedLine{line: `say("there")`},
+		scriptedLine{line: `println("hi")`},
+		scriptedLine{line: `println("there")`},
 		scriptedLine{line: "1"},
 		scriptedLine{line: ":q"},
 	)
@@ -325,7 +325,7 @@ func TestREPLExitBuiltin(t *testing.T) {
 	t.Parallel()
 
 	code, out, errOut, _ := replCode(t, []string{"--repl"},
-		scriptedLine{line: `say("bye")`},
+		scriptedLine{line: `println("bye")`},
 		scriptedLine{line: "exit(7)"},
 		scriptedLine{line: ":q"}, // never reached
 	)
@@ -488,7 +488,7 @@ func TestREPLCompleter(t *testing.T) {
 		{"a REPL command", ".he", ".help", 0},
 		{"a command after blanks", "  .cl", ".clear", 2},
 		{"a method after a dot", `"x".low`, "lower", 4},
-		{"a builtin", "sa", "say", 0},
+		{"a builtin", "printl", "println", 0},
 		{"a keyword", "matc", "match", 0},
 		{"a module", "js", "json", 0},
 		{"a name the session bound", "greet", "greeting", 0},

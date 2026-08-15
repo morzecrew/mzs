@@ -20,9 +20,9 @@ fn triage(status) {
   }
 }
 
-say("status triage")
+println("status triage")
 [200, 204, 301, 302, 401, 404, 418, 500, 503, 999].each { (s) ->
-  say("  ${s.str.ljust(6)}${triage(s)}")
+  println("  ${s.str.ljust(6)}${triage(s)}")
 }
 
 # --- regex arms, and why the order of the arms is the whole logic -------------
@@ -49,9 +49,9 @@ samples = [
   "ivan@example.com", "I need an operator", "just talking", "",
 ]
 
-say("")
-say("intent routing")
-samples.each { (s) -> say("  ${inspect(s).ljust(24)}${intent(s)}") }
+println("")
+println("intent routing")
+samples.each { (s) -> println("  ${inspect(s).ljust(24)}${intent(s)}") }
 
 # --- without a subject: a ladder of conditions, still an expression -----------
 
@@ -73,9 +73,9 @@ orders = [
   {id: 4, weight: 31.0, express: true},
 ]
 
-say("")
-say("shipping method")
-orders.each { (o) -> say("  order ${o["id"]}: ${shipping(o)}") }
+println("")
+println("shipping method")
+orders.each { (o) -> println("  order ${o["id"]}: ${shipping(o)}") }
 
 # --- match yields a value, so it composes into a pipeline ---------------------
 #
@@ -94,17 +94,17 @@ fn handle(line) {
   h == nil ? "reply: ${kind}" : h.call(line)
 }
 
-say("")
-say("dispatch through a table of closures")
+println("")
+println("dispatch through a table of closures")
 ["/report weekly", "2026-03-05", "write to ivan@example.com", "hello"].each { (line) ->
-  say("  ${inspect(line).ljust(30)}${handle(line)}")
+  println("  ${inspect(line).ljust(30)}${handle(line)}")
 }
 
 # --- arms fit on one line, which is the point of a one-liner language ---------
 
-say("")
+println("")
 grade = { (n) -> match n { in 90..100 -> "A"; in 75..89 -> "B"; in 60..74 -> "C"; else -> "F" } }
-say("grades: ${[95, 80, 61, 40].map { grade.call(it) }.join(" ")}")
+println("grades: ${[95, 80, 61, 40].map { grade.call(it) }.join(" ")}")
 
 # A match with no matching arm and no `else` is nil — not an error, not a crash.
-say("no arm, no else: ${inspect(match 7 { 1 -> "one" })}")
+println("no arm, no else: ${inspect(match 7 { 1 -> "one" })}")

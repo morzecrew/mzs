@@ -38,7 +38,7 @@ const (
 )
 
 // corpusInterp is the interpreter every row runs on, with stdout wired to out so row 56
-// can see what say wrote.
+// can see what println wrote.
 //
 // The deadline is a runaway guard and not a performance budget, which is why it is ten
 // seconds and not the default one. Two was not enough: the coverage job instruments every
@@ -164,7 +164,7 @@ func TestCorpusConditions(t *testing.T) {
 		{"53", "an unbound global is nil", `$not_existed`, nil, modeNil, "", ""},
 		{"54", "zero is a value and it is truthy", `0`, nil, modeInt, "0", ""},
 		{"55", "validator fixture", `$sent == "лол"`, map[string]string{"sent": "лол"}, modeBool, "true", ""},
-		{"56", "say writes and returns nil", `$sent == say("test")`, map[string]string{"sent": "x"}, modeBool, "false", "test\n"},
+		{"56", "say writes and returns nil", `$sent == println("test")`, map[string]string{"sent": "x"}, modeBool, "false", "test\n"},
 		{"57", "match with a subject", `match $__sent.lower.trim { in ["да","ага"] -> "yes"; /^нет/ -> "no"; else -> "?" }`,
 			map[string]string{"__sent": " АГА "}, modeStr, "yes", ""},
 		{"58", "match with no subject", `match { $__sent.len > 3 -> "long"; else -> "short" }`,
@@ -795,13 +795,13 @@ func TestSubjectEvaluatedOnce(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	const src = `match say("side") { "x" -> 1; nil -> 2; else -> 3 }`
+	const src = `match println("side") { "x" -> 1; nil -> 2; else -> 3 }`
 	v, err := corpusInterp(&out).Eval(context.Background(), src, nil)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
 	if v.Int() != 2 {
-		t.Errorf("= %s, want 2 (say returns nil)", v.Inspect())
+		t.Errorf("= %s, want 2 (println returns nil)", v.Inspect())
 	}
 	if out.String() != "side\n" {
 		t.Errorf("stdout = %q, want %q; the subject is evaluated exactly once", out.String(), "side\n")

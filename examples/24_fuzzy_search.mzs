@@ -34,11 +34,11 @@ fn similarity(a, b) {
   longest == 0 ? 100 : (longest - levenshtein(a, b)) * 100 / longest
 }
 
-say("edit distances")
+println("edit distances")
 [["kitten", "sitting"], ["flaw", "lawn"], ["colour", "color"], ["hello", "hello"],
  ["café", "cafe"], ["book", "back"], ["", "abc"]].each { (pair) ->
   d = levenshtein(pair[0], pair[1])
-  say("  ${inspect(pair[0]).ljust(11)}→ ${inspect(pair[1]).ljust(11)}${d.str.rjust(2)}  (${similarity(pair[0], pair[1])}% alike)")
+  println("  ${inspect(pair[0]).ljust(11)}→ ${inspect(pair[1]).ljust(11)}${d.str.rjust(2)}  (${similarity(pair[0], pair[1])}% alike)")
 }
 
 # --- the table, printed, because that is how you debug a DP ------------------
@@ -58,12 +58,12 @@ fn table_of(a, b) {
 
 a = "sunday"
 b = "saturday"
-say("")
-say("the table for ${inspect(a)} → ${inspect(b)}")
-say("      " + a.chars.map { it.rjust(3) }.join(""))
+println("")
+println("the table for ${inspect(a)} → ${inspect(b)}")
+println("      " + a.chars.map { it.rjust(3) }.join(""))
 table_of(a, b).each_with_index { (row, j) ->
   label = j == 0 ? " " : b[j - 1]
-  say("  ${label}  ${row.map { it.str.rjust(3) }.join("")}")
+  println("  ${label}  ${row.map { it.str.rjust(3) }.join("")}")
 }
 
 # --- "did you mean": distance is not enough, and neither is prefix ------------
@@ -80,12 +80,12 @@ fn suggest(word, candidates, limit) {
   }.sort_by { -it["score"] }.take(limit)
 }
 
-say("")
+println("")
 ["instal", "unistall", "updte", "serch", "verison", "xyzzy"].each { (typo) ->
   best = suggest(typo, COMMANDS, 3)
   top = best.first
   verdict = top["score"] >= 60 ? "did you mean ${inspect(top["name"])}?" : "no close command"
-  say("  ${inspect(typo).ljust(12)}${verdict.ljust(28)}${best.map { "${it["name"]}(${it["score"]})" }.join("  ")}")
+  println("  ${inspect(typo).ljust(12)}${verdict.ljust(28)}${best.map { "${it["name"]}(${it["score"]})" }.join("  ")}")
 }
 
 # --- searching a catalogue, where the query is a phrase ----------------------
@@ -106,11 +106,11 @@ fn best_match(query, items) {
   }.sort_by { -it["score"] }
 }
 
-say("")
-say("catalogue search")
+println("")
+println("catalogue search")
 ["hair cut", "beard", "colur", "massaj", "shave"].each { (q) ->
   hits = best_match(q, CATALOGUE).take(2)
-  say("  ${inspect(q).ljust(12)}${hits.map { "${it["item"]} ${it["score"]}%" }.join("  ·  ")}")
+  println("  ${inspect(q).ljust(12)}${hits.map { "${it["item"]} ${it["score"]}%" }.join("  ·  ")}")
 }
 
 # --- deduplicating a list where the duplicates are typos ---------------------
@@ -124,17 +124,17 @@ names.each { (n) ->
   home == nil ? clusters.push([n]) : home.push(n)
 }
 
-say("")
-say("clustering ${names.len} names at 85% similarity → ${clusters.len} people")
+println("")
+println("clustering ${names.len} names at 85% similarity → ${clusters.len} people")
 clusters.each { (c) ->
-  say("  ${c.first.ljust(14)}${c.len > 1 ? "also written: " + c.drop(1).map { inspect(it) }.join(", ") : "(one spelling)"}")
+  println("  ${c.first.ljust(14)}${c.len > 1 ? "also written: " + c.drop(1).map { inspect(it) }.join(", ") : "(one spelling)"}")
 }
 
 # --- the properties a distance function must have ----------------------------
 
-say("")
-say("identity:    d(x, x) == 0            ${levenshtein("mzs", "mzs") == 0}")
-say("symmetry:    d(x, y) == d(y, x)      ${levenshtein("kitten", "sitting") == levenshtein("sitting", "kitten")}")
-say("triangle:    d(x, z) ≤ d(x, y)+d(y, z) ${levenshtein("abc", "xyz") <= levenshtein("abc", "abz") + levenshtein("abz", "xyz")}")
-say("unicode:     d(\"мир\", \"мор\") == 1     ${levenshtein("мир", "мор") == 1}")
-say("emoji:       d(\"a👋b\", \"ab\") == 1      ${levenshtein("a👋b", "ab") == 1}")
+println("")
+println("identity:    d(x, x) == 0            ${levenshtein("mzs", "mzs") == 0}")
+println("symmetry:    d(x, y) == d(y, x)      ${levenshtein("kitten", "sitting") == levenshtein("sitting", "kitten")}")
+println("triangle:    d(x, z) ≤ d(x, y)+d(y, z) ${levenshtein("abc", "xyz") <= levenshtein("abc", "abz") + levenshtein("abz", "xyz")}")
+println("unicode:     d(\"мир\", \"мор\") == 1     ${levenshtein("мир", "мор") == 1}")
+println("emoji:       d(\"a👋b\", \"ab\") == 1      ${levenshtein("a👋b", "ab") == 1}")

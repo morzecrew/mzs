@@ -8,14 +8,14 @@
 # only nil and false fail, and comparison that never coerces.
 
 fn head(title) {
-  say("")
-  say(title)
-  say("-" * 74)
-  say("${"expression".ljust(34)}${"value".ljust(24)}type")
+  println("")
+  println(title)
+  println("-" * 74)
+  println("${"expression".ljust(34)}${"value".ljust(24)}type")
 }
 
 fn show(expr, v) {
-  say("${expr.ljust(34)}${inspect(v).ljust(24)}${type(v)}")
+  println("${expr.ljust(34)}${inspect(v).ljust(24)}${type(v)}")
 }
 
 head("numbers — Int and Float are two kinds, and division knows it")
@@ -88,5 +88,5 @@ show('[1, "two", 3.0, nil].json', [1, "two", 3.0, nil].json)
 show('["a", "a", "b"].tally', ["a", "a", "b"].tally)
 show('hash("stable") == hash("stable")', hash("stable") == hash("stable"))
 
-say("")
-say("Read the rules that produced this table in SPEC §7 (values) and §8.3 (arithmetic).")
+println("")
+println("Read the rules that produced this table in SPEC §7 (values) and §8.3 (arithmetic).")

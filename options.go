@@ -85,7 +85,7 @@ type Options struct {
 	// here; pass a negative size to turn caching off. normalize maps the two.
 	ProgramCache int
 
-	// Stdout receives print/say/debug. nil discards.
+	// Stdout receives print/println/debug. nil discards.
 	Stdout io.Writer
 	// Stderr receives warnings. nil discards.
 	Stderr io.Writer
@@ -174,7 +174,7 @@ func (o Options) normalize() Options {
 	return o
 }
 
-// out returns the sink for print/say/debug; never nil.
+// out returns the sink for print/println/debug; never nil.
 func (o *Options) out() io.Writer {
 	if o.Stdout == nil {
 		return io.Discard

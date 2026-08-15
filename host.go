@@ -179,7 +179,7 @@ func (c *Ctx) CheckString(n int) error { return c.rs.checkString(n) }
 // Capabilities and diagnostics
 // ---------------------------------------------------------------------------
 
-// Out is the sink for print/say/debug; never nil.
+// Out is the sink for print/println/debug; never nil.
 func (c *Ctx) Out() io.Writer { return c.rs.opts.out() }
 
 // Now returns the host clock, or an error when the host did not install one. Time is a

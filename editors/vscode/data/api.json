@@ -1253,6 +1253,11 @@
    "sem": "`len(x) == 0`",
    "ex": "`xs.empty`"
   },
+  "exit": {
+   "sig": "`exit(code: int = 0) -> never`",
+   "sem": "ends the Run with that status; not catchable, and never touches the process (§13.5)",
+   "ex": "`exit(1)`"
+  },
   "float": {
    "sig": "`float(x) -> float`",
    "sem": "§12.7",
@@ -1328,6 +1333,11 @@
    "sem": "writes `str` of each arg to `Options.Stdout`, no separator, no newline",
    "ex": "`print(a)`"
   },
+  "println": {
+   "sig": "`println(*args) -> nil`",
+   "sem": "like `print` but appends `\\n` after each arg; `println()` writes one `\\n`; an Array arg prints one element per line",
+   "ex": "`println(\"hi\")`"
+  },
   "raise": {
    "sig": "`raise(msg: any) -> never`",
    "sem": "raises a script error",
@@ -1352,11 +1362,6 @@
    "sig": "`round(x: number, digits: int = 0) -> number`",
    "sem": "half away from zero; `digits == 0` → Int",
    "ex": "`round(1.256, 2)`"
-  },
-  "say": {
-   "sig": "`say(*args) -> nil`",
-   "sem": "like `print` but appends `\\n` after each arg; `say()` writes one `\\n`; an Array arg prints one element per line",
-   "ex": "`say(\"hi\")`"
   },
   "shl": {
    "sig": "`(a: int, n: int) -> int`",

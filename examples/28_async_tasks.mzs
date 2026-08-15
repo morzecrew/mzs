@@ -12,12 +12,12 @@
 async fn double(n) { n * 2 }
 
 t = double(21)
-say("type(t)  ${type(t)}")
-say("t.done   ${t.done}      — the body has not run yet; nothing yielded to it")
-say("t.await  ${t.await}")
-say("t.done   ${t.done}")
-say("again    ${t.await}      — a finished task keeps its answer")
-say("str(t)   ${str(t)}")
+println("type(t)  ${type(t)}")
+println("t.done   ${t.done}      — the body has not run yet; nothing yielded to it")
+println("t.await  ${t.await}")
+println("t.done   ${t.done}")
+println("again    ${t.await}      — a finished task keeps its answer")
+println("str(t)   ${str(t)}")
 
 # --- fan-out: start them all, then read them all ------------------------------
 
@@ -29,10 +29,10 @@ async fn work(id) {
 }
 
 started = (1..6).map { (i) -> work(i) }
-say("")
-say("started ${started.len} tasks; ${started.count { it.done }} have finished so far")
+println("")
+println("started ${started.len} tasks; ${started.count { it.done }} have finished so far")
 results = started.map { it.await }
-say("after awaiting: ${results.map { "#${it["id"]}=${it["total"]}" }.join(" ")}")
+println("after awaiting: ${results.map { "#${it["id"]}=${it["total"]}" }.join(" ")}")
 
 # --- errors surface at the await, and are catchable there ---------------------
 
@@ -41,11 +41,11 @@ async fn risky(n) {
   "task ${n} ok"
 }
 
-say("")
-say("errors")
+println("")
+println("errors")
 (1..4).map { (n) -> {n: n, task: risky(n)} }.each { (row) ->
   outcome = try row["task"].await else (e) -> "caught: ${e["message"]}"
-  say("  ${outcome}")
+  println("  ${outcome}")
 }
 
 # --- a task that nobody awaits still runs -------------------------------------
@@ -53,11 +53,11 @@ say("errors")
 # The Run does not end until its tasks do, so a fire-and-forget task is a use, not a
 # leak. Its failure is reported on stderr rather than swallowed.
 
-async fn notify(who) { say("  (notified ${who})"); "sent" }
+async fn notify(who) { println("  (notified ${who})"); "sent" }
 notify("the manager")
-say("")
-say("fire and forget: the task started above has not run yet — it gets the interpreter")
-say("at the next yield, so its line appears after this one, before the Run ends.")
+println("")
+println("fire and forget: the task started above has not run yet — it gets the interpreter")
+println("at the next yield, so its line appears after this one, before the Run ends.")
 
 # --- shared state is safe, because only one task evaluates at a time ---------
 
@@ -71,11 +71,11 @@ async fn bump(id) {
 
 tasks = (1..8).map { (i) -> bump(i) }
 finals = tasks.map { it.await }
-say("")
-say("eight tasks incremented one counter 20 times each")
-say("  counter = ${counter[0]} (expected ${8 * 20}) — no lock, no atomic, no lost update")
-say("  completion order: ${log.json}")
-say("  the order is whatever the scheduler chose; the total never is")
+println("")
+println("eight tasks incremented one counter 20 times each")
+println("  counter = ${counter[0]} (expected ${8 * 20}) — no lock, no atomic, no lost update")
+println("  completion order: ${log.json}")
+println("  the order is whatever the scheduler chose; the total never is")
 
 # --- await inside a task, and a task that starts tasks -----------------------
 
@@ -83,16 +83,16 @@ async fn stage_one(n) { n + 1 }
 async fn stage_two(n) { stage_one(n).await * 10 }
 async fn pipeline(ns) { ns.map { (n) -> stage_two(n) }.map { it.await } }
 
-say("")
-say("nested tasks: ${pipeline([1, 2, 3]).await.json}")
+println("")
+println("nested tasks: ${pipeline([1, 2, 3]).await.json}")
 
 # --- what the language refuses --------------------------------------------------
 
-say("")
-say("a task cannot await itself:")
+println("")
+println("a task cannot await itself:")
 async fn selfish() { $me.await }
 $me = selfish()
-say("  ${try $me.await else (e) -> e["message"]}")
+println("  ${try $me.await else (e) -> e["message"]}")
 
 # --- limits are shared, not per task -------------------------------------------
 #
@@ -103,5 +103,5 @@ say("  ${try $me.await else (e) -> e["message"]}")
 # One Run, one step budget, one deadline, one context: a task cannot buy more time by
 # being a task, and none of them outlives the Run that started them.
 
-say("")
-say("this Run started ${6 + 4 + 1 + 8 + 3 + 3 + 1} tasks in total and is about to join them all.")
+println("")
+println("this Run started ${6 + 4 + 1 + 8 + 3 + 3 + 1} tasks in total and is about to join them all.")

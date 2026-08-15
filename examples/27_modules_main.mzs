@@ -12,44 +12,44 @@ include json
 include money from "./27_lib_money.mzs"
 include text from "./27_lib_text.mzs"
 
-say("what this program can reach")
-say("  json  → ${json.keys.join(", ")}")
-say("  money → ${money.keys.join(", ")}")
-say("  text  → ${text.keys.join(", ")}")
+println("what this program can reach")
+println("  json  → ${json.keys.join(", ")}")
+println("  money → ${money.keys.join(", ")}")
+println("  text  → ${text.keys.join(", ")}")
 
 # --- a module is a value, and a member call is an ordinary call ---------------
 
 price = money.from_units(1500)
-say("")
-say("1500 units = ${money.format(price)}")
-say("  with VAT ${money.vat_percent}%: ${money.format(money.with_vat(price))}")
-say("  the VAT part of ${money.format(price)} is ${money.format(money.vat(price))}")
-say("  10% off:            ${money.format(money.discount(price, 10))}")
-say("  split three ways:   ${money.split_evenly(price, 3).map { money.format(it) }.join(" + ")}")
-say("  and they add up:    ${money.split_evenly(price, 3).sum == price}")
+println("")
+println("1500 units = ${money.format(price)}")
+println("  with VAT ${money.vat_percent}%: ${money.format(money.with_vat(price))}")
+println("  the VAT part of ${money.format(price)} is ${money.format(money.vat(price))}")
+println("  10% off:            ${money.format(money.discount(price, 10))}")
+println("  split three ways:   ${money.split_evenly(price, 3).map { money.format(it) }.join(" + ")}")
+println("  and they add up:    ${money.split_evenly(price, 3).sum == price}")
 
 # --- what a module does not export is not there -------------------------------
 
-say("")
-say("private names stay private")
-say("  money.has(\"format\"):    ${money.has("format")}")
-say("  money.has(\"rate\"):      ${money.has("rate")}      — an implementation detail, never exported")
-say("  defined(money.rate):    ${defined(money.rate)}")
-say("  reading it is an error: ${try money.rate else (e) -> e["message"]}")
+println("")
+println("private names stay private")
+println("  money.has(\"format\"):    ${money.has("format")}")
+println("  money.has(\"rate\"):      ${money.has("rate")}      — an implementation detail, never exported")
+println("  defined(money.rate):    ${defined(money.rate)}")
+println("  reading it is an error: ${try money.rate else (e) -> e["message"]}")
 
 # One thing to know about member access: a member that is a function is *called* by
 # `money.format`, exactly as a method would be. To hold the function itself — to pass it
 # to `map`, say — index the module like the dict it is.
-say("  money[\"format\"] is       ${inspect(money["format"])}")
-say("  used as a value:        ${[150000, 80000].map(money["format"]).json}")
+println("  money[\"format\"] is       ${inspect(money["format"])}")
+println("  used as a value:        ${[150000, 80000].map(money["format"]).json}")
 
 # --- modules compose: money uses text, and so do we --------------------------
 #
 # 27_lib_text.mzs is included twice — once by this file and once by the money module —
 # and it runs once per Run. The dict both of them hold is the same dict.
 
-say("")
-text.banner("INVOICE A-1043", 34).each { (l) -> say(l) }
+println("")
+text.banner("INVOICE A-1043", 34).each { (l) -> println(l) }
 
 items = [
   {name: "signature haircut", qty: 2, unit: money.from_units(1500)},
@@ -59,18 +59,18 @@ items = [
 
 items.each { (i) ->
   line = money.from_units(0) + i["unit"] * i["qty"]
-  say(text.pad_between("  ${text.titlecase(i["name"])} ×${i["qty"]}", money.format(line), 36))
+  println(text.pad_between("  ${text.titlecase(i["name"])} ×${i["qty"]}", money.format(line), 36))
 }
 total = items.sum { it["unit"] * it["qty"] }
-say(text.pad_between("  ${"TOTAL".ljust(10)}", money.format(total), 36))
-say(text.pad_between("  incl. VAT", money.format(money.vat(total)), 36))
+println(text.pad_between("  ${"TOTAL".ljust(10)}", money.format(total), 36))
+println(text.pad_between("  incl. VAT", money.format(money.vat(total)), 36))
 
 # --- the same module, seen as data --------------------------------------------
 
-say("")
-say("money as a dict: ${money.len} exported names, ${money.filter { (_, v) -> is(v, "function") }.len} of them functions")
-say("  constants: ${money.reject { (_, v) -> is(v, "function") }.json}")
-say("  json of the report: ${{total: total, formatted: money.format(total), vat: money.vat(total)}.json}")
+println("")
+println("money as a dict: ${money.len} exported names, ${money.filter { (_, v) -> is(v, "function") }.len} of them functions")
+println("  constants: ${money.reject { (_, v) -> is(v, "function") }.json}")
+println("  json of the report: ${{total: total, formatted: money.format(total), vat: money.vat(total)}.json}")
 
 # --- an include is scoped, and a missing one is a compile error ---------------
 #
@@ -80,5 +80,5 @@ say("  json of the report: ${{total: total, formatted: money.format(total), vat:
 # Nothing is ambient: a condition pulled out of a database that never says `include`
 # cannot reach a single module, which is the whole point of the design.
 
-say("")
-say("json round trip through two modules: ${json.parse(money.format(total).json) == money.format(total)}")
+println("")
+println("json round trip through two modules: ${json.parse(money.format(total).json) == money.format(total)}")

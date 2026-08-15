@@ -62,8 +62,8 @@ fn population(g) { g.flatten.sum }
 
 # --- run it ----------------------------------------------------------------------
 
-say("generation 0 — population ${population(start)}")
-render(start).each { (line) -> say("  ${line}") }
+println("generation 0 — population ${population(start)}")
+render(start).each { (line) -> println("  ${line}") }
 
 grid = start
 seen = {}
@@ -82,23 +82,23 @@ cycle = nil
   seen.set(key, gen)
 }
 
-say("")
-say("generation ${history.len - 1} — population ${population(grid)}")
-render(grid).each { (line) -> say("  ${line}") }
+println("")
+println("generation ${history.len - 1} — population ${population(grid)}")
+render(grid).each { (line) -> println("  ${line}") }
 
 # --- what happened ----------------------------------------------------------------
 
-say("")
-say("population by generation")
+println("")
+println("population by generation")
 peak = history.max
 history.each_with_index { (p, gen) ->
-  say("  ${gen.str.rjust(2)}  ${("█" * (p * 40 / peak)).ljust(40)} ${p}")
+  println("  ${gen.str.rjust(2)}  ${("█" * (p * 40 / peak)).ljust(40)} ${p}")
 }
 
-say("")
-say("stable so far: ${cycle == nil ? "no repeat within ${GENERATIONS} generations" : "generation ${cycle["at"]} repeats generation ${cycle["since"]}"}")
-say("peak ${peak} at generation ${history.index(peak)}, now ${history.last}")
-say("net change ${"%+d" % (history.last - history.first)} cells")
+println("")
+println("stable so far: ${cycle == nil ? "no repeat within ${GENERATIONS} generations" : "generation ${cycle["at"]} repeats generation ${cycle["since"]}"}")
+println("peak ${peak} at generation ${history.index(peak)}, now ${history.last}")
+println("net change ${"%+d" % (history.last - history.first)} cells")
 
 # --- the classic patterns, checked rather than claimed ------------------------
 #
@@ -149,9 +149,9 @@ glider = small("
 
 g4 = (1..4).reduce(glider) { (g, _) -> step_in(g, 8, 8) }
 
-say("")
-say("still life (block) is unchanged after a step:      ${step_in(block, 4, 4) == block}")
-say("blinker has period 2:                             ${step_in(step_in(blinker, 5, 5), 5, 5) == blinker}")
-say("blinker is not period 1:                          ${step_in(blinker, 5, 5) != blinker}")
-say("glider after 4 steps has the same population:     ${g4.flatten.sum == glider.flatten.sum}")
-say("…and it has moved (so it is not the same grid):   ${g4 != glider}")
+println("")
+println("still life (block) is unchanged after a step:      ${step_in(block, 4, 4) == block}")
+println("blinker has period 2:                             ${step_in(step_in(blinker, 5, 5), 5, 5) == blinker}")
+println("blinker is not period 1:                          ${step_in(blinker, 5, 5) != blinker}")
+println("glider after 4 steps has the same population:     ${g4.flatten.sum == glider.flatten.sum}")
+println("…and it has moved (so it is not the same grid):   ${g4 != glider}")

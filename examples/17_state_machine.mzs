@@ -119,27 +119,27 @@ fn run(script) {
 # --- a clean run ----------------------------------------------------------------
 
 happy = run(["yes", "colour", "tomorrow", "14:30", "yes"])
-say("— a conversation that goes well —")
-happy["transcript"].each { (l) -> say("  ${l}") }
-say("")
-say("  path:    ${happy["log"].join("  ")}")
-say("  context: ${happy["ctx"].json}")
+println("— a conversation that goes well —")
+happy["transcript"].each { (l) -> println("  ${l}") }
+println("")
+println("  path:    ${happy["log"].join("  ")}")
+println("  context: ${happy["ctx"].json}")
 
 # --- a run with corrections ----------------------------------------------------
 
 messy = run(["maybe", "yes", "manicure", "beard", "next week", "tomorrow", "9:00", "18:15", "no", "haircut", "today", "11:00", "yes"])
-say("")
-say("— the same machine, with a user who changes their mind —")
-say("  path: ${messy["log"].join("  ")}")
-say("  ended in ${messy["state"]} with ${messy["ctx"].json}")
+println("")
+println("— the same machine, with a user who changes their mind —")
+println("  path: ${messy["log"].join("  ")}")
+println("  ended in ${messy["state"]} with ${messy["ctx"].json}")
 
 # --- a run that gives up --------------------------------------------------------
 
 stuck = run(["what", "huh", "???", "hello?"])
-say("")
-say("— three bad answers in a row hand the user to a person —")
-stuck["transcript"].last(4).each { (l) -> say("  ${l}") }
-say("  path: ${stuck["log"].join("  ")}")
+println("")
+println("— three bad answers in a row hand the user to a person —")
+stuck["transcript"].last(4).each { (l) -> println("  ${l}") }
+println("  path: ${stuck["log"].join("  ")}")
 
 # --- the machine is data, so it can be checked -------------------------------
 #
@@ -150,9 +150,9 @@ targets = STATES.map { (name, s) ->
   s["terminal"] ? [] : [name]
 }.flatten
 
-say("")
-say("machine: ${STATES.len} states, ${STATES.filter { (_, s) -> s["terminal"] }.len} terminal")
-say("  with a prompt:  ${STATES.filter { (_, s) -> s["prompt"] != nil }.keys.join(", ")}")
-say("  computed text:  ${STATES.filter { (_, s) -> s["render"] != nil }.keys.join(", ")}")
-say("  handlers:       ${targets.join(", ")}")
-say("  every handler is a closure: ${STATES.all { (_, s) -> s["terminal"] || is(s["on"], "function") }}")
+println("")
+println("machine: ${STATES.len} states, ${STATES.filter { (_, s) -> s["terminal"] }.len} terminal")
+println("  with a prompt:  ${STATES.filter { (_, s) -> s["prompt"] != nil }.keys.join(", ")}")
+println("  computed text:  ${STATES.filter { (_, s) -> s["render"] != nil }.keys.join(", ")}")
+println("  handlers:       ${targets.join(", ")}")
+println("  every handler is a closure: ${STATES.all { (_, s) -> s["terminal"] || is(s["on"], "function") }}")

@@ -31,12 +31,12 @@ fn report(ws) {
 }
 
 r = words.report                       # UFCS: exactly report(words)
-say("total:  ${r["total"]}")
-say("unique: ${r["unique"]}")
-say("top:    ${r["top"][0]} x${r["top"][1]}")
+println("total:  ${r["total"]}")
+println("unique: ${r["unique"]}")
+println("top:    ${r["top"][0]} x${r["top"][1]}")
 
 for w in ["fox", "cat", "the"] {
-  say(match w {
+  println(match w {
     in ["the", "a", "of"] -> "${w}: stop word"
     in words              -> "${w}: seen ${words.count(w)}x"
     else                  -> "${w}: absent"
@@ -57,7 +57,7 @@ cat: absent
 the: stop word
 ```
 
-Nothing here is ambient: `say` and `tally` are library functions, but a module such as `json` or `io`
+Nothing here is ambient: `println` and `tally` are library functions, but a module such as `json` or `io`
 enters the program only through an `include` line.
 
 ## Things that surprise newcomers

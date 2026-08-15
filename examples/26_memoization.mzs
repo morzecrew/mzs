@@ -14,11 +14,11 @@ fn fib_naive(n) {
   n < 2 ? n : fib_naive(n - 1) + fib_naive(n - 2)
 }
 
-say("plain recursion")
+println("plain recursion")
 [10, 18, 22].each { (n) ->
   naive_calls = 0
   v = fib_naive(n)
-  say("  fib(${n.str.rjust(2)}) = ${v.str.rjust(6)}   ${naive_calls} calls")
+  println("  fib(${n.str.rjust(2)}) = ${v.str.rjust(6)}   ${naive_calls} calls")
 }
 
 # --- the memoised version -------------------------------------------------------
@@ -42,16 +42,16 @@ fn fib(n) {
   v
 }
 
-say("")
-say("with a cache")
+println("")
+println("with a cache")
 [10, 18, 22, 60, 90].each { (n) ->
   memo_calls = 0
   hits = 0
   v = fib(n)
-  say("  fib(${n.str.rjust(2)}) = ${v.str.rjust(20)}   ${memo_calls.str.rjust(3)} calls, ${hits} of them cache hits")
+  println("  fib(${n.str.rjust(2)}) = ${v.str.rjust(20)}   ${memo_calls.str.rjust(3)} calls, ${hits} of them cache hits")
 }
-say("  cache holds ${cache.len} entries after all of that")
-say("  fib(90) with plain recursion would take about ${(2 ** 45).str.first(3)}×10¹² calls")
+println("  cache holds ${cache.len} entries after all of that")
+println("  fib(90) with plain recursion would take about ${(2 ** 45).str.first(3)}×10¹² calls")
 
 # --- a reusable memoiser: hand it a closure, get a faster one back ------------
 
@@ -75,10 +75,10 @@ fast = memoize(slow_square)
 
 inputs = [40, 40, 41, 40, 42, 41, 40]
 results = inputs.map { (n) -> fast["call"].call(n) }
-say("")
-say("memoize() over ${inputs.json}")
-say("  results ${results.json}")
-say("  ${fast["stats"].call()}")
+println("")
+println("memoize() over ${inputs.json}")
+println("  results ${results.json}")
+println("  ${fast["stats"].call()}")
 
 # --- Collatz: the cache pays off across calls, not inside one ----------------
 
@@ -95,11 +95,11 @@ fn collatz_len(n) {
 
 lengths = (1..300).map { (n) -> {n: n, len: collatz_len(n)} }
 best = lengths.max_by { it["len"] }
-say("")
-say("Collatz lengths for 1..300")
-say("  longest: ${best["n"]} with ${best["len"]} steps")
-say("  cache grew to ${collatz_cache.len} entries covering values far above 300")
-say("  top five: ${lengths.sort_by { -it["len"] }.take(5).map { "${it["n"]}(${it["len"]})" }.join(" ")}")
+println("")
+println("Collatz lengths for 1..300")
+println("  longest: ${best["n"]} with ${best["len"]} steps")
+println("  cache grew to ${collatz_cache.len} entries covering values far above 300")
+println("  top five: ${lengths.sort_by { -it["len"] }.take(5).map { "${it["n"]}(${it["len"]})" }.join(" ")}")
 
 # --- eviction: a dict is insertion-ordered, so FIFO eviction is two lines -----
 
@@ -115,9 +115,9 @@ fn bounded_cache(limit) {
 
 lru = bounded_cache(4)
 ["a", "b", "c", "d", "e", "f"].each_with_index { (k, i) -> lru["put"].call([k, i]) }
-say("")
-say("a 4-entry FIFO cache after inserting a…f: ${lru["keys"].call().json}")
-say("  'a' was evicted: ${lru["get"].call("a") == nil}, 'f' is present: ${lru["get"].call("f") == 5}")
+println("")
+println("a 4-entry FIFO cache after inserting a…f: ${lru["keys"].call().json}")
+println("  'a' was evicted: ${lru["get"].call("a") == nil}, 'f' is present: ${lru["get"].call("f") == 5}")
 
 # --- when memoisation is wrong --------------------------------------------------
 #
@@ -127,17 +127,17 @@ say("  'a' was evicted: ${lru["get"].call("a") == nil}, 'f' is present: ${lru["g
 counter = 0
 impure = { (_) -> counter += 1; counter }
 cached_impure = memoize(impure)
-say("")
-say("caching an impure function:")
-say("  direct calls:  ${[impure.call(1), impure.call(1), impure.call(1)].json}   — different every time")
-say("  through cache: ${[cached_impure["call"].call(1), cached_impure["call"].call(1)].json}   — frozen at the first answer")
-say("  the cache is not broken; the function was never a function of its argument.")
+println("")
+println("caching an impure function:")
+println("  direct calls:  ${[impure.call(1), impure.call(1), impure.call(1)].json}   — different every time")
+println("  through cache: ${[cached_impure["call"].call(1), cached_impure["call"].call(1)].json}   — frozen at the first answer")
+println("  the cache is not broken; the function was never a function of its argument.")
 
 # --- the numbers, side by side --------------------------------------------------
 
-say("")
-say("${"n".rjust(4)}${"plain calls".rjust(14)}${"memo calls".rjust(12)}${"speedup".rjust(10)}")
-say("-" * 40)
+println("")
+println("${"n".rjust(4)}${"plain calls".rjust(14)}${"memo calls".rjust(12)}${"speedup".rjust(10)}")
+println("-" * 40)
 [10, 16, 20, 22].each { (n) ->
   naive_calls = 0
   fib_naive(n)
@@ -145,5 +145,5 @@ say("-" * 40)
   cache = {}
   memo_calls = 0
   fib(n)
-  say("${n.str.rjust(4)}${plain.str.rjust(14)}${memo_calls.str.rjust(12)}${(plain / memo_calls).str.rjust(9)}×")
+  println("${n.str.rjust(4)}${plain.str.rjust(14)}${memo_calls.str.rjust(12)}${(plain / memo_calls).str.rjust(9)}×")
 }

@@ -43,17 +43,17 @@ fn from_roman(s) {
   total
 }
 
-say("to Roman and back")
+println("to Roman and back")
 [1, 4, 9, 14, 40, 90, 400, 1987, 2026, 3999].each { (n) ->
   r = to_roman(n)
-  say("  ${n.str.rjust(4)} → ${r.ljust(16)}→ ${from_roman(r)}")
+  println("  ${n.str.rjust(4)} → ${r.ljust(16)}→ ${from_roman(r)}")
 }
 
-say("")
-say("what the parser refuses")
+println("")
+println("what the parser refuses")
 ["", "IIII", "VX", "MMMM", "hello", "iv"].each { (s) ->
   outcome = try "= ${from_roman(s)}" else (e) -> e["message"]
-  say("  ${inspect(s).ljust(10)}${outcome}")
+  println("  ${inspect(s).ljust(10)}${outcome}")
 }
 
 # --- the exhaustive check, which is the point of a small range ---------------
@@ -61,10 +61,10 @@ say("what the parser refuses")
 # 1..1500 keeps this inside the default step budget; the boundaries are checked by hand.
 checked = (1..1500).array + [1666, 1888, 2026, 3888, 3999]
 failures = checked.reject { (n) -> from_roman(to_roman(n)) == n }
-say("")
-say("round trip over ${checked.len} values: ${failures.empty ? "every one agrees" : "${failures.len} failures"}")
-say("longest numeral: ${checked.max_by { to_roman(it).len }.pipe { "${it} = ${to_roman(it)} (${to_roman(it).len} letters)" }}")
-say("shortest by digits: ${[1, 5, 10, 50, 100, 500, 1000].map { to_roman(it) }.join(" ")}")
+println("")
+println("round trip over ${checked.len} values: ${failures.empty ? "every one agrees" : "${failures.len} failures"}")
+println("longest numeral: ${checked.max_by { to_roman(it).len }.pipe { "${it} = ${to_roman(it)} (${to_roman(it).len} letters)" }}")
+println("shortest by digits: ${[1, 5, 10, 50, 100, 500, 1000].map { to_roman(it) }.join(" ")}")
 
 # --- thousands separators, without a formatting library ----------------------
 
@@ -74,10 +74,10 @@ fn group_digits(n, sep) {
   n < 0 ? "−" + grouped : grouped
 }
 
-say("")
-say("thousands separators")
+println("")
+println("thousands separators")
 [7, 1500, 42000, 1234567, -98765].each { (n) ->
-  say("  ${n.str.rjust(9)}  ${group_digits(n, " ").rjust(12)}  ${group_digits(n, ",").rjust(12)}")
+  println("  ${n.str.rjust(9)}  ${group_digits(n, " ").rjust(12)}  ${group_digits(n, ",").rjust(12)}")
 }
 
 # --- money, where the rounding rule matters more than the commas -------------
@@ -88,9 +88,9 @@ fn money(cents, currency) {
   "${group_digits(whole, " ")}.${frac} ${currency}"
 }
 
-say("")
-say("money")
-[1500, 199, 100000, 4999999].each { (c) -> say("  ${c.str.rjust(8)} cents → ${money(c, "₽")}") }
+println("")
+println("money")
+[1500, 199, 100000, 4999999].each { (c) -> println("  ${c.str.rjust(8)} cents → ${money(c, "₽")}") }
 
 # --- ordinals: the English rule has three exceptions -------------------------
 
@@ -106,21 +106,21 @@ fn ordinal(n) {
   "${n}${suffix}"
 }
 
-say("")
-say("ordinals: ${[1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111].map { ordinal(it) }.join(" ")}")
+println("")
+println("ordinals: ${[1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111].map { ordinal(it) }.join(" ")}")
 
 # --- bases, and the digits that come back ------------------------------------
 
-say("")
-say("bases of 255: ${[2, 8, 10, 16, 36].map { "base ${it} = ${255.str(it)}" }.join(", ")}")
-say("round trip:   ${[2, 8, 16].all { (b) -> 255.str(b).int == (b == 10 ? 255 : 255.str(b).int) }} (int() parses decimal only, by design)")
-say("bytes of \"Ω\":  ${"Ω".bytes.map { it.str(16) }.json}")
+println("")
+println("bases of 255: ${[2, 8, 10, 16, 36].map { "base ${it} = ${255.str(it)}" }.join(", ")}")
+println("round trip:   ${[2, 8, 16].all { (b) -> 255.str(b).int == (b == 10 ? 255 : 255.str(b).int) }} (int() parses decimal only, by design)")
+println("bytes of \"Ω\":  ${"Ω".bytes.map { it.str(16) }.json}")
 
 # --- a small formatting table, all four styles at once ------------------------
 
-say("")
-say("${"n".rjust(6)}${"roman".rjust(14)}${"grouped".rjust(12)}${"ordinal".rjust(10)}${"hex".rjust(8)}")
-say("-" * 50)
+println("")
+println("${"n".rjust(6)}${"roman".rjust(14)}${"grouped".rjust(12)}${"ordinal".rjust(10)}${"hex".rjust(8)}")
+println("-" * 50)
 [7, 42, 1987, 2026, 3999].each { (n) ->
-  say("${n.str.rjust(6)}${to_roman(n).rjust(14)}${group_digits(n, " ").rjust(12)}${ordinal(n).rjust(10)}${n.str(16).rjust(8)}")
+  println("${n.str.rjust(6)}${to_roman(n).rjust(14)}${group_digits(n, " ").rjust(12)}${ordinal(n).rjust(10)}${n.str(16).rjust(8)}")
 }

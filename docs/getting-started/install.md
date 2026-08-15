@@ -36,8 +36,8 @@ mzs 0.1.0
 ## Run a file
 
 ```
-say("hello")
-say(6 * 7)
+println("hello")
+println(6 * 7)
 ```
 
 ```sh
@@ -46,7 +46,7 @@ hello
 42
 ```
 
-A file is quiet: it prints what it prints with `say`/`print`, and the value of the last
+A file is quiet: it prints what it prints with `println`/`print`, and the value of the last
 expression is **not** printed unless you ask with `-p` or `--json`.
 
 ```sh
@@ -63,8 +63,8 @@ $ mzs --json answer.mzs
 Everything after the script name is the script's, not the CLI's, and arrives in `$ARGV`.
 
 ```
-say("argv: ${$ARGV}")
-say($ARGV.len)
+println("argv: ${$ARGV}")
+println($ARGV.len)
 ```
 
 ```sh
@@ -97,7 +97,7 @@ answers with the exit code.
 With no `-e` and no file, the pipe carries the **program**:
 
 ```sh
-$ echo 'say("from stdin"); 6 * 7' | mzs
+$ echo 'println("from stdin"); 6 * 7' | mzs
 from stdin
 $ echo '6 * 7' | mzs - -p
 42

@@ -101,15 +101,15 @@ A name binds, a literal still compares, and a guard sees what the pattern bound 
 ## In a `for` header
 
 ```
-for k, v in {a: 1, b: 2} { say("${k}=${v}") }   # a=1 / b=2
-for k, v in [[1, 2], [3, 4]] { say(k + v) }     # 3 / 7
+for k, v in {a: 1, b: 2} { println("${k}=${v}") }   # a=1 / b=2
+for k, v in [[1, 2], [3, 4]] { println(k + v) }     # 3 / 7
 ```
 
 A dict iterates as `[key, value]` pairs, which is why the two-variable form reads the way it
 does. An item that is not a pair is an error:
 
 ```
-for k, v in [1, 2] { say(k) }
+for k, v in [1, 2] { println(k) }
 # -e:1:1: type: cannot destructure int: a two-variable 'for' takes an array of two per item
 ```
 

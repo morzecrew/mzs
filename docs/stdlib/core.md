@@ -10,7 +10,7 @@ exception is `defined`, which must stay a call because it never evaluates its op
 | Name | Signature | Does | Example → output |
 |---|---|---|---|
 | `print` | `print(*args) -> nil` | writes `str` of each arg, no separator, no newline | `print("a", "b")` → `ab` |
-| `say` | `say(*args) -> nil` | adds `\n` after each arg; `say()` writes one `\n`; an Array prints one element per line | `say([1, 2])` → `1\n2\n` |
+| `println` | `println(*args) -> nil` | adds `\n` after each arg; `println()` writes one `\n`; an Array prints one element per line | `println([1, 2])` → `1\n2\n` |
 | `debug` | `debug(*args) -> any` | writes `inspect` + `\n`, returns the first arg | `debug("x")` → `"x"` |
 
 ```
@@ -82,7 +82,7 @@ inspect(nil?.upper.len)    # nil   ?. stops the chain instead
 |---|---|---|---|
 | `hash` | `hash(x) -> int` | FNV-1a, stable across runs | `hash("a")` → `1463908424326387805` |
 | `dup` | `dup(x) -> any` | shallow copy of Array/Dict, identity otherwise | see below |
-| `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | `5.tap { say("saw ${it}") }` → `5` |
+| `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | `5.tap { println("saw ${it}") }` → `5` |
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `" 42 ".pipe { it.trim.int }` → `42` |
 
 ```
@@ -168,7 +168,7 @@ after it runs, no diagnostic is printed, and `try` does not catch it — it is n
 it is the program saying it is done.
 
 ```sh
-$ mzs -e 'say("done"); exit(2); say("never")'
+$ mzs -e 'println("done"); exit(2); println("never")'
 done
 $ echo $?
 2

@@ -46,8 +46,8 @@ rows = lines.drop(1).map { (l) ->
   header.zip(values).dict
 }
 
-say("columns: ${header.json}")
-say("rows:    ${rows.len}")
+println("columns: ${header.json}")
+println("rows:    ${rows.len}")
 
 # --- typing: a CSV field is a string until the program says otherwise ---------
 
@@ -62,37 +62,37 @@ orders = rows.map { (r) ->
     total: r["qty"].int * r["unit_price"].int }
 }
 
-say("")
-say("quoting survived the round trip:")
-orders.take(3).each { (o) -> say("  ${o["id"]}  ${inspect(o["who"]).ljust(20)}${inspect(o["item"])}") }
-say("  a doubled quote inside a field: ${inspect(orders.find { it["id"] == 1005 }["item"])}")
+println("")
+println("quoting survived the round trip:")
+orders.take(3).each { (o) -> println("  ${o["id"]}  ${inspect(o["who"]).ljust(20)}${inspect(o["item"])}") }
+println("  a doubled quote inside a field: ${inspect(orders.find { it["id"] == 1005 }["item"])}")
 
 # --- the report ----------------------------------------------------------------
 
 fn money(n) { "${n} ₽" }
 
-say("")
-say("${"city".ljust(10)}${"orders".rjust(7)}${"units".rjust(7)}${"revenue".rjust(10)}${"unpaid".rjust(10)}")
-say("-" * 44)
+println("")
+println("${"city".ljust(10)}${"orders".rjust(7)}${"units".rjust(7)}${"revenue".rjust(10)}${"unpaid".rjust(10)}")
+println("-" * 44)
 orders.group_by { it["city"] }
       .sort_by { (_, os) -> -os.sum { it["total"] } }
       .each { (pair) ->
         city = pair[0]
         os = pair[1]
         unpaid = os.reject { it["paid"] }.sum { it["total"] }
-        say("${city.ljust(10)}${os.len.str.rjust(7)}${os.sum { it["qty"] }.str.rjust(7)}${money(os.sum { it["total"] }).rjust(10)}${(unpaid == 0 ? "—" : money(unpaid)).rjust(10)}")
+        println("${city.ljust(10)}${os.len.str.rjust(7)}${os.sum { it["qty"] }.str.rjust(7)}${money(os.sum { it["total"] }).rjust(10)}${(unpaid == 0 ? "—" : money(unpaid)).rjust(10)}")
       }
-say("-" * 44)
-say("${"total".ljust(10)}${orders.len.str.rjust(7)}${orders.sum { it["qty"] }.str.rjust(7)}${money(orders.sum { it["total"] }).rjust(10)}${money(orders.reject { it["paid"] }.sum { it["total"] }).rjust(10)}")
+println("-" * 44)
+println("${"total".ljust(10)}${orders.len.str.rjust(7)}${orders.sum { it["qty"] }.str.rjust(7)}${money(orders.sum { it["total"] }).rjust(10)}${money(orders.reject { it["paid"] }.sum { it["total"] }).rjust(10)}")
 
 # --- the questions a spreadsheet is opened for --------------------------------
 
-say("")
-say("best customer:   ${orders.group_by { it["who"] }.map { (who, os) -> {who: who, sum: os.sum { it["total"] }} }.max_by { it["sum"] }.pipe { "${it["who"]} (${money(it["sum"])})" }}")
-say("most sold item:  ${orders.group_by { it["item"] }.map { (i, os) -> {item: i, qty: os.sum { it["qty"] }} }.max_by { it["qty"] }.pipe { "${it["item"]} × ${it["qty"]}" }}")
-say("average ticket:  ${money(orders.sum { it["total"] } / orders.len)}")
-say("unpaid orders:   ${orders.reject { it["paid"] }.map { it["id"] }.json}")
-say("cities:          ${orders.map { it["city"] }.uniq.sort.join(", ")}")
+println("")
+println("best customer:   ${orders.group_by { it["who"] }.map { (who, os) -> {who: who, sum: os.sum { it["total"] }} }.max_by { it["sum"] }.pipe { "${it["who"]} (${money(it["sum"])})" }}")
+println("most sold item:  ${orders.group_by { it["item"] }.map { (i, os) -> {item: i, qty: os.sum { it["qty"] }} }.max_by { it["qty"] }.pipe { "${it["item"]} × ${it["qty"]}" }}")
+println("average ticket:  ${money(orders.sum { it["total"] } / orders.len)}")
+println("unpaid orders:   ${orders.reject { it["paid"] }.map { it["id"] }.json}")
+println("cities:          ${orders.map { it["city"] }.uniq.sort.join(", ")}")
 
 # --- writing CSV back out: quote only what needs quoting ----------------------
 
@@ -105,12 +105,12 @@ fn to_csv(records, columns) {
   ([columns.join(",")] + records.map { (r) -> columns.map { (c) -> csv_field(r[c]) }.join(",") }).join("\n")
 }
 
-say("")
-say("unpaid orders, written back as CSV:")
-say(to_csv(orders.reject { it["paid"] }, ["id", "who", "item", "total"]))
+println("")
+println("unpaid orders, written back as CSV:")
+println(to_csv(orders.reject { it["paid"] }, ["id", "who", "item", "total"]))
 
 # --- a sanity check the program can make about itself -------------------------
 
 reparsed = to_csv(orders, ["id", "who", "item"]).lines.drop(1).map { parse_line(it) }
-say("")
-say("round trip preserves every field: ${reparsed.map { it[1] } == orders.map { it["who"] }}")
+println("")
+println("round trip preserves every field: ${reparsed.map { it[1] } == orders.map { it["who"] }}")

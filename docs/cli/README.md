@@ -59,8 +59,8 @@ Capabilities that are off unless a flag turns them on: the clock (`--time`), ran
 | `--bool` | nothing; the value becomes the exit code — unless `-p` is also given |
 
 ```sh
-mzs -e 'say("hi")'        # hi           — say returns nil, so no second line
-mzs -p -e 'say("hi")'     # hi, then an empty line for the nil
+mzs -e 'println("hi")'        # hi           — say returns nil, so no second line
+mzs -p -e 'println("hi")'     # hi, then an empty line for the nil
 mzs -e '"hi"'             # hi
 mzs -e '"hi"' --json      # "hi"
 mzs --json -e 'nil'       # null
@@ -92,8 +92,8 @@ Positional arguments after a script file arrive as an array of strings.
 
 ```sh
 $ cat argv.mzs
-say("name: ${$ARGV[0]}")
-say("count: ${$ARGV.len}")
+println("name: ${$ARGV[0]}")
+println("count: ${$ARGV.len}")
 
 $ mzs argv.mzs alpha beta
 name: alpha

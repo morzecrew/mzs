@@ -233,11 +233,13 @@ func asError(err error) *Error {
 // ---------------------------------------------------------------------------
 
 // renameTable is the Ruby-to-mzs table of §19.2, restricted to the spellings that lex
-// as mzs identifiers (there is no `?`/`!` suffix, §3.4). The codemod and the
-// did-you-mean diagnostics are driven by the same table, so an expression the codemod
-// missed fails loudly with the right fix-it instead of a bare "undefined method". None
-// of these names exists in the standard library — D17 forbids aliases — so an exact hit
-// here is always a rename, never a shadow.
+// as mzs identifiers (there is no `?`/`!` suffix, §3.4), plus the names mzs itself has
+// renamed. The codemod and the did-you-mean diagnostics are driven by the same table, so
+// an expression the codemod missed fails loudly with the right fix-it instead of a bare
+// "undefined method". None of these names exists in the standard library — D17 forbids
+// aliases — so an exact hit here is always a rename, never a shadow. That is also why a
+// rename must land here in the same change that performs it: I3 pays for "one name per
+// operation" with a diagnostic, and the old name silently becoming undefined is not one.
 var renameTable = map[string]string{
 	"downcase": "lower",
 	"upcase":   "upper",
@@ -263,8 +265,11 @@ var renameTable = map[string]string{
 	"to_a":     "array",
 	"to_h":     "dict",
 	"to_json":  "json",
-	"puts":     "say",
+	"puts":     "println",
 	"p":        "debug",
+	// mzs's own former spelling: `say` was renamed to `println` so that the pair with
+	// `print` says which one adds the newline.
+	"say": "println",
 }
 
 // renameKeys is renameTable's keys, sorted, so the near-miss pass over them is

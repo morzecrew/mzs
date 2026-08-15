@@ -49,20 +49,20 @@ line up the columns. The language gives you four primitives, and that is enough 
 word wrapper is written. The same function wraps other scripts — та же функция переносит и
 русский текст — because a width here is counted in runes and not in bytes."
 
-say("wrapped to ${WIDTH} columns")
-say("┌" + "─" * WIDTH + "┐")
-wrap(prose, WIDTH - 2).each { (l) -> say("│ ${l.ljust(WIDTH - 2)} │") }
-say("└" + "─" * WIDTH + "┘")
+println("wrapped to ${WIDTH} columns")
+println("┌" + "─" * WIDTH + "┐")
+wrap(prose, WIDTH - 2).each { (l) -> println("│ ${l.ljust(WIDTH - 2)} │") }
+println("└" + "─" * WIDTH + "┘")
 
 wrapped = wrap(prose, WIDTH - 2)
-say("")
-say("the same paragraph, fully justified")
-say("┌" + "─" * WIDTH + "┐")
+println("")
+println("the same paragraph, fully justified")
+println("┌" + "─" * WIDTH + "┐")
 wrapped.each_with_index { (l, i) ->
   out = i == wrapped.len - 1 ? l.ljust(WIDTH - 2) : justify(l, WIDTH - 2)
-  say("│ ${out} │")
+  println("│ ${out} │")
 }
-say("└" + "─" * WIDTH + "┘")
+println("└" + "─" * WIDTH + "┘")
 
 # --- a box that fits its content ----------------------------------------------
 
@@ -73,13 +73,13 @@ fn box(title, lines, pad) {
   out.push("╚" + "═" * inner + "╝")
 }
 
-say("")
+println("")
 box("INVOICE A-1043", [
   "Customer: Ivan Petrov",
   "Date:     2026-03-05",
   "Stylist:  Анна            ← a Cyrillic cell lines up too",
   "Due:      8 800 ₽",
-], 2).each { (l) -> say(l) }
+], 2).each { (l) -> println(l) }
 
 # --- a table that measures its own columns ------------------------------------
 #
@@ -105,9 +105,9 @@ items = [
   {item: "Уход (care)", qty: 3, price: 600, total: 1800},
 ]
 
-say("")
-table(items, ["item", "qty", "price", "total"], ["l", "r", "r", "r"]).each { (l) -> say(l) }
-say("${" " * 17}${"total".rjust(6)}${(items.sum { it["total"] }.str + " ₽").rjust(15)}")
+println("")
+table(items, ["item", "qty", "price", "total"], ["l", "r", "r", "r"]).each { (l) -> println(l) }
+println("${" " * 17}${"total".rjust(6)}${(items.sum { it["total"] }.str + " ₽").rjust(15)}")
 
 # --- truncation with an ellipsis, and a two-column layout ---------------------
 
@@ -119,20 +119,20 @@ notes = [
   ["History", "last visit 2026-01-12, premium colour and care, paid in full"],
 ]
 
-say("")
-say("client notes, truncated to fit")
+println("")
+println("client notes, truncated to fit")
 notes.each { (n) ->
-  say("  ${n[0].ljust(14)}${ellipsis(n[1], 44)}")
+  println("  ${n[0].ljust(14)}${ellipsis(n[1], 44)}")
 }
 
 # --- centering a banner --------------------------------------------------------
 
-say("")
-say("·" * WIDTH)
+println("")
+println("·" * WIDTH)
 ["MORZE BARBERSHOP", "1 Lenina st. · +7 999 123-45-67", "спасибо за визит! · thank you!"].each { (l) ->
-  say(l.center(WIDTH))
+  println(l.center(WIDTH))
 }
-say("·" * WIDTH)
+println("·" * WIDTH)
 
 # --- a sparkline, because a number is worse than a shape ----------------------
 
@@ -145,6 +145,6 @@ fn sparkline(values) {
 }
 
 revenue = [4200, 5100, 4800, 6300, 7100, 6800, 9200, 8800, 7400, 6900, 8100, 9600]
-say("")
-say("revenue by month  ${sparkline(revenue)}  ${revenue.min}–${revenue.max} ₽")
-say("load by weekday   ${sparkline([3, 5, 4, 8, 9, 7, 2])}  mon–sun")
+println("")
+println("revenue by month  ${sparkline(revenue)}  ${revenue.min}–${revenue.max} ₽")
+println("load by weekday   ${sparkline([3, 5, 4, 8, 9, 7, 2])}  mon–sun")

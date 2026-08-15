@@ -32,25 +32,25 @@ payload = '{
 
 doc = try json.parse(payload) else nil
 if doc == nil {
-  say("the payload was not JSON at all")
+  println("the payload was not JSON at all")
   return nil
 }
 
-say("request ${doc.dig("meta", "request_id")} · page ${doc.dig("meta", "page")} · ${doc.dig("meta", "took_ms")}ms")
-say("customers: ${doc["customers"].len}")
+println("request ${doc.dig("meta", "request_id")} · page ${doc.dig("meta", "page")} · ${doc.dig("meta", "took_ms")}ms")
+println("customers: ${doc["customers"].len}")
 
 # A parse failure is an ordinary catchable error, so a fallback is one expression.
 broken = try json.parse('{"oops": ') else {error: "malformed json"}
-say("bad input →  ${broken.json}")
+println("bad input →  ${broken.json}")
 
 # --- reading a document nobody promised you: dig, ??, and no exceptions -------
 
-say("")
-say("${"customer".ljust(14)}${"city".ljust(10)}${"zip".ljust(8)}${"orders".rjust(7)}${"paid".rjust(9)}")
-say("-" * 50)
+println("")
+println("${"customer".ljust(14)}${"city".ljust(10)}${"zip".ljust(8)}${"orders".rjust(7)}${"paid".rjust(9)}")
+println("-" * 50)
 doc["customers"].each { (c) ->
   paid = c["orders"].filter { it["status"] == "paid" }.sum { it["total"] }
-  say("${c["name"].ljust(14)}${c.dig("address", "city").ljust(10)}${(c.dig("address", "zip") ?? "—").ljust(8)}${c["orders"].len.str.rjust(7)}${paid.str.rjust(9)}")
+  println("${c["name"].ljust(14)}${c.dig("address", "city").ljust(10)}${(c.dig("address", "zip") ?? "—").ljust(8)}${c["orders"].len.str.rjust(7)}${paid.str.rjust(9)}")
 }
 
 # --- reshaping: the document you have into the document you need --------------
@@ -73,13 +73,13 @@ report = {
     .map { {order: it["id"], customer: it["customer"], status: it["status"], total: it["total"]} },
 }
 
-say("")
-say("the reshaped report, compact:")
-say(report.json)
+println("")
+println("the reshaped report, compact:")
+println(report.json)
 
-say("")
-say("…and pretty, which is the same document with whitespace:")
-say(json.pretty(report["totals"]))
+println("")
+println("…and pretty, which is the same document with whitespace:")
+println(json.pretty(report["totals"]))
 
 # --- normalising fields you cannot trust --------------------------------------
 
@@ -93,9 +93,9 @@ clean = doc["customers"].map { (c) ->
     revenue: c["orders"].sum { it["total"] } }
 }
 
-say("")
-say("normalised, and the missing email is now empty rather than absent:")
-clean.each { (c) -> say("  ${c.json}") }
+println("")
+println("normalised, and the missing email is now empty rather than absent:")
+clean.each { (c) -> println("  ${c.json}") }
 
 # --- round trip: encode, parse back, compare ----------------------------------
 #
@@ -103,10 +103,10 @@ clean.each { (c) -> say("  ${c.json}") }
 # differs? still equal. Int vs float? compared numerically.
 
 again = json.parse(report.json)
-say("")
-say("round trip is lossless: ${again == report}")
-say("key order is preserved:  ${report["totals"].keys.json}")
-say("unicode survives:        ${{"name": "李明", "note": "emoji 👋 too"}.json}")
+println("")
+println("round trip is lossless: ${again == report}")
+println("key order is preserved:  ${report["totals"].keys.json}")
+println("unicode survives:        ${{"name": "李明", "note": "emoji 👋 too"}.json}")
 
 # --- the envelope a handler would return --------------------------------------
 
@@ -117,17 +117,17 @@ fn envelope(status, data, meta) {
     data:   data }
 }
 
-say("")
-say("200 → ${envelope(200, clean.take(2).map { {id: it["id"], name: it["name"]} }, {page: 1}).json}")
-say("404 → ${envelope(404, {message: "customer not found"}, nil).json}")
+println("")
+println("200 → ${envelope(200, clean.take(2).map { {id: it["id"], name: it["name"]} }, {page: 1}).json}")
+println("404 → ${envelope(404, {message: "customer not found"}, nil).json}")
 
 # --- what JSON cannot carry ----------------------------------------------------
 #
 # A function has no JSON form and encodes as null; a value that contains itself is an
 # error rather than an endless document. Both are decisions, not accidents.
 
-say("")
-say("a closure encodes as ${{cb: { it }}.json}")
+println("")
+println("a closure encodes as ${{cb: { it }}.json}")
 cycle = [1, 2]
 cycle.push(cycle)
-say("a cycle raises:      ${try cycle.json else (e) -> e["message"]}")
+println("a cycle raises:      ${try cycle.json else (e) -> e["message"]}")

@@ -144,10 +144,10 @@ include time
 start = time.parse("2026-03-05 09:00")
 (0..<4).each { (i) ->
   s = start + (i * 45).minutes
-  say("${s.strftime("%a %d.%m %H:%M")} – ${(s + 45.minutes).strftime("%H:%M")}")
+  println("${s.strftime("%a %d.%m %H:%M")} – ${(s + 45.minutes).strftime("%H:%M")}")
 }
-say("${start.to_date.strftime("%Y-%m-%d")}: weekday ${start.wday}, day ${start.yday} of the year")
-say("in Tokyo that is ${start.in_time_zone("Asia/Tokyo").strftime("%H:%M %Z")}")
+println("${start.to_date.strftime("%Y-%m-%d")}: weekday ${start.wday}, day ${start.yday} of the year")
+println("in Tokyo that is ${start.in_time_zone("Asia/Tokyo").strftime("%H:%M %Z")}")
 ```
 
 ```sh

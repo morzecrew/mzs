@@ -33,15 +33,15 @@ CATALOG = [
 # that is a limit, and limits end the Run (§14.1).
 
 probe = $probe ?? "https://example.com"
-say("probing ${probe}")
+println("probing ${probe}")
 answer = try http.get(probe, {timeout: 5}) else (e) -> {status: 0, error: e["message"]}
 
 if answer["status"] == 0 {
-  say("  unreachable: ${answer["error"]}")
-  say("  (offline is fine — the server below does not need the network to exist)")
+  println("  unreachable: ${answer["error"]}")
+  println("  (offline is fine — the server below does not need the network to exist)")
 } else {
-  say("  ${answer["status"]} · ${answer["headers"]["content-type"] ?? "no content-type"} · ${answer["body"].len} bytes")
-  say("  first line: ${inspect(answer["body"].lines.first)}")
+  println("  ${answer["status"]} · ${answer["headers"]["content-type"] ?? "no content-type"} · ${answer["body"].len} bytes")
+  println("  first line: ${inspect(answer["body"].lines.first)}")
 }
 
 # --- state the handlers share ---------------------------------------------------
@@ -122,12 +122,12 @@ http.serve(":8080", {
   },
 
 }, { (url) ->
-  say("")
-  say("listening on ${url}")
-  say("  GET  ${url}/catalog?max=1000")
-  say("  GET  ${url}/item/2")
-  say("  POST ${url}/booking   -d '{\"item_id\":1,\"who\":\"Ivan\"}'")
-  say("  GET  ${url}/shutdown  to stop")
+  println("")
+  println("listening on ${url}")
+  println("  GET  ${url}/catalog?max=1000")
+  println("  GET  ${url}/item/2")
+  println("  POST ${url}/booking   -d '{\"item_id\":1,\"who\":\"Ivan\"}'")
+  println("  GET  ${url}/shutdown  to stop")
 })
 
 # --- after the loop -------------------------------------------------------------
@@ -135,8 +135,8 @@ http.serve(":8080", {
 # `serve` returns when a handler calls http.stop() or the context is cancelled, so the
 # Run continues here with whatever the handlers accumulated.
 
-say("")
-say("server stopped after ${hits.values.sum} requests: ${hits.json}")
-say("bookings taken: ${bookings.len}")
-bookings.each { (b) -> say("  ${b["id"]}  ${b["who"].ljust(12)}${b["item"].ljust(20)}${b["price"]} ₽") }
-say("revenue ${bookings.sum { it["price"] }} ₽")
+println("")
+println("server stopped after ${hits.values.sum} requests: ${hits.json}")
+println("bookings taken: ${bookings.len}")
+bookings.each { (b) -> println("  ${b["id"]}  ${b["who"].ljust(12)}${b["item"].ljust(20)}${b["price"]} ₽") }
+println("revenue ${bookings.sum { it["price"] }} ₽")

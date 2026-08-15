@@ -111,7 +111,7 @@ filesystem before any of these names exist.
 | `fn fib(n) { n < 2 ? n : fib(n-1) + fib(n-2) }; fib(20)` | `6765` |
 | `add = fn(a, b) { a + b }; add(2, 3)` | `5` |
 | `add = (a, b) -> { a + b }; add(2, 3)` | `5` |
-| `say("done"); exit(2)` | `done`, exit code `2` |
+| `println("done"); exit(2)` | `done`, exit code `2` |
 | `{1 -> "A", 2 -> "B"}[2]` | `B` |
 
 ## See also

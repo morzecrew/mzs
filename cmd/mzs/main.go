@@ -668,7 +668,7 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 	if !cfg.printSet {
 		// A one-liner is asked for its value; a script is asked to do its job, and -l
 		// asks a script for the value of every line. printImplied records that nobody
-		// typed -p, which is what lets `mzs -e 'say("hi")'` print "hi" and not "hi" plus
+		// typed -p, which is what lets `mzs -e 'println("hi")'` print "hi" and not "hi" plus
 		// a blank line for the nil that say returns. An explicit -p still prints
 		// whatever there is, nils included.
 		cfg.printVal = (len(cfg.exprs) > 0 || cfg.printEach) && !cfg.boolMode
@@ -784,7 +784,7 @@ Flags:
 Exit codes: 0 ok, 1 error (or falsy with --bool), 2 usage, 3 timeout or budget.
 
 Examples:
-  mzs -e 'say("hi")'
+  mzs -e 'println("hi")'
   mzs -e '"привет".upper'
   cat access.log | mzs -n -e '$_.split(" ")[0]' | sort | uniq -c
   ls | mzs -e 'include io; io.lines.filter { it.ends_with(".mzs") }.len'

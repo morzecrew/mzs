@@ -55,10 +55,10 @@ report = orders
   .sort_by { -it["total"] }
 
 for r in report {
-  say("${r["user"]}: ${r["orders"]} orders, ${r["total"]} total")
+  println("${r["user"]}: ${r["orders"]} orders, ${r["total"]} total")
 }
 
-say(report.json)
+println(report.json)
 ```
 
 ```sh
@@ -86,7 +86,7 @@ h  = (a, b) -> { a + b }                          # …the same function, arrow-
 if x > 3 { "big" } else { "small" }               # every form has a value
 if code in 200..<300 { "ok" }                     # `in` asks a range, array, dict or string
 while x < 5 { x += 1 }
-for k, v in d { say("${k}=${v}") }
+for k, v in d { println("${k}=${v}") }
 x = 1 if ready                                    # statement modifiers
 
 intent = match text {                             # instead of an if/else-if ladder

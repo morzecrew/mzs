@@ -225,7 +225,7 @@ func TestBoundValuesAreNeverParsed(t *testing.T) {
 		{"parentheses", "Elite Plus (350k)"},
 		{"quote", `он сказал "да"`},
 		{"newline", "две\nстроки"},
-		{"looks like code", `"] + say("pwned") + ["`},
+		{"looks like code", `"] + println("pwned") + ["`},
 	}
 
 	for _, tt := range tests {
@@ -305,14 +305,14 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
-// TestStdoutIsCaptured proves say inside a script cannot reach the bot's own
+// TestStdoutIsCaptured proves println inside a script cannot reach the bot's own
 // stdout unless the host asks for it.
 func TestStdoutIsCaptured(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
 	eng := New(Options{Stdout: &out})
-	if _, err := eng.String(context.Background(), `say("hi"); "done"`, nil); err != nil {
+	if _, err := eng.String(context.Background(), `println("hi"); "done"`, nil); err != nil {
 		t.Fatalf("String error: %v", err)
 	}
 	if out.String() != "hi\n" {
@@ -320,7 +320,7 @@ func TestStdoutIsCaptured(t *testing.T) {
 	}
 
 	quiet := New(Options{})
-	if _, err := quiet.String(context.Background(), `say("hi"); "done"`, nil); err != nil {
+	if _, err := quiet.String(context.Background(), `println("hi"); "done"`, nil); err != nil {
 		t.Fatalf("String error: %v", err)
 	}
 }

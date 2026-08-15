@@ -16,35 +16,35 @@ price   = $price ?? "0"
 tags    = $tags ?? []
 name    = $client_name ?? "guest"
 
-say("what the host passed in")
-say("  \$__sent      ${inspect($__sent)}")
-say("  \$price       ${inspect($price)}")
-say("  \$tags        ${inspect($tags)}")
-say("  \$missing     ${inspect($nothing_here)}      — unbound reads as nil, never an error")
-say("  defined()    __sent=${defined($__sent)} nothing_here=${defined($nothing_here)}")
+println("what the host passed in")
+println("  \$__sent      ${inspect($__sent)}")
+println("  \$price       ${inspect($price)}")
+println("  \$tags        ${inspect($tags)}")
+println("  \$missing     ${inspect($nothing_here)}      — unbound reads as nil, never an error")
+println("  defined()    __sent=${defined($__sent)} nothing_here=${defined($nothing_here)}")
 
 # `defined` asks the table, not the value: a $var explicitly set to nil is still bound.
-say("  a bound nil is still defined once the host sets it")
+println("  a bound nil is still defined once the host sets it")
 
 # --- host values arrive as strings; conversion is explicit and never raises ----
 #
 # With `-v` every value is a string. With `--vars` (JSON) an int stays an int. Code that
 # works under both is code that converts what it needs, when it needs it.
 
-say("")
-say("conversions")
-say("  price + 1200      ${price.int + 1200}      — .int of \"\" is 0, of \"12abc\" is 12")
-say("  is it a number?   ${price.str ~ /^\d+(\.\d+)?$/}")
-say("  as float          ${price.float}")
-say("  blank check       ${sent.str.blank}")
-say("  normalised        ${inspect(sent.str.lower.trim)}")
+println("")
+println("conversions")
+println("  price + 1200      ${price.int + 1200}      — .int of \"\" is 0, of \"12abc\" is 12")
+println("  is it a number?   ${price.str ~ /^\d+(\.\d+)?$/}")
+println("  as float          ${price.float}")
+println("  blank check       ${sent.str.blank}")
+println("  normalised        ${inspect(sent.str.lower.trim)}")
 
 # --- interpolation reaches $vars directly --------------------------------------
 
-say("")
-say("interpolation")
-say("  Hello, $client_name!  →  Hello, ${name}!")
-say("  \${\$price} inside text →  the price is ${$price ?? "unset"}")
+println("")
+println("interpolation")
+println("  Hello, $client_name!  →  Hello, ${name}!")
+println("  \${\$price} inside text →  the price is ${$price ?? "unset"}")
 
 # --- the classic: a stored dialogue condition ---------------------------------
 #
@@ -63,10 +63,10 @@ conditions = [
   {name: "not empty",   value: !s.blank},
 ]
 
-say("")
-say("stored conditions against ${inspect(sent)}")
+println("")
+println("stored conditions against ${inspect(sent)}")
 conditions.each { (c) ->
-  say("  ${(c["value"] ? "✓" : "·")} ${c["name"].ljust(14)}${c["value"]}")
+  println("  ${(c["value"] ? "✓" : "·")} ${c["name"].ljust(14)}${c["value"]}")
 }
 
 intent = match {
@@ -88,12 +88,12 @@ $normalized = s
 $attempts = ($attempts ?? "0").int + 1
 $score = (price.int / 100) + (intent == "confirm" ? 10 : 0)
 
-say("")
-say("what the script hands back")
-say("  \$intent      ${$intent}")
-say("  \$normalized  ${inspect($normalized)}")
-say("  \$attempts    ${$attempts}")
-say("  \$score       ${$score}")
+println("")
+println("what the script hands back")
+println("  \$intent      ${$intent}")
+println("  \$normalized  ${inspect($normalized)}")
+println("  \$attempts    ${$attempts}")
+println("  \$score       ${$score}")
 
 # --- the answer, as a bot engine would take it --------------------------------
 
@@ -106,9 +106,9 @@ reply = match $intent {
   else               -> "I did not get that. Try «menu»."
 }
 
-say("")
-say("reply: ${reply}")
-say("payload: ${{intent: $intent, score: $score, vip: is(tags, "array") && tags.has("vip")}.json}")
+println("")
+println("reply: ${reply}")
+println("payload: ${{intent: $intent, score: $score, vip: is(tags, "array") && tags.has("vip")}.json}")
 
 # The value of the whole program is its last expression — `mzs --bool` turns that into
 # an exit code, which is how a condition becomes a branch in the flow engine.

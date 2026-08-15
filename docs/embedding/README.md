@@ -77,7 +77,7 @@ not allow network access calls `Unregister("http")`, see
 | `RegexSteps` | `200000` | backtracking budget per match; cannot be disabled |
 | `RegexCacheSize` | `256` | runtime regex compile cache, per `*Interp` |
 | `ProgramCache` | `512` | compiled-source LRU; `-1` disables |
-| `Stdout` | `nil` | sink for `print`/`say`/`debug`; nil discards |
+| `Stdout` | `nil` | sink for `print`/`println`/`debug`; nil discards |
 | `Stderr` | `nil` | runtime notices (a failed unawaited task, an http handler error) |
 | `Now` | `nil` | enables `now()`, `time.now`, `date.today` |
 | `Rand` | `nil` | enables `rand()`, `uuid()`, `sample`, `shuffle` |
@@ -112,7 +112,7 @@ import (
 func main() {
 	in := mzs.New(mzs.Options{Timeout: time.Second, Stdout: os.Stdout})
 	prog, err := in.Compile("greet.mzs", `
-say("hello, " + $who)
+println("hello, " + $who)
 $total = $price.int + 1200
 $who.len`)
 	if err != nil {

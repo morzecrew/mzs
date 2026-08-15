@@ -21,7 +21,7 @@ mzs> xs.sort
 [1,2,3]
 mzs> xs
 [3,1,2]
-mzs> say("hi")
+mzs> println("hi")
 hi
 nil
 ```

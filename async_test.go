@@ -143,7 +143,7 @@ func TestAsyncUnawaitedFailureIsReported(t *testing.T) {
 	o.Stdout, o.Stderr = &out, &errOut
 	in := New(o)
 
-	if _, err := in.Eval(context.Background(), `async fn late() { say("побежала"); raise("упала") }
+	if _, err := in.Eval(context.Background(), `async fn late() { println("побежала"); raise("упала") }
 late()
 "конец"`, nil); err != nil {
 		t.Fatalf("Eval: %v", err)

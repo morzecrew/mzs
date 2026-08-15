@@ -43,15 +43,15 @@ fn rank_dense(sorted) {
 
 ranked = rank_dense(rank_competition(totals))
 
-say("final standings after ${rounds.len} rounds")
-say("${"#".rjust(3)}${"dense".rjust(7)}  ${"player".ljust(8)}${"score".rjust(7)}  bar")
-say("-" * 46)
+println("final standings after ${rounds.len} rounds")
+println("${"#".rjust(3)}${"dense".rjust(7)}  ${"player".ljust(8)}${"score".rjust(7)}  bar")
+println("-" * 46)
 best = ranked.first["score"]
 ranked.each { (r) ->
   medal = match r["rank"] { 1 -> " 🥇"; 2 -> " 🥈"; 3 -> " 🥉"; else -> "" }
-  say("${r["rank"].str.rjust(3)}${r["dense"].str.rjust(7)}  ${r["name"].ljust(8)}${r["score"].str.rjust(7)}  ${"█" * (r["score"] * 24 / best)}${medal}")
+  println("${r["rank"].str.rjust(3)}${r["dense"].str.rjust(7)}  ${r["name"].ljust(8)}${r["score"].str.rjust(7)}  ${"█" * (r["score"] * 24 / best)}${medal}")
 }
-say("ordinal (1234) order: ${ranked.map { it["name"] }.join(" > ")}")
+println("ordinal (1234) order: ${ranked.map { it["name"] }.join(" > ")}")
 
 # --- per-round table, and the movement between them ---------------------------
 
@@ -59,14 +59,14 @@ fn standing_of(round) {
   round.sort_by { (_, v) -> -v }.map { it[0] }
 }
 
-say("")
-say("${"round".ljust(8)}${PLAYERS.map { it.ljust(7) }.join("")}")
+println("")
+println("${"round".ljust(8)}${PLAYERS.map { it.ljust(7) }.join("")}")
 rounds.each_with_index { (r, i) ->
-  say("${("R" + (i + 1).str).ljust(8)}${PLAYERS.map { r[it].str.ljust(7) }.join("")}")
+  println("${("R" + (i + 1).str).ljust(8)}${PLAYERS.map { r[it].str.ljust(7) }.join("")}")
 }
 
-say("")
-say("movement in the last round")
+println("")
+println("movement in the last round")
 prev = standing_of(rounds[rounds.len - 2])
 now = standing_of(rounds.last)
 now.each_with_index { (p, i) ->
@@ -77,7 +77,7 @@ now.each_with_index { (p, i) ->
     delta < 0 -> "▼ ${-delta}"
     else      -> "="
   }
-  say("  ${(i + 1).str.rjust(2)}. ${p.ljust(8)}${arrow.ljust(6)}(was ${was + 1})")
+  println("  ${(i + 1).str.rjust(2)}. ${p.ljust(8)}${arrow.ljust(6)}(was ${was + 1})")
 }
 
 # --- statistics: mean, median, spread, percentile -----------------------------
@@ -86,19 +86,19 @@ scores = totals.map { it["score"] }.sort
 fn median(xs) { xs.len % 2 == 1 ? xs[xs.len / 2] : (xs[xs.len / 2 - 1] + xs[xs.len / 2]) / 2 }
 fn percentile_of(xs, v) { xs.count { it < v } * 100 / xs.len }
 
-say("")
-say("mean ${scores.sum / scores.len} · median ${median(scores)} · spread ${scores.last - scores.first}")
-say("percentile of each player:")
-ranked.each { (r) -> say("  ${r["name"].ljust(8)}${percentile_of(scores, r["score"]).str.rjust(3)}th") }
+println("")
+println("mean ${scores.sum / scores.len} · median ${median(scores)} · spread ${scores.last - scores.first}")
+println("percentile of each player:")
+ranked.each { (r) -> println("  ${r["name"].ljust(8)}${percentile_of(scores, r["score"]).str.rjust(3)}th") }
 
 cut = median(scores)
-say("")
-say("cut at the median (${cut}): ${ranked.filter { it["score"] >= cut }.map { it["name"] }.join(", ")} advance")
+println("")
+println("cut at the median (${cut}): ${ranked.filter { it["score"] >= cut }.map { it["name"] }.join(", ")} advance")
 
 # --- streaks: who improved every round ----------------------------------------
 
-say("")
-say("consistency")
+println("")
+println("consistency")
 PLAYERS.each { (p) ->
   series = rounds.map { (r) -> r[p] }
   deltas = series.each_cons(2).map { (pair) -> pair[1] - pair[0] }
@@ -108,13 +108,13 @@ PLAYERS.each { (p) ->
     deltas.all { it < 0 }  -> "falling"
     else                   -> "up and down"
   }
-  say("  ${p.ljust(8)}${series.join(" → ").ljust(20)}${("%+d" % (series.last - series.first)).rjust(5)}  ${trend}")
+  println("  ${p.ljust(8)}${series.join(" → ").ljust(20)}${("%+d" % (series.last - series.first)).rjust(5)}  ${trend}")
 }
 
 # --- head to head ---------------------------------------------------------------
 
-say("")
-say("head to head, by rounds won")
+println("")
+println("head to head, by rounds won")
 pairs = PLAYERS.flat_map { (a) -> PLAYERS.filter { it > a }.map { (b) -> [a, b] } }
 pairs.each { (pair) ->
   a = pair[0]
@@ -122,12 +122,12 @@ pairs.each { (pair) ->
   wins_a = rounds.count { (r) -> r[a] > r[b] }
   wins_b = rounds.count { (r) -> r[b] > r[a] }
   draws = rounds.len - wins_a - wins_b
-  say("  ${a.ljust(6)}${wins_a}–${wins_b}${draws > 0 ? " (${draws} tied)" : ""}  ${b}")
+  println("  ${a.ljust(6)}${wins_a}–${wins_b}${draws > 0 ? " (${draws} tied)" : ""}  ${b}")
 }
 
 # --- the one line a chat bot would post ---------------------------------------
 
 top = ranked.first
-say("")
-say("🏆 ${top["name"].capitalize} wins with ${top["score"]}, ${top["score"] - ranked[1]["score"]} clear of ${ranked[1]["name"].capitalize}.")
-say("   ${ranked.filter { it["rank"] == 1 }.len > 1 ? "It is a shared first place." : "No tie at the top."}")
+println("")
+println("🏆 ${top["name"].capitalize} wins with ${top["score"]}, ${top["score"] - ranked[1]["score"]} clear of ${ranked[1]["name"].capitalize}.")
+println("   ${ranked.filter { it["rank"] == 1 }.len > 1 ? "It is a shared first place." : "No tie at the top."}")

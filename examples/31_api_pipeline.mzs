@@ -51,16 +51,16 @@ SAMPLE = [
 ]
 
 url = "${API}?tags=${tag}&hitsPerPage=${limit}"
-say("GET ${url}")
+println("GET ${url}")
 
 answer = try http.get(url, {timeout: 10}) else (e) -> {status: 0, error: e["message"]}
 payload = answer["status"] == 200 ? (try json.parse(answer["body"]) else nil) : nil
 
 hits = match {
-  answer["status"] == 0 -> tap(SAMPLE) { say("  unreachable (${answer["error"]}) — using the sample") }
-  answer["status"] != 200 -> tap(SAMPLE) { say("  HTTP ${answer["status"]} — using the sample") }
-  !is(payload, "dict") || !is(payload["hits"], "array") -> tap(SAMPLE) { say("  unexpected body — using the sample") }
-  else -> tap(payload["hits"]) { (h) -> say("  ${answer["status"]} · ${h.len} of ${payload["nbHits"] ?? h.len} stories") }
+  answer["status"] == 0 -> tap(SAMPLE) { println("  unreachable (${answer["error"]}) — using the sample") }
+  answer["status"] != 200 -> tap(SAMPLE) { println("  HTTP ${answer["status"]} — using the sample") }
+  !is(payload, "dict") || !is(payload["hits"], "array") -> tap(SAMPLE) { println("  unexpected body — using the sample") }
+  else -> tap(payload["hits"]) { (h) -> println("  ${answer["status"]} · ${h.len} of ${payload["nbHits"] ?? h.len} stories") }
 }
 
 # --- normalise --------------------------------------------------------------------
@@ -91,7 +91,7 @@ stories = hits
   .filter { it["points"] > 0 }
 
 if stories.empty {
-  say("nothing to report")
+  println("nothing to report")
   return
 }
 
@@ -101,9 +101,9 @@ total_points = stories.sum { it["points"] }
 total_comments = stories.sum { it["comments"] }
 top = stories.max_by { it["points"] }
 
-say("")
-say("%s · %d stories · %d points · %d comments" % [tag, stories.len, total_points, total_comments])
-say("average %.1f points and %.1f comments per story" % [
+println("")
+println("%s · %d stories · %d points · %d comments" % [tag, stories.len, total_points, total_comments])
+println("average %.1f points and %.1f comments per story" % [
   total_points / stories.len.float,
   total_comments / stories.len.float,
 ])
@@ -124,17 +124,17 @@ sites = stories
   } }
   .sort_by { [-it["points"], it["host"]] }
 
-say("")
-say("sites, by the points they pulled in")
+println("")
+println("sites, by the points they pulled in")
 sites.take(8).each { (s) ->
   share = 100.0 * s["points"] / total_points
-  say("  %-28s %2d × %5d pts  %4.1f%%  %s" % [
+  println("  %-28s %2d × %5d pts  %4.1f%%  %s" % [
     short(s["host"], 28), s["count"], s["points"], share, short(s["best"], 38),
   ])
 }
 if sites.len > 8 {
   rest = sites.drop(8)
-  say("  %-28s %2d × %5d pts" % ["… ${rest.len} more sites", rest.sum { it["count"] }, rest.sum { it["points"] }])
+  println("  %-28s %2d × %5d pts" % ["… ${rest.len} more sites", rest.sum { it["count"] }, rest.sum { it["points"] }])
 }
 
 # --- what people argued about -----------------------------------------------------
@@ -150,10 +150,10 @@ argued = ranked
   .sort_by { -(it["comments"] / it["points"].float) }
   .take(3)
 
-say("")
-say("most discussed per point, among the top %d by points" % [max(3, stories.len / 2)])
+println("")
+println("most discussed per point, among the top %d by points" % [max(3, stories.len / 2)])
 argued.each { (s) ->
-  say("  %4.2f  %4d comments / %4d pts  %s" % [
+  println("  %4.2f  %4d comments / %4d pts  %s" % [
     s["comments"] / s["points"].float, s["comments"], s["points"], short(s["title"], 44),
   ])
 }
@@ -165,15 +165,15 @@ repeats = stories
   .filter { (_, rows) -> rows.len > 1 }
   .sort_by { (_, rows) -> -rows.sum { it["points"] } }
 
-say("")
+println("")
 if repeats.empty {
-  say("no author has two stories on this page")
+  println("no author has two stories on this page")
 } else {
-  say("authors with more than one story")
+  println("authors with more than one story")
   repeats.each { (pair) ->
     who = pair[0]
     rows = pair[1]
-    say("  %-16s %d stories, %d pts: %s" % [who, rows.len, rows.sum { it["points"] },
+    println("  %-16s %d stories, %d pts: %s" % [who, rows.len, rows.sum { it["points"] },
       rows.map { short(it["title"], 30) }.join(" · ")])
   }
 }
@@ -184,13 +184,13 @@ if repeats.empty {
 # format string and the record are checked against each other by eye, not by counting
 # positions. The record is the story itself plus the one field the loop adds.
 
-say("")
-say("top %d by points" % [min(10, stories.len)])
+println("")
+println("top %d by points" % [min(10, stories.len)])
 ranked.take(10).each_with_index { (s, i) ->
-  say("  %<rank>2d. %<points>5d pts %<comments>5d cmt  %<domain>-22s  %<title>s" %
+  println("  %<rank>2d. %<points>5d pts %<comments>5d cmt  %<domain>-22s  %<title>s" %
     s.merge({rank: i + 1, domain: short(s["domain"], 22), title: short(s["title"], 46)}))
 }
 
-say("")
-say("the one at the top: ${top["title"]}")
-say("  ${top["points"]} points, ${top["comments"]} comments, ${top["domain"]}, posted ${top["day"]}")
+println("")
+println("the one at the top: ${top["title"]}")
+println("  ${top["points"]} points, ${top["comments"]} comments, ${top["domain"]}, posted ${top["day"]}")

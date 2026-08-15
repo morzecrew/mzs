@@ -39,8 +39,8 @@ parts = checked.partition { it["problems"].empty }
 good = parts[0]
 bad = parts[1]
 
-say("intake: ${orders.len} orders, ${good.len} accepted, ${bad.len} rejected")
-bad.each { (o) -> say("  ✗ ${o["id"]}  ${o["problems"].join("; ")}") }
+println("intake: ${orders.len} orders, ${good.len} accepted, ${bad.len} rejected")
+bad.each { (o) -> println("  ✗ ${o["id"]}  ${o["problems"].join("; ")}") }
 
 # --- pricing: a table of rules, applied in order ------------------------------
 #
@@ -89,43 +89,43 @@ fn receipt(o) {
   out.push("└ incl. VAT ${VAT}%: ${o["vat"]} ₽")
 }
 
-say("")
-receipt(priced.find { it["id"] == "A-1005" }).each { (l) -> say(l) }
+println("")
+receipt(priced.find { it["id"] == "A-1005" }).each { (l) -> println(l) }
 
 # --- the manager's numbers -----------------------------------------------------
 
-say("")
-say("${"order".ljust(8)}${"client".ljust(14)}${"items".rjust(6)}${"subtotal".rjust(10)}${"discount".rjust(10)}${"total".rjust(9)}")
-say("-" * 57)
+println("")
+println("${"order".ljust(8)}${"client".ljust(14)}${"items".rjust(6)}${"subtotal".rjust(10)}${"discount".rjust(10)}${"total".rjust(9)}")
+println("-" * 57)
 priced.sort_by { -it["total"] }.each { (o) ->
-  say("${o["id"].ljust(8)}${o["client"].ljust(14)}${o["items"].sum { it["qty"] }.str.rjust(6)}${o["subtotal"].str.rjust(10)}${(o["discount"] == 0 ? "—" : "−" + o["discount"].str).rjust(10)}${o["total"].str.rjust(9)}")
+  println("${o["id"].ljust(8)}${o["client"].ljust(14)}${o["items"].sum { it["qty"] }.str.rjust(6)}${o["subtotal"].str.rjust(10)}${(o["discount"] == 0 ? "—" : "−" + o["discount"].str).rjust(10)}${o["total"].str.rjust(9)}")
 }
-say("-" * 57)
-say("${"".ljust(22)}${priced.sum { (o) -> o["items"].sum { it["qty"] } }.str.rjust(6)}${priced.sum { it["subtotal"] }.str.rjust(10)}${("−" + priced.sum { it["discount"] }.str).rjust(10)}${priced.sum { it["total"] }.str.rjust(9)}")
+println("-" * 57)
+println("${"".ljust(22)}${priced.sum { (o) -> o["items"].sum { it["qty"] } }.str.rjust(6)}${priced.sum { it["subtotal"] }.str.rjust(10)}${("−" + priced.sum { it["discount"] }.str).rjust(10)}${priced.sum { it["total"] }.str.rjust(9)}")
 
 # --- what sold, and to whom ----------------------------------------------------
 
-say("")
-say("by service")
+println("")
+println("by service")
 priced.flat_map { it["lines"] }
       .group_by { it["sku"] }
       .map { (sku, ls) -> {sku: sku, qty: ls.sum { it["qty"] }, sum: ls.sum { it["sum"] }} }
       .sort_by { -it["sum"] }
-      .each { (r) -> say("  ${r["sku"].ljust(10)}${r["qty"].str.rjust(3)} ×  ${(r["sum"].str + " ₽").rjust(9)}  ${"▇" * (r["sum"] / 500)}") }
+      .each { (r) -> println("  ${r["sku"].ljust(10)}${r["qty"].str.rjust(3)} ×  ${(r["sum"].str + " ₽").rjust(9)}  ${"▇" * (r["sum"] / 500)}") }
 
-say("")
-say("by client")
+println("")
+println("by client")
 priced.group_by { it["client"] }
       .map { (c, os) -> {client: c, orders: os.len, spent: os.sum { it["total"] }} }
       .sort_by { -it["spent"] }
       .each { (c) ->
         loyal = c["orders"] > 1 ? "  ★ repeat customer" : ""
-        say("  ${c["client"].ljust(14)}${c["orders"].str.rjust(2)} order(s)  ${(c["spent"].str + " ₽").rjust(9)}${loyal}")
+        println("  ${c["client"].ljust(14)}${c["orders"].str.rjust(2)} order(s)  ${(c["spent"].str + " ₽").rjust(9)}${loyal}")
       }
 
 # --- the one number the day is judged by --------------------------------------
 
-say("")
-say("accepted revenue ${priced.sum { it["total"] }} ₽ · average ticket ${priced.sum { it["total"] } / priced.len} ₽")
-say("discounts given  ${priced.sum { it["discount"] }} ₽ (${priced.sum { it["discount"] } * 100 / priced.sum { it["subtotal"] }}% of subtotal)")
-say("lost to rejects  ${bad.sum { (o) -> o["items"].filter { PRICES.has(it["sku"]) && it["qty"] > 0 }.sum { it["qty"] * PRICES[it["sku"]] } }} ₽ — fix the intake form, not the report")
+println("")
+println("accepted revenue ${priced.sum { it["total"] }} ₽ · average ticket ${priced.sum { it["total"] } / priced.len} ₽")
+println("discounts given  ${priced.sum { it["discount"] }} ₽ (${priced.sum { it["discount"] } * 100 / priced.sum { it["subtotal"] }}% of subtotal)")
+println("lost to rejects  ${bad.sum { (o) -> o["items"].filter { PRICES.has(it["sku"]) && it["qty"] > 0 }.sum { it["qty"] * PRICES[it["sku"]] } }} ₽ — fix the intake form, not the report")

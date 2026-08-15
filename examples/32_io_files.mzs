@@ -15,8 +15,8 @@
 
 include io
 
-say("io — what the host handed over")
-say("")
+println("io — what the host handed over")
+println("")
 
 # --- the environment ----------------------------------------------------------
 #
@@ -24,9 +24,9 @@ say("")
 # in the shell it is going to be typed next to.
 
 TMP = io.env("TMPDIR", "/tmp")
-say("  TMPDIR      ${TMP}")
-say("  MZS_DEMO    ${io.env("MZS_DEMO", "(not set — try MZS_DEMO=hello)")}")
-say("  NOT_SET     ${inspect(io.env("MZS_NO_SUCH_VARIABLE"))}")
+println("  TMPDIR      ${TMP}")
+println("  MZS_DEMO    ${io.env("MZS_DEMO", "(not set — try MZS_DEMO=hello)")}")
+println("  NOT_SET     ${inspect(io.env("MZS_NO_SUCH_VARIABLE"))}")
 
 # --- stdin --------------------------------------------------------------------
 #
@@ -35,13 +35,13 @@ say("  NOT_SET     ${inspect(io.env("MZS_NO_SUCH_VARIABLE"))}")
 # the same whether you piped something into it or not.
 
 lines = io.lines
-say("")
+println("")
 if lines.empty {
-  say("  stdin       empty (try: printf 'yes\\nno\\nyes\\n' | mzs examples/32_io_files.mzs)")
+  println("  stdin       empty (try: printf 'yes\\nno\\nyes\\n' | mzs examples/32_io_files.mzs)")
 } else {
   tally = lines.map { it.trim.lower }.tally
-  say("  stdin       ${lines.len} line(s), ${tally.len} distinct")
-  tally.each { (word, n) -> say("              ${word.ljust(12)}${n}") }
+  println("  stdin       ${lines.len} line(s), ${tally.len} distinct")
+  tally.each { (word, n) -> println("              ${word.ljust(12)}${n}") }
 }
 
 # --- write, read, append ------------------------------------------------------
@@ -49,26 +49,26 @@ if lines.empty {
 path = "${TMP}/mzs_example_32.txt"
 report = ["session,minutes", "café shave,30", "haircut,60"].join("\n") + "\n"
 
-say("")
-say("  file        ${path}")
-say("  existed     ${io.exists(path)}")
+println("")
+println("  file        ${path}")
+println("  existed     ${io.exists(path)}")
 
 written = io.write(path, report)
-say("  write       ${written} bytes")
+println("  write       ${written} bytes")
 
 # io.write counts bytes, because that is what went to the disk; `len` on the string that
 # comes back counts runes, because that is what the language counts everywhere (§12.2).
 back = io.read(path)
-say("  read        ${back.lines.len} lines, ${back.len} runes")
+println("  read        ${back.lines.len} lines, ${back.len} runes")
 
 added = io.append(path, "colouring,120\n")
-say("  append      ${added} bytes")
+println("  append      ${added} bytes")
 
 # The file is a value like any other once it is a string: the whole library applies.
 rows = io.read(path).lines.drop(1).map { it.split(",") }
 total = rows.map { it[1].int }.sum
-say("  parsed      ${rows.len} rows, ${total} minutes in total")
-rows.each { (r) -> say("              ${r[0].ljust(14)}${r[1].rjust(3)}") }
+println("  parsed      ${rows.len} rows, ${total} minutes in total")
+rows.each { (r) -> println("              ${r[0].ljust(14)}${r[1].rjust(3)}") }
 
 # --- listing ------------------------------------------------------------------
 #
@@ -76,8 +76,8 @@ rows.each { (r) -> say("              ${r[0].ljust(14)}${r[1].rjust(3)}") }
 # script that prints a directory must print the same thing twice in a row (§8.13).
 
 ours = io.ls(TMP).filter { it.starts_with("mzs_example_") }
-say("")
-say("  ls          ${ours.len} file(s) of ours in ${TMP}: ${ours.join(", ")}")
+println("")
+println("  ls          ${ours.len} file(s) of ours in ${TMP}: ${ours.join(", ")}")
 
 # --- when the world says no ---------------------------------------------------
 #
@@ -85,12 +85,12 @@ say("  ls          ${ours.len} file(s) of ours in ${TMP}: ${ours.join(", ")}")
 # so it is an ordinary catchable error with the path in the message (§8.11).
 
 missing = "${TMP}/mzs_example_32_does_not_exist.txt"
-say("")
-say("  exists      ${io.exists(missing)}   (a name that is not there is false, not an error)")
-say("  try read    ${try io.read(missing) else "(fell back to a default)"}")
+println("")
+println("  exists      ${io.exists(missing)}   (a name that is not there is false, not an error)")
+println("  try read    ${try io.read(missing) else "(fell back to a default)"}")
 
 reason = try io.read(missing) else (e) -> e["message"]
-say("  the message ${reason}")
+println("  the message ${reason}")
 
 # --- what the host still decides ----------------------------------------------
 #
@@ -98,6 +98,6 @@ say("  the message ${reason}")
 # Options.FS verbatim. Whether "../../etc/shadow" is allowed is the policy of the code
 # that implemented the interface — here, the CLI, which allows what the shell allows.
 
-say("")
-say("  the module has eight members and no ninth:")
-say("    io.stdin  io.lines  io.read  io.write  io.append  io.exists  io.ls  io.env")
+println("")
+println("  the module has eight members and no ninth:")
+println("    io.stdin  io.lines  io.read  io.write  io.append  io.exists  io.ls  io.env")

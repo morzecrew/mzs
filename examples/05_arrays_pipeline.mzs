@@ -30,32 +30,32 @@ fn money(n) { "${n} ₽".rjust(9) }
 
 # --- the shape of the data ----------------------------------------------------
 
-say("${tx.len} transactions, days ${tx.first["day"]}–${tx.last["day"]}")
-say("revenue ${money(tx.sum { total(it) })}, units ${tx.sum { it["qty"] }}")
-say("average ticket ${money(tx.sum { total(it) } / tx.len)}")
-say("largest single sale: ${money(tx.max_by { total(it) }.pipe { total(it) })} by ${tx.max_by { total(it) }["rep"]}")
+println("${tx.len} transactions, days ${tx.first["day"]}–${tx.last["day"]}")
+println("revenue ${money(tx.sum { total(it) })}, units ${tx.sum { it["qty"] }}")
+println("average ticket ${money(tx.sum { total(it) } / tx.len)}")
+println("largest single sale: ${money(tx.max_by { total(it) }.pipe { total(it) })} by ${tx.max_by { total(it) }["rep"]}")
 
 # --- group_by builds a dict of arrays; sort_by ranks it ------------------------
 
-say("")
-say("by region")
+println("")
+println("by region")
 tx.group_by { it["region"] }.sort_by { (_, rows) -> -rows.sum { total(it) } }.each { (pair) ->
   region = pair[0]
   rows = pair[1]
   share = rows.sum { total(it) } * 100 / tx.sum { total(it) }
-  say("  ${region.ljust(7)}${money(rows.sum { total(it) })}  ${share}%  ${"▉" * (share / 4)}")
+  println("  ${region.ljust(7)}${money(rows.sum { total(it) })}  ${share}%  ${"▉" * (share / 4)}")
 }
 
 # --- a leaderboard is sort_by + take + each_with_index -------------------------
 
-say("")
-say("top reps")
+println("")
+println("top reps")
 tx.group_by { it["rep"] }
   .map { (rep, rows) -> {rep: rep, sales: rows.len, revenue: rows.sum { total(it) }} }
   .sort_by { -it["revenue"] }
   .take(3)
   .each_with_index { (r, i) ->
-    say("  ${i + 1}. ${r["rep"].ljust(6)}${money(r["revenue"])} over ${r["sales"]} sales")
+    println("  ${i + 1}. ${r["rep"].ljust(6)}${money(r["revenue"])} over ${r["sales"]} sales")
   }
 
 # --- partition splits once, into both halves ----------------------------------
@@ -63,23 +63,23 @@ tx.group_by { it["rep"] }
 parts = tx.partition { total(it) >= 3000 }
 big = parts[0]
 small = parts[1]
-say("")
-say("big tickets (≥ 3000 ₽): ${big.len}, everything else: ${small.len}")
-say("  big:   ${big.map { it["item"] }.uniq.join(", ")}")
-say("  small: ${small.map { it["item"] }.uniq.join(", ")}")
+println("")
+println("big tickets (≥ 3000 ₽): ${big.len}, everything else: ${small.len}")
+println("  big:   ${big.map { it["item"] }.uniq.join(", ")}")
+println("  small: ${small.map { it["item"] }.uniq.join(", ")}")
 
 # --- reduce when the accumulator is not a number -------------------------------
 
 units = tx.reduce({}) { (acc, t) -> acc.set(t["item"], (acc[t["item"]] ?? 0) + t["qty"]) }
-say("")
-say("units per item: ${units.sort_by { (_, n) -> -n }.map { "${it[0]} ${it[1]}" }.join(", ")}")
+println("")
+println("units per item: ${units.sort_by { (_, n) -> -n }.map { "${it[0]} ${it[1]}" }.join(", ")}")
 
 # --- each_cons for anything that compares neighbours ---------------------------
 
 daily = tx.group_by { it["day"] }.map { (day, rows) -> {day: day, sum: rows.sum { total(it) }} }
 gaps = daily.each_cons(2).map { (pair) -> pair[1]["day"] - pair[0]["day"] }
-say("")
-say("selling days: ${daily.len}, longest gap between them: ${gaps.max} days")
+println("")
+println("selling days: ${daily.len}, longest gap between them: ${gaps.max} days")
 
 streak = 0
 best = 0
@@ -87,37 +87,37 @@ daily.each_cons(2).each { (pair) ->
   streak = pair[1]["sum"] > pair[0]["sum"] ? streak + 1 : 0
   best = streak if streak > best
 }
-say("longest run of growing days: ${best}")
+println("longest run of growing days: ${best}")
 
 # --- flat_map, zip and each_slice ---------------------------------------------
 
 lines = tx.take(3).flat_map { (t) -> [t["item"], "  qty ${t["qty"]} × ${t["price"]} ₽"] }
-say("")
-say("receipt for the first three:")
-lines.each { (l) -> say("  ${l}") }
+println("")
+println("receipt for the first three:")
+lines.each { (l) -> println("  ${l}") }
 
 labels = ["north", "south", "east"]
 totals = labels.map { (r) -> tx.filter { it["region"] == r }.sum { total(it) } }
-say("")
-say("zip: ${labels.zip(totals).map { "${it[0]}=${it[1]}" }.join(" ")}")
+println("")
+println("zip: ${labels.zip(totals).map { "${it[0]}=${it[1]}" }.join(" ")}")
 
-say("weeks: ${(1..28).array.each_slice(7).map { "${it.first}–${it.last}" }.join(" | ")}")
+println("weeks: ${(1..28).array.each_slice(7).map { "${it.first}–${it.last}" }.join(" | ")}")
 
 # --- the predicates ------------------------------------------------------------
 
-say("")
-say("all sales are positive:      ${tx.all { total(it) > 0 }}")
-say("any sale over 10 000 ₽:      ${tx.any { total(it) > 10000 }}")
-say("no sale is free:             ${tx.none { total(it) == 0 }}")
-say("colour sales:                ${tx.count { it["item"] == "colour" }}")
-say("first north sale after day 5: day ${tx.find { it["region"] == "north" && it["day"] > 5 }["day"]}")
-say("item names, sorted:          ${tx.map { it["item"] }.uniq.sort.json}")
-say("busiest day:                 ${tx.map { it["day"] }.tally.sort_by { (_, n) -> -n }.first[0]}")
+println("")
+println("all sales are positive:      ${tx.all { total(it) > 0 }}")
+println("any sale over 10 000 ₽:      ${tx.any { total(it) > 10000 }}")
+println("no sale is free:             ${tx.none { total(it) == 0 }}")
+println("colour sales:                ${tx.count { it["item"] == "colour" }}")
+println("first north sale after day 5: day ${tx.find { it["region"] == "north" && it["day"] > 5 }["day"]}")
+println("item names, sorted:          ${tx.map { it["item"] }.uniq.sort.json}")
+println("busiest day:                 ${tx.map { it["day"] }.tally.sort_by { (_, n) -> -n }.first[0]}")
 
 # --- mutation is explicit, and named so at the call site -----------------------
 
 queue = [3, 1, 2]
 queue.push(4).unshift(0)
-say("")
-say("queue after push/unshift: ${queue.json}, shift → ${queue.shift}, pop → ${queue.pop}")
-say("sort returns a copy: ${[3, 1, 2].sort.json}; sort_in_place mutates the receiver")
+println("")
+println("queue after push/unshift: ${queue.json}, shift → ${queue.shift}, pop → ${queue.pop}")
+println("sort returns a copy: ${[3, 1, 2].sort.json}; sort_in_place mutates the receiver")

@@ -44,12 +44,12 @@ history = movements.map { (m) ->
   m.merge({balance: balances[m["sku"]]})
 }
 
-say("ledger (${movements.len} movements over ${movements.last["day"]} days)")
-say("${"day".rjust(4)}  ${"sku".ljust(9)}${"kind".ljust(9)}${"qty".rjust(5)}${"balance".rjust(9)}")
-say("-" * 40)
+println("ledger (${movements.len} movements over ${movements.last["day"]} days)")
+println("${"day".rjust(4)}  ${"sku".ljust(9)}${"kind".ljust(9)}${"qty".rjust(5)}${"balance".rjust(9)}")
+println("-" * 40)
 history.each { (m) ->
   mark = m["balance"] < 0 ? "  ← negative!" : ""
-  say("${m["day"].str.rjust(4)}  ${m["sku"].ljust(9)}${m["kind"].ljust(9)}${("%+d" % signed(m)).rjust(5)}${m["balance"].str.rjust(9)}${mark}")
+  println("${m["day"].str.rjust(4)}  ${m["sku"].ljust(9)}${m["kind"].ljust(9)}${("%+d" % signed(m)).rjust(5)}${m["balance"].str.rjust(9)}${mark}")
 }
 
 # --- FIFO: the lots are a queue, and a sale drains it from the front ----------
@@ -77,9 +77,9 @@ fn fifo(sku) {
   {on_hand: lots.sum { it["qty"] }, value: lots.sum { it["qty"] * it["cost"] }, cogs: cogs, shortfall: shortfall, lots: lots}
 }
 
-say("")
-say("${"sku".ljust(9)}${"name".ljust(16)}${"on hand".rjust(8)}${"value".rjust(9)}${"COGS".rjust(9)}  status")
-say("-" * 62)
+println("")
+println("${"sku".ljust(9)}${"name".ljust(16)}${"on hand".rjust(8)}${"value".rjust(9)}${"COGS".rjust(9)}  status")
+println("-" * 62)
 report = CATALOG.map { (c) -> c.merge(fifo(c["sku"])) }
 report.each { (r) ->
   status = match {
@@ -87,36 +87,36 @@ report.each { (r) ->
     r["on_hand"] <= r["reorder_at"]    -> "reorder ${((r["reorder_at"] * 2 - r["on_hand"]) / r["pack"] + 1) * r["pack"]} units"
     else                               -> "ok"
   }
-  say("${r["sku"].ljust(9)}${r["name"].ljust(16)}${r["on_hand"].str.rjust(8)}${(r["value"].str + " ₽").rjust(9)}${(r["cogs"].str + " ₽").rjust(9)}  ${status}")
+  println("${r["sku"].ljust(9)}${r["name"].ljust(16)}${r["on_hand"].str.rjust(8)}${(r["value"].str + " ₽").rjust(9)}${(r["cogs"].str + " ₽").rjust(9)}  ${status}")
 }
 
 # --- the numbers a manager signs off on ---------------------------------------
 
-say("")
-say("stock value    ${report.sum { it["value"] }} ₽ across ${report.sum { it["on_hand"] }} units")
-say("cost of sales  ${report.sum { it["cogs"] }} ₽")
-say("to reorder     ${report.filter { it["on_hand"] <= it["reorder_at"] }.map { it["sku"] }.json}")
+println("")
+println("stock value    ${report.sum { it["value"] }} ₽ across ${report.sum { it["on_hand"] }} units")
+println("cost of sales  ${report.sum { it["cogs"] }} ₽")
+println("to reorder     ${report.filter { it["on_hand"] <= it["reorder_at"] }.map { it["sku"] }.json}")
 
 # --- movement profile per SKU --------------------------------------------------
 
-say("")
-say("movement profile (▲ in, ▼ out)")
+println("")
+println("movement profile (▲ in, ▼ out)")
 CATALOG.each { (c) ->
   ms = movements.filter { it["sku"] == c["sku"] }
   bar = ms.map { (m) -> signed(m) > 0 ? "▲" : "▼" }.join("")
-  say("  ${c["sku"].ljust(9)}${bar.ljust(10)} ${ms.len} movements, last on day ${ms.last["day"]}")
+  println("  ${c["sku"].ljust(9)}${bar.ljust(10)} ${ms.len} movements, last on day ${ms.last["day"]}")
 }
 
 # --- turnover, and the item nobody buys ---------------------------------------
 
 sold = movements.filter { it["kind"] == "sale" }.group_by { it["sku"] }
-say("")
-say("turnover")
+println("")
+println("turnover")
 CATALOG.sort_by { (c) -> -(sold[c["sku"]] ?? []).sum { it["qty"] } }.each { (c) ->
   units = (sold[c["sku"]] ?? []).sum { it["qty"] }
   days = movements.last["day"]
   per_week = units * 7 * 10 / days
-  say("  ${c["name"].ljust(16)}${units.str.rjust(3)} sold  ≈ ${per_week / 10}.${per_week % 10}/week")
+  println("  ${c["name"].ljust(16)}${units.str.rjust(3)} sold  ≈ ${per_week / 10}.${per_week % 10}/week")
 }
 
 # --- a consistency check the ledger can run on itself -------------------------
@@ -124,6 +124,6 @@ CATALOG.sort_by { (c) -> -(sold[c["sku"]] ?? []).sum { it["qty"] } }.each { (c) 
 recomputed = CATALOG.map { (c) ->
   {sku: c["sku"], from_movements: movements.filter { it["sku"] == c["sku"] }.sum { signed(it) }, from_fifo: fifo(c["sku"])["on_hand"]}
 }
-say("")
-say("balances agree with the FIFO lots: ${recomputed.all { it["from_movements"] == it["from_fifo"] }}")
-say("  ${recomputed.map { "${it["sku"]}=${it["from_movements"]}" }.join("  ")}")
+println("")
+println("balances agree with the FIFO lots: ${recomputed.all { it["from_movements"] == it["from_fifo"] }}")
+println("  ${recomputed.map { "${it["sku"]}=${it["from_movements"]}" }.join("  ")}")

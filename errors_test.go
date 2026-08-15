@@ -49,7 +49,7 @@ func TestUndefinedNameErrors(t *testing.T) {
 		{"method suggests the rename", undefinedMethodError(KString, "downcase"),
 			"undefined method 'downcase' for string (did you mean 'lower'?)"},
 		{"function suggests the rename", undefinedFunctionError("puts", nil),
-			"undefined function 'puts' (did you mean 'say'?)"},
+			"undefined function 'puts' (did you mean 'println'?)"},
 		{"variable is a name error", undefinedVariableError("штука", nil),
 			"undefined variable 'штука'"},
 		{"variable suggests a visible local", undefinedVariableError("sentt", []string{"sent"}),

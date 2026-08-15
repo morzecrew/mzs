@@ -21,8 +21,8 @@ M = [[2, -1, 0],
 
 fn render(name, m) {
   width = m.flatten.map { str(it).len }.max
-  say("${name} = ${m.len}×${m.first.len}")
-  m.each { (row) -> say("  │ ${row.map { str(it).rjust(width) }.join("  ")} │") }
+  println("${name} = ${m.len}×${m.first.len}")
+  m.each { (row) -> println("  │ ${row.map { str(it).rjust(width) }.join("  ")} │") }
 }
 
 render("A", A)
@@ -32,7 +32,7 @@ render("B", B)
 
 fn transpose(m) { (0..<m.first.len).map { (c) -> m.map { (row) -> row[c] } } }
 
-say("")
+println("")
 render("Aᵀ", transpose(A))
 
 # --- multiply: rows of one against columns of the other -----------------------
@@ -42,10 +42,10 @@ fn matmul(x, y) {
   x.map { (row) -> yt.map { (col) -> row.zip(col).sum { (pair) -> pair[0] * pair[1] } } }
 }
 
-say("")
+println("")
 render("A·B", matmul(A, B))
 render("B·A", matmul(B, A))
-say("  (matrix multiplication does not commute — the shapes alone say so)")
+println("  (matrix multiplication does not commute — the shapes alone say so)")
 
 # --- the small algebra --------------------------------------------------------
 
@@ -53,11 +53,11 @@ fn identity(n) { (0..<n).map { (r) -> (0..<n).map { (c) -> r == c ? 1 : 0 } } }
 fn scale(m, k) { m.map { (row) -> row.map { it * k } } }
 fn add(x, y) { x.zip(y).map { (pair) -> pair[0].zip(pair[1]).map { (p) -> p[0] + p[1] } } }
 
-say("")
+println("")
 render("I₃", identity(3))
 render("M", M)
 render("M·I", matmul(M, identity(3)))
-say("  M·I == M: ${matmul(M, identity(3)) == M}")
+println("  M·I == M: ${matmul(M, identity(3)) == M}")
 render("2M − M", add(scale(M, 2), scale(M, -1)))
 
 # --- determinant: expansion by minors, which is naturally recursive -----------
@@ -74,10 +74,10 @@ fn det(m) {
   (0..<m.len).sum { (c) -> (c.even ? 1 : -1) * m[0][c] * det(minor(m, 0, c)) }
 }
 
-say("")
-say("det(M)   = ${det(M)}")
-say("det(I₃)  = ${det(identity(3))}")
-say("det(2M)  = ${det(scale(M, 2))}  = 2³·det(M) = ${8 * det(M)}")
+println("")
+println("det(M)   = ${det(M)}")
+println("det(I₃)  = ${det(identity(3))}")
+println("det(2M)  = ${det(scale(M, 2))}  = 2³·det(M) = ${8 * det(M)}")
 
 # --- Gaussian elimination: solve M·x = b --------------------------------------
 #
@@ -111,10 +111,10 @@ fn solve(m, b) {
 
 b = [1, 8, 11]
 x = solve(M, b)
-say("")
-say("solving M·x = ${b.json}")
-say("  x = ${x.json}")
-say("  check M·x = ${matmul(M, x.map { (v) -> [v] }).map { (row) -> (row[0] * 1000).round.float / 1000 }.json}")
+println("")
+println("solving M·x = ${b.json}")
+println("  x = ${x.json}")
+println("  check M·x = ${matmul(M, x.map { (v) -> [v] }).map { (row) -> (row[0] * 1000).round.float / 1000 }.json}")
 
 # --- an application: rotating points --------------------------------------------
 
@@ -124,16 +124,16 @@ square = [[0, 0], [4, 0], [4, 4], [0, 4]]
 # A quarter turn needs no trigonometry: cos 90° = 0, sin 90° = 1.
 turned = matmul(square, transpose(rotation(0, 1)))
 
-say("")
-say("a square, rotated a quarter turn")
-say("  before ${square.json}")
-say("  after  ${turned.json}")
-say("  area is unchanged: ${det(rotation(0, 1))} × the original")
+println("")
+println("a square, rotated a quarter turn")
+println("  before ${square.json}")
+println("  after  ${turned.json}")
+println("  area is unchanged: ${det(rotation(0, 1))} × the original")
 
 # --- and the sanity checks a matrix library owes you --------------------------
 
-say("")
-say("(Aᵀ)ᵀ == A:            ${transpose(transpose(A)) == A}")
-say("det(Mᵀ) == det(M):     ${det(transpose(M)) == det(M)}")
-say("(A·B)ᵀ == Bᵀ·Aᵀ:       ${transpose(matmul(A, B)) == matmul(transpose(B), transpose(A))}")
-say("singular matrix found: ${det([[1, 2], [2, 4]]) == 0}")
+println("")
+println("(Aᵀ)ᵀ == A:            ${transpose(transpose(A)) == A}")
+println("det(Mᵀ) == det(M):     ${det(transpose(M)) == det(M)}")
+println("(A·B)ᵀ == Bᵀ·Aᵀ:       ${transpose(matmul(A, B)) == matmul(transpose(B), transpose(A))}")
+println("singular matrix found: ${det([[1, 2], [2, 4]]) == 0}")

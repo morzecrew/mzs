@@ -203,7 +203,7 @@ func TestBoundValueNeverReachesTheParser(t *testing.T) {
 		{"a closing paren", `Elite Plus (350k)`},
 		{"an emoji", `RU 🇷🇺`},
 		{"a newline", "две\nстроки"},
-		{"mzs source", `" + say("pwned") + "`},
+		{"mzs source", `" + println("pwned") + "`},
 		{"a comment", `да # и нет`},
 		{"a regex literal", `/привет/i`},
 		{"another global's name", `$other`},

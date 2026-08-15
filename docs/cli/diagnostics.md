@@ -47,7 +47,7 @@ $ mzs --steps 1000 -e 'while true { 1 }'
 $ mzs -e '"a".lenght'
 -e:1:5: name: undefined method 'lenght'; did you mean 'len'?
 $ mzs -e 'puts("hi")'
--e:1:1: name: undefined function 'puts' (did you mean 'say'?)
+-e:1:1: name: undefined function 'puts' (did you mean 'println'?)
 ```
 
 A `name` error suggests the nearest name it knows, in three passes: an exact hit in the
@@ -120,8 +120,9 @@ Renamed methods get the name they have here — `undefined method 'X'; did you m
 | `include`, `has_key`, `cover` | `has` | `collect` | `map` |
 | `detect` | `find` | `inject` | `reduce` |
 
-The suggester knows three more that the parser does not rewrite: `match` → `captures`,
-`puts` → `say`, `p` → `debug`. Those come out as `name` errors, the table above as `syntax`.
+The suggester knows four more that the parser does not rewrite: `match` → `captures`,
+`puts` → `println`, `p` → `debug`, and mzs's own former spelling `say` → `println`. Those
+come out as `name` errors, the table above as `syntax`.
 
 `case`/`when` has no fix-it of its own — it fails as `unexpected 'x' after statement`. The
 construct to use is [`match`](../language/control-flow.md).

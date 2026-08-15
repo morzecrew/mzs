@@ -33,9 +33,9 @@ http.serve(":8080", {
     item ?? http.json({error: "no item ${req["params"]["id"]}"}, 404)
   },
   "GET /shutdown":  { (_) -> http.stop(); "bye" },
-}, { (url) -> say("listening on ${url}") })
+}, { (url) -> println("listening on ${url}") })
 
-say("stopped")
+println("stopped")
 ```
 
 ```sh
@@ -222,7 +222,7 @@ include http
 async fn probe(u) { try http.get(u, {timeout: 2}) else "timed out" }
 a = probe("http://10.255.255.1/x")
 b = probe("http://10.255.255.2/x")
-say("${a.await} / ${b.await}")
+println("${a.await} / ${b.await}")
 ```
 
 ```sh

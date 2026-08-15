@@ -119,14 +119,14 @@ in.Eval(context.Background(), script, nil)
 
 ```
 include io
-say("lines: ${io.read("data/a.txt").lines.len}")
-say("exists: ${io.exists("data/a.txt")} ${io.exists("data/nope.txt")}")
-say("wrote: ${io.write("data/b.txt", "hi")} + ${io.append("data/b.txt", "!")}")
-say("ls: ${io.ls("data/")}")
-say("env: ${io.env("STAGE", "prod")} ${io.env("MISSING", "prod")}")
-say("stdin: ${io.stdin.lines}")
-say("missing: ${try io.read("data/nope.txt") else "fallback"}")
-say("escape: ${try io.read("../etc/passwd") else "denied"}")
+println("lines: ${io.read("data/a.txt").lines.len}")
+println("exists: ${io.exists("data/a.txt")} ${io.exists("data/nope.txt")}")
+println("wrote: ${io.write("data/b.txt", "hi")} + ${io.append("data/b.txt", "!")}")
+println("ls: ${io.ls("data/")}")
+println("env: ${io.env("STAGE", "prod")} ${io.env("MISSING", "prod")}")
+println("stdin: ${io.stdin.lines}")
+println("missing: ${try io.read("data/nope.txt") else "fallback"}")
+println("escape: ${try io.read("../etc/passwd") else "denied"}")
 ```
 
 ```

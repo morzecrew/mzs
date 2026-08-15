@@ -39,16 +39,16 @@ n = 0; while n < 5 { n += 1; break "stop" if n == 3 } # stop
 pairs); `for k, v in xs` destructures each item, which is the form a dict is read with.
 
 ```
-for x in 1..3 { say(x) }              # prints 1, 2, 3
-for ch in "abc" { say(ch) }           # prints a, b, c
-for k, v in {a: 1, b: 2} { say("${k}=${v}") }   # prints a=1, b=2
+for x in 1..3 { println(x) }              # prints 1, 2, 3
+for ch in "abc" { println(ch) }           # prints a, b, c
+for k, v in {a: 1, b: 2} { println("${k}=${v}") }   # prints a=1, b=2
 ```
 
 The value of a `for` is the thing it iterated, and `for k, v` insists on a pair per item:
 
 ```
 inspect(for x in [1,2,3] { x })       # [1,2,3]
-for i, ch in "ab".chars { say(ch) }
+for i, ch in "ab".chars { println(ch) }
 # type: cannot destructure string: a two-variable 'for' takes an array of two per item
 ```
 

@@ -57,30 +57,30 @@ rows = parsed.compact.map { (m) ->
     ip:     m["ip"] }
 }
 
-say("parsed ${rows.len} entries, skipped ${bad} unparsable line(s)")
-say("window ${rows.first["time"]} – ${rows.last["time"]}")
+println("parsed ${rows.len} entries, skipped ${bad} unparsable line(s)")
+println("window ${rows.first["time"]} – ${rows.last["time"]}")
 
 # --- health at a glance --------------------------------------------------------
 
 errors = rows.filter { it["status"] >= 400 }
-say("")
-say("error rate ${errors.len * 100 / rows.len}% (${errors.len}/${rows.len}) — ${rows.map { it["level"] }.tally.json}")
-say("statuses   ${rows.map { it["status"] }.tally.sort_by { (code, _) -> code }.map { "${it[0]}×${it[1]}" }.join("  ")}")
+println("")
+println("error rate ${errors.len * 100 / rows.len}% (${errors.len}/${rows.len}) — ${rows.map { it["level"] }.tally.json}")
+println("statuses   ${rows.map { it["status"] }.tally.sort_by { (code, _) -> code }.map { "${it[0]}×${it[1]}" }.join("  ")}")
 
 # --- latency: sort once, read the percentiles off the array -------------------
 
 fn percentile(sorted, p) { sorted[((sorted.len - 1) * p / 100).clamp(0, sorted.len - 1)] }
 
 lat = rows.map { it["ms"] }.sort
-say("")
-say("latency  min ${lat.first}ms  p50 ${percentile(lat, 50)}ms  p90 ${percentile(lat, 90)}ms  p95 ${percentile(lat, 95)}ms  max ${lat.last}ms")
-say("mean ${lat.sum / lat.len}ms over ${lat.len} requests")
+println("")
+println("latency  min ${lat.first}ms  p50 ${percentile(lat, 50)}ms  p90 ${percentile(lat, 90)}ms  p95 ${percentile(lat, 95)}ms  max ${lat.last}ms")
+println("mean ${lat.sum / lat.len}ms over ${lat.len} requests")
 
 # --- per endpoint: the table an on-call reads first ---------------------------
 
-say("")
-say("${"endpoint".ljust(18)}${"n".rjust(4)}${"err".rjust(5)}${"p95".rjust(8)}${"worst".rjust(8)}  profile")
-say("-" * 64)
+println("")
+println("${"endpoint".ljust(18)}${"n".rjust(4)}${"err".rjust(5)}${"p95".rjust(8)}${"worst".rjust(8)}  profile")
+println("-" * 64)
 rows.group_by { "${it["method"]} ${it["path"].replace(/\/\d+$/, "/{id}")}" }
     .sort_by { (_, rs) -> -rs.map { it["ms"] }.max }
     .each { (pair) ->
@@ -89,46 +89,46 @@ rows.group_by { "${it["method"]} ${it["path"].replace(/\/\d+$/, "/{id}")}" }
       ms = rs.map { it["ms"] }.sort
       errs = rs.count { it["status"] >= 400 }
       bar = "▇" * (ms.max / 100).clamp(0, 14)
-      say("${name.ljust(18)}${rs.len.str.rjust(4)}${errs.str.rjust(5)}${(percentile(ms, 95).str + "ms").rjust(8)}${(ms.max.str + "ms").rjust(8)}  ${bar}")
+      println("${name.ljust(18)}${rs.len.str.rjust(4)}${errs.str.rjust(5)}${(percentile(ms, 95).str + "ms").rjust(8)}${(ms.max.str + "ms").rjust(8)}  ${bar}")
     }
 
 # --- who is causing it ---------------------------------------------------------
 
-say("")
-say("by client")
+println("")
+println("by client")
 rows.group_by { it["ip"] }
     .map { (ip, rs) -> {ip: ip, n: rs.len, errs: rs.count { it["status"] >= 400 }} }
     .sort_by { -it["errs"] }
     .each { (c) ->
       share = c["errs"] * 100 / c["n"]
       flag = share >= 50 ? "  ← ${share}% of its traffic fails" : ""
-      say("  ${c["ip"].ljust(11)}${c["n"].str.rjust(3)} req  ${c["errs"].str.rjust(2)} err  ${share.str.rjust(3)}%${flag}")
+      println("  ${c["ip"].ljust(11)}${c["n"].str.rjust(3)} req  ${c["errs"].str.rjust(2)} err  ${share.str.rjust(3)}%${flag}")
     }
 
 # --- traffic per minute, as a shape rather than a number ----------------------
 
-say("")
-say("requests per minute")
+println("")
+println("requests per minute")
 per_minute = rows.group_by { it["minute"] }
 per_minute.keys.sort.each { (m) ->
   n = per_minute[m].len
   errs = per_minute[m].count { it["status"] >= 400 }
-  say("  ${m}  ${"█" * (n - errs)}${"░" * errs} ${n}")
+  println("  ${m}  ${"█" * (n - errs)}${"░" * errs} ${n}")
 }
 
 # --- the incident: consecutive failures on one endpoint -----------------------
 
 payment = rows.filter { it["path"] == "/payment" }
-say("")
-say("incident: ${payment.len} calls to /payment, ${payment.count { it["status"] >= 500 }} of them 5xx")
-say("  first at ${payment.first["time"]}, last at ${payment.last["time"]}")
-say("  latency climbed ${payment.map { "${it["ms"]}ms" }.join(" → ")}")
-say("  suggested action: circuit-break /payment for ${payment.last["ip"]}")
+println("")
+println("incident: ${payment.len} calls to /payment, ${payment.count { it["status"] >= 500 }} of them 5xx")
+println("  first at ${payment.first["time"]}, last at ${payment.last["time"]}")
+println("  latency climbed ${payment.map { "${it["ms"]}ms" }.join(" → ")}")
+println("  suggested action: circuit-break /payment for ${payment.last["ip"]}")
 
 # --- the one-liner an operator would actually type ----------------------------
 
-say("")
-say("top 3 slowest single requests:")
+println("")
+println("top 3 slowest single requests:")
 rows.sort_by { -it["ms"] }.take(3).each { (r) ->
-  say("  ${r["time"]}  ${r["ms"].str.rjust(5)}ms  ${r["method"]} ${r["path"]} → ${r["status"]}")
+  println("  ${r["time"]}  ${r["ms"].str.rjust(5)}ms  ${r["method"]} ${r["path"]} → ${r["status"]}")
 }

@@ -158,7 +158,7 @@ func TestBuiltinNumeric(t *testing.T) {
 	})
 }
 
-// print/say/debug write to Options.Stdout, never to the process stdout: a script running
+// print/println/debug write to Options.Stdout, never to the process stdout: a script running
 // inside a bot has no console, and the host must be able to capture the output.
 func TestBuiltinOutput(t *testing.T) {
 	tests := []struct {
@@ -170,13 +170,13 @@ func TestBuiltinOutput(t *testing.T) {
 		{"print has no separator and no newline", "print",
 			[]Value{Str("a"), Int(1)}, "a1"},
 		{"print of a Cyrillic value", "print", []Value{Str("привет")}, "привет"},
-		{"say appends a newline per argument", "say",
+		{"println appends a newline per argument", "println",
 			[]Value{Str("a"), Str("b")}, "a\nb\n"},
-		{"say of an array prints one element per line", "say",
+		{"println of an array prints one element per line", "println",
 			[]Value{Array(Int(1), Int(2))}, "1\n2\n"},
-		{"say of a range prints its str form", "say",
+		{"println of a range prints its str form", "println",
 			[]Value{rangeOf(1, 3, false)}, "1..3\n"},
-		{"say with no arguments writes one newline", "say", nil, "\n"},
+		{"println with no arguments writes one newline", "println", nil, "\n"},
 		{"debug writes the inspect form", "debug", []Value{Str("a")}, "\"a\"\n"},
 		{"debug of nil spells it out", "debug", []Value{Nil()}, "nil\n"},
 	}
@@ -478,7 +478,7 @@ func TestBuiltinDupTapAndPipe(t *testing.T) {
 // lookup and the §17 suggestions find it.
 func TestBuiltinRoster(t *testing.T) {
 	present := []string{
-		"print", "say", "debug", "len", "empty", "type", "is", "str", "int", "float",
+		"print", "println", "debug", "len", "empty", "type", "is", "str", "int", "float",
 		"bool", "array", "dict", "json", "inspect", "hash", "dup", "tap", "pipe",
 		"regex", "range", "sum", "min", "max", "abs", "round", "ceil", "floor", "sort",
 		"format", "raise", "assert", "defined", "rand", "uuid", "now",
@@ -494,7 +494,8 @@ func TestBuiltinRoster(t *testing.T) {
 	absent := []struct {
 		old, use string
 	}{
-		{"puts", "say"},
+		{"puts", "println"},
+		{"say", "println"}, // mzs's own former spelling (§19.2)
 		{"p", "debug"},
 		{"sprintf", "format"},
 		{"printf", "print(format(…))"},

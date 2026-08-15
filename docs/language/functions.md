@@ -182,7 +182,7 @@ many values to pass: extra arguments are dropped, missing ones are `nil`.
 ```
 { 42 }.call(9)                             # 42
 inspect({ (x) -> x }.call())               # nil
-[1, 2].each { (a, b, c) -> say(inspect([a, b, c])) }   # [1,null,null] / [2,null,null]
+[1, 2].each { (a, b, c) -> println(inspect([a, b, c])) }   # [1,null,null] / [2,null,null]
 ```
 
 `return`, `break` and `next` inside a closure reach the enclosing function or loop:
@@ -212,7 +212,7 @@ A trailing closure is appended as the last argument and binds to the nearest pre
 [3, 1, 2].map { it }.join(",")             # 3,1,2
 ```
 
-Paren-less calls with arguments do not exist (`say "hi"` is a syntax error), and calling a
+Paren-less calls with arguments do not exist (`println "hi"` is a syntax error), and calling a
 non-function is an error: `5(1)` is `type: not a function: int`.
 
 ## Closures capture by reference

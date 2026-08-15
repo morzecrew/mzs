@@ -30,13 +30,13 @@ func init() {
 			}
 			return Nil(), nil
 		}},
-		Builtin{Name: "say", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
+		Builtin{Name: "println", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
 			out := c.Out()
 			if len(args) == 0 {
 				return Nil(), writeOut(c, out, "\n")
 			}
 			for _, a := range args {
-				if err := sayValue(c, out, a); err != nil {
+				if err := printlnValue(c, out, a); err != nil {
 					return Nil(), err
 				}
 			}
@@ -299,14 +299,14 @@ func writeOut(c *Ctx, w io.Writer, s string) error {
 	return nil
 }
 
-// sayValue writes one `say` argument: an Array prints one element per line, everything
+// printlnValue writes one `println` argument: an Array prints one element per line, everything
 // else is its `str` followed by a newline (§12.1). A Range is not an Array here — it
 // prints as `1..3`, which is both its `str` and the only form that cannot materialise a
 // billion elements on the way to the writer.
-func sayValue(c *Ctx, w io.Writer, v Value) error {
+func printlnValue(c *Ctx, w io.Writer, v Value) error {
 	if v.Kind() == KArray {
 		for _, e := range v.Elems() {
-			if err := sayValue(c, w, e); err != nil {
+			if err := printlnValue(c, w, e); err != nil {
 				return err
 			}
 		}

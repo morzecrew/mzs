@@ -32,7 +32,7 @@ field grants one capability.
 | `time` / `date` modules | `EnableTime` | `--time` |
 | `now()`, `time.now`, `date.today` | `Now` | `--time` |
 | `rand()`, `uuid()`, `sample`, `shuffle` | `Rand` | `--rand [seed]` |
-| `print` / `say` / `debug` output | `Stdout` | always wired by the CLI |
+| `print` / `println` / `debug` output | `Stdout` | always wired by the CLI |
 | runtime notices (a failed unawaited task, an http handler error) | `Stderr` | always wired by the CLI |
 
 Off, each is a compile-time name error that says which field is missing:

@@ -20,10 +20,10 @@ export format
 # main.mzs
 include money from "./money.mzs"
 
-say(money.keys.json)
-say(money.format(money.from_units(15)))
-say(defined(money.rate))
-say(money.currency)
+println(money.keys.json)
+println(money.format(money.from_units(15)))
+println(defined(money.rate))
+println(money.currency)
 ```
 
 ```sh

@@ -38,8 +38,8 @@ fn find_cell(grid, ch) {
 start = find_cell(grid, "S")
 goal = find_cell(grid, "E")
 
-say("maze ${W}×${H}, start ${key(start["x"], start["y"])}, exit ${key(goal["x"], goal["y"])}")
-say("walls ${grid.flatten.count { it == "#" }}, open ${grid.flatten.count { it != "#" }}")
+println("maze ${W}×${H}, start ${key(start["x"], start["y"])}, exit ${key(goal["x"], goal["y"])}")
+println("walls ${grid.flatten.count { it == "#" }}, open ${grid.flatten.count { it != "#" }}")
 
 # --- the search ------------------------------------------------------------------
 #
@@ -81,9 +81,9 @@ fn bfs(grid, from, to) {
 search = bfs(grid, start, goal)
 goal_key = key(goal["x"], goal["y"])
 
-say("")
-say("expanded ${search["expanded"]} cells, reached ${search["dist"].len} of ${grid.flatten.count { it != "#" }} open cells")
-say("shortest path: ${search["dist"][goal_key] ?? "unreachable"} steps")
+println("")
+println("expanded ${search["expanded"]} cells, reached ${search["dist"].len} of ${grid.flatten.count { it != "#" }} open cells")
+println("shortest path: ${search["dist"][goal_key] ?? "unreachable"} steps")
 
 # --- reconstruct the path by walking the parents backwards --------------------
 
@@ -94,16 +94,16 @@ while cursor != nil {
   cursor = search["parent"][cursor]
 }
 
-say("path length ${path.len} cells (${path.len - 1} moves)")
-say("first steps: ${path.take(6).join(" → ")} …")
+println("path length ${path.len} cells (${path.len - 1} moves)")
+println("first steps: ${path.take(6).join(" → ")} …")
 
 # --- draw it ---------------------------------------------------------------------
 
 on_path = path.reduce({}) { (acc, k) -> acc.set(k, true) }
 
-say("")
+println("")
 (0..<H).each { (y) ->
-  say("  " + (0..<W).map { (x) ->
+  println("  " + (0..<W).map { (x) ->
     match {
       grid[y][x] == "S" || grid[y][x] == "E" -> grid[y][x]
       on_path.has(key(x, y))                 -> "•"
@@ -114,10 +114,10 @@ say("")
 
 # --- the distance field says how the search spread ---------------------------
 
-say("")
-say("distance field (hex digits, · = wall, space = never reached)")
+println("")
+println("distance field (hex digits, · = wall, space = never reached)")
 (0..<H).each { (y) ->
-  say("  " + (0..<W).map { (x) ->
+  println("  " + (0..<W).map { (x) ->
     d = search["dist"][key(x, y)]
     match {
       grid[y][x] == "#" -> "·"
@@ -141,10 +141,10 @@ steps_ok = path.each_cons(2).all { (pair) ->
   (a[0] - b[0]).abs + (a[1] - b[1]).abs == 1 && grid[b[1]][b[0]] != "#"
 }
 
-say("")
-say("every move is to an adjacent open cell: ${steps_ok}")
-say("path length equals the BFS distance:    ${path.len - 1 == search["dist"][goal_key]}")
-say("the exit is the farthest cell reached:  ${search["dist"].values.max == search["dist"][goal_key]}")
+println("")
+println("every move is to an adjacent open cell: ${steps_ok}")
+println("path length equals the BFS distance:    ${path.len - 1 == search["dist"][goal_key]}")
+println("the exit is the farthest cell reached:  ${search["dist"].values.max == search["dist"][goal_key]}")
 
 # --- a closed maze: the same code must say so, not hang -----------------------
 
@@ -152,5 +152,5 @@ sealed = grid.map { (row) -> dup(row) }
 sealed[9][23] = "#"
 sealed[8][22] = "#"
 blocked = bfs(sealed, start, {x: 23, y: 9})
-say("")
-say("with the exit walled in: ${blocked["dist"][goal_key] == nil ? "unreachable, reported in ${blocked["expanded"]} expansions" : "still reachable"}")
+println("")
+println("with the exit walled in: ${blocked["dist"][goal_key] == nil ? "unreachable, reported in ${blocked["expanded"]} expansions" : "still reachable"}")

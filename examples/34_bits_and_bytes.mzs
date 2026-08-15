@@ -14,8 +14,8 @@
 
 fn bin(n, width) { n.str(2).rjust(width, "0") }
 
-say("=== flags: one integer, eight yes-or-no answers ===")
-say("")
+println("=== flags: one integer, eight yes-or-no answers ===")
+println("")
 
 READ    = shl(1, 0)
 WRITE   = shl(1, 1)
@@ -27,34 +27,34 @@ NAMES = [[READ, "read"], [WRITE, "write"], [EXECUTE, "execute"], [DELETE, "delet
 fn granted(flags) { NAMES.filter { (p) -> flags.band(p[0]) != 0 }.map { it[1] } }
 
 perm = bor(READ, WRITE)
-say("bor(READ, WRITE)      → ${bin(perm, 4)}  ${granted(perm).json}")
+println("bor(READ, WRITE)      → ${bin(perm, 4)}  ${granted(perm).json}")
 
 perm = perm.bor(EXECUTE)
-say("add EXECUTE           → ${bin(perm, 4)}  ${granted(perm).json}")
+println("add EXECUTE           → ${bin(perm, 4)}  ${granted(perm).json}")
 
 perm = perm.band(bnot(WRITE))
-say("clear WRITE           → ${bin(perm, 4)}  ${granted(perm).json}")
+println("clear WRITE           → ${bin(perm, 4)}  ${granted(perm).json}")
 
-say("bit(perm, 0)          → ${perm.bit(0)}   (READ is bit 0)")
-say("bit(perm, 1)          → ${perm.bit(1)}  (WRITE is gone)")
-say("popcount(perm)        → ${popcount(perm)}      (how many are on, without a loop)")
+println("bit(perm, 0)          → ${perm.bit(0)}   (READ is bit 0)")
+println("bit(perm, 1)          → ${perm.bit(1)}  (WRITE is gone)")
+println("popcount(perm)        → ${popcount(perm)}      (how many are on, without a loop)")
 
 # A toggle is xor with the flag, and doing it twice is doing nothing.
-say("bxor twice is identity → ${perm.bxor(DELETE).bxor(DELETE) == perm}")
+println("bxor twice is identity → ${perm.bxor(DELETE).bxor(DELETE) == perm}")
 
 # --- a mask takes a field out of the middle of a number ----------------------
 
-say("")
-say("=== masks: one number, three fields ===")
-say("")
+println("")
+println("=== masks: one number, three fields ===")
+println("")
 
 fn rgb(r, g, b) { shl(r, 16).bor(shl(g, 8)).bor(b) }
 
 color = rgb(0x2E, 0x86, 0xC1)
-say("colour                → #${color.str(16).upper.rjust(6, "0")}  (${bin(color, 24)})")
-say("red   = shr(c, 16).band(0xff) → ${color.shr(16).band(0xff)}")
-say("green = shr(c,  8).band(0xff) → ${color.shr(8).band(0xff)}")
-say("blue  =        c  .band(0xff) → ${color.band(0xff)}")
+println("colour                → #${color.str(16).upper.rjust(6, "0")}  (${bin(color, 24)})")
+println("red   = shr(c, 16).band(0xff) → ${color.shr(16).band(0xff)}")
+println("green = shr(c,  8).band(0xff) → ${color.shr(8).band(0xff)}")
+println("blue  =        c  .band(0xff) → ${color.band(0xff)}")
 
 # The same idea one size up: an IPv4 address is four bytes in a 32-bit integer, and a
 # subnet test is "do these two agree everywhere the mask has a bit".
@@ -78,40 +78,40 @@ fn in_subnet(ip, net, prefix) {
   ip_to_int(ip).band(m) == ip_to_int(net).band(m)
 }
 
-say("")
+println("")
 addr = "192.168.1.10"
-say("${addr} → ${ip_to_int(addr)} → ${int_to_ip(ip_to_int(addr))}")
-say("mask /24              → ${int_to_ip(netmask(24))}  (${bin(netmask(24), 32)})")
+println("${addr} → ${ip_to_int(addr)} → ${int_to_ip(ip_to_int(addr))}")
+println("mask /24              → ${int_to_ip(netmask(24))}  (${bin(netmask(24), 32)})")
 for host in ["192.168.1.7", "192.168.2.7", "10.0.0.1"] {
-  say("  ${host.ljust(14)} in 192.168.1.0/24 → ${in_subnet(host, "192.168.1.0", 24)}")
+  println("  ${host.ljust(14)} in 192.168.1.0/24 → ${in_subnet(host, "192.168.1.0", 24)}")
 }
 
 # --- bytes and back ----------------------------------------------------------
 
-say("")
-say("=== bytes: a string is numbers, and numbers are a string ===")
-say("")
+println("")
+println("=== bytes: a string is numbers, and numbers are a string ===")
+println("")
 
 fn be_int(bs) { bs.reduce(0) { (acc, b) -> acc.shl(8).bor(b) } }
 fn be_bytes(n, width) { (0..<width).map { (i) -> n.shr(8 * (width - 1 - i)).band(0xff) } }
 
-say("\"Ω\".bytes             → ${"Ω".bytes.json}   (two bytes, one rune)")
-say("…pack_bytes back      → ${inspect("Ω".bytes.pack_bytes)}")
-say("be_int of those bytes → ${be_int("Ω".bytes)}")
+println("\"Ω\".bytes             → ${"Ω".bytes.json}   (two bytes, one rune)")
+println("…pack_bytes back      → ${inspect("Ω".bytes.pack_bytes)}")
+println("be_int of those bytes → ${be_int("Ω".bytes)}")
 
 # A four-byte big-endian record, written and read back the way a binary format would.
 record = be_bytes(2026, 2).concat(be_bytes(0xCAFE, 2))
-say("")
-say("bytes                 → ${record.json}")
-say("as a string           → ${inspect(record.pack_bytes)}  (not text, and that is fine)")
-say("year, magic           → ${be_int(record.first(2))}, 0x${be_int(record.last(2)).str(16).upper}")
-say("round trip            → ${record.pack_bytes.bytes == record}")
+println("")
+println("bytes                 → ${record.json}")
+println("as a string           → ${inspect(record.pack_bytes)}  (not text, and that is fine)")
+println("year, magic           → ${be_int(record.first(2))}, 0x${be_int(record.last(2)).str(16).upper}")
+println("round trip            → ${record.pack_bytes.bytes == record}")
 
 # --- a checksum: what all of this is actually for ----------------------------
 
-say("")
-say("=== CRC-32, twelve lines of bit work ===")
-say("")
+println("")
+println("=== CRC-32, twelve lines of bit work ===")
+println("")
 
 POLY = 0xEDB88320
 
@@ -130,25 +130,25 @@ fn hex32(n) { n.str(16).rjust(8, "0") }
 
 [["123456789", 0xCBF43926], ["", 0x00000000], ["mzs", 0xA392309B]].each { (row) ->
   got = crc32(row[0])
-  say("crc32(${inspect(row[0]).ljust(11)}) = ${hex32(got)}  ${got == row[1] ? "✓" : "✗ want " + hex32(row[1])}")
+  println("crc32(${inspect(row[0]).ljust(11)}) = ${hex32(got)}  ${got == row[1] ? "✓" : "✗ want " + hex32(row[1])}")
 }
 
 # The point of a checksum is that a single flipped bit changes it. popcount over the xor
 # of the two results says how much of it changed.
 a = crc32("payment: 1500 RUB")
 b = crc32("payment: 1500 RUR")
-say("")
-say("one letter apart      → ${hex32(a)} vs ${hex32(b)}")
-say("bits that differ      → ${popcount(a.bxor(b))} of 32")
+println("")
+println("one letter apart      → ${hex32(a)} vs ${hex32(b)}")
+println("bits that differ      → ${popcount(a.bxor(b))} of 32")
 
 # --- what the functions refuse ------------------------------------------------
 
-say("")
-say("=== and what they will not guess ===")
-say("")
+println("")
+println("=== and what they will not guess ===")
+println("")
 
-say(try 2.9.band(1) else (e) -> "  2.9.band(1)         → ${e["kind"]}: ${e["message"]}")
-say(try shl(1, -1) else (e) -> "  shl(1, -1)          → ${e["kind"]}: ${e["message"]}")
-say(try [65, 300].pack_bytes else (e) -> "  [65,300].pack_bytes → ${e["kind"]}: ${e["message"]}")
-say("  shl(1, 64)          → ${shl(1, 64)}  (a bit shifted out is gone, not promoted)")
-say("  type(shl(1, 63))    → ${type(shl(1, 63))}  (where 2 ** 64 would be a ${type(2 ** 64)})")
+println(try 2.9.band(1) else (e) -> "  2.9.band(1)         → ${e["kind"]}: ${e["message"]}")
+println(try shl(1, -1) else (e) -> "  shl(1, -1)          → ${e["kind"]}: ${e["message"]}")
+println(try [65, 300].pack_bytes else (e) -> "  [65,300].pack_bytes → ${e["kind"]}: ${e["message"]}")
+println("  shl(1, 64)          → ${shl(1, 64)}  (a bit shifted out is gone, not promoted)")
+println("  type(shl(1, 63))    → ${type(shl(1, 63))}  (where 2 ** 64 would be a ${type(2 ** 64)})")

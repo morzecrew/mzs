@@ -732,7 +732,7 @@ g.call(1)                # 1 — a closure takes what it is given (§7.7)
 
 * `x.f` with no parentheses is a **method call with zero arguments**, not a field access.
   Values have no fields.
-* Paren-less calls **with** arguments (`say "hi"`) are not supported. Always write `say("hi")`.
+* Paren-less calls **with** arguments (`say "hi"`) are not supported. Always write `println("hi")`.
 * A trailing closure after `)` or after a method name is appended as the **last argument**:
   `xs.map { … }` ≡ `map(xs, { … })`, and `xs.reduce(0) { … }` ≡ `reduce(xs, 0, { … })`.
 * A trailing closure binds to the **nearest preceding call**: `a.map { … }.join(",")` parses
@@ -1547,7 +1547,7 @@ is the point — N slow requests in N tasks cost about one of them.
 
 Nothing is preemptive: a task that only computes runs to its end once it holds the lock.
 Which *runnable* task takes over at a release point is unspecified, so two tasks that both
-`say` may print in either order. Code outside a task is as ordered as it ever was.
+`println` may print in either order. Code outside a task is as ordered as it ever was.
 
 **Limits.** One Run, one budget: the steps a task spends are the Run's steps and the
 deadline is the Run's deadline (§14.1). Waiting honours both, so a task awaiting one that can
@@ -1798,7 +1798,7 @@ Conventions used in the tables:
 | Name | Signature | Semantics | Example |
 |---|---|---|---|
 | `print` | `print(*args) -> nil` | writes `str` of each arg to `Options.Stdout`, no separator, no newline | `print(a)` |
-| `say` | `say(*args) -> nil` | like `print` but appends `\n` after each arg; `say()` writes one `\n`; an Array arg prints one element per line | `say("hi")` |
+| `println` | `println(*args) -> nil` | like `print` but appends `\n` after each arg; `println()` writes one `\n`; an Array arg prints one element per line | `println("hi")` |
 | `debug` | `debug(*args) -> any` | writes the `inspect` form + `\n`; returns the first arg | `debug(x)` |
 | `len` | `len(x) -> int` | rune length of a String, element count of Array/Dict/Range; `nil` → 0 | `s.len > 2` |
 | `empty` | `empty(x) -> bool` | `len(x) == 0` | `xs.empty` |
@@ -2801,7 +2801,7 @@ caret.
 Reference one-liners (all must work):
 
 ```sh
-mzs -e 'say("hi")'
+mzs -e 'println("hi")'
 mzs -v '__sent=  ОПЕРАТОР ' -e '$__sent.lower.trim == "оператор"'
 mzs -e 's = $__sent.lower; s ~ /привет|hello/i' --vars '{"__sent":"Привет!"}'
 mzs -e '(0..6).map { it * 2 }.each_slice(2).array' --json
@@ -2881,7 +2881,7 @@ evaluate as stated. Turn this table into a table-driven Go test verbatim.
 | 53 | `$not_existed` | — | `nil` (§9.2) |
 | 54 | `0` | — | `0`, and `Bool` of it is **true** |
 | 55 | `$sent == "лол"` | `sent="лол"` | true |
-| 56 | `$sent == say("test")` | `sent="x"` | `say` writes `test`, returns `nil`, `"x" == nil` → false |
+| 56 | `$sent == println("test")` | `sent="x"` | `println` writes `test`, returns `nil`, `"x" == nil` → false |
 | 57 | `match $__sent.lower.trim { in ["да","ага"] -> "yes"; /^нет/ -> "no"; else -> "?" }` | `__sent=" АГА "` | `"yes"` |
 | 58 | `match { $__sent.len > 3 -> "long"; else -> "short" }` | `__sent="да"` | `"short"` |
 
@@ -3018,6 +3018,11 @@ Rules:
   a Levenshtein-1 search over the receiver's method table, and an exact lookup in the rename
   table of §19.2 (so `.downcase` suggests `.lower`, not nothing). One-liners are typed by
   hand into a web `<input>`; a bad suggestion costs less than none.
+* A name **mzs itself** has renamed joins that same table, because D17 buys "one name per
+  operation" with a diagnostic and an old name that merely stops existing is not one.
+  There is one so far: `say` became `println`, so that which of the pair adds the newline
+  is legible from the name — `say("hi")` answers
+  `undefined function 'say' (did you mean 'println'?)`.
 * Every row of §5.6 is a diagnostic with a fixed message, produced by the lexer or parser
   before any other error can cascade from it.
 * Warnings never fail a compile unless `StrictWarnings`. Current warnings:
@@ -3127,7 +3132,7 @@ publish time rather than silently at runtime.
 | `{k: v}` | `{k: v}` |
 | `{ \|x\| … }` | `{ (x) -> … }` |
 | `->(x) { … }` / `&fn` | `{ (x) -> … }` / `fn` |
-| `puts(` / `p(` | `say(` / `debug(` |
+| `puts(` / `p(` | `println(` / `debug(` |
 | ` and ` / ` or ` / `not ` | ` && ` / ` \|\| ` / `!` |
 | `a rescue b` | `try a else b` |
 | `x&.y` | `x?.y` |

@@ -62,12 +62,12 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name:    "an implied print skips a nil result",
-			argv:    []string{"-e", `say("hi")`},
+			argv:    []string{"-e", `println("hi")`},
 			wantOut: "hi\n",
 		},
 		{
 			name:    "an explicit -p prints the nil too",
-			argv:    []string{"-p", "-e", `say("hi")`},
+			argv:    []string{"-p", "-e", `println("hi")`},
 			wantOut: "hi\n\n",
 		},
 		{
@@ -144,7 +144,7 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name:     "check compiles without running",
-			argv:     []string{"--check", "-e", `say("not printed")`},
+			argv:     []string{"--check", "-e", `println("not printed")`},
 			contains: []string{"ok"},
 		},
 		{
@@ -192,13 +192,13 @@ func TestCLI(t *testing.T) {
 		{
 			name:    "stdin is run when it is not a terminal",
 			argv:    nil,
-			stdin:   `say("from stdin")`,
+			stdin:   `println("from stdin")`,
 			wantOut: "from stdin\n",
 		},
 		{
 			name:    "explicit dash reads stdin",
 			argv:    []string{"-"},
-			stdin:   `say(1 + 1)`,
+			stdin:   `println(1 + 1)`,
 			wantOut: "2\n",
 		},
 		{
@@ -224,7 +224,7 @@ func TestCLI(t *testing.T) {
 			// §12.1: `exit` is the program naming its own status. It is not a failure, so
 			// nothing is printed for it, and nothing after it runs.
 			name:     "exit sets the status and prints nothing",
-			argv:     []string{"-e", `say("done"); exit(2); say("never")`},
+			argv:     []string{"-e", `println("done"); exit(2); println("never")`},
 			wantCode: 2,
 			wantOut:  "done\n",
 			errLacks: []string{"exit", "error"},
@@ -237,7 +237,7 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name:     "one line asking to exit ends the whole -n run",
-			argv:     []string{"-n", "--no-print", "-e", `say($_); exit(4) if $_ == "b"`},
+			argv:     []string{"-n", "--no-print", "-e", `println($_); exit(4) if $_ == "b"`},
 			stdin:    "a\nb\nc\n",
 			wantCode: 4,
 			wantOut:  "a\nb\n",
@@ -331,7 +331,7 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name:     "empty input runs the program zero times",
-			argv:     []string{"-n", "-e", `say("never")`},
+			argv:     []string{"-n", "-e", `println("never")`},
 			stdin:    "",
 			wantCode: 0,
 			wantOut:  "",
@@ -352,7 +352,7 @@ func TestCLI(t *testing.T) {
 		},
 		{
 			name:     "every line runs even after --bool has its answer",
-			argv:     []string{"-n", "--bool", "-e", `say("seen ${$_}"); true`},
+			argv:     []string{"-n", "--bool", "-e", `println("seen ${$_}"); true`},
 			stdin:    "a\nb\n",
 			wantCode: 0,
 			wantOut:  "seen a\nseen b\n",
@@ -375,7 +375,7 @@ func TestCLI(t *testing.T) {
 		{
 			name:     "-n with the program on stdin has nothing left to read",
 			argv:     []string{"-n"},
-			stdin:    `say("hi")`,
+			stdin:    `println("hi")`,
 			wantCode: 2,
 			errHas:   []string{"-n has nothing to read", "--in"},
 		},
@@ -455,8 +455,8 @@ func TestReferenceOneLiners(t *testing.T) {
 		want string
 	}{
 		{
-			name: `say("hi")`,
-			argv: []string{"-e", `say("hi")`},
+			name: `println("hi")`,
+			argv: []string{"-e", `println("hi")`},
 			want: "hi\n",
 		},
 		{
@@ -718,7 +718,7 @@ func TestCLIScriptFileAndArgv(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "argv.mzs")
-	if err := os.WriteFile(path, []byte(`say($ARGV.join(","))`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`println($ARGV.join(","))`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -798,7 +798,7 @@ func TestCLIIOModule(t *testing.T) {
 		}
 	})
 	t.Run("stdin is still the program when nothing else supplied one", func(t *testing.T) {
-		code, stdout, stderr := exec(nil, `include io; say("stdin has ${io.lines.len} lines of data")`)
+		code, stdout, stderr := exec(nil, `include io; println("stdin has ${io.lines.len} lines of data")`)
 		if code != 0 {
 			t.Fatalf("exit = %d, stderr: %s", code, stderr)
 		}
@@ -1034,7 +1034,7 @@ func TestIncomplete(t *testing.T) {
 		{"a wrong but complete expression", "1 +", false},
 		{"an open fn body", "fn f(a, b) {", true},
 		{"a closed fn body", "fn f(a, b) { a + b }", false},
-		{"an open call", "say(", true},
+		{"an open call", "println(", true},
 		{"an open array", "xs = [1, 2,", true},
 		{"an open closure", "xs.map { (x) ->", true},
 		{"a brace inside a string does not open anything", `s = "{"`, false},

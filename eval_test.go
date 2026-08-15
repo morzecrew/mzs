@@ -424,7 +424,7 @@ func TestNamedArgumentErrors(t *testing.T) {
 func TestNamedArgumentsEvaluateInOrder(t *testing.T) {
 	var sb strings.Builder
 	in := New(Options{Stdout: &sb})
-	const src = `fn f(a, b, c) { 0 }; f(say("1"), c = say("3"), b = say("2"))`
+	const src = `fn f(a, b, c) { 0 }; f(println("1"), c = println("3"), b = println("2"))`
 	if _, err := in.Eval(context.Background(), src, nil); err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestCalls(t *testing.T) {
 func TestArgumentsEvaluateLeftToRight(t *testing.T) {
 	var sb strings.Builder
 	in := New(Options{Stdout: &sb})
-	const src = `fn f(a, b, c) { 0 }; f(say("1"), say("2"), say("3"))`
+	const src = `fn f(a, b, c) { 0 }; f(println("1"), println("2"), println("3"))`
 	if _, err := in.Eval(context.Background(), src, nil); err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
@@ -825,7 +825,7 @@ func TestExit(t *testing.T) {
 	}{
 		{"a status of its own", `exit(3)`, 3},
 		{"no argument is zero", `exit()`, 0},
-		{"nothing after it runs", `say("a"); exit(1); raise("never")`, 1},
+		{"nothing after it runs", `println("a"); exit(1); raise("never")`, 1},
 		{"from inside a function", `fn f() { exit(2) }; f(); 9`, 2},
 		{"from inside a closure", `[1, 2].each { exit(4) }`, 4},
 		{"try does not catch it", `try exit(5) else "caught"`, 5},
@@ -1041,7 +1041,7 @@ func TestMatchExpression(t *testing.T) {
 func TestMatchSubjectEvaluatedOnce(t *testing.T) {
 	var sb strings.Builder
 	in := New(Options{Stdout: &sb})
-	const src = `match say("once") { "a" -> 1; "b" -> 2; nil -> 3; else -> 4 }`
+	const src = `match println("once") { "a" -> 1; "b" -> 2; nil -> 3; else -> 4 }`
 	v := evOK(t, in, src, nil)
 	if v.Int() != 3 {
 		t.Errorf("= %s, want 3", v.Inspect())
@@ -1377,9 +1377,9 @@ func TestHostFunctions(t *testing.T) {
 
 	t.Run("Unregister narrows the surface", func(t *testing.T) {
 		narrow := New(Options{})
-		narrow.Unregister("say")
-		if _, err := narrow.Eval(context.Background(), `say("x")`, nil); err == nil {
-			t.Error("say is still reachable after Unregister")
+		narrow.Unregister("println")
+		if _, err := narrow.Eval(context.Background(), `println("x")`, nil); err == nil {
+			t.Error("println is still reachable after Unregister")
 		}
 	})
 }

@@ -12,22 +12,22 @@
 fn greet(name, greeting = "Hello", punct = "!") { "${greeting}, ${name}${punct}" }
 fn tag(name, *classes) { classes.empty ? "<${name}>" : "<${name} class=\"${classes.join(" ")}\">" }
 
-say(greet("Ann"))
-say(greet("Ann", "Good afternoon", "."))
-say(tag("div") + tag("span", "big", "red"))
+println(greet("Ann"))
+println(greet("Ann", "Good afternoon", "."))
+println(tag("div") + tag("span", "big", "red"))
 
 # A default may read the parameters bound before it — they are ordinary expressions.
 fn slice_of(xs, from = 0, upto = xs.len) { xs.slice(from, upto - from) }
-say("slice_of: ${slice_of([1, 2, 3, 4, 5], 1).json} / ${slice_of([1, 2, 3, 4, 5], 1, 3).json}")
+println("slice_of: ${slice_of([1, 2, 3, 4, 5], 1).json} / ${slice_of([1, 2, 3, 4, 5], 1, 3).json}")
 
 # --- UFCS: your function is a method of its first argument ---------------------
 
 fn shout(s) { s.upper + "!" }
 fn truncate(s, n, tail = "…") { s.len <= n ? s : s.first(n - tail.len) + tail }
 
-say("")
-say("UFCS: ${"a long sentence that will not fit".truncate(20)} ${"done".shout}")
-say("     the same call: ${truncate("a long sentence that will not fit", 20)}")
+println("")
+println("UFCS: ${"a long sentence that will not fit".truncate(20)} ${"done".shout}")
+println("     the same call: ${truncate("a long sentence that will not fit", 20)}")
 
 # --- closures capture the scope they were written in, by reference ------------
 
@@ -42,8 +42,8 @@ fn make_counter(start = 0, step = 1) {
 c = make_counter(100, 5)
 c["tick"].call()
 c["tick"].call()
-say("")
-say("counter after two ticks: ${c["peek"].call()}, reset → ${c["reset"].call()}")
+println("")
+println("counter after two ticks: ${c["peek"].call()}, reset → ${c["reset"].call()}")
 
 # --- functions are values: compose, partially apply, dispatch -----------------
 
@@ -56,16 +56,16 @@ lower_it  = { (s) -> s.lower }
 squash    = { (s) -> s.squeeze(" ") }
 normalize = compose(trim_it, lower_it, squash)
 
-say("")
-say("compose: ${inspect(normalize.call("   I NEED an   OPERATOR   "))}")
+println("")
+println("compose: ${inspect(normalize.call("   I NEED an   OPERATOR   "))}")
 
 fn multiplier(k) { { (x) -> x * k } }
 double = multiplier(2)
 treble = multiplier(3)
-say("partial application: ${[1, 2, 3].map(double).json} ${[1, 2, 3].map(treble).json}")
+println("partial application: ${[1, 2, 3].map(double).json} ${[1, 2, 3].map(treble).json}")
 
 # A closure passed by name and a closure written at the call site are the same thing.
-say("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it * 2 }.json}")
+println("by name vs literal: ${[1, 2, 3].map(double).json} == ${[1, 2, 3].map { it * 2 }.json}")
 
 # --- an anonymous `fn` is a value too, and it is a function, not a closure -----
 #
@@ -78,15 +78,15 @@ area = {
   "square" -> fn(a) { a * a },
   "rect"   -> fn(w, h) { w * h },
 }
-say("")
-say("dispatch table: circle(2)=${area["circle"](2)} square(3)=${area["square"](3)} rect(2,5)=${area["rect"](2, 5)}")
-say("arity is checked: ${try area["rect"](2) else "rect needs two sides"}")
-say("called where it stands: ${fn(n) { n * n }(12)}")
+println("")
+println("dispatch table: circle(2)=${area["circle"](2)} square(3)=${area["square"](3)} rect(2,5)=${area["rect"](2, 5)}")
+println("arity is checked: ${try area["rect"](2) else "rect needs two sides"}")
+println("called where it stands: ${fn(n) { n * n }(12)}")
 
 # The same function, spelled with an arrow instead of the keyword: the parameters are
 # outside the braces either way, so the braces are the body and not a value.
 perimeter = (w, h) -> { 2 * (w + h) }
-say("arrow form: perimeter(3, 4)=${perimeter(3, 4)} squares=${[1, 2, 3].map((n) -> { n * n }).json}")
+println("arrow form: perimeter(3, 4)=${perimeter(3, 4)} squares=${[1, 2, 3].map((n) -> { n * n }).json}")
 
 # --- a validation chain: named checks, each a closure, run in order -----------
 
@@ -102,9 +102,9 @@ fn validate(value) {
   failed.empty ? "ok" : "failed: ${failed.join(", ")}"
 }
 
-say("")
-say("validation")
-["Ann", "", "a1", "Zoë"].each { (v) -> say("  ${inspect(v).ljust(10)}${validate(v)}") }
+println("")
+println("validation")
+["Ann", "", "a1", "Zoë"].each { (v) -> println("  ${inspect(v).ljust(10)}${validate(v)}") }
 
 # --- recursion: named functions may call themselves; depth is bounded ---------
 
@@ -119,14 +119,14 @@ fn tree_sum(node) {
   is(node, "array") ? node.sum { tree_sum(it) } : node
 }
 
-say("")
-say("quicksort: ${quicksort([9, 2, 7, 4, 1, 8, 3]).json}")
-say("nested sum: ${tree_sum([1, [2, [3, [4, [5]]]], 6])}")
+println("")
+println("quicksort: ${quicksort([9, 2, 7, 4, 1, 8, 3]).json}")
+println("nested sum: ${tree_sum([1, [2, [3, [4, [5]]]], 6])}")
 
 # Mutual recursion works because top-level `fn`s are hoisted before the file runs.
 fn is_even(n) { n == 0 ? true : is_odd(n - 1) }
 fn is_odd(n)  { n == 0 ? false : is_even(n - 1) }
-say("mutual recursion: 10 even? ${is_even(10)}, 7 even? ${is_even(7)}")
+println("mutual recursion: 10 even? ${is_even(10)}, 7 even? ${is_even(7)}")
 
 # --- `return` is optional; the last expression is the value -------------------
 
@@ -134,19 +134,19 @@ fn classify(n) {
   return "negative" if n < 0            # early exit is what `return` is for
   match { n == 0 -> "zero"; n < 10 -> "small"; else -> "large" }
 }
-say("")
-say("classify: ${[-2, 0, 5, 50].map { classify(it) }.join(" ")}")
+println("")
+println("classify: ${[-2, 0, 5, 50].map { classify(it) }.join(" ")}")
 
 # --- what a closure knows about itself ----------------------------------------
 
-say("")
-say("arity of { (a, b) -> } is ${{ (a, b) -> a + b }.arity}, of a rest-arg fn is ${tag.arity} (variadic)")
-say("call by value: ${{ (a, b) -> a * b }.call(6, 7)}")
+println("")
+println("arity of { (a, b) -> } is ${{ (a, b) -> a + b }.arity}, of a rest-arg fn is ${tag.arity} (variadic)")
+println("call by value: ${{ (a, b) -> a * b }.call(6, 7)}")
 
 # --- tap and pipe: inspect a pipeline without breaking it ---------------------
 
 result = [3, 1, 2]
-  .tap { say("tap sees ${it.json} and passes it on") }
+  .tap { println("tap sees ${it.json} and passes it on") }
   .sort
   .pipe { "sorted: ${it.json}" }
-say(result)
+println(result)

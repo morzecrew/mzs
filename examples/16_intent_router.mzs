@@ -107,25 +107,25 @@ messages = [
   "",
 ]
 
-say("${"message".ljust(42)}${"intent".ljust(10)}${"conf".rjust(5)}  entities")
-say("-" * 92)
+println("${"message".ljust(42)}${"intent".ljust(10)}${"conf".rjust(5)}  entities")
+println("-" * 92)
 messages.each { (m) ->
   r = route(m)
   ent = r["entities"].empty ? "" : r["entities"].json
-  say("${(m.len > 40 ? m.first(39) + "…" : m).ljust(42)}${r["intent"].ljust(10)}${("%.2f" % r["confidence"]).rjust(5)}  ${ent}")
+  println("${(m.len > 40 ? m.first(39) + "…" : m).ljust(42)}${r["intent"].ljust(10)}${("%.2f" % r["confidence"]).rjust(5)}  ${ent}")
 }
 
 # --- one message, fully answered ----------------------------------------------
 
 full = answer(messages.first)
-say("")
-say("full answer for ${inspect(messages.first)}")
-say("  normalized: ${inspect(full["normalized"])}")
-say("  intent:     ${full["intent"]} (score ${full["score"]}, confidence ${"%.0f%%" % (full["confidence"] * 100)})")
-say("  competing:  ${full["competing"].empty ? "none" : full["competing"].join(", ")}")
-say("  entities:   ${full["entities"].json}")
-say("  reply:      ${full["reply"]}")
-say("  keyboard:   ${full["keyboard"].json}")
+println("")
+println("full answer for ${inspect(messages.first)}")
+println("  normalized: ${inspect(full["normalized"])}")
+println("  intent:     ${full["intent"]} (score ${full["score"]}, confidence ${"%.0f%%" % (full["confidence"] * 100)})")
+println("  competing:  ${full["competing"].empty ? "none" : full["competing"].join(", ")}")
+println("  entities:   ${full["entities"].json}")
+println("  reply:      ${full["reply"]}")
+println("  keyboard:   ${full["keyboard"].json}")
 
 # --- what the host actually stores back ---------------------------------------
 
@@ -134,8 +134,8 @@ $slot_day = full["entities"]["day"] ?? ""
 $slot_time = full["entities"]["time"] ?? ""
 $needs_operator = full["intent"] == "handoff"
 
-say("")
-say("host variables: ${{intent: $intent, day: $slot_day, time: $slot_time, operator: $needs_operator}.json}")
+println("")
+println("host variables: ${{intent: $intent, day: $slot_day, time: $slot_time, operator: $needs_operator}.json}")
 
 # The value of the program is the branch a flow engine takes next.
 $intent

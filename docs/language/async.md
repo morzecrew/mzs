@@ -18,9 +18,9 @@ The body waits for the caller to release the interpreter — at an `await`, insi
 host call, or when the calling code ends:
 
 ```
-async fn work() { say("the body runs here") }
+async fn work() { println("the body runs here") }
 t = work()
-say("the call returned")
+println("the call returned")
 t.await
 ```
 
@@ -99,7 +99,7 @@ async fn bump(id) { 20.times { counter[0] += 1 }; log.push(id) }
 `counter` is 160 on every run — no lock, no atomic, no lost update. `log` is not: three runs
 gave `[2,3,4,5,1,6,7,8]`, `[1,8,5,7,3,4,2,6]`, `[2,8,6,7,3,4,1,5]`. Nothing is preemptive —
 a task that only computes runs to its end once it holds the lock — but which *runnable* task
-takes over at a release point is unspecified, so two tasks that both `say` may print in
+takes over at a release point is unspecified, so two tasks that both `println` may print in
 either order.
 
 ## One budget, one deadline

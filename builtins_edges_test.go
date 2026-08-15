@@ -87,7 +87,7 @@ func TestIsEveryTypeName(t *testing.T) {
 }
 
 // failingWriter is a host Stdout that refuses everything, which is what a closed pipe
-// looks like: `mzs -e 'say(x)' | head -1`.
+// looks like: `mzs -e 'println(x)' | head -1`.
 type failingWriter struct{ err error }
 
 func (w failingWriter) Write(p []byte) (int, error) { return 0, w.err }
@@ -105,9 +105,9 @@ func TestOutputReportsAFailingWriter(t *testing.T) {
 		args []Value
 	}{
 		{"print", []Value{Str("привет")}},
-		{"say", []Value{Str("привет")}},
-		{"say", []Value{Array(Str("а"), Str("б"))}}, // an array prints one per line
-		{"say", nil}, // the bare newline
+		{"println", []Value{Str("привет")}},
+		{"println", []Value{Array(Str("а"), Str("б"))}}, // an array prints one per line
+		{"println", nil}, // the bare newline
 		{"debug", []Value{Int(1)}},
 	} {
 		t.Run(tt.fn, func(t *testing.T) {

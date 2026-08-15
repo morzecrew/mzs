@@ -17,25 +17,25 @@ staff = [
 # --- a record is a dict, and reading it has four spellings for four intents ----
 
 ann = staff.first
-say("record: ${ann.json}")
-say("  [\"name\"]        ${ann["name"]}          — nil when absent")
-say("  get(\"phone\")    ${inspect(ann.get("phone"))}         — same, with a default available")
-say("  get(\"phone\", \"—\") ${ann.get("phone", "—")}")
-say("  fetch(\"name\")   ${ann.fetch("name")}          — raises when absent, for the ones that must be there")
-say("  dig(\"skills\", 0) ${ann.dig("skills", 0)}       — nil-safe through arrays and dicts both")
-say("  has(\"grade\")    ${ann.has("grade")}         — key test, never a value test")
-say("  keys            ${ann.keys.json}")
+println("record: ${ann.json}")
+println("  [\"name\"]        ${ann["name"]}          — nil when absent")
+println("  get(\"phone\")    ${inspect(ann.get("phone"))}         — same, with a default available")
+println("  get(\"phone\", \"—\") ${ann.get("phone", "—")}")
+println("  fetch(\"name\")   ${ann.fetch("name")}          — raises when absent, for the ones that must be there")
+println("  dig(\"skills\", 0) ${ann.dig("skills", 0)}       — nil-safe through arrays and dicts both")
+println("  has(\"grade\")    ${ann.has("grade")}         — key test, never a value test")
+println("  keys            ${ann.keys.json}")
 
 # --- an index: build one dict out of many records -----------------------------
 
 by_id = staff.reduce({}) { (acc, p) -> acc.set(p["id"], p) }
-say("")
-say("index by id → ${by_id[3]["name"]} (${by_id.len} entries, int keys)")
+println("")
+println("index by id → ${by_id[3]["name"]} (${by_id.len} entries, int keys)")
 
 by_dept = staff.group_by { it["dept"] }
-say("index by dept → ${by_dept.keys.json}")
+println("index by dept → ${by_dept.keys.json}")
 by_dept.each { (dept, people) ->
-  say("  ${dept.ljust(9)}${people.map { it["name"] }.join(", ")}")
+  println("  ${dept.ljust(9)}${people.map { it["name"] }.join(", ")}")
 }
 
 # A dict of arrays inverts into a lookup the other way round.
@@ -43,22 +43,22 @@ who_can = {}
 staff.each { (p) ->
   p["skills"].each { (s) -> who_can[s] = (who_can[s] ?? []).push(p["name"]) }
 }
-say("index by skill → ${who_can.map { (skill, names) -> "${skill}: ${names.join("/")}" }.join(", ")}")
+println("index by skill → ${who_can.map { (skill, names) -> "${skill}: ${names.join("/")}" }.join(", ")}")
 
 # --- filter, reject, map: a dict in, a dict (or an array) out ------------------
 
 senior = by_id.filter { (_, p) -> p["grade"] >= 3 }
-say("")
-say("seniors: ${senior.values.map { it["name"] }.join(", ")}")
-say("juniors: ${by_id.reject { (_, p) -> p["grade"] >= 3 }.values.map { it["name"] }.join(", ")}")
-say("names by seniority: ${staff.sort_by { it["since"] }.map { "${it["name"]}(${it["since"]})" }.join(" ")}")
+println("")
+println("seniors: ${senior.values.map { it["name"] }.join(", ")}")
+println("juniors: ${by_id.reject { (_, p) -> p["grade"] >= 3 }.values.map { it["name"] }.join(", ")}")
+println("names by seniority: ${staff.sort_by { it["since"] }.map { "${it["name"]}(${it["since"]})" }.join(" ")}")
 
 grades = staff.reduce({}) { (acc, p) -> acc.set(p["name"], p["grade"]) }
-say("grade table: ${grades.json}")
-say("  invert:     ${grades.invert.json}     — last writer wins on a collision")
-say("  has_val(4): ${grades.has_val(4)}")
-say("  find:       ${grades.find { (_, g) -> g == 4 }.json}")
-say("  all ≥ 1:    ${grades.all { (_, g) -> g >= 1 }}")
+println("grade table: ${grades.json}")
+println("  invert:     ${grades.invert.json}     — last writer wins on a collision")
+println("  has_val(4): ${grades.has_val(4)}")
+println("  find:       ${grades.find { (_, g) -> g == 4 }.json}")
+println("  all ≥ 1:    ${grades.all { (_, g) -> g >= 1 }}")
 
 # --- configuration: merge, and the deep merge you have to write yourself -------
 #
@@ -86,29 +86,29 @@ fn deep_merge(a, b) {
   out
 }
 
-say("")
-say("shallow merge loses the nested keys:")
-say("  ${defaults.merge(override)["http"].json}")
-say("deep merge keeps them:")
+println("")
+println("shallow merge loses the nested keys:")
+println("  ${defaults.merge(override)["http"].json}")
+println("deep merge keeps them:")
 config = deep_merge(defaults, override)
-say("  ${config["http"].json}")
-say("  ${config["limits"].json}, tags ${config["tags"].json}")
+println("  ${config["http"].json}")
+println("  ${config["limits"].json}, tags ${config["tags"].json}")
 
 # --- reading a config safely: dig plus ?? is the whole idiom -------------------
 
-say("")
-say("cert:      ${config.dig("http", "tls", "cert") ?? "(none)"}")
-say("missing:   ${config.dig("http", "proxy", "url") ?? "(none)"}")
-say("timeout:   ${config.dig("limits", "timeout_ms") ?? 500} ms")
+println("")
+println("cert:      ${config.dig("http", "tls", "cert") ?? "(none)"}")
+println("missing:   ${config.dig("http", "proxy", "url") ?? "(none)"}")
+println("timeout:   ${config.dig("limits", "timeout_ms") ?? 500} ms")
 
 # --- mutation, and the copy that keeps the original intact --------------------
 
 draft = dup(config)
 draft["service"] = "booking-canary"
 draft.set("owner", "platform").delete("tags")
-say("")
-say("draft keys:  ${draft.keys.json}")
-say("config keys: ${config.keys.json}   — dup kept the original whole (one level deep)")
+println("")
+println("draft keys:  ${draft.keys.json}")
+println("config keys: ${config.keys.json}   — dup kept the original whole (one level deep)")
 
 # --- keys are values, not names ------------------------------------------------
 
@@ -120,12 +120,12 @@ mixed = {
   "1" -> "string key — a different key",
   nil -> "nil key",
 }
-say("")
-say("mixed keys: ${mixed.len} entries, [1] is ${inspect(mixed[1])}, [\"1\"] is ${inspect(mixed["1"])}")
-say("written by hand or by index — ${mixed == {}.set(1, "int key").set(true, "bool key").set("1", "string key — a different key").set(nil, "nil key")}")
+println("")
+println("mixed keys: ${mixed.len} entries, [1] is ${inspect(mixed[1])}, [\"1\"] is ${inspect(mixed["1"])}")
+println("written by hand or by index — ${mixed == {}.set(1, "int key").set(true, "bool key").set("1", "string key — a different key").set(nil, "nil key")}")
 
 # --- counting is a dict, and so is a histogram ---------------------------------
 
-say("")
-say("headcount by dept: ${staff.map { it["dept"] }.tally.json}")
-say("skills in use:     ${staff.flat_map { it["skills"] }.tally.sort_by { (_, n) -> -n }.map { "${it[0]}×${it[1]}" }.join(" ")}")
+println("")
+println("headcount by dept: ${staff.map { it["dept"] }.tally.json}")
+println("skills in use:     ${staff.flat_map { it["skills"] }.tally.sort_by { (_, n) -> -n }.map { "${it[0]}×${it[1]}" }.join(" ")}")

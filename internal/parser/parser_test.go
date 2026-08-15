@@ -1436,7 +1436,7 @@ Program "t"
 		},
 		{
 			name: "a closure body across lines",
-			src:  "xs.each { (o) ->\n  say(o)\n}",
+			src:  "xs.each { (o) ->\n  println(o)\n}",
 			want: `
 Program "t"
   ExprStmt
@@ -1450,7 +1450,7 @@ Program "t"
               ExprStmt
                 Call
                   fn:
-                    Ident say
+                    Ident println
                   arg
                     Ident o
 `,
@@ -1546,7 +1546,7 @@ func FuzzParse(f *testing.F) {
 		`match s { in ["да"] -> 1; /re/i if c -> 2; else -> nil }`,
 		`match { a -> 1 }`,
 		`try f() else (e) -> e["message"]`,
-		`for k, v in d { say("${k}=${v}") }`,
+		`for k, v in d { println("${k}=${v}") }`,
 		`a, b = pair`, `[a, [b, c]] := xs`, `d["k"], $g = pair`, `a, b += xs`,
 		`match o { [x, y] -> x + y; [] -> 0; else -> nil }`, `match { [a, b] -> 1 }`,
 		`%w[да ага]`, `"#{x}"`, `{a: 1}`, `k => v`, `:sym`, `a::B`, `1...5`,

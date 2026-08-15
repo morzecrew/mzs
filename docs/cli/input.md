@@ -14,7 +14,7 @@ $ printf 'alpha 1\nbeta 2\ngamma 3\n' > data.txt
 $ cat data.txt | mzs -e 'include io; io.lines.len'      # program in -e, so stdin is data
 3
 
-$ printf 'include io; say(io.lines.len)\n' | mzs        # stdin is the program
+$ printf 'include io; println(io.lines.len)\n' | mzs        # stdin is the program
 0
 
 $ mzs -e 'include io; [io.stdin, io.lines]' < /dev/null # no data is not an error

@@ -37,7 +37,7 @@ import (
 // Nothing here is preemptive: a task that only computes runs to its end once it holds
 // the lock, and a switch happens at the three points above and nowhere else. Which
 // *runnable* task takes the lock at one of those points is not specified, though — two
-// tasks that both `say` may print in either order. Concurrency is what was asked for by
+// tasks that both `println` may print in either order. Concurrency is what was asked for by
 // writing `async`; everything outside a task is as ordered as it ever was.
 //
 // Everything a Run started, the Run ends: RunResult cancels and joins every task before

@@ -62,7 +62,7 @@ kind = match label {
   x if x.len > 3 -> 2
   else -> nil
 }
-for key, qty in order { say(key) }
+for key, qty in order { println(key) }
 hit = n in span
 total(mapped, rate = 0.1)
 mapped.total(rate = 0.1)

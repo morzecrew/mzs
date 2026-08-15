@@ -14,9 +14,9 @@ fn shape(n) {
   "${n} is ${kind}"
 }
 
-say(shape(8))
-say(shape(9))
-say(shape(7))
+println(shape(8))
+println(shape(9))
+println(shape(7))
 
 # --- while is an expression too: `break v` is what the loop is worth -----------
 #
@@ -36,21 +36,21 @@ fn trajectory(start, cap) {
 }
 
 short = trajectory(6, 100)
-say("")
-say("6 → ${short["path"].join(" → ")} → 1")
-say("stopped because it ${short["reason"]}, peak ${short["peak"]}")
+println("")
+println("6 → ${short["path"].join(" → ")} → 1")
+println("stopped because it ${short["reason"]}, peak ${short["peak"]}")
 
 capped = trajectory(27, 20)
-say("27 with a 20-step cap: ${capped["reason"]}")
+println("27 with a 20-step cap: ${capped["reason"]}")
 
 # --- for over a range, with `next` and `break` inside a closure ----------------
 #
 # `next` ends one iteration, `break` ends the whole call and hands back its value.
 
-say("")
-say("first Collatz start above 1 whose peak clears 9000:")
+println("")
+println("first Collatz start above 1 whose peak clears 9000:")
 found = (2..100).find { trajectory(it, 400)["peak"] > 9000 }
-say("  ${found} (peak ${trajectory(found, 400)["peak"]})")
+println("  ${found} (peak ${trajectory(found, 400)["peak"]})")
 
 longest = {start: 0, steps: -1}
 for n in 1..300 {
@@ -58,7 +58,7 @@ for n in 1..300 {
   t = trajectory(n, 400)
   longest = t if t["steps"] > longest["steps"]
 }
-say("longest odd start under 300: ${longest["start"]} with ${longest["steps"]} steps")
+println("longest odd start under 300: ${longest["start"]} with ${longest["steps"]} steps")
 
 # --- statement modifiers keep the guard on the line it guards ------------------
 
@@ -66,24 +66,24 @@ flagged = []
 for n in [7, 12, 27, 31, 40] {
   flagged.push(n) if trajectory(n, 400)["steps"] > 15
 }
-say("")
-say("starts needing more than 15 steps: ${flagged.json}")
+println("")
+println("starts needing more than 15 steps: ${flagged.json}")
 
 i = 0
 i += 1 while i * i < 500
-say("smallest i with i² ≥ 500: ${i}")
+println("smallest i with i² ≥ 500: ${i}")
 
 # --- a histogram, built with the loop as an expression ------------------------
 
-say("")
-say("trajectory lengths, 1..60")
+println("")
+println("trajectory lengths, 1..60")
 buckets = {}
 for n in 1..60 {
   key = (trajectory(n, 400)["steps"] / 10 * 10).str
   buckets[key] = (buckets[key] ?? 0) + 1
 }
 buckets.keys.sort_by { it.int }.each { (k) ->
-  say("  ${(k + "–" + (k.int + 9).str).ljust(8)}${"█" * buckets[k]} ${buckets[k]}")
+  println("  ${(k + "–" + (k.int + 9).str).ljust(8)}${"█" * buckets[k]} ${buckets[k]}")
 }
 
 # --- grouping statements inside one expression --------------------------------
@@ -92,5 +92,5 @@ buckets.keys.sort_by { it.int }.each { (k) ->
 # do two things and still be an expression.
 
 report = (total = (1..60).map { trajectory(it, 400)["steps"] }.sum; avg = total / 60; "average ${avg} steps over 60 starts")
-say("")
-say(report)
+println("")
+println(report)
