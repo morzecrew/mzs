@@ -349,6 +349,9 @@ func TestNamedArguments(t *testing.T) {
 		{"a name beats a default", `fn f(a = 1) { a }; f(a = 9)`, "9"},
 		{"every argument may be named", `fn f(a, b) { a - b }; f(b = 1, a = 9)`, "8"},
 		{"a default sees a parameter a name filled", `fn f(a = 1, b = a * 2) { b }; f(a = 5)`, "10"},
+		// A default is evaluated at each call, not once when the declaration is read, so
+		// a collection default cannot accumulate across calls (§8.7).
+		{"a default is fresh on every call", `fn f(xs = []) { xs.push(1); xs.len }; f(); f(); f()`, "1"},
 		{"a rest function still binds its own names", `fn f(a, b = 2, *rest) { "${a}${b}${rest.len}" }; f(1, b = 9)`, "190"},
 		{"a closure binds by name too", `g = { (x, y) -> x - y }; g(y = 1, x = 9)`, "8"},
 		{"an anonymous fn binds by name", `g = fn(x, y = 2) { x * y }; g(x = 5)`, "10"},

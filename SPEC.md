@@ -1367,7 +1367,9 @@ an array-only method is called; materialising a range longer than `Options.MaxCo
 Argument evaluation is strictly **left to right**.
 
 **Named arguments.** An argument written `name = value` binds the callee's parameter of
-that name instead of the next free position:
+that name instead of the next free position. **Named arguments come last** — every
+positional argument precedes every named one — and that single rule is what the rest of
+this section is made of:
 
 ```
 fn area(w, h = 2, unit = "cm") { "${w * h} ${unit}²" }
@@ -1389,8 +1391,11 @@ The rules, and where each is caught:
 | A `*rest` parameter collects positions and cannot be named | run time |
 | A parameter no rule reached is the arity error, by name | run time |
 
-Binding runs in declaration order, so a default may read a parameter a name filled:
-`fn f(a = 1, b = a * 2)` called as `f(a = 5)` gives `b` the value 10.
+A default is an ordinary expression evaluated **at each call**, never once when the
+declaration is read, so `fn f(xs = [])` hands out a fresh array every time rather than one
+array that accumulates. Binding runs in declaration order, so a default may also read a
+parameter bound before it — by position or by name alike: `fn f(a = 1, b = a * 2)` called
+as `f(a = 5)` gives `b` the value 10.
 
 Only a script function has parameter names. A builtin, a host function and a stdlib method
 take their arguments by position, so a name there is an error rather than a guess — which
