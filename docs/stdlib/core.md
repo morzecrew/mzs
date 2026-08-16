@@ -80,7 +80,7 @@ inspect(nil?.upper.len)    # nil   ?. stops the chain instead
 
 | Name | Signature | Does | Example → value |
 |---|---|---|---|
-| `hash` | `hash(x) -> int` | FNV-1a, stable across runs, and consistent with `==` | `hash("a")` → `1463908424326387805` |
+| `hash` | `hash(x) -> int` | FNV-1a over the kind and the `inspect` form, stable across runs. Not the same question as `==`: `1` and `1.0` are equal and hash apart, as do two dicts built in different orders | `hash("a")` → `1463908424326387805` |
 | `dup` | `dup(x) -> any` | shallow copy of Array/Dict, identity otherwise; a record keeps its shape | see below |
 | `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | `5.tap { println("saw ${it}") }` → `5` |
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `" 42 ".pipe { it.trim.int }` → `42` |

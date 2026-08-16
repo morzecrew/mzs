@@ -57,14 +57,29 @@ func newRecordType(n *ast.RecordDecl) *RecordType {
 	return &RecordType{Name: n.Name, Fields: fields}
 }
 
-// recordTypeOf reads back what the compile pass parked, compiling it on the spot for a
-// tree that never went through the pass (a hand-built program, or one compiled before
-// records existed) rather than failing.
-func recordTypeOf(n *ast.RecordDecl) *RecordType {
+// recordTypeFor is the shape one declaration names. It is the *RecordType the compile
+// pass parked on the node — which is every program Compile produced — and otherwise one
+// built here and remembered for the rest of the Run.
+//
+// Remembering it is not optional, and the node is the wrong place to remember it. A
+// declaration is evaluated at two points, the hoist and the statement itself (§8.2), and
+// two identities for one declaration would make `match m { Money -> … }` stop firing on
+// values the hoisted constructor built. Writing the answer back onto the node would fix
+// that and break something worse: a *Program is immutable and shared by concurrent Runs
+// (§13.3), so the Run is as far as a fallback may reach.
+func (rs *runState) recordTypeFor(n *ast.RecordDecl) *RecordType {
 	if r, ok := n.Type.(*RecordType); ok && r != nil {
 		return r
 	}
-	return newRecordType(n)
+	if r, ok := rs.sh.fallbackRecords[n]; ok {
+		return r
+	}
+	r := newRecordType(n)
+	if rs.sh.fallbackRecords == nil {
+		rs.sh.fallbackRecords = map[*ast.RecordDecl]*RecordType{}
+	}
+	rs.sh.fallbackRecords[n] = r
+	return r
 }
 
 // build turns a bound frame into the record's dict. The parameters were bound by
@@ -105,8 +120,8 @@ func (v Value) recordCtor() *RecordType {
 // scope the declaration stands in, so a field default reads the same names the rest of
 // that scope does.
 func (e ev) makeRecord(n *ast.RecordDecl) Value {
-	rt := recordTypeOf(n)
-	e.rs.declareRecord(rt)
+	rt := e.rs.recordTypeFor(n)
+	e.rs.declareRecord(rt.Name)
 	arity := len(n.Fields)
 	for _, f := range n.Fields {
 		if f.Default != nil {
@@ -124,14 +139,20 @@ func (e ev) makeRecord(n *ast.RecordDecl) Value {
 	})
 }
 
-// declareRecord records a shape under its name for `is` to find. The table lives on the
-// half of the Run every task shares (a task runs on a copy of runState) and is created
-// here rather than up front, so a program that declares no shape allocates nothing.
-func (rs *runState) declareRecord(rt *RecordType) {
+// declareRecord notes that this Run has a shape of that name, which is all `is` needs:
+// it answers by name, exactly as `type` does (§7.8). Keeping the *type* here instead
+// would be wrong as well as unnecessary — a second declaration of one name would replace
+// the entry, and `x.is("A")` would start disagreeing with `type(x) == "A"` for values the
+// first one built.
+//
+// The table lives on the half of the Run every task shares (a task runs on a copy of
+// runState) and is created here rather than up front, so a program that declares no shape
+// allocates nothing.
+func (rs *runState) declareRecord(name string) {
 	if rs.sh.records == nil {
-		rs.sh.records = make(map[string]*RecordType, 4)
+		rs.sh.records = make(map[string]bool, 4)
 	}
-	rs.sh.records[rt.Name] = rt
+	rs.sh.records[name] = true
 }
 
 // evalRecordDecl runs the declaration statement. Its value is the constructor, exactly as

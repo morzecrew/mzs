@@ -1266,7 +1266,7 @@ It is why `s.index(/re/)` returning `0` (a match at position 0) is still truthy.
 * Array/Dict: deep structural equality, element order significant for arrays, insertion
   order **in**significant for dicts. A record's label is not an entry and takes no part:
   `Money(1500, "RUB") == {amount: 1500, currency: "RUB"}` is **true** (§7.8), and `hash`
-  agrees with it (§7.6).
+  ignores the label for the same reason.
 * Func: identity.
 * Regex on exactly one side: a **compile error** — use `~` (D5). If the regex only becomes
   known at runtime, `==` compares two regexes by source+flags and is `false` against any
@@ -1399,6 +1399,14 @@ built by that declaration. Identity belongs to the **declaration**, not to the n
 other reading, and it could never fire — a dict is not a function — so nothing is taken
 away.
 
+**Two questions, and which one each spelling asks.** `type(m)` and `is(m, "Money")` ask by
+**name** and can never disagree: `m.is("Money")` is `type(m) == "Money"`, whatever else the
+program declared. A `match` arm asks by **identity**, because only there is the constructor
+itself in hand. So where one name is declared twice, `type` and `is` call both shapes
+`"Money"` and the arm tells them apart — which is the most either spelling can honestly do,
+a type name being a string. `is` with a name no `record` in the Run used is still an
+argument error, so a misremembered shape fails loudly rather than never matching.
+
 **What the label is not.** It is not content. Equality (§7.4), `hash` (§7.6), `json`,
 `keys`, `str` and iteration all see a plain dict, so a record and a hand-written dict with
 the same entries are the same value. What propagates it is the copy a record makes of
@@ -1437,7 +1445,9 @@ ends the program with that value.
   interpreter run (§10).
 * Top-level `fn` and `record` declarations are hoisted: they are bound before the first
   statement runs, so `f(1,2)` may appear above `fn f(a, b) { … }` and `Money(1500)` above
-  `record Money(amount, currency)` (§7.8).
+  `record Money(amount, currency)` (§7.8). A declaration `export` wraps is **not** — for
+  either keyword — because it is the `export` statement that stands at the top level, and
+  that one binds where it is written like any other statement (§12.8).
 
 ### 8.3 Arithmetic
 
@@ -2041,7 +2051,7 @@ Conventions used in the tables:
 | `dict` | `dict(x) -> dict` | from an Array of `[k,v]` pairs; Dict→itself | `[[1,2]].dict` |
 | `json` | `json(x) -> string` | compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8) | `{a: 1}.json` |
 | `inspect` | `inspect(x) -> string` | §12.7 | |
-| `hash` | `hash(x) -> int` | FNV-1a over the **kind** and the inspect form, stable across runs and consistent with `==` (§7.4) | |
+| `hash` | `hash(x) -> int` | FNV-1a over the **kind** and the inspect form, stable across runs. It is not the equality of §7.4: the rendered form separates `1` from `1.0` and two dicts built in different orders | |
 | `dup` | `dup(x) -> any` | shallow copy for Array/Dict, identity otherwise; a record's label survives the copy (§7.8) | |
 | `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | |
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `x.pipe { it * 2 }` |

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mzs/internal/ast"
 )
 
 // The evaluator's contract with SPEC §8, driven through the real front end: a semantics
@@ -1156,7 +1158,8 @@ func TestRecords(t *testing.T) {
 		{"an index reads a field as well", `Money(1)["amount"]`, "1"},
 		{"a dict row still works", `Money(1).dig("amount")`, "1"},
 		{"equality ignores the label", `Money(1, "USD") == {amount: 1, currency: "USD"}`, "true"},
-		{"so does hash", `hash(Money(1, "USD")) == hash({amount: 1, currency: "USD"})`, "true"},
+		{"and so does hash, for the same reason",
+			`hash(Money(1, "USD")) == hash({amount: 1, currency: "USD"})`, "true"},
 		{"a match arm asks the shape", `match Money(9) { Money -> "money"; else -> "no" }`, "money"},
 		{"and does not fire on a plain dict",
 			`d = {amount: 9, currency: "RUB"}; match d { Money -> "money"; else -> "no" }`, "no"},
@@ -1169,7 +1172,6 @@ func TestRecords(t *testing.T) {
 			`type(Money(1).filter { (k, _) -> k == "amount" })`, "dict"},
 		{"a set writes a field in place", `m = Money(1); m["amount"] = 2; "${type(m)}:${m.amount}"`, "Money:2"},
 		{"the constructor is an ordinary value", `f = Money; f(5).amount`, "5"},
-		{"a record may be declared below its use", `first.amount`, "1"},
 		{"a field may be destructured out", `a, c = [Money(1).amount, Money(1).currency]; "${a}${c}"`, "1RUB"},
 	}
 
@@ -1180,6 +1182,75 @@ func TestRecords(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRecordHoisting is §8.2 for shapes: a top-level `record` is bound before the first
+// statement runs, exactly as a named `fn` is, so the shape may be used above the line that
+// names it. What `export` wraps is not hoisted — the `export` statement is the one at the
+// top level — and that is true of `fn` too, which is what the second half pins.
+func TestRecordHoisting(t *testing.T) {
+	t.Parallel()
+
+	got := evStr(t, evInterp(), "first = Money(1)\nrecord Money(amount)\nfirst.amount")
+	if got != "1" {
+		t.Errorf("a use above the declaration = %q, want %q", got, "1")
+	}
+
+	for _, src := range []string{
+		"Money(1)\nexport record Money(amount)",
+		"f(1)\nexport fn f(x) { x }",
+	} {
+		e := evErr(t, evInterp(), src, nil)
+		if e.Kind != ErrKindName {
+			t.Errorf("%q raised %s: %s, want a name error: what `export` wraps is not hoisted",
+				src, e.Kind, e.Msg)
+		}
+	}
+}
+
+// TestRecordTypeIsOnePerDeclaration pins what a `match Money ->` arm rests on: one
+// declaration is one shape, however many times it is evaluated. Compile fills
+// ast.RecordDecl.Type for every program it produces, so the fallback below is reached
+// only by a tree that never went through the pass — and it has to hold the same promise,
+// because a declaration is evaluated twice (the hoist and the statement) and two
+// identities would make the arm stop firing on what the hoisted constructor built.
+func TestRecordTypeIsOnePerDeclaration(t *testing.T) {
+	t.Parallel()
+
+	rs := newRunState(evInterp(), context.Background(), "t", nil)
+	n := &ast.RecordDecl{Name: "Money", Fields: []ast.Param{{Name: "amount"}}}
+
+	first := rs.recordTypeFor(n)
+	if second := rs.recordTypeFor(n); second != first {
+		t.Fatalf("recordTypeFor gave two identities for one declaration: %p and %p", first, second)
+	}
+	if n.Type != nil {
+		t.Errorf("recordTypeFor wrote %v onto the node; a *Program is shared by concurrent Runs", n.Type)
+	}
+	// A second Run is a second fallback, which is harmless: nothing outlives a Run but
+	// the *Program, and that is the copy the compile pass filled.
+	other := newRunState(evInterp(), context.Background(), "t", nil)
+	if other.recordTypeFor(n) == first {
+		t.Errorf("two Runs shared a fallback identity; the table belongs to one Run")
+	}
+}
+
+// TestRecordTypeAndIsAgree is the rule that keeps the two spellings of "what shape is
+// this" from drifting: both ask by name, so a second declaration of one name — which
+// `match` can still tell apart, having the constructor in hand — cannot make a value stop
+// being what `type` calls it.
+func TestRecordTypeAndIsAgree(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+record A(x)
+first = A(1)
+if true { record A(y) }
+"${type(first)} ${first.is("A")} ${type({x: 1})} ${{x: 1}.is("A")}"`
+
+	if got := evStr(t, evInterp(), src); got != "A true dict false" {
+		t.Errorf("= %q, want %q", got, "A true dict false")
 	}
 }
 

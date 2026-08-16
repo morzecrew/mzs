@@ -2,9 +2,9 @@
 #
 #   mzs examples/37_records.mzs
 #
-# Everything in mzs is a dict, which is fine for twenty lines and a ceiling for a library:
-# nothing checks that a "money" has both halves, `type(x)` says `dict` for every domain
-# object you own, and a pair of numbers is indistinguishable from a price.
+# A domain object in mzs is a dict, which is fine for twenty lines and a ceiling for a
+# library: nothing checks that a "money" has both halves, `type(x)` says `dict` for every
+# one you own, and a pair of numbers is indistinguishable from a price.
 #
 #   record Money(amount, currency = "RUB")   a shape, and a constructor for it
 #   m.amount                                 a field, by name
