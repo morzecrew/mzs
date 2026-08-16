@@ -177,7 +177,9 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return codeFor(err)
 	}
 	if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
-		printValue(stdout, res.Value, cfg.asJSON)
+		if !printValue(stdout, stderr, res.Value, cfg.asJSON) {
+			return exitError
+		}
 	}
 	if cfg.boolMode && !res.Value.Truthy() {
 		return exitError
@@ -306,7 +308,10 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 			vars[k] = v
 		}
 		if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
-			printValue(stdout, res.Value, cfg.asJSON)
+			if !printValue(stdout, stderr, res.Value, cfg.asJSON) {
+				stats()
+				return exitError
+			}
 		}
 		if res.Value.Truthy() {
 			truthy = true
@@ -434,17 +439,23 @@ func fileLoader(root string) mzs.ModuleLoader {
 	}
 }
 
-func printValue(w io.Writer, v mzs.Value, asJSON bool) {
+// printValue writes the program's value and reports whether it could. A value holding a
+// lazy seq is the one that cannot be rendered as JSON: encoding it would mean running it,
+// and the language answers that with a diagnostic rather than with `null` (§12.14). The
+// check is MarshalJSON's own, so a seq nested inside an array or a dict is caught by the
+// same rule as one returned on its own.
+func printValue(w, stderr io.Writer, v mzs.Value, asJSON bool) bool {
 	if asJSON {
 		b, err := v.MarshalJSON()
 		if err != nil {
-			fmt.Fprintln(w, "null")
-			return
+			fmt.Fprintf(stderr, "mzs: %v\n", err)
+			return false
 		}
 		fmt.Fprintln(w, string(b))
-		return
+		return true
 	}
 	fmt.Fprintln(w, v.Str())
+	return true
 }
 
 // dumpTokens implements --tokens. It runs before compiling so a program that does

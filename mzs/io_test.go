@@ -3,6 +3,7 @@ package mzs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -303,22 +304,47 @@ func TestIOStdinWithoutAReader(t *testing.T) {
 	if got := mustEvalIO(t, o, `io.lines.len`); got != "0" {
 		t.Fatalf("io.lines.len = %q; want 0", got)
 	}
+	// Either order, and with the empty text already cached: the lines of "" are no lines,
+	// which is not the same as "there is a reader to fall back to".
+	if got := mustEvalIO(t, o, `[io.stdin, io.lines.array]`); got != `["",[]]` {
+		t.Fatalf(`[io.stdin, io.lines.array] = %s; want ["",[]]`, got)
+	}
+	if got := mustEvalIO(t, o, `[io.lines.array, io.stdin]`); got != `[[],""]` {
+		t.Fatalf(`[io.lines.array, io.stdin] = %s; want [[],""]`, got)
+	}
+}
+
+// The cached form has to survive an empty input too: `io.stdin` first leaves "" behind,
+// and a cursor that read "no lines" as "no cache" would go looking for a reader that the
+// first member had already put away. It panicked once; it is pinned now.
+func TestIOLinesAfterAnEmptyStdin(t *testing.T) {
+	t.Parallel()
+	o := ioOpts(newMemFS(nil), "", nil)
+	o.Stdin = strings.NewReader("")
+
+	if got := mustEvalIO(t, o, `[io.stdin, io.lines.array, io.lines.len]`); got != `["",[],0]` {
+		t.Fatalf(`got %s; want ["",[],0]`, got)
+	}
 }
 
 // TestIOStdinIsReadOncePerRun pins the cache, which is not an optimisation: a reader
 // gives its bytes away once, so a second read that reached the reader would answer "".
 // Two Runs are two reads of two readers, like every other per-Run resource (§10).
+//
+// `io.stdin` and `io.lines` are two ways of asking that one reader, and the order decides
+// what the second one can still have (§12.13). Asking for the whole text first costs
+// nothing — every later `io.lines` splits the string it cached, as often as it likes.
 func TestIOStdinIsReadOncePerRun(t *testing.T) {
 	t.Parallel()
 	r := &countingReader{Reader: strings.NewReader("a\nb\n")}
 	in := New(Options{Timeout: 5 * time.Second, FS: newMemFS(nil), Stdin: r})
 
-	v, err := in.Eval(context.Background(), "include io\nio.lines.len.str + io.stdin.len.str + io.lines.len.str", nil)
+	v, err := in.Eval(context.Background(), "include io\nio.stdin.len.str + io.lines.len.str + io.lines.len.str", nil)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
-	if v.Str() != "242" {
-		t.Fatalf("got %q; want 242 — three members, one read", v.Str())
+	if v.Str() != "422" {
+		t.Fatalf("got %q; want 422 — three members, one read", v.Str())
 	}
 	if r.reads == 0 {
 		t.Fatal("the reader was never read")
@@ -326,6 +352,113 @@ func TestIOStdinIsReadOncePerRun(t *testing.T) {
 	if got := r.eof; got != 1 {
 		t.Fatalf("the reader was drained %d times; want exactly 1", got)
 	}
+}
+
+// TestIOLinesTakesTheReader is the other order, and the one the module has to refuse:
+// once the lines have been streamed there is no whole input left, and answering `io.stdin`
+// with "" would tell a script that nothing was piped in. It says which member has the
+// bytes instead — an ordinary catchable error of kind io, so `try io.stdin else ""` still
+// works for a script that means it (§12.13, §8.11).
+func TestIOLinesTakesTheReader(t *testing.T) {
+	t.Parallel()
+	r := &countingReader{Reader: strings.NewReader("a\nb\nc\n")}
+	in := New(Options{Timeout: 5 * time.Second, FS: newMemFS(nil), Stdin: r})
+
+	_, err := in.Eval(context.Background(), "include io\nio.lines.len.str + io.stdin.len.str", nil)
+	if err == nil {
+		t.Fatal("io.stdin after io.lines returned a value; want the error that names io.lines")
+	}
+	var e *Error
+	if !errors.As(err, &e) {
+		t.Fatalf("got %T (%v); want an *Error", err, err)
+	}
+	if e.Kind != ErrKindIO {
+		t.Errorf("kind = %q; want %q — the input is gone, not the script's arithmetic", e.Kind, ErrKindIO)
+	}
+	if !strings.Contains(e.Msg, "io.lines") {
+		t.Errorf("message = %q; it must name the member that has the bytes", e.Msg)
+	}
+}
+
+// TestIOLinesStreamsPastTheStringLimit is the point of the seq (§12.14): a file larger
+// than MaxStringBytes is a diagnostic for `io.stdin`, which promises the whole text, and
+// ordinary work for `io.lines`, which promises one line.
+func TestIOLinesStreamsPastTheStringLimit(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 5000; i++ {
+		fmt.Fprintf(&sb, "line %d\n", i)
+	}
+	text := sb.String()
+	o := Options{Timeout: 5 * time.Second, FS: newMemFS(nil), MaxStringBytes: 1024}
+
+	o.Stdin = strings.NewReader(text)
+	if got := mustEvalIO(t, o, `io.lines.count { it.has("99") }`); got != "95" {
+		t.Fatalf("io.lines over %d bytes = %s; want 95", len(text), got)
+	}
+
+	o.Stdin = strings.NewReader(text)
+	if _, err := New(o).Eval(context.Background(), "include io\nio.stdin", nil); err == nil {
+		t.Fatal("io.stdin read past MaxStringBytes; want the limit diagnostic of §14.2")
+	}
+}
+
+// A streaming read can only bound one line, so that is what MaxStringBytes bounds here —
+// and a line over it is the catchable io error an oversized read has always been, never a
+// truncation (§12.13, §14.2). The line below is also longer than bufio's own buffer, which
+// is the path that has to stitch several reads into one line.
+func TestIOLinesBoundsOneLine(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 9000)
+	o := Options{Timeout: 5 * time.Second, FS: newMemFS(nil), MaxStringBytes: 8000}
+
+	o.Stdin = strings.NewReader("ok\n" + long + "\nafter\n")
+	v, err := New(o).Eval(context.Background(), "include io\nio.lines.map { it.len }.array", nil)
+	if err == nil {
+		t.Fatalf("a %d-byte line passed a limit of 8000: %s", len(long), v.Str())
+	}
+	var e *Error
+	if !errors.As(err, &e) || e.Kind != ErrKindIO {
+		t.Fatalf("error = %v; want a catchable io error", err)
+	}
+
+	// Under the limit, a line longer than bufio's buffer is still one line.
+	o.MaxStringBytes = 1 << 20
+	o.Stdin = strings.NewReader("ok\n" + long + "\nafter\n")
+	if got := mustEvalIO(t, o, `io.lines.map { it.len }.array`); got != "[2,9000,5]" {
+		t.Fatalf("lines = %s; want [2,9000,5]", got)
+	}
+}
+
+// A line boundary is not a byte count, and both ends of that had a defect: the CR of a
+// CRLF was measured as content, so a line of exactly MaxStringBytes off a Windows machine
+// was refused; and an oversized line left the reader mid-line, so the next pull handed
+// back the rest of it as a line of its own. The second was the worse of the two — a
+// fragment presented as data — and it is why an overrun ends the source rather than the
+// pull (§12.13).
+func TestIOLinesLineBoundaries(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a CRLF line of exactly the limit is content, not overflow", func(t *testing.T) {
+		o := Options{Timeout: 5 * time.Second, FS: newMemFS(nil), MaxStringBytes: 8}
+		o.Stdin = strings.NewReader("12345678\r\n")
+		// The assertion is counts rather than the text: every string this program builds
+		// is under the limit it is testing, so nothing but the read can trip it.
+		if got := mustEvalIO(t, o, `ls = io.lines.array; [ls.len, ls.first.len]`); got != "[1,8]" {
+			t.Fatalf("got %s; the CR is a terminator and is not measured", got)
+		}
+	})
+
+	t.Run("an overrun ends the source instead of leaking the rest of the line", func(t *testing.T) {
+		o := Options{Timeout: 5 * time.Second, FS: newMemFS(nil), MaxStringBytes: 10}
+		o.Stdin = strings.NewReader("ok\n" + strings.Repeat("x", 9000) + "TAIL\nafter\n")
+		src := `s = io.lines
+			[try s.array.len else 0 - 1, try s.array.len else 0 - 1, try s.array.len else 0 - 1]`
+		if got := mustEvalIO(t, o, src); got != "[-1,-1,-1]" {
+			t.Fatalf("got %s; want every traversal to report the overrun — a suffix "+
+				"handed back as a line is corruption, not recovery", got)
+		}
+	})
 }
 
 // TestIOStdinIsSharedWithTasks pins that the cache lives on the half of the Run tasks

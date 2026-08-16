@@ -127,11 +127,56 @@ is two ints; JSON only renders keys as strings.
 words the same failure differently — `sort([1,"a"])` is
 `type: sort: string and int are not comparable` ([core.md](./core.md)).
 
-## Set-like
+## Sets
 
 ```
 [1,1,2,1].uniq                        # [1,2]
 [[1,"a"],[2,"a"]].uniq { it[1] }      # [[1,"a"]] — first occurrence wins
+
+[1,1,2].to_set                        # {"1":true,"2":true}
+[1,1,2].union([2,3])                  # [1,2,3]
+[1,2,3].intersect([2,3,4])            # [2,3]
+[1,1,2,3].difference([3])             # [1,2]
+[1,2].subset([3,2,1])                 # true
+[].subset([1])                        # true
+[1,2].union([3], [1])                 # [1,2,3] — union, intersect and difference are variadic
+```
+
+The four rows answer with a **set**: the first occurrence of each element wins and nothing
+repeats. `intersect`, `difference` and `subset` keep the receiver's order; `union` has
+elements the receiver never had, so it is the receiver's order first and then each
+argument's, in the order they were given:
+
+```
+[3, 1].union([2, 1], [4])      # [3,1,2,4] — receiver first, then each argument
+```
+
+That is what tells them from `+` and `-`, which keep every element they were given:
+
+```
+[1,1,2] + [2]                # [1,1,2,2]   concatenation
+[1,1,2].union([2])           # [1,2]       the set of both
+[1,1,2] - [2]                # [1,1]       removal
+[1,1,2].difference([2])      # [1]         the set of what is left
+```
+
+There is no set **kind**. A set is a dict whose values are `true` — which is what you write
+by hand the moment you need "have I seen this" — and `to_set` is that dict:
+
+```
+seen = ["a","b"].to_set
+seen.has("a")                # true   — O(1), where ["a","b"].has("a") is O(n)
+seen.set("c", true)          # {"a":true,"b":true,"c":true}
+seen.keys                    # ["a","b","c"] — insertion-ordered, so the set is too
+```
+
+The row is `to_set` and not `set` because `set(k, v)` is the dict row that writes a key.
+Membership in the four rows is `==`, so an array of arrays works; `to_set` is the one that
+needs hashable elements, because a dict key does:
+
+```
+[[1,2],[1,2]].union([[3]])   # [[1,2],[3]]
+[[1,2]].to_set               # type: dict key must be hashable, got array
 ```
 
 ## Slicing
@@ -190,8 +235,19 @@ embedding. Without it the method does not exist.
 mzs --rand 7 -e '[1,2,3,4,5].shuffle'   # [3,2,4,1,5]
 ```
 
+## Lazily
+
+`seq` turns an array into a [sequence](./sequences.md): the same rows, evaluated one
+element at a time and only as far as the answer needs.
+
+```
+[1,2,3].seq.map { it * 2 }.array      # [2,4,6]
+(1..1_000_000_000).seq.find { it * it > 500 }   # 23 — nothing was materialised
+```
+
 ## See also
 
+- [Sequences](./sequences.md) — the lazy form of the rows above, for input that does not fit
 - [Ranges](./ranges.md) — every non-mutating row here also works on a range
 - [Dicts](./dicts.md) — `tally`, `group_by` and `dict` land here
 - [Strings](./strings.md) — `bytes`, `chars`, `split`

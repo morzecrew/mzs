@@ -905,7 +905,7 @@ func (c *compiler) undefinedMethod(name string, pos token.Pos) {
 // table. It is what makes "is this name a method of anything?" a decidable question at
 // compile time.
 var dispatchKinds = [...]Kind{
-	KNil, KBool, KInt, KFloat, KString, KRegex, KArray, KDict, KFunc, KTime, KRange, KTask, KAny,
+	KNil, KBool, KInt, KFloat, KString, KRegex, KArray, KDict, KFunc, KTime, KRange, KTask, KSeq, KAny,
 }
 
 // hasMethod is methodExists with this interpreter's Unregister list applied, so a name

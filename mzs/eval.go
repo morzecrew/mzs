@@ -453,8 +453,8 @@ func (e ev) evalWhile(n *ast.WhileExpr) (Value, error) {
 	}
 }
 
-// evalFor iterates an Array, Range, Dict or String. Each iteration gets a fresh scope
-// holding the loop variables, so the body cannot leak a binding and a closure made
+// evalFor iterates an Array, Range, Dict, String or Seq. Each iteration gets a fresh
+// scope holding the loop variables, so the body cannot leak a binding and a closure made
 // inside it captures that iteration's values (§8.2).
 func (e ev) evalFor(n *ast.ForExpr) (Value, error) {
 	it, err := e.eval(n.Iter)
@@ -476,6 +476,11 @@ func (e ev) evalFor(n *ast.ForExpr) (Value, error) {
 		for _, r := range it.Str() {
 			items = append(items, Str(string(r)))
 		}
+	case KSeq:
+		// A seq is pulled, not listed: building `items` first would materialise exactly
+		// what the kind exists to avoid, and an endless source has no `items` at all.
+		// `for line in io.lines { … }` is the shape this is for (§12.14).
+		return e.forSeq(n, it)
 	default:
 		return Nil(), e.at(typeErrorf("cannot iterate over %s", it.Kind()), n.Kw)
 	}
@@ -487,37 +492,85 @@ func (e ev) evalFor(n *ast.ForExpr) (Value, error) {
 		if err := e.rs.step(1); err != nil {
 			return Nil(), err
 		}
-		k, v := item, Nil()
-		if n.ValVar != "" {
-			// Two loop variables destructure the item, under the same rule `k, v = item`
-			// follows (§8.15): a dict yields pairs, and anything that is not a pair is
-			// an error rather than a silent nil.
-			pair, err := e.forPair(item)
-			if err != nil {
-				return Nil(), e.at(err, n.Kw)
-			}
-			k, v = pair[0], pair[1]
-		}
-		env := newEnv(e.env, size)
-		env.Define(n.KeyVar, k)
-		if n.ValVar != "" {
-			env.Define(n.ValVar, v)
-		}
-		if _, err := e.in(env).execStmts(n.Body.Stmts); err != nil {
-			c, ok := ctrlOf(err)
-			if !ok {
-				return Nil(), err
-			}
-			switch c.kind {
-			case ctrlNext:
-				continue
-			case ctrlBreak:
-				return c.val, nil
-			}
+		val, stop, err := e.forItem(n, size, item)
+		if err != nil {
 			return Nil(), err
+		}
+		if stop {
+			return val, nil
 		}
 	}
 	return it, nil
+}
+
+// forItem runs the body once for one item. stop reports that the loop is over, and val
+// is then what the `break` carried; a `next` ends the iteration and nothing more.
+func (e ev) forItem(n *ast.ForExpr, size int, item Value) (Value, bool, error) {
+	k, v := item, Nil()
+	if n.ValVar != "" {
+		// Two loop variables destructure the item, under the same rule `k, v = item`
+		// follows (§8.15): a dict yields pairs, and anything that is not a pair is
+		// an error rather than a silent nil.
+		pair, err := e.forPair(item)
+		if err != nil {
+			return Nil(), true, e.at(err, n.Kw)
+		}
+		k, v = pair[0], pair[1]
+	}
+	env := newEnv(e.env, size)
+	env.Define(n.KeyVar, k)
+	if n.ValVar != "" {
+		env.Define(n.ValVar, v)
+	}
+	if _, err := e.in(env).execStmts(n.Body.Stmts); err != nil {
+		c, ok := ctrlOf(err)
+		if !ok {
+			return Nil(), true, err
+		}
+		switch c.kind {
+		case ctrlNext:
+			return Nil(), false, nil
+		case ctrlBreak:
+			return c.val, true, nil
+		}
+		return Nil(), true, err
+	}
+	return Nil(), false, nil
+}
+
+// forSeq is the same loop driven by a pull instead of a slice (§12.14). The value of the
+// loop is the seq itself, as it is the collection for every other kind — one that has
+// been walked once, which is all a `for` ever leaves behind.
+func (e ev) forSeq(n *ast.ForExpr, sv Value) (Value, error) {
+	size := n.Body.FrameSize
+	if size < 2 {
+		size = 2
+	}
+	// The pull calls the closures of the lazy rows the chain was built from, and those
+	// calls take their position from the Ctx. Point it at the `for` for the duration, or
+	// a frame raised inside a `map` a hundred lines above would carry that line instead
+	// of this loop's.
+	restore := e.cx.setCall("for", n.Kw, nil, Nil())
+	defer restore()
+
+	out := sv
+	err := seqRun(e.cx, sv.seq(), func(item Value) (bool, error) {
+		if err := e.rs.step(1); err != nil {
+			return false, err
+		}
+		val, stop, err := e.forItem(n, size, item)
+		if err != nil {
+			return false, err
+		}
+		if stop {
+			out = val
+		}
+		return !stop, nil
+	})
+	if err != nil {
+		return Nil(), err
+	}
+	return out, nil
 }
 
 // forPair splits one item of a two-variable `for`. It is destructuring with the pattern

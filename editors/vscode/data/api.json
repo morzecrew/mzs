@@ -46,6 +46,11 @@
     "sem": "from an Array of `[k,v]` pairs; Dict→itself",
     "ex": "`[[1,2]].dict`"
    },
+   "difference": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "the elements no argument has, once each",
+    "ex": ""
+   },
    "dig": {
     "sig": "`(*keys) -> any`",
     "sem": "nested lookup through Arrays and Dicts, nil-safe at every step",
@@ -129,6 +134,11 @@
    "insert": {
     "sig": "`(i: int, *v) -> array`",
     "sem": "",
+    "ex": ""
+   },
+   "intersect": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "the elements every argument has too, once each",
     "ex": ""
    },
    "join": {
@@ -256,6 +266,11 @@
     "sem": "the mutating variants, named so at the call site",
     "ex": ""
    },
+   "subset": {
+    "sig": "`(other: array) -> bool`",
+    "sem": "is every element of the receiver in `other`",
+    "ex": ""
+   },
    "sum": {
     "sig": "`[{ (x) -> … }] -> number`",
     "sem": "",
@@ -274,6 +289,16 @@
    "tally": {
     "sig": "`-> dict`",
     "sem": "element → count",
+    "ex": ""
+   },
+   "to_set": {
+    "sig": "`-> dict`",
+    "sem": "the distinct elements as keys, every value `true`; elements must be hashable (§7.6)",
+    "ex": ""
+   },
+   "union": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "every element of the receiver and of each argument, once each",
     "ex": ""
    },
    "uniq": {
@@ -701,6 +726,11 @@
     "sem": "from an Array of `[k,v]` pairs; Dict→itself",
     "ex": "`[[1,2]].dict`"
    },
+   "difference": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "the elements no argument has, once each",
+    "ex": ""
+   },
    "drop": {
     "sig": "`(n: int) -> array`",
     "sem": "",
@@ -774,6 +804,11 @@
    "index": {
     "sig": "`(v) | { (x) -> … } -> int | nil`",
     "sem": "",
+    "ex": ""
+   },
+   "intersect": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "the elements every argument has too, once each",
     "ex": ""
    },
    "join": {
@@ -877,6 +912,11 @@
     "ex": ""
    },
    "step": {},
+   "subset": {
+    "sig": "`(other: array) -> bool`",
+    "sem": "is every element of the receiver in `other`",
+    "ex": ""
+   },
    "sum": {
     "sig": "`[{ (x) -> … }] -> number`",
     "sem": "",
@@ -895,6 +935,16 @@
    "tally": {
     "sig": "`-> dict`",
     "sem": "element → count",
+    "ex": ""
+   },
+   "to_set": {
+    "sig": "`-> dict`",
+    "sem": "the distinct elements as keys, every value `true`; elements must be hashable (§7.6)",
+    "ex": ""
+   },
+   "union": {
+    "sig": "`(*others: array) -> array`",
+    "sem": "every element of the receiver and of each argument, once each",
     "ex": ""
    },
    "uniq": {
@@ -937,6 +987,133 @@
    "str": {
     "sig": "`-> string`",
     "sem": "`/src/flags`",
+    "ex": ""
+   }
+  },
+  "seq": {
+   "all": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "each stops at the element that decides the answer",
+    "ex": ""
+   },
+   "any": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "each stops at the element that decides the answer",
+    "ex": ""
+   },
+   "array": {
+    "sig": "`-> array`",
+    "sem": "the materialisation, and the row that charges `MaxCollection`",
+    "ex": ""
+   },
+   "count": {
+    "sig": "`(v) | { (x) -> … } -> int`",
+    "sem": "every element, the equal ones, or the ones a closure accepts",
+    "ex": ""
+   },
+   "drop": {
+    "sig": "`(n: int) -> seq`",
+    "sem": "",
+    "ex": ""
+   },
+   "drop_while": {
+    "sig": "`{ (x) -> … } -> seq`",
+    "sem": "",
+    "ex": ""
+   },
+   "each": {
+    "sig": "`{ … } -> seq`",
+    "sem": "returns the receiver",
+    "ex": ""
+   },
+   "each_with_index": {
+    "sig": "`{ … } -> seq`",
+    "sem": "returns the receiver",
+    "ex": ""
+   },
+   "empty": {
+    "sig": "`-> bool`",
+    "sem": "pulls exactly one element",
+    "ex": ""
+   },
+   "filter": {
+    "sig": "`{ (x) -> … } -> seq`",
+    "sem": "",
+    "ex": ""
+   },
+   "find": {
+    "sig": "`{ (x) -> … } -> any | nil`",
+    "sem": "stops at the first hit",
+    "ex": ""
+   },
+   "first": {
+    "sig": "`(n: int = nil) -> any | array`",
+    "sem": "the first element, or the first `n`",
+    "ex": ""
+   },
+   "flat_map": {
+    "sig": "`{ (x) -> … } -> seq`",
+    "sem": "flattens one level; an array, a range or a seq the closure returns is pulled through, anything else is one element",
+    "ex": ""
+   },
+   "has": {
+    "sig": "`(v) -> bool`",
+    "sem": "membership by `==`, and therefore what `x in s` asks (§8.5)",
+    "ex": ""
+   },
+   "join": {
+    "sig": "`(sep: string = \"\") -> string`",
+    "sem": "`str` of each element",
+    "ex": ""
+   },
+   "len": {
+    "sig": "`-> int`",
+    "sem": "pulls everything and counts it",
+    "ex": ""
+   },
+   "map": {
+    "sig": "`{ (x) -> … } -> seq`",
+    "sem": "",
+    "ex": ""
+   },
+   "max": {
+    "sig": "`[{ (a, b) -> int }] -> any`",
+    "sem": "the optional comparator of §12.3",
+    "ex": ""
+   },
+   "min": {
+    "sig": "`[{ (a, b) -> int }] -> any`",
+    "sem": "the optional comparator of §12.3",
+    "ex": ""
+   },
+   "none": {
+    "sig": "`[{ (x) -> … }] -> bool`",
+    "sem": "each stops at the element that decides the answer",
+    "ex": ""
+   },
+   "reduce": {
+    "sig": "`(init: any = nil) { (acc, x) -> … } -> any`",
+    "sem": "seeds with the first element when no initial value is given",
+    "ex": ""
+   },
+   "reject": {
+    "sig": "`{ (x) -> … } -> seq`",
+    "sem": "",
+    "ex": ""
+   },
+   "sum": {
+    "sig": "`[{ (x) -> … }] -> number`",
+    "sem": "",
+    "ex": ""
+   },
+   "take": {
+    "sig": "`(n: int) -> seq`",
+    "sem": "",
+    "ex": ""
+   },
+   "take_while": {
+    "sig": "`{ (x) -> … } -> seq`",
+    "sem": "",
     "ex": ""
    }
   },
@@ -1245,7 +1422,7 @@
   },
   "dup": {
    "sig": "`dup(x) -> any`",
-   "sem": "shallow copy for Array/Dict, identity otherwise",
+   "sem": "shallow copy for Array/Dict, identity otherwise; a record's label survives the copy (§7.8)",
    "ex": ""
   },
   "empty": {
@@ -1275,7 +1452,7 @@
   },
   "hash": {
    "sig": "`hash(x) -> int`",
-   "sem": "FNV-1a, stable across runs",
+   "sem": "FNV-1a over the **kind** and the inspect form, stable across runs. It is not the equality of §7.4: the rendered form separates `1` from `1.0` and two dicts built in different orders",
    "ex": ""
   },
   "inspect": {
@@ -1290,7 +1467,7 @@
   },
   "is": {
    "sig": "`is(x, name: string) -> bool`",
-   "sem": "kind test",
+   "sem": "kind test; also answers a record name declared in this run (§7.8). An unknown name is an argument error, never `false`",
    "ex": "`x.is(\"array\")`"
   },
   "json": {
@@ -1363,6 +1540,11 @@
    "sem": "half away from zero; `digits == 0` → Int",
    "ex": "`round(1.256, 2)`"
   },
+  "seq": {
+   "sig": "`seq(x: array | range | seq | fn) -> seq`",
+   "sem": "the lazy sequence over `x` (§12.14); a function is a generator called with the index, ended by returning `nil`",
+   "ex": "`(1..1e9).seq`, `seq { (i) -> i * i }`"
+  },
   "shl": {
    "sig": "`(a: int, n: int) -> int`",
    "sem": "left shift; bits past 63 are dropped",
@@ -1395,7 +1577,7 @@
   },
   "type": {
    "sig": "`type(x) -> string`",
-   "sem": "§7.2 names",
+   "sem": "§7.2 names, or the record's name (§7.8)",
    "ex": "`type(1) == \"int\"`"
   },
   "uuid": {
@@ -1471,8 +1653,8 @@
     "ex": "`io.exists(\"a.txt\")`"
    },
    "lines": {
-    "sig": "`-> array`",
-    "sem": "`io.stdin.lines` (§12.2): the terminator is dropped, a CRLF file reads like an LF one",
+    "sig": "`-> seq`",
+    "sem": "the input a line at a time (§12.14): the terminator is dropped, a CRLF file reads like an LF one",
     "ex": "`io.lines.len`"
    },
    "ls": {

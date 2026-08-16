@@ -1237,10 +1237,21 @@ Implementers MAY use `p any` instead of `unsafe.Pointer`; the exported API in §
 normative, the layout is not. What **is** normative: `Value` is comparable-by-copy for
 nil/bool/int/float/string without allocation, and passing a `Value` never allocates.
 
+Four more kinds exist that no literal writes down: `range` (§8.6), `time` (§12.8), `task`
+(§8.14) and `seq` (§12.14). Each is a kind in every other sense — `type` names it, `is`
+answers for it, dispatch has a table for it — and each is produced by an operation rather
+than by syntax, which is the only reason it is not in the table above.
+
 ### 7.2 Type names (`type(x)`)
 
-`"nil" "bool" "int" "float" "string" "regex" "array" "dict" "function"`, plus the two
-internal kinds the language can produce: `"time"` (§12.8) and `"task"` (§8.14).
+`"nil" "bool" "int" "float" "string" "regex" "array" "dict" "function"`, plus the kinds a
+script can produce but not write a literal for: `"range"` (§8.6), `"time"` (§12.8),
+`"task"` (§8.14) and `"seq"` (§12.14).
+
+`is` answers the same names, with one deliberate disagreement: a Range answers `true` to
+`is("array")` (§12.10) and a `seq` answers **false**. A range can be materialised on
+demand under the collection cap and a seq is the value that refuses to be, so host code
+that takes an array must not be handed one by accident.
 
 A dict built by a `record` constructor reports the record's name instead — `type(m)` is
 `"Money"` — and answers `is("dict")` with `true`, because that is what it is (§7.8). It is
@@ -1267,7 +1278,10 @@ It is why `s.index(/re/)` returning `0` (a match at position 0) is still truthy.
   order **in**significant for dicts. A record's label is not an entry and takes no part:
   `Money(1500, "RUB") == {amount: 1500, currency: "RUB"}` is **true** (§7.8), and `hash`
   ignores the label for the same reason.
-* Func: identity.
+* Func: identity. A `task` and a `seq` likewise: two are the same one or they are not.
+  Comparing sequences by their elements would mean running both, and a `==` that consumes
+  its operands is not one (§12.14). For the same reason a seq is not ordered (§7.5), not a
+  dict key (§7.6) and has no JSON form (§12.14).
 * Regex on exactly one side: a **compile error** — use `~` (D5). If the regex only becomes
   known at runtime, `==` compares two regexes by source+flags and is `false` against any
   other kind.
@@ -1289,7 +1303,8 @@ explicitly with `.int` or `.float` (§9.1).
 
 Keys may be `nil`, `bool`, `int`, `float`, `string`, or `regex` (hashed by
 source+flags). `1` and `1.0` are the **same** key (normalised to Int when integral).
-Array/Dict/Func keys are an error: `dict key must be hashable, got array`.
+Array/Dict/Func keys are an error: `dict key must be hashable, got array`, and so are the
+kinds with no value to hash until something runs them — a `task` and a `seq` (§12.14).
 
 A literal of any of those kinds is a key in the literal syntax too, written with `->`
 (§3.12); `set` and a computed key `(k):` take the rest. All three build the same dict:
@@ -2057,6 +2072,7 @@ Conventions used in the tables:
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `x.pipe { it * 2 }` |
 | `regex` | `regex(pattern: string, flags: string = "") -> regex` | compiles at runtime (cached) | `regex('\bменю', "i")` |
 | `range` | `range(a: int, b: int = nil, step: int = 1) -> array` | half-open: `range(0,3) == [0,1,2]`, `range(3) == [0,1,2]` | `range(3)` |
+| `seq` | `seq(x: array \| range \| seq \| fn) -> seq` | the lazy sequence over `x` (§12.14); a function is a generator called with the index, ended by returning `nil` | `(1..1e9).seq`, `seq { (i) -> i * i }` |
 | `sum` | `sum(xs: array) -> number` | numeric sum; empty → `0` | `[1,2].sum` |
 | `min` / `max` | `(xs: array \| *args) -> any` | by `<=>`; empty → `nil` | `max(1,2,3)` |
 | `abs` | `abs(x: number) -> number` | | `(-2).abs` |
@@ -2157,6 +2173,12 @@ Strings are immutable. There are no in-place string operations under any spellin
 | `dig` | `(*keys) -> any` | nested lookup through Arrays and Dicts, nil-safe at every step |
 | `compact` | `-> array` | drops `nil`s |
 | `tally` | `-> dict` | element → count |
+| `to_set` | `-> dict` | the distinct elements as keys, every value `true`; elements must be hashable (§7.6) |
+| `union` | `(*others: array) -> array` | every element of the receiver and of each argument, once each |
+| `intersect` | `(*others: array) -> array` | the elements every argument has too, once each |
+| `difference` | `(*others: array) -> array` | the elements no argument has, once each |
+| `subset` | `(other: array) -> bool` | is every element of the receiver in `other` |
+| `seq` | `-> seq` | a lazy view of the receiver (§12.14) |
 | `slice` | `(i: int, n: int = 1) -> array` | |
 | `take` / `drop` | `(n: int) -> array` | |
 | `take_while` / `drop_while` | `{ (x) -> … } -> array` | |
@@ -2165,6 +2187,27 @@ Strings are immutable. There are no in-place string operations under any spellin
 | `concat` | `(other: array) -> array` | mutates |
 | `sample` / `shuffle` | `-> any \| array` | require `Options.Rand` |
 | `sort_in_place` / `reverse_in_place` | `-> array` | the mutating variants, named so at the call site |
+
+**The four set rows answer with a set**: the first occurrence of each element wins and
+nothing repeats. `intersect`, `difference` and `subset` read the receiver and keep its
+order; `union` has elements the receiver never had, so it is the receiver's order first and
+then each argument's, in the order the arguments were given (§8.13). That is what tells
+them from `+` and `-`, which are the *sequence* operations and keep every element they were
+given — two operations, two names, which is what D17 asks for:
+
+```
+[1, 1, 2] + [2]              # [1, 1, 2, 2]   concatenation
+[1, 1, 2].union([2])         # [1, 2]         the set of both
+[1, 1, 2] - [2]              # [1, 1]         removal
+[1, 1, 2].difference([2])    # [1]            the set of what is left
+```
+
+There is no `set` **kind** and no `set` module: a set is a dict whose values are `true`,
+which is what a script writes by hand the moment it needs "have I seen this", and `to_set`
+is that dict — `xs.to_set.has(x)` is the O(1) form of `xs.has(x)`. The row is not spelled
+`set` because `set(k, v)` is the dict row of §12.4, and one name may not mean two things.
+Membership in the four rows is `==` (§7.4), so an array of arrays works; `to_set` is the
+one that needs hashable elements, because a dict key does.
 
 `pack_bytes` works in bytes, not runes, so it can build a string that is not valid UTF-8 —
 the same thing `io.read` of a binary file produces (§12.13). Nothing raises: the rune-based
@@ -2381,9 +2424,14 @@ operators: `&`, `|` and `^` are not lexemes (§3.9), so `&&`/`||`/`!` are the wh
 ### 12.10 Ranges
 
 `len`, `array`, `each`, `map`, `filter`, `reject`, `has`, `first(n)`, `last(n)`, `min`, `max`,
-`sum`, `step(n)`, `each_slice(n)`, `reverse`, `reduce`.
+`sum`, `step(n)`, `each_slice(n)`, `reverse`, `reduce`, the set rows of §12.3, and `seq`.
 
 A Range answers `true` to `is("array")` but reports `type(r) == "range"`.
+
+Every row but `len`, `has` and `seq` materialises the range under `MaxCollection` first,
+which is why `(1..1e9).len` costs nothing and `(1..1e9).map { … }` is a limit error.
+`(1..1e9).seq` is the third answer: it counts rather than materialising, and §12.14 is
+what it can then do.
 
 ### 12.11 The `http` module
 
@@ -2479,7 +2527,7 @@ $ mzs -e 'include io'      # inside a host that installed no FS
 | Member | Signature | Semantics | Example |
 |---|---|---|---|
 | `stdin` | `-> string` | the whole of `Options.Stdin`, read once per Run and kept for the rest of it. No reader is `""`, not an error | `io.stdin.trim` |
-| `lines` | `-> array` | `io.stdin.lines` (§12.2): the terminator is dropped, a CRLF file reads like an LF one | `io.lines.len` |
+| `lines` | `-> seq` | the input a line at a time (§12.14): the terminator is dropped, a CRLF file reads like an LF one | `io.lines.len` |
 | `read` | `(path: string) -> string` | the file as a string | `io.read("a.txt")` |
 | `write` | `(path: string, s: string) -> int` | truncates or creates; returns the bytes written | `io.write("a.txt", s)` |
 | `append` | `(path: string, s: string) -> int` | creates when absent; returns the bytes written | `io.append("log", l)` |
@@ -2500,18 +2548,140 @@ person typing `mzs -e` already owns the machine; an embedder writes the narrow o
 wants.
 
 **Capabilities inside the module.** `Options.Stdin` and `Options.Env` are separately
-optional. Without a reader `io.stdin` is `""` and `io.lines` is `[]`; without an `Env`
+optional. Without a reader `io.stdin` is `""` and `io.lines` is empty; without an `Env`
 every name is unset. Neither is an error, so one script runs both in a pipe and out of
 one. `io.stdin` is read **once per Run** and cached on the Run — a reader gives its bytes
 away once, so a second `io.stdin` must answer what the first one read, and the tasks of
 §8.14 share that one string rather than racing for the reader.
 
+**`io.stdin` and `io.lines` are two ways of asking one reader**, and which is asked first
+decides what the other can still have:
+
+* `io.stdin` first is the lossless order. It reads the whole input and keeps it, and every
+  later `io.lines` splits that string — as often as a script likes, in the main program and
+  in a task alike.
+* `io.lines` first takes the reader, a line at a time, and from then on the reader is what
+  `io.lines` has. A later `io.stdin` **raises** — `io.stdin: the input has already been read
+  line by line by io.lines` — rather than answering `""`, which a script would read as "no
+  data was piped in". It is an ordinary catchable error of kind `io`.
+
+That is what makes `io.lines` the member a file larger than `MaxStringBytes` arrives
+through: it promises one line, so only one line is ever in memory, while `io.stdin`
+promises the whole text and stops at the limit with a diagnostic (§14.2). A seq over a
+reader is a seq over what is left of it, so a second traversal sees the rest — the
+"stateful source" rule of §12.14, in the plainest form it has. A script that needs two
+looks takes them with `io.lines.array`.
+
 **Errors and limits.** Everything the outside world can refuse is an ordinary catchable
 error of kind `io` naming the path, so `try io.read(p) else ""` is how a script meets a
 missing file (§8.11, §13.5). Each member charges 1000 steps before it starts, and file waits release the
-interpreter for the Run's other tasks the way `http` does (§8.14) — the stdin drain does
-not, because "read once" is a promise across the whole Run. `io.read` and `io.stdin` stop
-at `MaxStringBytes` and report it (§14.2); they never truncate.
+interpreter for the Run's other tasks the way `http` does (§8.14) — neither the stdin drain
+nor a line pull does, because "read once" is a promise across the whole Run and two tasks
+pulling from one reader would take each other's lines. `io.read` and `io.stdin` stop at
+`MaxStringBytes` and report it (§14.2); they never truncate. For `io.lines` that limit
+bounds one **line**, which is the only bound a streaming read can have, and a line over it
+is the same catchable error. It also ends the source: what is left of a line that overran
+is not a line, and handing that back on the next pull would turn the diagnostic into silent
+corruption, so every later pull of `io.lines` reports the same failure. The CR of a CRLF is
+part of the terminator and is not measured, so a file off a Windows machine meets the limit
+where any other file does.
+
+### 12.14 Sequences (`seq`)
+
+A `seq` is a source pulled one element at a time. `map`, `filter` and `take` describe the
+work rather than doing it, and nothing is built until a **terminal** row asks for a value:
+
+```
+(1..1_000_000_000).seq.filter { it % 7 == 0 }.take(3).array   # [7, 14, 21]
+io.lines.filter { it.has("ERROR") }.take(10).each { println(it) }
+seq { (i) -> i * i }.take_while { it < 50 }.array             # [0,1,4,9,16,25,36,49]
+```
+
+Everything else in the library materialises, and `MaxCollection` caps that at a million
+(§14.2). That is the right default for a dialogue condition and the wrong one for a log —
+and after §12.13 a log is what arrives.
+
+**Sources.** `seq(x)`, and therefore `x.seq` (D18):
+
+| Source | Meaning |
+|---|---|
+| `xs.seq` | an array, read at the start of each traversal — an element pushed during one does not extend it, the rule `each` already follows |
+| `(a..b).seq` | a range, **counted** rather than materialised: `(1..1e18).seq` is a value like any other |
+| `seq { (i) -> … }` | a generator, called with the index of the element it is being asked for. **Returning `nil` ends the sequence**, which is the whole protocol — there is no `yield` (§20) and no coroutine — and is why a generated seq cannot contain `nil` |
+| `s.seq` | itself |
+| `io.lines` | the input, a line at a time (§12.13) |
+
+**Rows.** The two groups are the feature. A **lazy** row returns another seq and evaluates
+nothing:
+
+| Method | Signature | Semantics |
+|---|---|---|
+| `map` | `{ (x) -> … } -> seq` | |
+| `filter` / `reject` | `{ (x) -> … } -> seq` | |
+| `flat_map` | `{ (x) -> … } -> seq` | flattens one level; an array, a range or a seq the closure returns is pulled through, anything else is one element |
+| `take` / `drop` | `(n: int) -> seq` | |
+| `take_while` / `drop_while` | `{ (x) -> … } -> seq` | |
+
+A **terminal** row pulls:
+
+| Method | Signature | Semantics |
+|---|---|---|
+| `each` / `each_with_index` | `{ … } -> seq` | returns the receiver |
+| `array` | `-> array` | the materialisation, and the row that charges `MaxCollection` |
+| `len` | `-> int` | pulls everything and counts it |
+| `empty` | `-> bool` | pulls exactly one element |
+| `count` | `(v) \| { (x) -> … } -> int` | every element, the equal ones, or the ones a closure accepts |
+| `first` | `(n: int = nil) -> any \| array` | the first element, or the first `n` |
+| `has` | `(v) -> bool` | membership by `==`, and therefore what `x in s` asks (§8.5) |
+| `find` | `{ (x) -> … } -> any \| nil` | stops at the first hit |
+| `any` / `all` / `none` | `[{ (x) -> … }] -> bool` | each stops at the element that decides the answer |
+| `reduce` | `(init: any = nil) { (acc, x) -> … } -> any` | seeds with the first element when no initial value is given |
+| `sum` | `[{ (x) -> … }] -> number` | |
+| `min` / `max` | `[{ (a, b) -> int }] -> any` | the optional comparator of §12.3 |
+| `join` | `(sep: string = "") -> string` | `str` of each element |
+
+Every other array row — `sort`, `reverse`, `uniq`, `tally`, `group_by`, `last` — needs the
+whole sequence at once and is reached by materialising first: `s.array.sort`. That is
+deliberate; a row that quietly buffered a gigabyte would defeat the point of asking for a
+seq. The diagnostic names the receiver's kind either way, and which of the two shapes it
+takes is UFCS (§4.3): a name that is also a §12.1 builtin falls through to it and reports
+`sort expects an array, got seq`, while a name that is only an array row reports
+`undefined method 'uniq' for seq`. The fix is one row long in both cases.
+
+**A seq is a recipe, not a cursor.** Every terminal opens the source again, so `s.len` and
+then `s.array` both see the whole sequence. Where the source has state of its own — a
+generator over a counter, a reader that has already given its bytes away — a second run
+sees what that state left, because that is what state means. Nothing is cached: caching a
+sequence is `.array`, spelled out.
+
+**Limits reach inside the chain.** Every source charges one step per element, so the
+deadline and the step budget of §14.1 interrupt a lazy pipeline exactly as they interrupt a
+`while` — including the runaway loop that lives *inside* a row, where a `filter` whose
+predicate never fires pulls without ever returning to the terminal. An endless seq is a
+`while true` with better manners and never a way around §14.1. `array` charges
+`MaxCollection` and `join` charges `MaxStringBytes`; the rows that only count charge
+neither, because they materialise nothing.
+
+**A seq is not an array.** `type(s) == "seq"` and `s.is("array")` is **false** — the one
+place a range and a seq disagree (§12.10), and deliberately: host code that accepts an
+array must not silently accept a value that refuses to become one. A seq is not compared
+(`==` is identity, §7.4), not ordered, not a dict key (§7.6), and has no JSON form: `json`
+**raises** rather than writing `null` as a function does, because a sequence *has* a
+document form and it is the one `.array` produces. The refusal reaches every encoder and
+reaches *inside* a value — `{items: s}` is refused as flatly as `s` — so a host's
+`MarshalJSON`, an http response body (§12.11) and `mzs --json` (§15) all answer the way a
+script does, and a forgotten `.array` is never a field that quietly disappeared. `str(s)`
+is `#<seq>`; `str` of a collection holding one still renders `null` there, because a
+rendering that cannot fail has nothing else to write.
+
+**`for` pulls.** `for line in io.lines { … }` iterates without materialising, and `break`
+and `next` mean what they always do (§8.10) — a `break` stops the pull. A trailing closure
+in a loop header belongs to the loop (§3.11), so a generator written there takes its own
+parentheses: `for x in (seq { (i) -> i }) { … }`.
+
+**Both spellings reach the row.** UFCS makes `len(s)` and `s.len` one operation (§12), and
+for a seq the row is the implementation of both: the builtins of §12.1 read a value that is
+already there, and a lazy sequence holds nothing until it is pulled.
 
 ---
 ## 13. Go API
@@ -2547,10 +2717,12 @@ const (
     KFunc
     KTime
     KRange   // §12.10: type(r) == "range", but r.is("array") is true
+    KTask    // §8.14: what an `async fn` call returns
+    KSeq     // §12.14: type(s) == "seq", and s.is("array") is false
     KAny     // not a value kind; the key of the universal method table (§12.1)
 )
 
-func (k Kind) String() string // "nil","bool","int","float","string","regex","array","dict","function","time","range"
+func (k Kind) String() string // "nil","bool","int","float","string","regex","array","dict","function","time","range","task","seq"
 
 // Value is an immutable handle. Copying a Value is free and safe.
 // Array/Dict/Func values are references: copies alias the same underlying data.
@@ -2628,7 +2800,7 @@ type Options struct {
     EnableTime      bool             // installs the time/date modules (needs Now for now/today)
     ModuleLoader    ModuleLoader     // enables `include x from "path"` (§12.8); nil => error
     FS              FileSystem       // installs the io module (§12.13); nil => `include io` is an error
-    Stdin           io.Reader        // what io.stdin/io.lines read, once per Run. nil => ""
+    Stdin           io.Reader        // what io.stdin drains and io.lines streams (§12.13). nil => ""
     Env             func(string) string // answers io.env. nil => every name is unset
     Location        *time.Location   // default zone for in_time_zone/strftime. Default time.UTC.
 }
@@ -2909,6 +3081,11 @@ whole Run (§8.14). The one addition is that *waiting* is checked too — an `aw
 join at the end of a Run both wake on the deadline and on `ctx.Done()`, so no wait can
 outlive the limits the host set.
 
+A lazy sequence is inside all of this, not beside it: every source of §12.14 charges one
+step per element it hands out, so a chain that never ends — an endless generator, a `filter`
+whose predicate never fires — is interrupted exactly as a `while true` is, and by the same
+three checks.
+
 Limits are **not catchable** by `try` (§8.11).
 
 ### 14.2 Memory
@@ -2917,6 +3094,12 @@ Limits are **not catchable** by `try` (§8.11).
 `*`, `flatten`, `range`, `split`, `matches`, `each_slice`). `MaxStringBytes` bounds string
 construction (`*`, `+`, `join`, `replace`, interpolation). Exceeding either raises
 `Kind == "limit"` and is not catchable.
+
+A `seq` (§12.14) is the value that materialises nothing: its lazy rows allocate one element
+at a time, and the cap is charged by the two terminals that build something — `array`
+against `MaxCollection`, `join` against `MaxStringBytes`. That is what makes an input larger
+than either limit processable rather than merely refusable, and it costs the limits nothing:
+what bounds a lazy pipeline is §14.1, one step per element.
 
 The two members that read from *outside* the process are the exception, and only in how
 they report: an HTTP response (§12.11) and a file or a stdin bigger than `MaxStringBytes`
@@ -2992,7 +3175,7 @@ cat data | mzs -n -e '<source>'
 |---|---|
 | `-e <src>` | evaluate `<src>`; may be repeated (joined with `\n`); mutually exclusive with a file |
 | `-p` | print the value of the last expression (default **on** for `-e`, off for a file) |
-| `--json` | print the result as JSON instead of `str` |
+| `--json` | print the result as JSON instead of `str`; a `seq` is the one value with no JSON form, and the CLI says so and exits 1 (§12.14) |
 | `-n` | run the program once per line of the data stream; the line is `$_` |
 | `-l` | `-n`, and print each line's value when it is not `nil` |
 | `--in <path>` | read the data stream from a file instead of stdin |
@@ -3258,6 +3441,11 @@ if $__sent.int > 5 { print("big") }
 | `TestEnsureRunsOnEveryExit` | an `ensure` runs on the value, on a raise and on a `return` out of the body, in that order and without changing the value; a limit runs none (§8.11, §14.1) |
 | `TestErrorKindsAreClosed` | each of `type`, `name`, `index`, `key`, `zero-division`, `regex`, `json`, `raise` is stamped where it is born; `raise(msg, kind)` names a kind of its own; `limit`/`exit`/`internal`/`syntax` are refused; `raise(e)` keeps the original position and stack |
 | `TestBitOpsStayInt` | `shl(1, 63)` is still an `int` and `shl(1, 64)` is `0` where `2 ** 64` promotes to a Float; `2.9.band(1)`, `shl(1, -1)`, `bit(1, 64)` and a non-byte in `pack_bytes` each raise with the text of §12.5 |
+| `TestSetRowsAreNotTheOperators` | `[1,1,2] + [2]` → `[1,1,2,2]` and `.union([2])` → `[1,2]`; `[1,1,2] - [2]` → `[1,1]` and `.difference([2])` → `[1]` (§12.3) |
+| `TestSeqIsLazy` | a generator that counts its own calls is pulled exactly as far as the chain needs: `take(3)` pulls 3, `first` pulls 1, `filter { … }.take(2)` pulls only to the second hit, and a chain of lazy rows alone pulls **0** |
+| `TestSeqIsNotAnArray` | `type(s) == "seq"`, `s.is("array")` is false where a range's is true; `==` is identity, `<=>` is nil, a seq is not a dict key, and `json` raises naming `.array` |
+| `TestSeqEndlessChainsHitTheLimits` | an endless seq ends on `ErrBudget` — including when the runaway loop is inside `filter`/`drop` rather than in the terminal — and on the deadline with the budget disabled (§14.1) |
+| `TestIOLinesTakesTheReader` | `io.stdin` after `io.lines` has streamed is a catchable `io` error naming `io.lines`, and the other order answers every member from one read (§12.13) |
 | `TestTimeout` | `Bool("while true { }")` returns `ErrTimeout` in ≤ 1.2 s |
 | `TestStepBudget` | a 10⁹-iteration loop returns `ErrBudget` without OOM |
 | `TestNoHostPanic` | fuzz corpus of 10⁴ random byte strings: `Compile`+`Run` never panic |

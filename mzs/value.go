@@ -37,6 +37,9 @@ const (
 	// it will have. It is an opaque handle — `await` and `done` are all it answers — and
 	// it never leaves the Run that created it.
 	KTask
+	// KSeq is the lazy sequence of §12.14. type(s) reports "seq" and is("array") is
+	// false — the opposite of a Range, which can be materialised under a cap and says so.
+	KSeq
 )
 
 const (
@@ -70,6 +73,7 @@ var kindNames = map[Kind]string{
 	KTime:   "time",
 	KRange:  "range",
 	KTask:   "task",
+	KSeq:    "seq",
 	KAny:    "any",
 }
 
@@ -181,6 +185,8 @@ func regexOf(r *rx.Regexp) Value { return Value{k: KRegex, p: r} }
 func timeOf(t time.Time) Value { return Value{k: KTime, p: t} }
 
 func taskOf(t *task) Value { return Value{k: KTask, p: t} }
+
+func seqOf(s *Seq) Value { return Value{k: KSeq, p: s} }
 
 func rangeOf(lo, hi int64, excl bool) Value {
 	return Value{k: KRange, p: &Range{Lo: lo, Hi: hi, Excl: excl}}
@@ -299,6 +305,11 @@ func (v Value) Str() string {
 		return v.Time().Format(time.RFC3339)
 	case KTask:
 		return v.task().render()
+	case KSeq:
+		// A sequence has no text: rendering one would mean running it, and a `str` that
+		// consumed its receiver is not a `str`. `#<seq>` is what a function prints too,
+		// and for the same reason (§12.14).
+		return "#<seq>"
 	}
 	return ""
 }
@@ -425,6 +436,14 @@ func (v Value) task() *task {
 	return t
 }
 
+func (v Value) seq() *Seq {
+	if v.k != KSeq {
+		return nil
+	}
+	s, _ := v.p.(*Seq)
+	return s
+}
+
 // ---------------------------------------------------------------------------
 // Equality and ordering
 // ---------------------------------------------------------------------------
@@ -474,6 +493,10 @@ func (v Value) equal(o Value, depth int) bool {
 		// Identity, like a function: two tasks are the same task or they are not, and
 		// what they will produce is not a question `==` may block on.
 		return v.task() == o.task()
+	case KSeq:
+		// Identity as well, and for the stronger reason: comparing two sequences would
+		// mean running both, and a `==` with side effects is not one (§7.4, §12.14).
+		return v.seq() == o.seq()
 	case KRange:
 		a, b := v.rng(), o.rng()
 		return a.Lo == b.Lo && a.Hi == b.Hi && a.Excl == b.Excl
@@ -715,19 +738,28 @@ type Range struct {
 }
 
 // Len is the number of elements, clamped to a non-negative int.
+//
+// The arithmetic is done in uint64 because both ends of the int64 range are reachable
+// from a script: `hi--` on an exclusive range ending at MinInt64 would wrap to MaxInt64
+// and turn the empty range into the largest one there is, and `hi - lo + 1` overflows for
+// any range wider than MaxInt64. In unsigned arithmetic the distance between two int64s
+// is exact, and the clamp happens before the +1 that could carry past it.
 func (r *Range) Len() int {
 	hi := r.Hi
 	if r.Excl {
+		if hi == math.MinInt64 {
+			return 0
+		}
 		hi--
 	}
 	if hi < r.Lo {
 		return 0
 	}
-	n := hi - r.Lo + 1
-	if n > int64(math.MaxInt32) {
+	d := uint64(hi) - uint64(r.Lo)
+	if d >= uint64(math.MaxInt32) {
 		return math.MaxInt32
 	}
-	return int(n)
+	return int(d) + 1
 }
 
 // At returns the i-th element without bounds checking beyond the caller's own.
@@ -967,9 +999,12 @@ func appendJSON(dst []byte, v Value, indent string, level int) []byte {
 		return appendJSONString(dst, v.rx().Source())
 	case KTime:
 		return appendJSONString(dst, v.Time().Format(time.RFC3339))
-	case KFunc, KTask:
+	case KFunc, KTask, KSeq:
 		// A task is a running body, not data: it encodes as null, exactly as a function
-		// does. What a script wants in the document is `t.await`.
+		// does. What a script wants in the document is `t.await`. A seq is the same
+		// answer for the same reason — `json` itself raises rather than writing this
+		// one out (§12.14), because a sequence *has* a document form and it is
+		// `s.array`.
 		return append(dst, "null"...)
 	case KArray, KRange:
 		xs := v.Elems()
@@ -1135,9 +1170,53 @@ func decodeJSONFrom(dec *json.Decoder, t json.Token) (Value, error) {
 	return Nil(), fmt.Errorf("invalid JSON token %v", t)
 }
 
-// MarshalJSON makes a Value usable anywhere encoding/json is.
+// errSeqJSON is what every JSON encoder in the package answers for a value that holds a
+// lazy sequence. The text is the script-level one (§12.14) so a host, an HTTP handler and
+// a script are told the same thing and given the same fix.
+var errSeqJSON = errors.New("a seq is lazy and has no JSON form; materialise it with .array")
+
+// MarshalJSON makes a Value usable anywhere encoding/json is. It **fails** for a value
+// that holds a seq anywhere inside it, rather than writing the `null` appendJSON has to
+// fall back on: a sequence has a document form — the one `.array` produces — so `null`
+// would turn a forgotten `.array` into a field that silently disappeared. That is the same
+// answer the `json` builtin gives (§12.14), and this is where the host, the http response
+// of §12.11 and the CLI's --json all get it.
 func (v Value) MarshalJSON() ([]byte, error) {
+	if holdsSeq(v, 0) {
+		return nil, errSeqJSON
+	}
 	return appendJSON(nil, v, "", 0), nil
+}
+
+// holdsSeq reports whether v is a seq or contains one. The depth cap is the one every
+// other walk over user data carries: a script can build `a = []; a.push(a)` with one line
+// and a Go stack overflow is not recoverable (A7). Beyond it the answer is "no", which
+// only means the encoder writes what it would have written anyway.
+func holdsSeq(v Value, depth int) bool {
+	if depth > maxRenderDepth {
+		return false
+	}
+	switch v.k {
+	case KSeq:
+		return true
+	case KArray:
+		for _, e := range *v.arr() {
+			if holdsSeq(e, depth+1) {
+				return true
+			}
+		}
+	case KDict:
+		found := false
+		v.odict().Each(func(_, val Value) bool {
+			if holdsSeq(val, depth+1) {
+				found = true
+				return false
+			}
+			return true
+		})
+		return found
+	}
+	return false
 }
 
 // UnmarshalJSON parses JSON into v, preserving object key order.

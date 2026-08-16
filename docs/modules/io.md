@@ -23,7 +23,7 @@ dev
 | Member | Signature | Returns |
 |---|---|---|
 | `stdin` | `-> string` | all of the data stream, read once per Run |
-| `lines` | `-> array` | `io.stdin` split on lines, terminator dropped |
+| `lines` | `-> seq` | the input a line at a time, terminator dropped ([../stdlib/sequences.md](../stdlib/sequences.md)) |
 | `read` | `(path) -> string` | the whole file |
 | `write` | `(path, s) -> int` | bytes written; truncates or creates |
 | `append` | `(path, s) -> int` | bytes written; creates when absent |
@@ -56,18 +56,56 @@ whole strings.
 
 ## stdin
 
-`io.stdin` is read once per Run and cached, so a second read answers what the first one got;
-`io.lines` is that same text split.
+`io.stdin` is read once per Run and cached, so a second read answers what the first one got.
+`io.lines` is the same input a **line at a time**: a [seq](../stdlib/sequences.md), so it
+chains like an array and holds one line rather than all of them.
 
 ```sh
 $ printf 'one\ntwo\n' | mzs -e 'include io; [io.stdin.lines.len, io.stdin.lines.len, io.lines.len]' --json
 [2,2,2]
-$ printf 'a\r\nb\r\n' | mzs -e 'include io; io.lines' --json
+$ printf 'a\r\nb\r\n' | mzs -e 'include io; io.lines.array' --json
 ["a","b"]
+$ printf 'a\nb\n' | mzs -e 'include io; io.lines.map { it.upper }.take(1).array' --json
+["A"]
 ```
 
-No reader at all is not an error — the text is `""` and the lines are `[]`, so one script runs
-both in a pipe and out of one.
+That is what makes an input larger than `MaxStringBytes` something a script can process
+rather than only refuse: `io.stdin` promises the whole text and stops at the limit,
+`io.lines` promises one line.
+
+```sh
+$ mzs --in big.log -e 'include io; io.lines.count { it.has("ERROR") }'   # a 15 MB file
+128
+$ mzs --in big.log -e 'include io; io.stdin.len'
+-e:1:16: io: io.stdin: exceeds the 8388608 byte limit
+```
+
+**The two are one reader**, and which is asked first decides what the other can still have.
+`io.stdin` first is the lossless order — it keeps the whole text, and every later `io.lines`
+splits that string. `io.lines` first takes the reader, and a later `io.stdin` says so
+instead of answering `""`:
+
+```sh
+$ printf 'a\nb\n' | mzs -e 'include io; [io.lines.len, io.stdin.len]'
+-e:1:31: io: io.stdin: the input has already been read line by line by io.lines
+```
+
+A line longer than `MaxStringBytes` is a catchable `io` error — the limit bounds one line,
+which is the only bound a streaming read can have — and it ends the source: what is left of
+that line is not a line, so every later pull reports the same failure rather than handing
+back the rest of it as data. The CR of a CRLF is part of the terminator and is not
+measured.
+
+For the same reason a second walk of a streamed `io.lines` sees what is left of the reader —
+usually nothing. A script that needs two looks takes them from an array:
+
+```sh
+$ printf 'a\nb\n' | mzs -e 'include io; ls = io.lines.array; [ls.len, ls.len]' --json
+[2,2]
+```
+
+No reader at all is not an error — the text is `""` and the lines are empty, so one script
+runs both in a pipe and out of one.
 
 ```sh
 $ mzs -e 'include io; inspect(io.stdin)' < /dev/null
@@ -88,7 +126,7 @@ $ printf 'a\nb\n' | mzs -n -e 'include io; inspect(io.stdin) + " / " + $_'
 
 ```sh
 $ printf 'D1\nD2\n' > data.txt
-$ echo 'include io; io.lines' | mzs --in data.txt - --json
+$ echo 'include io; io.lines.array' | mzs --in data.txt - --json
 ["D1","D2"]
 ```
 
@@ -117,7 +155,7 @@ io.read "huge.txt": exceeds the 8388608 byte limit
 ```
 
 Every member that reaches the filesystem charges 1000 steps before it starts — `io.env` charges
-none, and `io.stdin`/`io.lines` only on the read that drains the reader — so a loop over a
+none, and `io.stdin`/`io.lines` charge once for the read itself, plus one step per line — so a loop over a
 directory spends the budget at the rate of the work it does:
 
 ```sh

@@ -31,6 +31,9 @@ host values safe.
 | `"yes,no,yes".split(",").tally.json` | `{"yes":2,"no":1}` |
 | `[3,1,2].sort { (a, b) -> b <=> a }` | `[3,2,1]` |
 | `[1,2,3].zip([4,5,6])` | `[[1,4],[2,5],[3,6]]` |
+| `[1,1,2].union([2,3])` | `[1,2,3]` |
+| `["a","b"].to_set.has("a")` | `true` |
+| `(1..1_000_000_000).seq.filter { it % 7 == 0 }.take(3).array` | `[7,14,21]` |
 | `[].first ?? "empty"` | `empty` |
 | `{a: 1}.merge({b: 2}).json` | `{"a":1,"b":2}` |
 | `{a: 1, b: 2}.map { (k, v) -> "${k}=${v}" }.join("&")` | `a=1&b=2` |
@@ -91,6 +94,7 @@ the values differ.
 | `include io; io.ls("/etc").len > 0` | `true` |
 | `include io; io.exists("/no/such")` | `false` |
 | `include io; io.env("HOME").starts_with("/")` | `true` |
+| `include io; io.lines.filter { it.has("ERROR") }.take(10).array` | the first ten matching lines, streamed |
 
 The CLI grants `io` by default; `--no-io` withholds it, and an embedding host has to supply a
 filesystem before any of these names exist.

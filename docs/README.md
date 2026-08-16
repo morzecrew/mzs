@@ -26,7 +26,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | Page | Answers |
 |---|---|
 | [language/README.md](./language/README.md) | The three rules, expression orientation, the keyword list, an index of these pages |
-| [language/values.md](./language/values.md) | The nine kinds and their literals, `record` shapes, truthiness, equality, copying |
+| [language/values.md](./language/values.md) | The kinds and their literals, `record` shapes, truthiness, equality, copying |
 | [language/operators.md](./language/operators.md) | The precedence table, integer division, no implicit conversion, the runes that are not operators |
 | [language/control-flow.md](./language/control-flow.md) | `if`, `while`, `for`, `break`/`next`, statement modifiers, `match` — all as expressions |
 | [language/destructuring.md](./language/destructuring.md) | One shape rule in three places: assignment, `match` arm, `for` header |
@@ -48,6 +48,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [stdlib/dicts.md](./stdlib/dicts.md) | Reading, writing, merging and iterating a dict, and the insertion-order guarantee |
 | [stdlib/numbers.md](./stdlib/numbers.md) | int and float behaviour, rounding, predicates, and the eight bit functions |
 | [stdlib/ranges.md](./stdlib/ranges.md) | `..` and `..<`, laziness, `step`, ranges as indices and in `for`/`match` |
+| [stdlib/sequences.md](./stdlib/sequences.md) | `seq`: what is pulled rather than built, and the input that does not fit in an array |
 
 ## Modules
 
@@ -57,7 +58,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/json.md](./modules/json.md) | `json.parse`, `x.json`, `json.pretty`, and the value mapping in both directions |
 | [modules/math.md](./modules/math.md) | The complete member list, and what happens out of domain |
 | [modules/time.md](./modules/time.md) | The clock capability, the `time` kind, parsing, `strftime`, duration arithmetic |
-| [modules/io.md](./modules/io.md) | The eight io members — stdin, files, env — and the filesystem a host must supply |
+| [modules/io.md](./modules/io.md) | The eight io members — stdin, files, env — the filesystem a host must supply, and streaming a file that does not fit |
 | [modules/http.md](./modules/http.md) | The server whose routes are closures, and the client whose answers are dicts |
 | [modules/custom.md](./modules/custom.md) | `include … from`, `export`, and how a path resolves |
 
@@ -82,4 +83,4 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 ## See also
 
 * [../SPEC.md](../SPEC.md) — the normative specification; where it and these pages disagree, it wins
-* [../examples/README.md](../examples/README.md) — 34 example programs, in order of difficulty
+* [../examples/README.md](../examples/README.md) — 40 example programs, in order of difficulty

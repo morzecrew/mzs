@@ -25,7 +25,7 @@ func TestNoAliasesForRenamedNames(t *testing.T) {
 // before a receiver exists.
 func TestMethodHooksAgreeWithLookup(t *testing.T) {
 	kinds := []Kind{KNil, KBool, KInt, KFloat, KString, KRegex, KArray, KDict, KFunc,
-		KTime, KRange, KAny}
+		KTime, KRange, KTask, KSeq, KAny}
 
 	for _, k := range kinds {
 		t.Run(k.String(), func(t *testing.T) {

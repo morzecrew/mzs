@@ -102,6 +102,24 @@ Consequences worth knowing:
 
 See [async](../language/async.md) and `examples/28_async_tasks.mzs`.
 
+## A lazy sequence is not a stream API
+
+`seq` (see [sequences](../stdlib/sequences.md)) pulls one element at a time, which is what
+lets a script read an input larger than any limit. What it is not:
+
+- **Not restartable at will.** A seq is a recipe, and running it again re-opens the source.
+  Where the source has state — a generator over a counter, a reader already drained — the
+  second run sees what that state left. `.array` is how you take two looks.
+- **Not concurrent.** Pulling happens on the goroutine that asked; there is no background
+  producer and no buffer.
+- **Not a value you can serialise or key on.** A seq is an ordinary value otherwise: bind
+  it, pass it, return it, walk it again. What it does not have is a JSON form, an order
+  relative to another seq (`<=>` is nil), or an equality other than identity — so it cannot
+  be a dict key and cannot travel through `json`. Its own traversal is in source order,
+  every time.
+- **Not free of the budget.** Every element costs an interpreter step, so an endless
+  sequence ends on the step budget or the deadline like any other loop.
+
 ## See also
 
 - [Sandbox and limits](./sandbox.md)

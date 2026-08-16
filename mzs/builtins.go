@@ -326,10 +326,11 @@ func printlnValue(c *Ctx, w io.Writer, v Value) error {
 }
 
 // isKindName answers `is(x, name)` (§12.1). The names are the §7.2 type names plus the
-// two internal kinds a script can still see, "range" and "time". A Range answers true to
-// "array" while `type(r)` stays "range" (§12.10) — the one place the two disagree. An
-// unknown name is an argument error rather than false, so a pasted `x.is("Integer")`
-// fails loudly instead of silently never matching.
+// kinds a script can produce but not write a literal for: "range", "time" and "seq". A
+// Range answers true to "array" while `type(r)` stays "range" (§12.10) — the one place the
+// two disagree — and a seq answers false, because it is the value that will not
+// materialise (§12.14). An unknown name is an argument error rather than false, so a
+// pasted `x.is("Integer")` fails loudly instead of silently never matching.
 func isKindName(v Value, name string) (yes, known bool) {
 	switch name {
 	case "nil":
@@ -352,6 +353,10 @@ func isKindName(v Value, name string) (yes, known bool) {
 		return v.Kind() == KFunc, true
 	case "range":
 		return v.Kind() == KRange, true
+	case "seq":
+		// And **not** under "array", unlike a range: a range materialises on demand
+		// under the collection cap and a seq is the value that refuses to (§12.14).
+		return v.Kind() == KSeq, true
 	case "time":
 		return v.Kind() == KTime, true
 	}

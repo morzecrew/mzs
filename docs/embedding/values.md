@@ -21,9 +21,16 @@ panics.
 | `KTime` | `time` |
 | `KRange` | `range` |
 | `KTask` | `task` |
+| `KSeq` | `seq` |
 | `KAny` | `any` |
 
 `KAny` is not a value kind — it is the key of the method table shared by every receiver.
+
+`KRange` and `KSeq` are the two lazy kinds, and they differ where it matters to a host:
+`is("array")` is true for a range and **false** for a seq. A range materialises on demand
+under `MaxCollection`, so `v.Elems()` answers for it; a seq holds nothing until a script
+pulls it, so `Elems()` is empty and `Len()` is 0. Take the array a script hands you
+(`s.array` on the script side) rather than a sequence.
 
 ## Constructors
 

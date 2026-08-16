@@ -81,6 +81,7 @@ string and a regex say so explicitly.
 | [dicts.md](./dicts.md) | keys, lookup with defaults, merging, nested `dig` |
 | [numbers.md](./numbers.md) | rounding, predicates, loops, bit functions |
 | [ranges.md](./ranges.md) | `a..b`, what a Range answers, materialising it |
+| [sequences.md](./sequences.md) | `seq`: lazy sources, the lazy rows and the terminals, and why it is not an array |
 
 Modules are not part of this namespace: `json`, `math`, `time`, `io` and `http` exist only
 after an `include`. See [../modules/README.md](../modules/README.md).
@@ -88,5 +89,5 @@ after an `include`. See [../modules/README.md](../modules/README.md).
 ## See also
 
 - [../language/functions.md](../language/functions.md) — closures, `it`, and how UFCS dispatch is resolved
-- [../language/values.md](../language/values.md) — the nine kinds these tables are grouped by
+- [../language/values.md](../language/values.md) — the kinds these tables are grouped by
 - [../modules/README.md](../modules/README.md) — the parts of the library that need `include`

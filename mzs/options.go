@@ -107,8 +107,11 @@ type Options struct {
 	// way ModuleLoader already is for source. nil — the default — means `include io` is
 	// an error that says so.
 	FS FileSystem
-	// Stdin is what io.stdin and io.lines read, once per Run. nil is not an error: it is
-	// an empty input, so a script written for a pipe still runs where there is none.
+	// Stdin is what io.stdin and io.lines read. The reader gives its bytes away once, so
+	// the two members share it: io.stdin drains and caches it, io.lines pulls a line at a
+	// time, and whichever is asked for first decides what the other can still have
+	// (§12.13). nil is not an error: it is an empty input, so a script written for a pipe
+	// still runs where there is none.
 	Stdin io.Reader
 	// Env answers io.env. nil means every name is unset, and os.Getenv is the whole of
 	// what a host that wants the real environment has to pass. An empty result counts as

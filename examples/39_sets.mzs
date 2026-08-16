@@ -1,0 +1,131 @@
+# 39 — sets: the four operations, and the dict that already was one.
+#
+#   mzs examples/39_sets.mzs
+#
+# There is no set *kind* in mzs, and there is not going to be one. A set is a dict whose
+# values are `true` — which is what you write by hand the first time you need "have I seen
+# this" — and what was missing was the operations, so they live on the arrays where they
+# are wanted:
+#
+#   xs.to_set        the membership half: a dict, so `has` is O(1) instead of O(n)
+#   a.union(b)       every element of both, once each
+#   a.intersect(b)   the elements both have
+#   a.difference(b)  the elements only `a` has
+#   a.subset(b)      is every element of `a` in `b`
+#
+# All four answer with a **set**: the first occurrence of each element wins and nothing
+# repeats. `intersect`, `difference` and `subset` keep the receiver's order; `union` has
+# elements the receiver never had, so it is the receiver first and then each argument, in
+# the order they were given. That is the whole difference between them and `+` and `-`,
+# which keep everything they are given — and the reason the language has both.
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+fn show(label, v) { println(label.ljust(34) + " → " + v.json) }
+
+rule("the four operations")
+
+editors = ["ann", "bob", "cyd"]
+admins  = ["cyd", "dan"]
+
+show("editors.union(admins)", editors.union(admins))
+show("editors.intersect(admins)", editors.intersect(admins))
+show("editors.difference(admins)", editors.difference(admins))
+show("admins.difference(editors)", admins.difference(editors))
+show("editors.subset(editors.union(admins))", editors.subset(editors.union(admins)))
+show("editors.subset(admins)", editors.subset(admins))
+
+# All three take any number of collections, and a range counts as one.
+show("[1].union([2], (3..4))", [1].union([2], (3..4)))
+show("(1..6).intersect([2, 4, 9])", (1..6).intersect([2, 4, 9]))
+
+rule("a set is not a list — that is why both exist")
+
+# `+` and `-` are the sequence operations: they keep every element they were given. The set
+# rows answer with a set. Two operations, two names.
+noisy = [1, 1, 2]
+
+show("[1,1,2] + [2]", noisy + [2])
+show("[1,1,2].union([2])", noisy.union([2]))
+show("[1,1,2] - [2]", noisy - [2])
+show("[1,1,2].difference([2])", noisy.difference([2]))
+
+rule("to_set: membership in one step")
+
+tags = ["новости", "акции", "новости", "поддержка", "акции"]
+
+show("tags.to_set", tags.to_set)
+show("tags.to_set.keys", tags.to_set.keys)
+show("tags.uniq", tags.uniq)
+
+# `uniq` gives the list, `to_set` gives the index. Reach for the second one when the
+# question is asked more than once: `has` on a dict is a hash lookup, `has` on an array is
+# a scan, and inside a loop that difference is the whole cost.
+known = tags.to_set
+show("known.has(\"акции\")", known.has("акции"))
+show("known.has(\"жалобы\")", known.has("жалобы"))
+
+# A set is a dict, so everything a dict does it still does — including growing.
+known.set("жалобы", true)
+show("after set(\"жалобы\", true)", known.keys)
+show("known.len", known.len)
+
+rule("the loop the operations were missing")
+
+# The classic use: a walk that must not visit the same node twice. `visited` is a set, and
+# `queue` shrinks the way a queue does.
+graph = {
+  "a" -> ["b", "c"],
+  "b" -> ["a", "d"],
+  "c" -> ["d"],
+  "d" -> ["a"],
+}
+
+fn reachable(graph, from) {
+  visited = [from].to_set
+  queue = [from]
+  order = []
+  while !queue.empty {
+    node = queue.shift
+    order.push(node)
+    for peer in graph.get(node, []) {
+      next if visited.has(peer)
+      visited.set(peer, true)
+      queue.push(peer)
+    }
+  }
+  order
+}
+
+show("reachable(graph, \"a\")", reachable(graph, "a"))
+show("reachable(graph, \"c\")", reachable(graph, "c"))
+
+rule("membership is ==, so nested data works")
+
+# The four rows compare with `==`, exactly as `uniq` and `has` do, so an array of arrays is
+# no harder than an array of strings.
+pairs = [[1, "a"], [1, "a"], [2, "b"]]
+
+show("pairs.union([[2, \"b\"], [3, \"c\"]])", pairs.union([[2, "b"], [3, "c"]]))
+show("[[1, \"a\"]].subset(pairs)", [[1, "a"]].subset(pairs))
+
+# `to_set` is the one row that cannot: a dict key must be hashable, and an array is not.
+# It is the same diagnostic `tally` gives, and it says which kind arrived.
+show("try pairs.to_set", try pairs.to_set else (e) { e["message"] })
+
+rule("what the report says")
+
+incoming = ["новости", "жалобы", "акции"]
+allowed = tags.to_set.keys
+
+println("подписки клиента   " + incoming.json)
+println("рубрики в системе  " + allowed.json)
+println("")
+println("известные          " + incoming.intersect(allowed).join(", "))
+println("новые              " + incoming.difference(allowed).join(", "))
+println("всё вместе         " + allowed.union(incoming).join(", "))
+println("клиент подписан на всё: " + allowed.subset(incoming).str)
