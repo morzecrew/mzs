@@ -37,6 +37,58 @@ func TestSeqSources(t *testing.T) {
 	}
 }
 
+// Both ends of the int64 range are reachable from a script, and the arithmetic that walks
+// one has to say so. An exclusive range ending at the smallest int has nothing below it,
+// and the `hi--` that finds the last element wrapped it to the largest one instead — the
+// empty range became the widest one there is, and its eager twin asked `make` for a
+// negative length and panicked (A7).
+func TestSeqRangeEndpointsDoNotWrap(t *testing.T) {
+	t.Parallel()
+	in := evInterp()
+	const minInt = "(0 - 9223372036854775807 - 1)"
+	const maxInt = "9223372036854775807"
+
+	tests := []struct{ name, src, want string }{
+		{"an exclusive range ending at the smallest int is empty",
+			"(0..<" + minInt + ").seq.len", "0"},
+		{"and so is its eager twin, which used to panic in make",
+			"(0..<" + minInt + ").array.len", "0"},
+		{"len agrees with both", "(0..<" + minInt + ").len", "0"},
+		{"the widest range there is counts up to the cap, not into a negative",
+			"(" + minInt + ".." + maxInt + ").len", "2147483647"},
+		{"a seq ending at the largest int does not wrap past it",
+			"(" + maxInt + ".." + maxInt + ").seq.array.json", "[9223372036854775807]"},
+		{"nor does its exclusive form", "(" + maxInt + "..<" + maxInt + ").seq.len", "0"},
+		{"the smallest int is still an element when it is the endpoint",
+			"(" + minInt + ".." + minInt + ").seq.len", "1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, in, tt.src); got != tt.want {
+				t.Errorf("%s = %s; want %s", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
+// `first(0)` asks for no elements and must therefore take none. seqRun pulls before it
+// asks, so the row has to answer before the traversal starts — otherwise a line comes off
+// `io.lines`, or a generator advances, to produce an empty array.
+func TestSeqFirstZeroPullsNothing(t *testing.T) {
+	t.Parallel()
+	in := evInterp()
+
+	src := `n = 0
+		s = seq { n = n + 1; if n <= 4 { n } }
+		[s.first(0), s.first(2), s.first(2)].json`
+	if got := evStr(t, in, src); got != "[[],[1,2],[3,4]]" {
+		t.Errorf("first(0) = %s; want [[],[1,2],[3,4]] — nothing consumed by the empty ask", got)
+	}
+	if got := evStr(t, in, `(1..5).seq.take(0).array.json`); got != "[]" {
+		t.Errorf("take(0) = %s; want []", got)
+	}
+}
+
 // TestSeqIsLazy is the feature itself, and it is measured rather than asserted: the
 // generator counts its own calls, so the count *is* the number of elements the chain
 // pulled. A materialising `map` would answer 100 here, and every number below would be
@@ -200,25 +252,83 @@ func TestSeqIsNotAnArray(t *testing.T) {
 	}
 }
 
+// The same answer has to reach the host, or the two halves of §12.14 disagree: the script
+// is told to materialise while `encoding/json`, an http response body (§12.11) and the
+// CLI's --json quietly write `null` in place of the data. MarshalJSON is where all three
+// meet, so it is where the refusal lives — and it reaches inside a collection, because
+// that is where a forgotten `.array` actually hides.
+func TestSeqHasNoJSONFormForTheHostEither(t *testing.T) {
+	t.Parallel()
+	in := New(Options{})
+
+	for _, src := range []string{
+		`(1..3).seq`,
+		`{items: (1..3).seq}`,
+		`[[(1..3).seq]]`,
+		`{a: {b: [1, (1..3).seq]}}`,
+	} {
+		v, err := in.Eval(context.Background(), src, nil)
+		if err != nil {
+			t.Fatalf("Eval(%s): %v", src, err)
+		}
+		b, err := v.MarshalJSON()
+		if err == nil {
+			t.Errorf("MarshalJSON(%s) = %s; want the refusal the script gets", src, b)
+			continue
+		}
+		if !strings.Contains(err.Error(), ".array") {
+			t.Errorf("MarshalJSON(%s) = %v; want it to name the fix", src, err)
+		}
+	}
+
+	// Everything else still encodes, including the kinds that legitimately have no JSON
+	// spelling of their own.
+	for _, tt := range []struct{ src, want string }{
+		{`{items: (1..3).seq.array}`, `{"items":[1,2,3]}`},
+		{`[1, "a", nil, 1..3]`, `[1,"a",null,[1,2,3]]`},
+		{`{f: { it }}`, `{"f":null}`},
+	} {
+		v := evOK(t, in, tt.src, nil)
+		b, err := v.MarshalJSON()
+		if err != nil {
+			t.Fatalf("MarshalJSON(%s): %v", tt.src, err)
+		}
+		if string(b) != tt.want {
+			t.Errorf("MarshalJSON(%s) = %s; want %s", tt.src, b, tt.want)
+		}
+	}
+
+	// A self-referential value must not send the walk down the Go stack (A7).
+	v := evOK(t, in, `a = []; a.push(a); a`, nil)
+	if _, err := v.MarshalJSON(); err != nil {
+		t.Errorf("MarshalJSON of a cyclic array = %v; the depth cap answers rather than raising", err)
+	}
+}
+
 // §12.14: everything an array does that needs the whole sequence at once is reached by
 // materialising first. The diagnostic has to say so — silently buffering would be the one
 // thing a seq exists not to do.
 func TestSeqRefusesTheRowsThatNeedEverything(t *testing.T) {
 	in := evInterp()
 
-	for _, name := range []string{"sort", "reverse", "uniq", "tally", "group_by", "last"} {
+	// What the materialised form answers, so the second half of each case can fail.
+	materialised := map[string]string{
+		"sort": "array", "reverse": "array", "uniq": "array",
+		"tally": "dict", "group_by": "dict", "last": "int",
+	}
+	for name, want := range materialised {
 		t.Run(name, func(t *testing.T) {
-			src := "(1..3).seq." + name
+			suffix := ""
 			if name == "group_by" {
-				src += " { it }"
+				suffix = " { it }"
 			}
-			e := evErr(t, in, src, nil)
+			e := evErr(t, in, "(1..3).seq."+name+suffix, nil)
 			if !strings.Contains(e.Msg, "seq") {
-				t.Errorf("%s = %q; want a diagnostic naming the receiver kind", src, e.Msg)
+				t.Errorf("(1..3).seq.%s = %q; want a diagnostic naming the receiver kind", name, e.Msg)
 			}
 			// The array is one row away, and it is the same name.
-			if got := evStr(t, in, "type((1..3).seq.array."+name+strings.Repeat(" { it }", map[bool]int{true: 1, false: 0}[name == "group_by"])+")"); got == "" {
-				t.Errorf("%s on the materialised array did not answer", name)
+			if got := evStr(t, in, "type((1..3).seq.array."+name+suffix+")"); got != want {
+				t.Errorf("type((1..3).seq.array.%s) = %s; want %s", name, got, want)
 			}
 		})
 	}

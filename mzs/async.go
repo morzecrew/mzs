@@ -79,6 +79,11 @@ type runShared struct {
 	// and `io.stdin` says so rather than answering "".
 	stdinRd    *bufio.Reader
 	stdinLines bool
+	// stdinLineBad records that a line overran MaxStringBytes. The reader is then no
+	// longer positioned at the start of a line, and the rest of the one that overran would
+	// come back as a line of its own — a fragment presented as data — so every later pull
+	// reports the same failure instead. bufio.Scanner ends a scan the same way.
+	stdinLineBad bool
 
 	// records is every shape *name* a `record` declaration has used in this Run (§7.8).
 	// It answers one question — `x.is("Money")`, which has to tell a name nobody

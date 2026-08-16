@@ -153,6 +153,10 @@ include json
 {items: (1..3).seq.array}.json      # {"items":[1,2,3]}
 ```
 
+The refusal reaches inside a value and reaches every encoder — `mzs --json`, an `http`
+response body, and a host's `MarshalJSON` — so a forgotten `.array` is a diagnostic
+wherever it happens rather than a field that quietly turned into `null`.
+
 ## Limits still apply
 
 Every source charges one interpreter step per element, so an endless sequence ends the way

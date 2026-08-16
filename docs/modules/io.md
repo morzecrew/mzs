@@ -90,6 +90,12 @@ $ printf 'a\nb\n' | mzs -e 'include io; [io.lines.len, io.stdin.len]'
 -e:1:31: io: io.stdin: the input has already been read line by line by io.lines
 ```
 
+A line longer than `MaxStringBytes` is a catchable `io` error — the limit bounds one line,
+which is the only bound a streaming read can have — and it ends the source: what is left of
+that line is not a line, so every later pull reports the same failure rather than handing
+back the rest of it as data. The CR of a CRLF is part of the terminator and is not
+measured.
+
 For the same reason a second walk of a streamed `io.lines` sees what is left of the reader —
 usually nothing. A script that needs two looks takes them from an array:
 

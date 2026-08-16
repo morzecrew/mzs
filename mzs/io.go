@@ -164,7 +164,15 @@ func ioLineSeq() *Seq {
 func ioReadLine(c *Ctx, r *bufio.Reader) (string, bool, error) {
 	max := c.rs.opts.MaxStringBytes
 	tooLong := func() error {
+		// Failing the *source* and not just this pull: what is left of the line that
+		// overran is not a line, and handing it back on the next pull would turn a
+		// diagnostic into silent corruption. There is no resynchronising on a boundary
+		// that is not there, so the input stops being readable line by line here.
+		c.rs.sh.stdinLineBad = true
 		return c.ErrorfKind(ErrKindIO, "io.lines: a line exceeds the %d byte limit", max)
+	}
+	if c.rs.sh.stdinLineBad {
+		return "", false, c.ErrorfKind(ErrKindIO, "io.lines: a line exceeds the %d byte limit", max)
 	}
 	var buf []byte
 	for {
@@ -175,7 +183,9 @@ func ioReadLine(c *Ctx, r *bufio.Reader) (string, bool, error) {
 		buf = append(buf, chunk...)
 		switch {
 		case errors.Is(err, bufio.ErrBufferFull):
-			if len(buf) > max {
+			// One byte of slack: the fragment may end on the '\r' of a CRLF whose '\n'
+			// is in the next chunk, and that '\r' is a terminator rather than content.
+			if len(buf)-1 > max {
 				return "", false, tooLong()
 			}
 			continue
@@ -190,10 +200,13 @@ func ioReadLine(c *Ctx, r *bufio.Reader) (string, bool, error) {
 		default:
 			return "", false, c.ErrorfKind(ErrKindIO, "io.lines: %v", err)
 		}
-		if len(buf) > max {
+		// The CR of a CRLF is part of the terminator, so it is dropped before the line is
+		// measured: a file off a Windows machine reaches the same limit as any other.
+		line := strings.TrimSuffix(string(buf), "\r")
+		if len(line) > max {
 			return "", false, tooLong()
 		}
-		return strings.TrimSuffix(string(buf), "\r"), true, nil
+		return line, true, nil
 	}
 }
 

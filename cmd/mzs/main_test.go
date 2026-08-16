@@ -26,6 +26,7 @@ func TestCLI(t *testing.T) {
 		stdin    string
 		wantCode int
 		wantOut  string   // exact stdout, when non-empty
+		noOut    bool     // stdout must be exactly empty, even when errHas is set
 		contains []string // substrings stdout must contain
 		errHas   []string // substrings stderr must contain
 		errLacks []string // substrings stderr must NOT contain
@@ -66,7 +67,16 @@ func TestCLI(t *testing.T) {
 			name:     "json of a seq is a diagnostic, not null",
 			argv:     []string{"--json", "-e", "(1..3).seq"},
 			wantCode: 1,
-			wantOut:  "",
+			noOut:    true,
+			errHas:   []string{"seq", ".array"},
+		},
+		{
+			// The same rule reaches inside: a seq nested in a dict would otherwise be the
+			// `null` MarshalJSON has to fall back on, and the field would vanish.
+			name:     "json of a value holding a seq is the same diagnostic",
+			argv:     []string{"--json", "-e", "{items: (1..3).seq}"},
+			wantCode: 1,
+			noOut:    true,
 			errHas:   []string{"seq", ".array"},
 		},
 		{
@@ -442,6 +452,12 @@ func TestCLI(t *testing.T) {
 				if out != tt.wantOut {
 					t.Errorf("stdout = %q, want %q", out, tt.wantOut)
 				}
+			}
+			// A row that expects a diagnostic gets no stdout comparison from the rule
+			// above, so "nothing was printed" has to be asked for explicitly — it is the
+			// whole assertion of a case about refusing to print.
+			if tt.noOut && out != "" {
+				t.Errorf("stdout = %q, want it empty", out)
 			}
 			for _, want := range tt.contains {
 				if !strings.Contains(out, want) {

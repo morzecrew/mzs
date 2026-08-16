@@ -309,6 +309,7 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 		}
 		if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
 			if !printValue(stdout, stderr, res.Value, cfg.asJSON) {
+				stats()
 				return exitError
 			}
 		}
@@ -438,19 +439,17 @@ func fileLoader(root string) mzs.ModuleLoader {
 	}
 }
 
-// printValue writes the program's value. A seq under --json is the one value that has no
-// rendering: it is lazy, so JSON would have to run it, and the language answers that with
-// a diagnostic rather than with `null` (§12.14). The fix is one row long and is named.
+// printValue writes the program's value and reports whether it could. A value holding a
+// lazy seq is the one that cannot be rendered as JSON: encoding it would mean running it,
+// and the language answers that with a diagnostic rather than with `null` (§12.14). The
+// check is MarshalJSON's own, so a seq nested inside an array or a dict is caught by the
+// same rule as one returned on its own.
 func printValue(w, stderr io.Writer, v mzs.Value, asJSON bool) bool {
 	if asJSON {
-		if v.Kind() == mzs.KSeq {
-			fmt.Fprintln(stderr, "mzs: the value is a seq, which is lazy and has no JSON form; end the pipeline with .array")
-			return false
-		}
 		b, err := v.MarshalJSON()
 		if err != nil {
-			fmt.Fprintln(w, "null")
-			return true
+			fmt.Fprintf(stderr, "mzs: %v\n", err)
+			return false
 		}
 		fmt.Fprintln(w, string(b))
 		return true

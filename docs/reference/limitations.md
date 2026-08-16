@@ -112,8 +112,11 @@ lets a script read an input larger than any limit. What it is not:
   second run sees what that state left. `.array` is how you take two looks.
 - **Not concurrent.** Pulling happens on the goroutine that asked; there is no background
   producer and no buffer.
-- **Not a value you can store.** It has no JSON form, no ordering, no equality but identity
-  and no hash, so it cannot be a dict key or travel through `json`.
+- **Not a value you can serialise or key on.** A seq is an ordinary value otherwise: bind
+  it, pass it, return it, walk it again. What it does not have is a JSON form, an order
+  relative to another seq (`<=>` is nil), or an equality other than identity — so it cannot
+  be a dict key and cannot travel through `json`. Its own traversal is in source order,
+  every time.
 - **Not free of the budget.** Every element costs an interpreter step, so an endless
   sequence ends on the step budget or the deadline like any other loop.
 

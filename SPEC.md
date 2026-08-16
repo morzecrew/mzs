@@ -2188,10 +2188,12 @@ Strings are immutable. There are no in-place string operations under any spellin
 | `sample` / `shuffle` | `-> any \| array` | require `Options.Rand` |
 | `sort_in_place` / `reverse_in_place` | `-> array` | the mutating variants, named so at the call site |
 
-**The four set rows answer with a set**: first occurrence wins, no repeats, and the order
-is the receiver's (§8.13). That is what tells them from `+` and `-`, which are the
-*sequence* operations and keep every element they were given — two operations, two names,
-which is what D17 asks for:
+**The four set rows answer with a set**: the first occurrence of each element wins and
+nothing repeats. `intersect`, `difference` and `subset` read the receiver and keep its
+order; `union` has elements the receiver never had, so it is the receiver's order first and
+then each argument's, in the order the arguments were given (§8.13). That is what tells
+them from `+` and `-`, which are the *sequence* operations and keep every element they were
+given — two operations, two names, which is what D17 asks for:
 
 ```
 [1, 1, 2] + [2]              # [1, 1, 2, 2]   concatenation
@@ -2578,7 +2580,11 @@ nor a line pull does, because "read once" is a promise across the whole Run and 
 pulling from one reader would take each other's lines. `io.read` and `io.stdin` stop at
 `MaxStringBytes` and report it (§14.2); they never truncate. For `io.lines` that limit
 bounds one **line**, which is the only bound a streaming read can have, and a line over it
-is the same catchable error.
+is the same catchable error. It also ends the source: what is left of a line that overran
+is not a line, and handing that back on the next pull would turn the diagnostic into silent
+corruption, so every later pull of `io.lines` reports the same failure. The CR of a CRLF is
+part of the terminator and is not measured, so a file off a Windows machine meets the limit
+where any other file does.
 
 ### 12.14 Sequences (`seq`)
 
@@ -2636,8 +2642,11 @@ A **terminal** row pulls:
 
 Every other array row — `sort`, `reverse`, `uniq`, `tally`, `group_by`, `last` — needs the
 whole sequence at once and is reached by materialising first: `s.array.sort`. That is
-deliberate. A row that quietly buffered a gigabyte would defeat the point of asking for a
-seq, so the diagnostic is `undefined method 'sort' for seq` and the fix is one row long.
+deliberate; a row that quietly buffered a gigabyte would defeat the point of asking for a
+seq. The diagnostic names the receiver's kind either way, and which of the two shapes it
+takes is UFCS (§4.3): a name that is also a §12.1 builtin falls through to it and reports
+`sort expects an array, got seq`, while a name that is only an array row reports
+`undefined method 'uniq' for seq`. The fix is one row long in both cases.
 
 **A seq is a recipe, not a cursor.** Every terminal opens the source again, so `s.len` and
 then `s.array` both see the whole sequence. Where the source has state of its own — a
@@ -2658,8 +2667,12 @@ place a range and a seq disagree (§12.10), and deliberately: host code that acc
 array must not silently accept a value that refuses to become one. A seq is not compared
 (`==` is identity, §7.4), not ordered, not a dict key (§7.6), and has no JSON form: `json`
 **raises** rather than writing `null` as a function does, because a sequence *has* a
-document form and it is the one `.array` produces. `str(s)` is `#<seq>`, and `mzs --json`
-refuses a seq result with the same fix rather than printing `null` (§15).
+document form and it is the one `.array` produces. The refusal reaches every encoder and
+reaches *inside* a value — `{items: s}` is refused as flatly as `s` — so a host's
+`MarshalJSON`, an http response body (§12.11) and `mzs --json` (§15) all answer the way a
+script does, and a forgotten `.array` is never a field that quietly disappeared. `str(s)`
+is `#<seq>`; `str` of a collection holding one still renders `null` there, because a
+rendering that cannot fail has nothing else to write.
 
 **`for` pulls.** `for line in io.lines { … }` iterates without materialising, and `break`
 and `next` mean what they always do (§8.10) — a `break` stops the pull. A trailing closure

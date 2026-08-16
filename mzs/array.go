@@ -1278,10 +1278,15 @@ func arrCompact(c *Ctx, recv Value, args []Value) (Value, error) {
 // needs "have I seen this", and the operations that were missing live here, on the arrays
 // where they are wanted.
 //
-// The four of them answer with a **set**: first occurrence wins, no repeats, and the
-// order is the receiver's (§8.13). That is what tells them from `+` and `-`, which are the
-// *sequence* operations and keep every element they were given — one operation, one name
-// (D17), and the pair that looks alike is the pair that must be written down:
+// The four of them answer with a **set**: the first occurrence of each element wins and
+// nothing repeats. `intersect`, `difference` and `subset` read the receiver and keep its
+// order; `union` has elements the receiver never had, so it is the receiver's order first
+// and then each argument's, in the order the arguments were given. Both are decided by the
+// input rather than by a hash, which is what §8.13 asks for.
+//
+// That is what tells them from `+` and `-`, which are the *sequence* operations and keep
+// every element they were given — one operation, one name (D17), and the pair that looks
+// alike is the pair that must be written down:
 //
 //	[1, 1, 2] + [2]                  # [1, 1, 2, 2]   — concatenation
 //	[1, 1, 2].union([2])             # [1, 2]         — the set of both
@@ -1313,7 +1318,8 @@ func arrToSet(c *Ctx, recv Value, args []Value) (Value, error) {
 	return dictOf(d), nil
 }
 
-// arrUnion is every element of the receiver and then of each argument, once each.
+// arrUnion is every element of the receiver, in its order, and then every element of each
+// argument that has not been seen yet, in the order the arguments were given.
 func arrUnion(c *Ctx, recv Value, args []Value) (Value, error) {
 	xs, err := arrElems(c, recv)
 	if err != nil {

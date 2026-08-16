@@ -13,9 +13,11 @@
 #   a.difference(b)  the elements only `a` has
 #   a.subset(b)      is every element of `a` in `b`
 #
-# All four answer with a **set**: first occurrence wins, no repeats, receiver's order. That
-# is the whole difference between them and `+` and `-`, which keep everything they are
-# given — and the reason the language has both.
+# All four answer with a **set**: the first occurrence of each element wins and nothing
+# repeats. `intersect`, `difference` and `subset` keep the receiver's order; `union` has
+# elements the receiver never had, so it is the receiver first and then each argument, in
+# the order they were given. That is the whole difference between them and `+` and `-`,
+# which keep everything they are given — and the reason the language has both.
 
 fn rule(title) {
   println("")

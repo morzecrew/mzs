@@ -738,19 +738,28 @@ type Range struct {
 }
 
 // Len is the number of elements, clamped to a non-negative int.
+//
+// The arithmetic is done in uint64 because both ends of the int64 range are reachable
+// from a script: `hi--` on an exclusive range ending at MinInt64 would wrap to MaxInt64
+// and turn the empty range into the largest one there is, and `hi - lo + 1` overflows for
+// any range wider than MaxInt64. In unsigned arithmetic the distance between two int64s
+// is exact, and the clamp happens before the +1 that could carry past it.
 func (r *Range) Len() int {
 	hi := r.Hi
 	if r.Excl {
+		if hi == math.MinInt64 {
+			return 0
+		}
 		hi--
 	}
 	if hi < r.Lo {
 		return 0
 	}
-	n := hi - r.Lo + 1
-	if n > int64(math.MaxInt32) {
+	d := uint64(hi) - uint64(r.Lo)
+	if d >= uint64(math.MaxInt32) {
 		return math.MaxInt32
 	}
-	return int(n)
+	return int(d) + 1
 }
 
 // At returns the i-th element without bounds checking beyond the caller's own.
@@ -1161,9 +1170,53 @@ func decodeJSONFrom(dec *json.Decoder, t json.Token) (Value, error) {
 	return Nil(), fmt.Errorf("invalid JSON token %v", t)
 }
 
-// MarshalJSON makes a Value usable anywhere encoding/json is.
+// errSeqJSON is what every JSON encoder in the package answers for a value that holds a
+// lazy sequence. The text is the script-level one (§12.14) so a host, an HTTP handler and
+// a script are told the same thing and given the same fix.
+var errSeqJSON = errors.New("a seq is lazy and has no JSON form; materialise it with .array")
+
+// MarshalJSON makes a Value usable anywhere encoding/json is. It **fails** for a value
+// that holds a seq anywhere inside it, rather than writing the `null` appendJSON has to
+// fall back on: a sequence has a document form — the one `.array` produces — so `null`
+// would turn a forgotten `.array` into a field that silently disappeared. That is the same
+// answer the `json` builtin gives (§12.14), and this is where the host, the http response
+// of §12.11 and the CLI's --json all get it.
 func (v Value) MarshalJSON() ([]byte, error) {
+	if holdsSeq(v, 0) {
+		return nil, errSeqJSON
+	}
 	return appendJSON(nil, v, "", 0), nil
+}
+
+// holdsSeq reports whether v is a seq or contains one. The depth cap is the one every
+// other walk over user data carries: a script can build `a = []; a.push(a)` with one line
+// and a Go stack overflow is not recoverable (A7). Beyond it the answer is "no", which
+// only means the encoder writes what it would have written anyway.
+func holdsSeq(v Value, depth int) bool {
+	if depth > maxRenderDepth {
+		return false
+	}
+	switch v.k {
+	case KSeq:
+		return true
+	case KArray:
+		for _, e := range *v.arr() {
+			if holdsSeq(e, depth+1) {
+				return true
+			}
+		}
+	case KDict:
+		found := false
+		v.odict().Each(func(_, val Value) bool {
+			if holdsSeq(val, depth+1) {
+				found = true
+				return false
+			}
+			return true
+		})
+		return found
+	}
+	return false
 }
 
 // UnmarshalJSON parses JSON into v, preserving object key order.

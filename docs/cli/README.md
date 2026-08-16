@@ -65,8 +65,9 @@ mzs -e '"hi"'             # hi
 mzs -e '"hi"' --json      # "hi"
 mzs --json -e 'nil'       # null
 mzs --json -e '(1..3).seq'
-# mzs: the value is a seq, which is lazy and has no JSON form; end the pipeline with .array
-mzs --json -e '(1..3).seq.array'   # [1,2,3]
+# mzs: a seq is lazy and has no JSON form; materialise it with .array
+mzs --json -e '{items: (1..3).seq}'   # the same, for a seq nested in a value
+mzs --json -e '(1..3).seq.array'      # [1,2,3]
 ```
 
 ## Exit codes

@@ -1,5 +1,7 @@
 package mzs
 
+import "math"
+
 // Lazy sequences (§12.14).
 //
 // Everything else in the library materialises: `range` builds its elements, `map` builds
@@ -145,16 +147,22 @@ func seqOfArray(v Value) *Seq {
 }
 
 // seqOfRange counts rather than materialises, so `(1..1e18).seq` is a value like any
-// other while `(1..1e18).array` is the limit error it should be (§14.2). The last element
-// is handed out before the counter is advanced, because a range may end at the largest
-// int there is and `i++` past it would wrap.
+// other while `(1..1e18).array` is the limit error it should be (§14.2). Both ends of the
+// int64 range are reachable from a script, so the arithmetic says so: `last--` on an
+// exclusive range ending at MinInt64 would wrap to MaxInt64 and turn nothing into
+// everything, and the last element is handed out before the counter is advanced, because
+// `i++` past MaxInt64 would wrap the same way.
 func seqOfRange(r *Range) *Seq {
-	last := r.Hi
+	last, empty := r.Hi, false
 	if r.Excl {
-		last--
+		if last == math.MinInt64 {
+			empty = true
+		} else {
+			last--
+		}
 	}
 	return seqSource(func() func(*Ctx) (Value, bool, error) {
-		i, done := r.Lo, r.Lo > last
+		i, done := r.Lo, empty || r.Lo > last
 		return func(*Ctx) (Value, bool, error) {
 			if done {
 				return Nil(), false, nil
@@ -601,11 +609,15 @@ func seqvFirst(c *Ctx, recv Value, args []Value) (Value, error) {
 		if err := c.CheckCollection(n); err != nil {
 			return Nil(), err
 		}
+		if n == 0 {
+			// Not a special case for its own sake: seqRun pulls before it asks, so a
+			// traversal started here would take an element off a stateful source — a line
+			// off `io.lines` — to answer a question that needs none. `take(0)` is empty
+			// for the same reason and by the same means (§12.14).
+			return Array(), nil
+		}
 		out := make([]Value, 0, min(n, 64))
 		err := seqRun(c, s, func(v Value) (bool, error) {
-			if len(out) >= n {
-				return false, nil
-			}
 			out = append(out, v)
 			return len(out) < n, nil
 		})

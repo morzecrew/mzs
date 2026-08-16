@@ -142,9 +142,16 @@ words the same failure differently — `sort([1,"a"])` is
 [1,2].union([3], [1])                 # [1,2,3] — union, intersect and difference are variadic
 ```
 
-The four rows answer with a **set**: first occurrence wins, no repeats, and the order is
-the receiver's. That is what tells them from `+` and `-`, which keep every element they
-were given:
+The four rows answer with a **set**: the first occurrence of each element wins and nothing
+repeats. `intersect`, `difference` and `subset` keep the receiver's order; `union` has
+elements the receiver never had, so it is the receiver's order first and then each
+argument's, in the order they were given:
+
+```
+[3, 1].union([2, 1], [4])      # [3,1,2,4] — receiver first, then each argument
+```
+
+That is what tells them from `+` and `-`, which keep every element they were given:
 
 ```
 [1,1,2] + [2]                # [1,1,2,2]   concatenation

@@ -430,6 +430,37 @@ func TestIOLinesBoundsOneLine(t *testing.T) {
 	}
 }
 
+// A line boundary is not a byte count, and both ends of that had a defect: the CR of a
+// CRLF was measured as content, so a line of exactly MaxStringBytes off a Windows machine
+// was refused; and an oversized line left the reader mid-line, so the next pull handed
+// back the rest of it as a line of its own. The second was the worse of the two — a
+// fragment presented as data — and it is why an overrun ends the source rather than the
+// pull (§12.13).
+func TestIOLinesLineBoundaries(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a CRLF line of exactly the limit is content, not overflow", func(t *testing.T) {
+		o := Options{Timeout: 5 * time.Second, FS: newMemFS(nil), MaxStringBytes: 8}
+		o.Stdin = strings.NewReader("12345678\r\n")
+		// The assertion is counts rather than the text: every string this program builds
+		// is under the limit it is testing, so nothing but the read can trip it.
+		if got := mustEvalIO(t, o, `ls = io.lines.array; [ls.len, ls.first.len]`); got != "[1,8]" {
+			t.Fatalf("got %s; the CR is a terminator and is not measured", got)
+		}
+	})
+
+	t.Run("an overrun ends the source instead of leaking the rest of the line", func(t *testing.T) {
+		o := Options{Timeout: 5 * time.Second, FS: newMemFS(nil), MaxStringBytes: 10}
+		o.Stdin = strings.NewReader("ok\n" + strings.Repeat("x", 9000) + "TAIL\nafter\n")
+		src := `s = io.lines
+			[try s.array.len else 0 - 1, try s.array.len else 0 - 1, try s.array.len else 0 - 1]`
+		if got := mustEvalIO(t, o, src); got != "[-1,-1,-1]" {
+			t.Fatalf("got %s; want every traversal to report the overrun — a suffix "+
+				"handed back as a line is corruption, not recovery", got)
+		}
+	})
+}
+
 // TestIOStdinIsSharedWithTasks pins that the cache lives on the half of the Run tasks
 // share (§8.14): a task and the main program see one stdin, not one each.
 func TestIOStdinIsSharedWithTasks(t *testing.T) {
