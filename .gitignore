@@ -10,3 +10,5 @@
 # an explicit `-o` and `bin/` is where the docs put it.
 /bin/
 coverage.out
+
+/ROADMAP.md
