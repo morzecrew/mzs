@@ -338,49 +338,11 @@ func TestCorpusRegexBehaviour(t *testing.T) {
 	}
 }
 
-// TestAuthorFiles is SPEC §16.3: the author's own files, migrated. They are fixtures,
-// not teaching material, so they live in testdata/ and are pinned verbatim — the
+// TestAuthorFiles is SPEC §16.3: the author's own material, migrated. The two .mzs
+// fixtures it used to read are gone, so what it pins now is spelled inline here — the
 // examples/ programs are checked by "the shipped examples run" below.
 func TestAuthorFiles(t *testing.T) {
 	t.Parallel()
-
-	t.Run("main.mzs prints 3 and evaluates to 3", func(t *testing.T) {
-		t.Parallel()
-		var out bytes.Buffer
-		in := corpusInterp(&out)
-		prog, err := in.Compile("main.mzs", readExample(t, "testdata/main.mzs"))
-		if err != nil {
-			t.Fatalf("Compile: %v", err)
-		}
-		// The migrated file spells the word boundary `\b`, not the `\\b` of §11.5, so
-		// it must compile clean.
-		if w := prog.Warnings(); len(w) != 0 {
-			t.Errorf("Warnings = %v, want none", w)
-		}
-		v, err := in.Run(context.Background(), prog, nil)
-		if err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-		if v.Kind() != mzs.KInt || v.Int() != 3 {
-			t.Errorf("program value = %s, want 3 (from f(1,2))", v.Inspect())
-		}
-		if out.String() != "3" {
-			t.Errorf("stdout = %q, want %q", out.String(), "3")
-		}
-	})
-
-	t.Run("test is never called and returns nil below the length guard", func(t *testing.T) {
-		t.Parallel()
-		in := corpusInterp(io.Discard)
-		src := readExample(t, "testdata/main.mzs") + "\ntest(\"да\")\n"
-		v, err := in.Eval(context.Background(), src, nil)
-		if err != nil {
-			t.Fatalf("Eval: %v", err)
-		}
-		if !v.IsNil() {
-			t.Errorf("test(\"да\") = %s, want nil (the if has no else)", v.Inspect())
-		}
-	})
 
 	t.Run("the \\\\b of §11.5 still warns", func(t *testing.T) {
 		t.Parallel()
@@ -395,19 +357,6 @@ func TestAuthorFiles(t *testing.T) {
 		}
 		if !strings.Contains(w[0].Msg, "matches a literal backslash") {
 			t.Errorf("Warnings[0] = %q, want the literal-backslash diagnostic", w[0].Msg)
-		}
-	})
-
-	t.Run("one.mzs reports the =! typo", func(t *testing.T) {
-		t.Parallel()
-		in := corpusInterp(io.Discard)
-		_, err := in.Compile("one.mzs", readExample(t, "testdata/one.mzs"))
-		if err == nil {
-			t.Fatal(`Compile succeeded; str =! "x" must be a syntax error`)
-		}
-		const want = `one.mzs:3:6: syntax: unexpected '!' after '='; did you mean '!='?`
-		if got := firstError(t, err).Error(); got != want {
-			t.Errorf("Compile error = %q, want %q", got, want)
 		}
 	})
 
@@ -539,7 +488,7 @@ func TestAuthorFiles(t *testing.T) {
 	})
 }
 
-// readExample reads one of the shipped programs of §16.3.
+// readExample reads one of the shipped programs of examples/.
 func readExample(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

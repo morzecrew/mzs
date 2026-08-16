@@ -50,7 +50,7 @@ transcribed row for row and run through the public Go API rather than through th
 | `TestCorpusRegexes` | 14 patterns must compile and match |
 | `TestCorpusRegexBehaviour` | Unicode `i` folding, Unicode `\b`, line anchors, rune `index`, lookahead |
 | `TestRegexBackendAgreement` | RE2 and the backtracking backend agree over a 500-string sample |
-| `TestAuthorFiles` | two normative fixtures in `testdata/`, plus 29 shipped examples run end to end |
+| `TestAuthorFiles` | the §11.5 `\\b` gotcha, the s.md notes, and 29 shipped examples run end to end |
 | `TestDiagnostics` | every fix-it message, with its line and column |
 | `TestTruthyZero` … `TestBitOpsStayInt` | one named test per documented trap |
 | `TestTimeout`, `TestStepBudget` | the limits fire, with their sentinel errors |
@@ -84,7 +84,7 @@ go tool cover -html=coverage.out
 
 `-coverpkg=./...` credits the library for what the other packages' tests exercise in it.
 `codecov.yml` sets the rules: the project target is `auto` with a 1% threshold, new code
-must come in at 80%, and `editors/`, `examples/` and `testdata/` are ignored.
+must come in at 80%, and `editors/` and `examples/` are ignored.
 
 ## CI
 

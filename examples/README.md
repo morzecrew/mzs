@@ -97,6 +97,3 @@ does not have it at all.
 | 30 | `30_http_service.mzs` | an http client call and a five-route JSON server with validation and shutdown |
 | 31 | `31_api_pipeline.mzs` | **`-t 30`** · fetch a public JSON API, normalise the hits, then group, rank and tabulate them — with a sample to fall back on when the network is down |
 | 32 | `32_io_files.mzs` | **`Options.FS`** · stdin as data, read/write/append/exists/ls/env, a missing file caught by `try`, and why the host resolves the path |
-
-The normative fixtures of SPEC §16.3 (`main.mzs`, `one.mzs`) are not examples and live in
-[`../testdata/`](../testdata/).

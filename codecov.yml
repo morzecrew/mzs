@@ -19,4 +19,3 @@ comment:
 ignore:
   - "editors/**" # a separate Go module (data/gen) plus generated JSON
   - "examples/**" # .mzs programs; the acceptance suite runs them end to end
-  - "testdata/**" # the normative fixtures of SPEC §16.3
