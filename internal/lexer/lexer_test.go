@@ -114,6 +114,28 @@ func TestLexTokens(t *testing.T) {
 		{"nested string in interpolation", `"${"x"}"`, "STR_BEGIN INTERP_BEGIN STR_BEGIN STR_TEXT(x) STR_END INTERP_END STR_END"},
 		{"emoji in a string", `"RU 🇷🇺"`, "STR_BEGIN STR_TEXT(RU 🇷🇺) STR_END"},
 
+		// §3.7 heredocs. The body is the lines below the tag, so every stream here ends
+		// where the terminator does — the tokens after the tag come *before* the body in
+		// the source and after it in the stream.
+		{"heredoc body", "x = <<~T\n  a\n  b\nT\n", "IDENT(x) = STR_BEGIN STR_TEXT(a\nb\n) STR_END"},
+		{"heredoc sheds the common indent", "<<~T\n    a\n      b\nT\n", "STR_BEGIN STR_TEXT(a\n  b\n) STR_END"},
+		{"a blank line has no say in the indent", "<<~T\n\n  a\nT\n", "STR_BEGIN STR_TEXT(\na\n) STR_END"},
+		{"an empty heredoc has no text token", "<<~T\nT\n", "STR_BEGIN STR_END"},
+		{"the terminator may be indented", "<<~T\n  a\n  T\n", "STR_BEGIN STR_TEXT(a\n) STR_END"},
+		{"a heredoc interpolates", "<<~T\n  a${x}b$c\nT\n",
+			"STR_BEGIN STR_TEXT(a) INTERP_BEGIN IDENT(x) INTERP_END STR_TEXT(b) STR_GVAR($c) STR_TEXT(\n) STR_END"},
+		{"a heredoc takes escapes", "<<~T\n  a\\tb\nT\n", "STR_BEGIN STR_TEXT(a\tb\n) STR_END"},
+		{"a quote inside a heredoc is text", "<<~T\n  say \"hi\"\nT\n", "STR_BEGIN STR_TEXT(say \"hi\"\n) STR_END"},
+		{"a hash inside a heredoc is text", "<<~T\n  # not a comment\nT\n", "STR_BEGIN STR_TEXT(# not a comment\n) STR_END"},
+		{"the raw form takes neither", "<<~'T'\n  ${x} $y \\n\nT\n", "STR_BEGIN STR_TEXT(${x} $y \\n\n) STR_END"},
+		{"the rest of the tag's line is read after the body", "f(<<~T, 1)\n  a\nT\n",
+			"IDENT(f) ( STR_BEGIN STR_TEXT(a\n) STR_END , INT(1) )"},
+		{"two heredocs take their bodies in order", "f(<<~A, <<~B)\n  one\nA\n  two\nB\n",
+			"IDENT(f) ( STR_BEGIN STR_TEXT(one\n) STR_END , STR_BEGIN STR_TEXT(two\n) STR_END )"},
+		{"a heredoc carries a trailer", "<<~T.trim\n  a\nT\n", "STR_BEGIN STR_TEXT(a\n) STR_END . IDENT(trim)"},
+		{"the statement ends where the tag's line does", "a = <<~T\n  x\nT\nb", "IDENT(a) = STR_BEGIN STR_TEXT(x\n) STR_END NEWLINE IDENT(b)"},
+		{"a shift is still two operators", "a << b", "IDENT(a) < < IDENT(b)"},
+
 		// §3.8 regex versus division.
 		{"regex after the match operator", "s ~ /re/", "IDENT(s) ~ REGEX(/re/)"},
 		{"regex after the negated match", "s !~ /re/i", "IDENT(s) !~ REGEX(/re/i)"},
@@ -321,6 +343,16 @@ func TestLexErrors(t *testing.T) {
 		// division and the second opens a regex that never closes.
 		{"slash slash after a value", "a // b", 1, "unterminated regex literal", 1, 4},
 		{"one diagnostic per bad rune", "a \x01 b \x02 c", 2, "unexpected character \"\\x01\"", 1, 3},
+		{"unterminated heredoc", "x = <<~T\n  a\n", 1,
+			"unterminated heredoc: the body ends at a line holding T alone", 1, 5},
+		{"heredoc without a tag", "x = <<~\n", 1,
+			"'<<~' needs a tag: write <<~TEXT, the body on the lines below, then TEXT alone", 1, 5},
+		// The body is still read: one missing rune costs one diagnostic, not a page of
+		// them from the text below being lexed as code.
+		{"unterminated raw heredoc tag", "x = <<~'T\n  a\nT\n", 1,
+			"unterminated heredoc tag: write <<~'T'", 1, 5},
+		{"a heredoc inside an interpolation", "\"${<<~T}\"\n  a\nT\n", 1,
+			"a heredoc cannot open inside a string interpolation", 1, 4},
 	}
 
 	for _, tt := range tests {
@@ -427,6 +459,8 @@ func FuzzLex(f *testing.F) {
 		`"a${b}c"`, `"$a$b"`, `"$"`, `"\$"`, `'raw\n'`, "1.2.3", "0x", "1e", "1_",
 		"{a: 1}", "x ? y : z", "match x { 1 -> 2 }", "привет", "🌲", "\u00a0",
 		"\ufeffx = 1", "\"\\u{110000}\"", "\"\\x\"", strings.Repeat("(", 100),
+		"<<~", "<<~T", "<<~T\n", "<<~T\nT", "<<~'T'\n  a\nT\n", "f(<<~A, <<~B)\n A\n B\n",
+		"<<~T\n  ${x}\nT\n", "<<~T\n  \\\nT\n", "\"${<<~T}\"", "<<~T\r\n a\r\nT\r\n",
 	}
 	for _, s := range seeds {
 		f.Add(s)

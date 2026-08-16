@@ -7,7 +7,10 @@
     { "include": "#include-decl" },
     { "include": "#export-decl" },
     { "include": "#fn-decl" },
+    { "include": "#record-decl" },
     { "include": "#keyword" },
+    { "include": "#heredoc-raw" },
+    { "include": "#heredoc" },
     { "include": "#string-double" },
     { "include": "#string-single" },
     { "include": "#regex" },
@@ -74,7 +77,7 @@
     },
 
     "export-decl": {
-      "match": "\\b(export)\\s+(?:(fn)\\s+)?([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)",
+      "match": "\\b(export)\\s+(?:(fn|record)\\s+)?([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)",
       "captures": {
         "1": { "name": "keyword.control.import.mzs" },
         "2": { "name": "keyword.declaration.function.mzs" },
@@ -88,6 +91,44 @@
         "1": { "name": "keyword.declaration.function.mzs" },
         "2": { "name": "entity.name.function.mzs" }
       }
+    },
+
+    "record-decl": {
+      "comment": "\u00a77.8: `record Name(field, …)`. 'record' is positional, so it only highlights in front of a name and a '('.",
+      "match": "\\b(record)\\s+([A-Za-z_\\p{L}][A-Za-z0-9_\\p{L}]*)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "keyword.declaration.type.mzs" },
+        "2": { "name": "entity.name.type.mzs" }
+      }
+    },
+
+    "heredoc": {
+      "comment": "\u00a73.7: <<~TAG \u2026 TAG. Interpolating, like a double-quoted string.",
+      "name": "string.unquoted.heredoc.mzs",
+      "begin": "(<<~)([A-Za-z0-9_\\p{L}]+)\\s*$",
+      "end": "^\\s*\\2\\s*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.string.begin.mzs" },
+        "2": { "name": "entity.name.tag.mzs" }
+      },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.mzs" } },
+      "patterns": [
+        { "include": "#escape" },
+        { "include": "#interpolation" },
+        { "include": "#global-in-string" }
+      ]
+    },
+
+    "heredoc-raw": {
+      "comment": "\u00a73.7: <<~'TAG' \u2026 TAG. Raw: no escapes and no interpolation.",
+      "name": "string.unquoted.heredoc.raw.mzs",
+      "begin": "(<<~')([A-Za-z0-9_\\p{L}]+)('\\s*)$",
+      "end": "^\\s*\\2\\s*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.string.begin.mzs" },
+        "2": { "name": "entity.name.tag.mzs" }
+      },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.mzs" } }
     },
 
     "string-double": {

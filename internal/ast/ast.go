@@ -214,6 +214,30 @@ type FnDecl struct {
 	Stop   token.Pos
 }
 
+// RecordDecl is `record Name(field, field = default)` (§7.8): a named shape over the
+// dict mzs already has. It binds Name to a constructor and does nothing else — there is
+// no class, no inheritance and no method table, so the functions that work on the shape
+// stay free functions and are reached by UFCS like every other operation (D18).
+//
+// Fields are Params because the constructor binds them exactly as a `fn` binds its
+// parameters: a default is an expression evaluated at each call, a name may be given as
+// `Money(currency = "RUB")`, and a missing value is the arity diagnostic of §8.7 rather
+// than a second set of rules. A `*rest` field is refused by the parser — a record has as
+// many fields as it names.
+//
+// Type is filled by the compile pass with the runtime's *RecordType, the way RegexLit
+// carries its compiled pattern: the identity a `match Money ->` arm asks about belongs to
+// the declaration, so every Run of one *Program agrees on it and two declarations of the
+// same name are two types.
+type RecordDecl struct {
+	Name    string
+	Fields  []Param
+	Type    any
+	Kw      token.Pos
+	NamePos token.Pos
+	Stop    token.Pos
+}
+
 // BlockStmt is a statement list and a scope of its own: every `{ … }` is a closure, so
 // every `{ … }` is a scope (D2, §8.2). FrameSize is the number of local slots that scope
 // needs, filled by the compile pass; for a function or closure body it includes the
@@ -533,6 +557,7 @@ func (*NextStmt) node()          {}
 func (*IncludeDecl) node()       {}
 func (*ExportDecl) node()        {}
 func (*FnDecl) node()            {}
+func (*RecordDecl) node()        {}
 func (*BlockStmt) node()         {}
 func (*IfExpr) node()            {}
 func (*WhileExpr) node()         {}
@@ -570,6 +595,7 @@ func (*NextStmt) stmt()    {}
 func (*IncludeDecl) stmt() {}
 func (*ExportDecl) stmt()  {}
 func (*FnDecl) stmt()      {}
+func (*RecordDecl) stmt()  {}
 func (*BlockStmt) stmt()   {}
 func (*IfExpr) stmt()      {}
 func (*WhileExpr) stmt()   {}
@@ -635,6 +661,9 @@ func (n *ExportDecl) End() token.Pos { return n.Stop }
 
 func (n *FnDecl) Pos() token.Pos { return n.Kw }
 func (n *FnDecl) End() token.Pos { return n.Stop }
+
+func (n *RecordDecl) Pos() token.Pos { return n.Kw }
+func (n *RecordDecl) End() token.Pos { return n.Stop }
 
 func (n *BlockStmt) Pos() token.Pos { return n.Start }
 func (n *BlockStmt) End() token.Pos { return n.Stop }

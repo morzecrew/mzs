@@ -1,0 +1,116 @@
+# 38 — heredoc: multi-line text that keeps the indentation of the code around it.
+#
+#   mzs examples/38_heredoc.mzs
+#
+# Before this there was one way to write a template, a query or a message body, and it was
+# concatenation with "\n" in it. `<<~TAG` is the other:
+#
+#   <<~SQL          the body is the lines *below*, up to a line holding SQL alone
+#     select 1      the indentation common to those lines is shed
+#   SQL             …so the text lines up with the code and comes out flush left
+#
+# One form and not three. `<<~TAG` interpolates exactly as a double-quoted string does and
+# `<<~'TAG'` is raw exactly as a single-quoted one is — no escapes, no `$`. Inside the body
+# a `"` is a quote and a `#` is a hash; neither has any meaning there.
+
+name = "Ann"
+rows = 3
+
+println("=== the body is the lines below, dedented ===")
+println("")
+
+sql = <<~SQL
+  SELECT id, name
+    FROM users
+   WHERE name = '${name}'
+   LIMIT ${rows}
+SQL
+
+print(sql)
+
+println("")
+println("=== raw: no escapes, no interpolation ===")
+println("")
+
+# The form to reach for when the text is *about* `$` and `\`: a shell snippet, a regex, a
+# money template, a `${}` that belongs to something else's syntax.
+template = <<~'TPL'
+  Hello ${name},
+  your balance is $balance — pay at https://example.com/pay?id=$id
+  (\n here is a backslash and an n)
+TPL
+
+print(template)
+
+println("")
+println("=== where it fits in an expression ===")
+println("")
+
+# The tag is an ordinary operand, so the rest of its line is read as usual and the body is
+# taken from below. A trailer applies to the string, not to the tag. The one place a `<<~`
+# may not stand is inside a `${ … }`: the body is whole source lines, and the lines under
+# an interpolation already belong to the string it sits in.
+shout = <<~T.trim.upper
+  a quiet shout
+T
+println("trimmed and upper → ${shout}")
+
+# Two on one line take their bodies in the order they are written.
+fn side_by_side(a, b) {
+  a.lines.zip(b.lines).map { "${it[0].str.ljust(14)}| ${it[1].str}" }.join("\n")
+}
+
+println(side_by_side(<<~LEFT, <<~RIGHT))
+  request
+  ───────
+  GET /orders
+  Accept: json
+LEFT
+  response
+  ────────
+  200 OK
+  12 orders
+RIGHT
+
+println("")
+println("=== the indentation rule ===")
+println("")
+
+# The shed prefix is the shortest run of leading blanks over the body's *non-blank* lines,
+# so a paragraph break costs nothing and a deliberately indented line keeps its extra.
+report = <<~TXT
+    Summary
+
+      • two spaces deeper than the rest
+      • and so is this
+
+    End.
+TXT
+
+print(report)
+println("---")
+println("as json → ${report.json}")
+
+# --- a small use of it --------------------------------------------------------
+
+println("")
+println("=== a use: one template, many rows ===")
+println("")
+
+orders = [
+  {id: 1, who: "ivan", total: 1500, items: ["blade", "oil"]},
+  {id: 2, who: "olga", total: 4200, items: ["chair"]},
+]
+
+fn ticket(o) {
+  <<~TICKET
+    ┌──────────────────────────────┐
+    │ order #${o["id"].str.rjust(4, "0")}                  │
+    │ ${o["who"].ljust(28)} │
+    │ ${o["items"].join(", ").ljust(28)} │
+    │ ${("total: " + o["total"].str).rjust(28)} │
+    └──────────────────────────────┘
+  TICKET
+}
+
+print(orders.map { ticket(it) }.join(""))

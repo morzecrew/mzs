@@ -1,6 +1,6 @@
 # Strings
 
-String literals, the two quote forms, `$`-interpolation, escapes, rune-based indexing and the
+String literals, the three forms, `$`-interpolation, escapes, rune-based indexing and the
 `%` format operator.
 
 ## Two quote forms
@@ -19,6 +19,65 @@ inspect('it\'s')              # "it's"
 Single quotes are the form for regex source text: `regex('\bмен', 'i')`. Both forms may span
 lines; a raw newline in the source is a newline in the value. An unterminated literal is
 `syntax: unterminated string literal`, reported at the opening quote.
+
+## Heredoc
+
+The third form, for the text that would otherwise be a pile of `"\n"`: a template, a query,
+a message body. `<<~TAG` takes the lines **below** it, up to a line holding `TAG` alone, and
+sheds the indentation they share — so the text lines up with the code and comes out flush
+left.
+
+```
+name = "Ann"
+
+sql = <<~SQL
+  SELECT id
+    FROM users
+   WHERE name = '${name}'
+SQL
+
+sql            # "SELECT id\n  FROM users\n WHERE name = 'Ann'\n"
+```
+
+One form and not three:
+
+| Written | Reads like | Interpolates | Escapes |
+|---|---|---|---|
+| `<<~TAG` | `"…"` | yes | yes |
+| `<<~'TAG'` | `'…'` | no | no |
+
+```
+<<~'TPL'
+  pay at /pay?id=$id — the ${…} belongs to something else, and \n is two characters
+TPL
+```
+
+Inside a body a `"` is an ordinary quote and a `#` is an ordinary hash: neither has any
+meaning in a string literal. The shed prefix is the shortest run of leading blanks over the
+body's **non-blank** lines, so a paragraph break costs nothing and a deliberately deeper
+line keeps its extra. The terminator may be indented with the body. A body always ends in a
+newline.
+
+The tag is an ordinary operand, so the rest of its line is read as usual and the body comes
+from below — which is what lets a heredoc stand in an argument list:
+
+```
+report = <<~HEAD + rows.join("\n") + "\n" + <<~FOOT
+  order   qty
+  ─────────────
+HEAD
+  ─────────────
+  end of report
+FOOT
+```
+
+Both bodies are read in the order the tags are written, and the line's own break still
+ends the statement.
+
+Two things a heredoc will not do. It may not open inside a `${ … }` — the lines under an
+interpolation already belong to the string it sits in — and a body with no terminator is
+`syntax: unterminated heredoc`, reported at the `<<~`. In the REPL that message is the
+signal to keep typing, so a heredoc can be entered a line at a time.
 
 ## Escapes
 

@@ -71,6 +71,12 @@ func init() {
 			}
 			yes, known := isKindName(args[0], name)
 			if !known {
+				// A shape declared in this Run is a type name too (§7.8), and it has to
+				// answer for values that are *not* it — otherwise filtering a mixed array
+				// by `it.is("Money")` would raise on the first element that is not one.
+				if rt, ok := c.rs.sh.records[name]; ok {
+					return Bool(args[0].recordType() == rt), nil
+				}
 				return Nil(), c.ArgErrorf("is: unknown type name %s", quoteString(name))
 			}
 			return Bool(yes), nil
@@ -105,7 +111,10 @@ func init() {
 			return Str(args[0].Inspect()), nil
 		}},
 		Builtin{Name: "hash", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
-			return Int(fnv1a(args[0].TypeName() + "\x00" + args[0].Inspect())), nil
+			// The kind and not `type`: equal values must hash equally (§7.6), and a
+			// record's label is not part of equality (§7.4, §7.8), so it cannot be part
+			// of this either.
+			return Int(fnv1a(args[0].Kind().String() + "\x00" + args[0].Inspect())), nil
 		}},
 		Builtin{Name: "dup", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
 			return args[0].Clone(), nil

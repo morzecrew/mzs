@@ -115,6 +115,9 @@ filesystem before any of these names exist.
 | `add = (a, b) -> { a + b }; add(2, 3)` | `5` |
 | `println("done"); exit(2)` | `done`, exit code `2` |
 | `{1 -> "A", 2 -> "B"}[2]` | `B` |
+| `record Money(amount, currency = "RUB"); Money(1500).amount` | `1500` |
+| `record Money(a, c); type(Money(1, "RUB"))` | `Money` |
+| `record M(a); match M(1) { M -> "shape"; else -> "no" }` | `shape` |
 
 ## See also
 

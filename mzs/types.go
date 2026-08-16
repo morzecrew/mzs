@@ -120,6 +120,11 @@ type Func struct {
 	Arity  int  // -1 for variadic
 	Lambda bool // true for a `{ … }` literal, false for a named `fn` (§7.7)
 	Async  bool // true for `async fn`: the call starts a task and returns it (§8.14)
+	// Record is the shape a `record` declaration's constructor builds, and nil for every
+	// other function (§7.8). The call binds Params the way any other script function's
+	// call does; what differs is that there is no body — the bound parameters *are* the
+	// dict it hands back.
+	Record *RecordType
 	// Frame is the number of local slots one invocation needs, from the compile pass.
 	// It mirrors Body.FrameSize for script functions and is 0 for host functions.
 	Frame int

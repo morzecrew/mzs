@@ -46,10 +46,27 @@ func (e *Error) Error() string { return e.Msg }
 // frame is one open string literal. interp is true while the scanner is inside a
 // `${ … }` of that literal, in which case depth counts the `{` nesting so the `}`
 // that returns depth to zero can be recognised as INTERP_END.
+//
+// A heredoc (§3.7) is the same kind of frame read from somewhere else: its body lives on
+// the lines *after* the one the `<<~TAG` stands on, so the frame carries where that body
+// ends, how much indentation each of its lines sheds, whether it interpolates, and the
+// cursor the scanner returns to when the body is done — which is the rest of the tag's
+// own line.
 type frame struct {
 	interp bool
 	depth  int
 	open   token.Pos
+
+	heredoc bool
+	raw     bool
+	indent  int // runes of common leading whitespace each body line sheds
+	endAt   int // rune index where the body stops: the start of the terminator line
+
+	resume     int // cursor to restore when the body closes
+	resumeLine int
+	resumeCol  int
+	hdEnd      int // pending skip to arm on close (see Lexer.hdEnd)
+	hdLines    int
 }
 
 // Lexer is a pull-based scanner. Create one with New and call Next until it returns a
@@ -70,6 +87,15 @@ type Lexer struct {
 	prev      token.Kind // kind of the last token handed to the caller
 	pendingNL bool
 	nlPos     token.Pos
+
+	// A heredoc's body was read from the lines below the one its tag stands on, so the
+	// scanner owes that line's own line break a jump over what it already consumed.
+	// hdEnd is where the source resumes — just past the terminator of the last heredoc
+	// opened on this line — and hdLines is how many source lines that skips, so the line
+	// counter stays true. Zero means nothing is pending; a body always starts further
+	// into the source than offset zero, so the sentinel cannot collide with an index.
+	hdEnd   int
+	hdLines int
 }
 
 // New creates a Lexer over src. name is used only in diagnostics. A byte-order mark at
@@ -159,7 +185,10 @@ func (l *Lexer) advanceN(n int) {
 	}
 }
 
-// eatNewline consumes "\r\n", "\r" or "\n" as a single line break (§3.1).
+// eatNewline consumes "\r\n", "\r" or "\n" as a single line break (§3.1). It is also
+// where a heredoc's line break pays its debt: the body below this line has already been
+// scanned, so the cursor jumps over it and the line counter is advanced by as many lines
+// as that body and its terminator occupied (§3.7).
 func (l *Lexer) eatNewline() {
 	if l.at(0) == '\r' {
 		l.pos++
@@ -171,6 +200,11 @@ func (l *Lexer) eatNewline() {
 	}
 	l.line++
 	l.col = 1
+	if l.hdEnd > 0 && l.pos <= l.hdEnd {
+		l.pos = l.hdEnd
+		l.line += l.hdLines
+		l.hdEnd, l.hdLines = 0, 0
+	}
 }
 
 func (l *Lexer) errorf(p token.Pos, format string, a ...any) {
@@ -239,6 +273,11 @@ func (l *Lexer) scan() token.Token {
 			continue
 		case r >= '0' && r <= '9':
 			return l.scanNumber(start)
+		case r == '<' && l.at(1) == '<' && l.at(2) == '~':
+			// §3.7: `<<~TAG` is a heredoc, and `<<` alone is still reserved (§20). The
+			// three runes are matched here rather than in the operator table because the
+			// token they open is a string literal and its body is not on this line.
+			return l.scanHeredoc(start)
 		case r == '/' && (l.pendingNL || token.AllowsRegexAfter(l.prev)):
 			// A pending NEWLINE *is* the previous significant token: §3.8 lists NEWLINE
 			// among the kinds a regex may follow, and promises that "a match arm
@@ -541,6 +580,9 @@ func (l *Lexer) scanSingleQuoted(start token.Pos) token.Token {
 // a `$name` global, the INTERP_BEGIN that opens `${`, or the closing quote.
 func (l *Lexer) scanStringPart() token.Token {
 	f := l.top()
+	if f.heredoc {
+		return l.scanHeredocPart(f)
+	}
 	start := l.mark()
 	var sb strings.Builder
 	for l.pos < len(l.rs) {
@@ -705,6 +747,264 @@ func (l *Lexer) readHexEscape(sb *strings.Builder, start token.Pos) {
 	}
 	v, _ := strconv.ParseUint(digits.String(), 16, 8)
 	sb.WriteByte(byte(v))
+}
+
+// ---------------------------------------------------------------------------
+// Heredocs (§3.7)
+// ---------------------------------------------------------------------------
+
+// scanHeredoc reads `<<~TAG` and hands back the STR_BEGIN of the literal whose body is
+// the lines below. There is one form and not three: the indentation common to the body's
+// non-blank lines is shed, `<<~TAG` interpolates exactly as a double-quoted string does
+// and `<<~'TAG'` is raw exactly as a single-quoted one is.
+//
+// The whole difficulty is that the body is not where the cursor is. §3.10 swallows the
+// line break after a comma or an operator, so a heredoc inside an argument list must not
+// read its body from the token's position — it reads whole *lines*, starting below the
+// one the tag stands on, and leaves behind a debt the tag line's own line break pays:
+// eatNewline jumps the cursor over what has already been consumed. That is what makes
+//
+//	f(<<~A, <<~B)
+//
+// read two bodies in the order they are written and then close the call.
+func (l *Lexer) scanHeredoc(start token.Pos) token.Token {
+	if len(l.stack) > 0 {
+		// A body is whole source lines, and the lines below an interpolation belong to
+		// the literal the interpolation sits in. One diagnostic beats two literals
+		// fighting over the same text.
+		l.advanceN(3)
+		l.errorf(start, "a heredoc cannot open inside a string interpolation")
+		return l.emptyHeredoc(start)
+	}
+	l.advanceN(3) // "<<~"
+	raw := l.at(0) == '\''
+	if raw {
+		l.bump()
+	}
+	var tag strings.Builder
+	for l.pos < len(l.rs) && token.IsIdentPart(l.rs[l.pos]) {
+		tag.WriteRune(l.rs[l.pos])
+		l.bump()
+	}
+	if tag.Len() == 0 {
+		l.errorf(start, "'<<~' needs a tag: write <<~TEXT, the body on the lines below, then TEXT alone")
+		return l.emptyHeredoc(start)
+	}
+	if raw && !l.accept('\'') {
+		// Recover as though the quote were there. The lines below are still the body the
+		// author wrote, and lexing them as code would turn one missing rune into a page
+		// of diagnostics (§17).
+		l.errorf(start, "unterminated heredoc tag: write <<~'%s'", tag.String())
+	}
+
+	resume, resumeLine, resumeCol := l.pos, l.line, l.col
+	open := token.Token{Kind: token.STR_BEGIN, Value: "<<~", Pos: start, End: l.mark()}
+
+	// A second heredoc on the same line takes its body from below the first one's
+	// terminator, which is exactly the debt hdEnd already records.
+	bodyStart, above := l.hdEnd, l.hdLines
+	if bodyStart == 0 {
+		bodyStart = l.afterLineBreak(l.pos)
+	}
+	bodyEnd, termEnd, lines, ok := l.heredocBody(bodyStart, tag.String())
+	if !ok {
+		l.errorf(start, "unterminated heredoc: the body ends at a line holding %s alone", tag.String())
+	}
+
+	l.hdEnd, l.hdLines = 0, 0
+	l.stack = append(l.stack, frame{
+		heredoc:    true,
+		raw:        raw,
+		open:       start,
+		indent:     l.heredocIndent(bodyStart, bodyEnd),
+		endAt:      bodyEnd,
+		resume:     resume,
+		resumeLine: resumeLine,
+		resumeCol:  resumeCol,
+		hdEnd:      termEnd,
+		hdLines:    above + lines,
+	})
+	l.pos, l.line, l.col = bodyStart, resumeLine+1+above, 1
+	l.skipHeredocIndent(l.top())
+	return open
+}
+
+// accept consumes r when it is the current rune.
+func (l *Lexer) accept(r rune) bool {
+	if l.at(0) != r {
+		return false
+	}
+	l.bump()
+	return true
+}
+
+// emptyHeredoc stands in for a malformed `<<~`: the parser is handed the empty string
+// literal it was reaching for, so one bad tag costs one diagnostic (§17).
+func (l *Lexer) emptyHeredoc(start token.Pos) token.Token {
+	end := l.mark()
+	l.queue = append(l.queue, token.Token{Kind: token.STR_END, Value: "<<~", Pos: end, End: end})
+	return token.Token{Kind: token.STR_BEGIN, Value: "<<~", Pos: start, End: end}
+}
+
+// heredocBody locates the terminator: the first line from `from` on whose only content is
+// the tag. bodyEnd is where that line begins — so the body keeps the line break in front
+// of it — termEnd is where the source resumes below it, and lines is how many source
+// lines the two together occupy. ok is false at end of input, where the caller reports
+// the missing terminator and takes the rest of the file as the body.
+func (l *Lexer) heredocBody(from int, tag string) (bodyEnd, termEnd, lines int, ok bool) {
+	for i := from; i < len(l.rs); {
+		e := i
+		for e < len(l.rs) && l.rs[e] != '\n' && l.rs[e] != '\r' {
+			e++
+		}
+		next := l.afterLineBreak(e)
+		lines++
+		if isHeredocTag(l.rs[i:e], tag) {
+			return i, next, lines, true
+		}
+		i = next
+	}
+	return len(l.rs), len(l.rs), lines, false
+}
+
+// isHeredocTag reports whether a body line is the terminator. Leading and trailing blanks
+// are ignored, so the terminator may be indented with the body it closes.
+func isHeredocTag(line []rune, tag string) bool {
+	i, j := 0, len(line)
+	for i < j && isHeredocBlank(line[i]) {
+		i++
+	}
+	for j > i && isHeredocBlank(line[j-1]) {
+		j--
+	}
+	return string(line[i:j]) == tag
+}
+
+// isHeredocBlank is the whitespace a terminator line may be padded with. U+00A0 is in it
+// for the reason §3.2 has: messengers send it instead of a space, and a terminator that
+// failed to close because of one would read as a body with no end.
+func isHeredocBlank(r rune) bool { return r == ' ' || r == '\t' || r == ' ' }
+
+// heredocIndent is the indentation `<<~` sheds: the shortest run of leading blanks over
+// the body's **non-blank** lines. A line made of blanks alone has no say, so a heredoc
+// whose paragraphs are separated by empty lines dedents by what its text says rather than
+// by nothing.
+func (l *Lexer) heredocIndent(from, to int) int {
+	indent := -1
+	for i := from; i < to; {
+		e := i
+		for e < to && l.rs[e] != '\n' && l.rs[e] != '\r' {
+			e++
+		}
+		n := 0
+		for i+n < e && (l.rs[i+n] == ' ' || l.rs[i+n] == '\t') {
+			n++
+		}
+		if i+n < e && (indent < 0 || n < indent) {
+			indent = n
+		}
+		i = min(l.afterLineBreak(e), to)
+	}
+	if indent < 0 {
+		return 0
+	}
+	return indent
+}
+
+// skipHeredocIndent drops one body line's shed indentation. A line shorter than the
+// common indent — a blank one — gives up what it has and no more.
+func (l *Lexer) skipHeredocIndent(f *frame) {
+	for i := 0; i < f.indent && l.pos < f.endAt; i++ {
+		if r := l.rs[l.pos]; r != ' ' && r != '\t' {
+			return
+		}
+		l.bump()
+	}
+}
+
+// scanHeredocPart advances a heredoc body by one token. It is scanStringPart's rule with
+// two differences: a `"` is ordinary text, and the literal ends at an index rather than
+// at a quote. The raw form takes neither escapes nor interpolation, so `<<~'SQL'` carries
+// a `$1` placeholder and a `\d` the way `'…'` does.
+func (l *Lexer) scanHeredocPart(f *frame) token.Token {
+	start := l.mark()
+	var sb strings.Builder
+	text := func() token.Token {
+		return token.Token{Kind: token.STR_TEXT, Value: sb.String(), Pos: start, End: l.mark()}
+	}
+	for l.pos < f.endAt && l.pos < len(l.rs) {
+		r := l.rs[l.pos]
+		if !f.raw {
+			if r == '$' && l.at(1) == '{' {
+				if sb.Len() > 0 {
+					return text()
+				}
+				p := l.mark()
+				l.advanceN(2)
+				f.interp = true
+				f.depth = 0
+				return token.Token{Kind: token.INTERP_BEGIN, Value: "${", Pos: p, End: l.mark()}
+			}
+			if r == '$' && token.IsIdentStart(l.at(1)) {
+				if sb.Len() > 0 {
+					return text()
+				}
+				return l.scanStringGlobal(l.mark())
+			}
+			if r == '\\' {
+				l.readEscape(&sb)
+				if l.col == 1 {
+					// The escape swallowed the line break, and the line below it still
+					// sheds the body's common indent.
+					l.skipHeredocIndent(f)
+				}
+				continue
+			}
+		}
+		if r == '\n' || r == '\r' {
+			sb.WriteRune('\n')
+			l.eatNewline()
+			l.skipHeredocIndent(f)
+			continue
+		}
+		sb.WriteRune(r)
+		l.bump()
+	}
+	if sb.Len() > 0 {
+		return text()
+	}
+	return l.closeHeredoc(f)
+}
+
+// closeHeredoc ends the literal and puts the cursor back where the tag left it, so the
+// rest of the tag's own line is scanned next. The skip over the body is armed here and
+// collected by that line's line break (eatNewline).
+//
+// STR_END is reported at the resume point rather than in the body, which is what makes
+// the literal's node span `<<~TAG` — the text the author wrote in that expression.
+func (l *Lexer) closeHeredoc(f *frame) token.Token {
+	l.pos, l.line, l.col = f.resume, f.resumeLine, f.resumeCol
+	l.hdEnd, l.hdLines = f.hdEnd, f.hdLines
+	l.stack = l.stack[:len(l.stack)-1]
+	p := l.mark()
+	return token.Token{Kind: token.STR_END, Value: "<<~", Pos: p, End: p}
+}
+
+// afterLineBreak is the index just past the first line break at or after i, or the end of
+// input when there is none.
+func (l *Lexer) afterLineBreak(i int) int {
+	for ; i < len(l.rs); i++ {
+		if l.rs[i] == '\n' {
+			return i + 1
+		}
+		if l.rs[i] == '\r' {
+			if i+1 < len(l.rs) && l.rs[i+1] == '\n' {
+				return i + 2
+			}
+			return i + 1
+		}
+	}
+	return len(l.rs)
 }
 
 // ---------------------------------------------------------------------------

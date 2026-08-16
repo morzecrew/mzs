@@ -92,13 +92,14 @@ Words that look like keywords and are not — none of them is in the list above:
 |---|---|
 | `async` | read positionally, only directly before `fn` ([./async.md](./async.md)) |
 | `from` | read positionally, only inside `include x from "…"` |
+| `record` | read positionally, only as `record Name(` ([./values.md](./values.md#records)) |
 | `it` | the parameter a closure with no parameter list declares |
 | `_` | a plain name, by convention an unused parameter |
 | `not` `unless` `until` `loop` `def` `elsif` `import` `require` `use` | nothing; a fix-it only in the keyword shape (`loop {`, `unless c`), an ordinary name otherwise |
 | `and` `or` `do` `end` `then` `rescue` | nothing, and not usable as names either — every occurrence is a fix-it |
 
 ```
-async = 1; from = 2; loop = 3; async + from + loop      # 6
+async = 1; from = 2; loop = 3; record = 4; async + from + loop + record   # 10
 and = 1     # syntax: 'and'/'or'/'not' are not mzs keywords; use '&&', '||', '!'
 ```
 
@@ -153,12 +154,12 @@ x = 1; x = 5
 
 | Page | Covers |
 |---|---|
-| [./values.md](./values.md) | the kinds, every literal form, truthiness, copying |
+| [./values.md](./values.md) | the kinds, every literal form, `record`, truthiness, copying |
 | [./operators.md](./operators.md) | precedence, arithmetic, comparison, `~`, `??`, ranges, assignment |
 | [./control-flow.md](./control-flow.md) | `if` / `while` / `for`, modifiers, `match` in depth |
 | [./destructuring.md](./destructuring.md) | one shape rule in assignment, `match` arms and `for` |
 | [./functions.md](./functions.md) | `fn`, closures, `it`, defaults, varargs, UFCS, scope |
-| [./strings.md](./strings.md) | literals, interpolation, runes, escapes |
+| [./strings.md](./strings.md) | literals, heredocs, interpolation, runes, escapes |
 | [./errors.md](./errors.md) | `try` / `else` / `ensure`, error kinds, `raise`, what is not catchable |
 | [./host-variables.md](./host-variables.md) | `$variables` and the globals table |
 | [./async.md](./async.md) | `async fn`, `await`, `done`, the scheduling model |

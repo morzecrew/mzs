@@ -333,8 +333,16 @@ func (v Value) Len() int {
 	return 0
 }
 
-// TypeName is Kind().String(); it is what the `type` builtin returns.
-func (v Value) TypeName() string { return v.k.String() }
+// TypeName is what the `type` builtin returns (§7.2): the kind's name, or the record's
+// name for a dict built by a `record` constructor (§7.8). It is the one place the label a
+// record carries is visible as text — `is("dict")` is still true, and everything a dict
+// does it still does.
+func (v Value) TypeName() string {
+	if r := v.recordType(); r != nil {
+		return r.Name
+	}
+	return v.k.String()
+}
 
 // IsNum reports whether v is an Int or a Float.
 func (v Value) IsNum() bool { return v.k == KInt || v.k == KFloat }

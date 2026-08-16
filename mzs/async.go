@@ -70,6 +70,14 @@ type runShared struct {
 	// string, not one string and one empty.
 	stdin     string
 	stdinRead bool
+
+	// records is every shape a `record` declaration has named in this Run (§7.8). It
+	// answers one question — `x.is("Money")`, which has to tell a name nobody declared
+	// from one this value simply is not — and it is here for the same reason stdin is: a
+	// task runs on a *copy* of runState, so a declaration inside one must land in the
+	// half the whole Run shares. It is created on the first declaration and stays nil in
+	// the Runs that declare none, which is the common case and pays nothing.
+	records map[string]*RecordType
 }
 
 // task is what an async call returns: a goroutine, the value it will produce, and the

@@ -1,0 +1,152 @@
+# 37 — records: a name for a shape, over the dict you already had.
+#
+#   mzs examples/37_records.mzs
+#
+# Everything in mzs is a dict, which is fine for twenty lines and a ceiling for a library:
+# nothing checks that a "money" has both halves, `type(x)` says `dict` for every domain
+# object you own, and a pair of numbers is indistinguishable from a price.
+#
+#   record Money(amount, currency = "RUB")   a shape, and a constructor for it
+#   m.amount                                 a field, by name
+#   type(m) == "Money"                       what shape is this
+#   match m { Money -> … }                   dispatch on the shape
+#
+# What it is not is a class. There is no inheritance, no method table and no
+# `method_missing`: the functions over a shape stay free functions and are reached by
+# UFCS like every other operation, so `total(cart)` and `cart.total` remain the same
+# thing. And the value is still a dict — `json`, `keys`, `dig`, `merge` and `==` all go on
+# meaning exactly what they meant.
+#
+# This is the one shipped example that prints a warning, and it does so on purpose: the
+# last section declares `record Page(len, text)` to show what happens when a field is named
+# after a stdlib row.
+
+record Money(amount, currency = "RUB")
+record Line(sku, qty, price)
+record Cart(id, items, customer)
+
+println("=== a shape and its constructor ===")
+println("")
+
+m = Money(1500, "USD")
+
+println("Money(1500, \"USD\")   → ${m.json}")
+println("  .amount            → ${m.amount}")
+println("  .currency          → ${m.currency}")
+println("  type(m)            → ${type(m)}")
+println("  m.is(\"dict\")       → ${m.is("dict")}        — it never stopped being one")
+println("  m.is(\"Money\")      → ${m.is("Money")}")
+println("")
+
+# A field list is a parameter list, so everything §8.7 already says applies: a default is
+# filled at each call, a field may be given by name, and a missing one is the arity error.
+println("Money(700)                       → ${Money(700).json}")
+println("Money(currency = \"EUR\", amount = 3) → ${Money(currency = "EUR", amount = 3).json}")
+println("Money(1500)                      → ok; Money() would be:")
+println("  ${try { Money() } else (e) { e["message"] }}")
+println("  ${try { Money(1, "EUR", "extra") } else (e) { e["message"] }}")
+println("  ${try { Money(1, curency = "EUR") } else (e) { e["message"] }}")
+
+# --- the label is a label, not content ---------------------------------------
+
+println("")
+println("=== still a dict, in every way that was already true ===")
+println("")
+
+plain = {amount: 1500, currency: "USD"}
+
+println("m == the same entries by hand → ${m == plain}    — equality is the entries (§7.4)")
+println("m.keys                        → ${m.keys.json}")
+println("m.dig(\"amount\")               → ${m.dig("amount")}")
+println("m[\"amount\"]                   → ${m["amount"]}   — the label is not an entry")
+println("json                          → ${m.json}   — and it does not leak into it")
+
+# `dup` and `merge` keep the shape, because "the same thing with one field changed" is
+# what a shape is for. `filter` does not: what it hands back may no longer have the fields.
+cheaper = m.merge({amount: 900})
+println("m.merge({amount: 900})        → ${type(cheaper)} ${cheaper.amount} ${cheaper.currency}")
+println("m.filter { (k, _) -> k == \"amount\" } → ${type(m.filter { (k, _) -> k == "amount" })}")
+
+# --- dispatch on the shape ---------------------------------------------------
+
+println("")
+println("=== match asks the shape, not the spelling ===")
+println("")
+
+fn describe(x) {
+  match x {
+    Money -> "${x.amount} ${x.currency}"
+    Line  -> "${x.qty} × ${x.sku}"
+    Cart  -> "cart ${x.id} for ${x.customer}, ${x.items.len} line(s)"
+    else  -> "a plain ${type(x)}"
+  }
+}
+
+cart = Cart(1043, [Line("blade", 2, 450), Line("oil", 1, 300)], "ann")
+
+for x in [m, cart.items.first, cart, plain, 42] {
+  println("  ${describe(x)}")
+}
+
+# --- functions over a shape stay functions ------------------------------------
+
+println("")
+println("=== the operations are free functions, reached either way ===")
+println("")
+
+fn total(c) { Money(c.items.sum { it.qty * it.price }) }
+fn plus(a, b) {
+  raise("cannot add ${a.currency} to ${b.currency}", "currency") if a.currency != b.currency
+  Money(a.amount + b.amount, a.currency)
+}
+fn format(v) { "${(v.amount / 100).str}.${(v.amount % 100).str.rjust(2, "0")} ${v.currency}" }
+
+sum = total(cart)
+println("total(cart)        → ${format(sum)}")
+println("cart.total         → ${format(cart.total)}          — the same function (D18)")
+println("plus twice         → ${format(plus(sum, Money(1000)))}")
+println("mismatched         → ${try { plus(sum, m) } else (e) { "${e["kind"]}: ${e["message"]}" }}")
+
+# A shape is checkable, which is the whole point: a validator asks one question instead of
+# four, and the answer is a value rather than a guess about which keys happen to be there.
+fn charge(v) {
+  raise("charge takes a Money, got ${type(v)}", "shape") if !v.is("Money")
+  "charged ${format(v)}"
+}
+
+println("charge(sum)        → ${charge(sum)}")
+println("charge(a dict)     → ${try { charge(plain) } else (e) { e["message"] }}")
+println("charge(1500)       → ${try { charge(1500) } else (e) { e["message"] }}")
+
+# --- the one collision, and what happens to it --------------------------------
+
+println("")
+println("=== a field named after a stdlib row ===")
+println("")
+
+# A shape may name a field `len`, and on that shape `.len` is the field: naming the shape
+# is exactly the point, so the field wins. Nothing is lost, because UFCS gives every row a
+# prefix spelling — and the compiler says so once, where the record is declared:
+#
+#   record Page(len, text)
+#          ^ record field 'len' shadows the method of that name: on a Page, '.len' reads
+#            the field — write len(m) for the method
+record Page(len, text)
+
+p = Page(3, "abc")
+println("Page(3, \"abc\").len → ${p.len}   — the field")
+println("len(p)             → ${len(p)}   — the two entries, by the prefix spelling")
+
+# --- what the label carries across a file boundary -----------------------------
+
+println("")
+println("=== what travels with the value ===")
+println("")
+
+# `type(m)` and `m.is("Money")` ride on the value, so a record built in one file is
+# recognisable in another and a host reading Result.Globals sees the name. The `.field`
+# spelling does not ride along — it is resolved where the file compiles — so a shape
+# declared in an included module is read with `m["field"]`, exactly as every dict was
+# before records existed.
+println("type(m)     → ${type(m)}")
+println("m[\"amount\"] → ${m["amount"]}   — always available, wherever the shape was declared")

@@ -31,13 +31,13 @@ code --install-extension mzs-1.1.0.vsix
 
 | Feature | How it works |
 |---|---|
-| **Highlighting** | a TextMate grammar following SPEC §3: strings with `${}` interpolation and `$globals` inside them, raw `'…'` strings, regexes `/…/imxsu` with their anchors, quantifiers and classes, numbers in every base, dict keys `{a: 1}`, closure parameters `(x) ->`, `include`/`export`, module names, `#` comments |
+| **Highlighting** | a TextMate grammar following SPEC §3: strings with `${}` interpolation and `$globals` inside them, raw `'…'` strings, `<<~TAG` heredocs and their raw form, regexes `/…/imxsu` with their anchors, quantifiers and classes, numbers in every base, dict keys `{a: 1}`, closure parameters `(x) ->`, `include`/`export`, `record Name(…)`, module names, `#` comments |
 | **Completion** | after `include ` — the built-in modules, each marked with the flag it needs; after `module.` — its members (for a neighbouring `.mzs`, the names it really exports); after `.` — the receiver's methods (the type is inferred from the literal on the left); otherwise — built-in functions, keywords, the modules already included, plus the functions, local variables and `$globals` of the file itself |
 | **Hovers** | the signature, the description and the example from SPEC §12; for a module member, also what has to be `include`d (and with which flag) |
 | **Diagnostics** | `mzs --check -` as you type: the buffer goes in through stdin, so errors are visible **before the file is saved**. Warnings show up as warnings, errors as errors |
 | **Commands** | `mzs: Run file`, `mzs: Evaluate selection as a one-liner` (<kbd>Ctrl+Shift+E</kbd>), `mzs: Show the token stream`, `mzs: Show the AST` |
 | **File icon** | `.mzs` gets an icon of its own in the explorer — a light and a dark variant of the logo (`icons/mzs-*.svg`), plus the **mzs (Seti)** icon theme: the whole of Seti, with `.mzs` carrying the logo |
-| **Snippets** | `inc`, `incfrom`, `expfn`, `exp`, `fn`, `cl`, `if`, `match`, `for`, `try`, `tryb`, `ensure`, `map`, `filter`, `each`, `reduce`, `serve` — a web server — and `cond=`, `cond~`, `cond?`, skeletons for conditions in the morzebot style |
+| **Snippets** | `inc`, `incfrom`, `expfn`, `exp`, `record`, `exrec`, `matchrec`, `fn`, `cl`, `heredoc`, `heredocraw`, `if`, `match`, `for`, `try`, `tryb`, `ensure`, `map`, `filter`, `each`, `reduce`, `serve` — a web server — and `cond=`, `cond~`, `cond?`, skeletons for conditions in the morzebot style |
 
 ## Settings
 

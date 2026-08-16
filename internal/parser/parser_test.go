@@ -171,6 +171,45 @@ Program "t"
 `,
 		},
 		{
+			// §7.8: `record` is positional like `async`, so it is read only in front of a
+			// name and a '(' — and stays an ordinary identifier everywhere else, which the
+			// last statement here pins.
+			name: "record declaration",
+			src:  "record Money(amount, currency = \"RUB\")\nexport record Point(x, y)\nrecord = 2",
+			want: `
+Program "t"
+  RecordDecl Money (amount, currency=…)
+  Export Point
+    RecordDecl Point (x, y)
+  ExprStmt
+    Assign =
+      Ident record
+      Int 2
+`,
+		},
+		{
+			// §3.7: the body is the lines below the tag, so the literal's own node spans
+			// `<<~TAG` and the statement after it is the one on the next line of *source*
+			// the tag's line leads to.
+			name: "heredoc",
+			src:  "sql = <<~SQL\n  select ${n}\nSQL\nraw = <<~'T'\n  $x\nT\n",
+			want: `
+Program "t"
+  ExprStmt
+    Assign =
+      Ident sql
+      Str
+        text "select "
+        interp
+          Ident n
+        text "\n"
+  ExprStmt
+    Assign =
+      Ident raw
+      Str "$x\n"
+`,
+		},
+		{
 			name: "closures: implicit it, parameters, none",
 			src:  "{ it * 2 }; { (x) -> x }; { () -> 42 }",
 			want: `
@@ -1356,6 +1395,10 @@ func TestParseErrors(t *testing.T) {
 			"a braced 'try' cannot open a header; parenthesise it: if (try { … } else { … }) { … }", 1, 8},
 		{"a braced else in a header", "if try f() else { 0 } { 1 }",
 			"a braced 'try' cannot open a header; parenthesise it: if (try { … } else { … }) { … }", 1, 17},
+		{"a record has no rest field", "record P(x, *rest)",
+			"a record has no rest field: 'rest' would collect the remaining positions rather than name one", 1, 14},
+		{"a record names each field once", "record Q(a, a)", "record Q names the field 'a' twice", 1, 13},
+		{"export takes a declaration or a name", "export 1", "'export' expects `fn`, `record`, an assignment or a name, found 1", 1, 8},
 	}
 
 	for _, tt := range tests {

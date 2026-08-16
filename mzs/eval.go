@@ -62,11 +62,19 @@ func (e ev) runProgram(f *ast.Program) (Value, error) {
 	return v, err
 }
 
-// hoist binds the `fn` declarations of the top-level statement list before it runs.
+// hoist binds the `fn` and `record` declarations of the top-level statement list before
+// it runs, so a call may appear above the declaration it reaches (§8.2, §7.8).
 func (e ev) hoist(stmts []ast.Stmt) {
 	for _, s := range stmts {
-		if d, ok := s.(*ast.FnDecl); ok && d.Name != "" {
-			e.env.Set(d.Name, e.makeFunc(d.Name, d.Params, d.Body, false, d.Async))
+		switch d := s.(type) {
+		case *ast.FnDecl:
+			if d.Name != "" {
+				e.env.Set(d.Name, e.makeFunc(d.Name, d.Params, d.Body, false, d.Async))
+			}
+		case *ast.RecordDecl:
+			if d.Name != "" {
+				e.env.Set(d.Name, e.makeRecord(d))
+			}
 		}
 	}
 }
@@ -103,6 +111,8 @@ func (e ev) execStmt(s ast.Stmt) (Value, error) {
 		return e.evalInclude(n)
 	case *ast.ExportDecl:
 		return e.evalExport(n)
+	case *ast.RecordDecl:
+		return e.evalRecordDecl(n)
 	case *ast.ReturnStmt:
 		v, err := e.evalOpt(n.X)
 		if err != nil {
@@ -636,11 +646,18 @@ func (e ev) armFires(arm *ast.MatchArm, subject Value, hasSubject bool) (*Env, b
 	return nil, false, nil
 }
 
-// patternFires is the value rule of §5.3 for one position: a regex matches, anything
-// else compares equal.
+// patternFires is the value rule of §5.3 for one position: a regex matches, a record
+// constructor asks the shape, anything else compares equal.
 func (e ev) patternFires(pat, v Value) (bool, error) {
 	if pat.Kind() == KRegex {
 		return e.matches(pat, v)
+	}
+	if rt := pat.recordCtor(); rt != nil {
+		// `match m { Money -> … }` (§7.8). Equality against the constructor is the one
+		// reading this shape could otherwise have, and it could never fire — a dict is
+		// not a function — so the name of a record in a pattern asks what it looks like
+		// it asks.
+		return v.recordType() == rt, nil
 	}
 	return v.Equal(pat), nil
 }

@@ -25,8 +25,8 @@ Output goes to the interpreter's stdout, not to `os.Stdout` directly — a host 
 |---|---|---|---|
 | `len` | `len(x) -> int` | runes of a String, elements of Array/Dict/Range; `nil` → 0 | `len("привет")` → `6` |
 | `empty` | `empty(x) -> bool` | `len(x) == 0` | `[].empty` → `true` |
-| `type` | `type(x) -> string` | kind name | `type(1.5)` → `float` |
-| `is` | `is(x, name: string) -> bool` | kind test; an unknown name raises | `is(1, "int")` → `true` |
+| `type` | `type(x) -> string` | kind name, or the record's name ([records](../language/values.md#records)) | `type(1.5)` → `float` |
+| `is` | `is(x, name: string) -> bool` | kind test, and a record name declared in this run; an unknown name raises | `is(1, "int")` → `true` |
 
 A Range answers `true` to `is(r, "array")` while `type(r)` stays `"range"`.
 `1.is("Integer")` raises `argument: is: unknown type name "Integer"` rather than returning false.
@@ -80,8 +80,8 @@ inspect(nil?.upper.len)    # nil   ?. stops the chain instead
 
 | Name | Signature | Does | Example → value |
 |---|---|---|---|
-| `hash` | `hash(x) -> int` | FNV-1a, stable across runs | `hash("a")` → `1463908424326387805` |
-| `dup` | `dup(x) -> any` | shallow copy of Array/Dict, identity otherwise | see below |
+| `hash` | `hash(x) -> int` | FNV-1a, stable across runs, and consistent with `==` | `hash("a")` → `1463908424326387805` |
+| `dup` | `dup(x) -> any` | shallow copy of Array/Dict, identity otherwise; a record keeps its shape | see below |
 | `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | `5.tap { println("saw ${it}") }` → `5` |
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `" 42 ".pipe { it.trim.int }` → `42` |
 

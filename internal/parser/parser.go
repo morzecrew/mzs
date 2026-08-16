@@ -421,6 +421,9 @@ func (p *parser) parseBareStmt() ast.Stmt {
 		if s := p.parseAsyncFn(); s != nil {
 			return s
 		}
+		if p.recordAhead() {
+			return p.parseRecord()
+		}
 		if p.destructureAhead() {
 			return &ast.ExprStmt{X: p.parseDestructure()}
 		}
@@ -488,6 +491,43 @@ func (p *parser) parseAsyncFn() ast.Stmt {
 	return fd
 }
 
+// recordAhead reports whether the statement starting here is `record Name(`, which is the
+// declaration of §7.8 and cannot be anything else: two identifiers in a row are not an
+// expression in any reading of §4.
+//
+// That is why `record` is positional rather than a keyword (§3.5), the same rule `from`
+// and `async` follow. The keyword table costs a name the whole language over, and this
+// construct does not need one: it is recognisable from three tokens, it never hangs on a
+// line of its own, and a variable may still be called `record`.
+func (p *parser) recordAhead() bool {
+	return p.kind() == token.IDENT && p.cur().Value == "record" &&
+		p.peekKind(1) == token.IDENT && p.peekKind(2) == token.LPAREN
+}
+
+// parseRecord reads `record Name(field, field = default)`. The field list is an ordinary
+// parameter list (D14), so a default is an expression and the whole of §8.7 applies at the
+// call — with one thing taken away: a `*rest` field would collect positions instead of
+// naming one, and a record is exactly the fields it names.
+func (p *parser) parseRecord() *ast.RecordDecl {
+	kw := p.advance().Pos
+	name := p.advance()
+	d := &ast.RecordDecl{Name: name.Value, Kw: kw, NamePos: name.Pos, Stop: name.End}
+	d.Fields = p.parseParams()
+	d.Stop = p.toks[max(p.pos-1, 0)].End
+	for i, f := range d.Fields {
+		if f.Rest {
+			p.errorAt(f.NamePos,
+				"a record has no rest field: '%s' would collect the remaining positions rather than name one", f.Name)
+		}
+		for _, prev := range d.Fields[:i] {
+			if prev.Name == f.Name {
+				p.errorAt(f.NamePos, "record %s names the field '%s' twice", d.Name, f.Name)
+			}
+		}
+	}
+	return d
+}
+
 // parseInclude reads `include name` or `include name from "path"` (§12.8). The path is a
 // plain string literal: it is resolved by the host's loader before anything runs, so it
 // cannot be computed and cannot interpolate.
@@ -548,6 +588,13 @@ func (p *parser) parseExport() ast.Stmt {
 		st.Names, st.Decl, st.Stop = []string{fd.Name}, fd, fd.End()
 		return st
 
+	case p.recordAhead():
+		// A record is a shape a module hands out (§7.8, §12.8): the importer calls the
+		// constructor and matches on it exactly as the module does.
+		rd := p.parseRecord()
+		st.Names, st.Decl, st.Stop = []string{rd.Name}, rd, rd.End()
+		return st
+
 	case p.kind() == token.IDENT:
 		name := p.cur()
 		// `export x = 1` exports the binding the assignment creates; a bare
@@ -562,7 +609,7 @@ func (p *parser) parseExport() ast.Stmt {
 		return st
 	}
 
-	p.errorAt(p.cur().Pos, "'export' expects `fn`, an assignment or a name, found %s", describe(p.cur()))
+	p.errorAt(p.cur().Pos, "'export' expects `fn`, `record`, an assignment or a name, found %s", describe(p.cur()))
 	return st
 }
 

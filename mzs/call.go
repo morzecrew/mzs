@@ -135,6 +135,13 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 	if err != nil {
 		return Nil(), e.at(err, pos)
 	}
+	if f.Record != nil {
+		// A record's constructor has no body: the fields it has just bound *are* the
+		// dict it hands back (§7.8). Everything above this line — the arity check, the
+		// `name = value` arguments, the defaults — is the ordinary call of §8.7, which is
+		// the point of building it out of a parameter list.
+		return f.Record.build(env, f.Params), nil
+	}
 	if f.Body == nil {
 		return Nil(), nil
 	}
@@ -571,6 +578,21 @@ func (e ev) moduleCall(mod Value, modName, name string, args []Value, named name
 // the universal table), then a function of that name in lexical scope taking the
 // receiver as its first argument, then `undefined method` with a suggestion.
 func (e ev) dispatch(recv Value, name string, args []Value, named namedArgs, pos token.Pos) (Value, error) {
+	// A record's own fields come first (§7.8). The label exists so that `m.amount` reads
+	// the field, and a field sharing a name with a stdlib row would otherwise be the one
+	// thing the shape could not say. Nothing is lost: UFCS gives every row a prefix
+	// spelling, so `len(m)` still counts the entries of a record whose field is `len`
+	// (D18), and the compile pass warns where the two names collide (§17).
+	if rt := recv.recordType(); rt.Has(name) {
+		if err := named.reject(name); err != nil {
+			return Nil(), err
+		}
+		if len(args) > 0 {
+			return Nil(), argErrorf("'%s' is a field of %s, so it takes no arguments, got %d",
+				name, rt.Name, len(args))
+		}
+		return recv.Get(Str(name)), nil
+	}
 	// Unregister narrows the surface a script can reach, and UFCS gives every row two
 	// spellings, so a removed name has to disappear from both of them.
 	if !e.rs.in.isRemoved(name) {
@@ -589,6 +611,9 @@ func (e ev) dispatch(recv Value, name string, args []Value, named namedArgs, pos
 	ufcs = append(append(ufcs, recv), args...)
 	if v, ok, err := e.callNamed(name, ufcs, named, pos, true); ok {
 		return v, err
+	}
+	if rt := recv.recordType(); rt != nil {
+		return Nil(), undefinedRecordMethodError(rt, name)
 	}
 	return Nil(), undefinedMethodError(recv.Kind(), name)
 }
