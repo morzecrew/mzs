@@ -10,11 +10,11 @@ import (
 	"os"
 	"strings"
 
-	"mzs"
 	"mzs/internal/highlight"
 	"mzs/internal/lexer"
 	"mzs/internal/lineedit"
 	"mzs/internal/token"
+	"mzs/mzs"
 )
 
 // repl is the interactive front door. mzs has no way to hand a live Env back to a

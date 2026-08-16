@@ -23,8 +23,9 @@ go install ./cmd/mzs           # → $(go env GOPATH)/bin/mzs
 mzs --version                  # mzs 0.1.0
 ```
 
-Go 1.26 or newer, and nothing else. `CGO_ENABLED=0 go build ./cmd/mzs` gives one fully static
-binary you can copy anywhere.
+Go 1.26 or newer, and nothing else. `CGO_ENABLED=0 go build -o bin/mzs ./cmd/mzs` gives one
+fully static binary you can copy anywhere. (The `-o` is required in a clone: the library
+package is the `mzs/` directory, so the default output name is taken.)
 
 ## Run
 

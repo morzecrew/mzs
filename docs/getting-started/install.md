@@ -21,10 +21,13 @@ Zero external modules, no cgo, no subprocesses. A release build is one file that
 nothing at run time:
 
 ```sh
-$ CGO_ENABLED=0 go build -ldflags="-s -w" -o mzs ./cmd/mzs
-$ file mzs
-mzs: ELF 64-bit LSB executable, x86-64, ..., statically linked, ..., stripped
+$ CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mzs ./cmd/mzs
+$ file bin/mzs
+bin/mzs: ELF 64-bit LSB executable, x86-64, ..., statically linked, ..., stripped
 ```
+
+The `-o` is not decoration: the library package lives in `mzs/`, so the default output
+name `mzs` is already a directory in a clone and `go build` refuses to overwrite it.
 
 Copy that file anywhere — no interpreter, no shared library, no `GOPATH`.
 

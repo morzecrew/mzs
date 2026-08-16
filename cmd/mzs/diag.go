@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"mzs"
+	"mzs/mzs"
 )
 
 // reportErr renders every diagnostic in err as `file:line:col: kind: message`

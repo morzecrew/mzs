@@ -15,7 +15,7 @@ import (
 	"sort"
 	"time"
 
-	"mzs"
+	"mzs/mzs"
 )
 
 func main() {

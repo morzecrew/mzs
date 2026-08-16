@@ -16,14 +16,15 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"mzs"
 	"mzs/internal/rx"
+	"mzs/mzs"
 )
 
 // The five ways a corpus row is checked. The mode is part of the expectation: row 22a
@@ -488,10 +489,13 @@ func TestAuthorFiles(t *testing.T) {
 	})
 }
 
-// readExample reads one of the shipped programs of examples/.
+// readExample reads one of the shipped programs of examples/. The paths above are
+// written from the repository root, which is this package's parent: the library lives
+// in mzs/ and examples/ is its sibling, so the test's working directory is one level
+// too deep to open them as written.
 func readExample(t *testing.T, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Join("..", path))
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}

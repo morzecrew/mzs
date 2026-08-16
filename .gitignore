@@ -1,10 +1,12 @@
 # Editor and IDE state. The project files GoLand writes are one developer's setup —
 # window layout, run configurations, the caret's last position — and none of it is part
-# of the build: `go build ./cmd/mzs` needs nothing but the module.
+# of the build: `go build -o bin/mzs ./cmd/mzs` needs nothing but the module.
 .idea/
 .vscode/
 *.swp
 
-# Build and coverage output, all reproducible from the source.
-/mzs
+# Build and coverage output, all reproducible from the source. `/mzs` is *not* here:
+# that name is the library package's directory now, so the binary has to be built with
+# an explicit `-o` and `bin/` is where the docs put it.
+/bin/
 coverage.out

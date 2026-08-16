@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"mzs"
 	"mzs/internal/lru"
+	"mzs/mzs"
 )
 
 // ErrNilResult is what String returns when the expression evaluated to nil. The

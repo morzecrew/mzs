@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	"mzs"
+	"mzs/mzs"
 )
 
 // The CLI's answer to mzs.FileSystem (SPEC §12.13). The library ships no implementation

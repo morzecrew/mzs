@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"mzs"
+	"mzs/mzs"
 )
 
 // Every case below is ported from morzebot-backend-v2's own suites —

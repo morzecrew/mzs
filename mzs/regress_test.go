@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"mzs"
+	"mzs/mzs"
 )
 
 // regressInterp is deliberately generous with time: these tests are about what an

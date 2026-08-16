@@ -20,10 +20,10 @@ import (
 	"strings"
 	"time"
 
-	"mzs"
 	"mzs/internal/lexer"
 	"mzs/internal/rx"
 	"mzs/internal/token"
+	"mzs/mzs"
 )
 
 const version = "mzs 0.1.0"
