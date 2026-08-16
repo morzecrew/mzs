@@ -5,7 +5,7 @@ indexing, insertion order, copying — that differ from most other languages.
 
 ## The kinds
 
-Nine kinds make up the value model; `type` reports three more, plus whatever names your own
+Nine kinds make up the value model; `type` reports four more, plus whatever names your own
 `record` declarations add ([#records](#records)).
 
 | `type(x)` | Literal | Notes |
@@ -22,11 +22,18 @@ Nine kinds make up the value model; `type` reports three more, plus whatever nam
 | `range` | `1..5` `1..<5` | lazy; `is(r, "array")` is `true` |
 | `time` | — | only when the host enables the clock ([../modules/time.md](../modules/time.md)) |
 | `task` | — | the result of calling an `async fn` ([./async.md](./async.md)) |
+| `seq` | — | a lazy sequence; `is(s, "array")` is **false** ([../stdlib/sequences.md](../stdlib/sequences.md)) |
 
 ```
-type(1..5)        # range
-is(1..5, "array") # true
+type(1..5)               # range
+is(1..5, "array")        # true
+type((1..5).seq)         # seq
+is((1..5).seq, "array")  # false
 ```
+
+A range and a seq are both lazy and they answer `is("array")` differently on purpose: a
+range can be materialised on demand under the collection cap, and a seq is the value that
+refuses to be — so code that takes an array is never handed one by accident.
 
 ## Numbers
 
@@ -103,7 +110,7 @@ d = {b: 1, a: 2}; d["c"] = 3; d.json      # {"b":1,"a":2,"c":3}
 ```
 
 Keys may be `nil`, a bool, a number, a string, a regex or a time. `1` and `1.0` are the same
-key; an array, dict, function or range key is an error.
+key; an array, dict, function, range, task or seq key is an error.
 
 ```
 d = {}; d[1] = "a"; d[1.0] = "b"; d      # {"1":"b"}

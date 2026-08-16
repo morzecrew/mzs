@@ -1,0 +1,159 @@
+# 40 — lazy sequences: a source you pull, for input that does not fit.
+#
+#   mzs examples/40_lazy_sequences.mzs
+#
+# Everything else in the library materialises. `(1..1e9).map { … }` builds a billion
+# elements, or rather it does not: `MaxCollection` stops it at a million, which is the
+# right answer for a dialogue condition and no answer at all for a log.
+#
+#   (1..1_000_000_000).seq.filter { it % 7 == 0 }.take(3).array   # [7,14,21]
+#
+# A `seq` is a source pulled one element at a time. `map`, `filter` and `take` *describe*
+# the work; nothing runs until a terminal row — `array`, `len`, `sum`, `first`, `each` —
+# asks for a value, and then only as far as that value needs.
+#
+# Three ways to start one: `xs.seq` over an array, `(a..b).seq` over a range (counted, not
+# built), and `seq { (i) -> … }` — a generator called with the index, ended by returning
+# nil. `io.lines` is the fourth and the reason the kind exists: a 15 MB log is a seq of
+# lines, not a string that hits MaxStringBytes.
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+fn show(label, v) { println(label.ljust(46) + " → " + v.json) }
+
+rule("a range too big to build, walked in three steps")
+
+show("(1..1_000_000_000).seq.filter { …7 }.take(3).array",
+  (1..1_000_000_000).seq.filter { it % 7 == 0 }.take(3).array)
+show("(1..1_000_000_000).seq.find { it * it > 500 }",
+  (1..1_000_000_000).seq.find { it * it > 500 })
+show("(1..1_000_000_000).seq.map { it * 2 }.first",
+  (1..1_000_000_000).seq.map { it * 2 }.first)
+
+# The eager form of the first line is a limit error, and that is the point of the kind:
+#
+#   (1..1_000_000_000).filter { it % 7 == 0 }
+#   # limit: collection too large: 1000000000 elements exceeds the limit of 1000000
+
+rule("laziness is measurable, not a promise")
+
+# The generator counts its own calls, so `pulls` *is* the number of elements the chain
+# pulled. A materialising map would answer 1000 to every line below.
+pulls = 0
+counted = seq { (i) -> pulls = pulls + 1; if i < 1000 { i } }
+
+fn measure(label, v) {
+  println(label.ljust(46) + " → " + v.json + "   pulls: " + pulls.str)
+  pulls = 0
+}
+
+measure("counted.first", counted.first)
+measure("counted.take(3).array", counted.take(3).array)
+measure("counted.find { it == 4 }", counted.find { it == 4 })
+measure("counted.filter { even }.take(2).array", counted.filter { it.even }.take(2).array)
+measure("counted.take_while { it < 3 }.array", counted.take_while { it < 3 }.array)
+measure("counted.map { it * 2 }.filter { true }.drop(9)", "a seq, still unread")
+measure("counted.len", counted.len)
+
+rule("the generator, and what nil means in it")
+
+# The closure is called with the index of the element it is being asked for, and returning
+# nil ends the sequence. There is no `yield` and no coroutine: a generator is an ordinary
+# closure, called once per element.
+squares = seq { (i) -> if i < 6 { i * i } }
+show("seq { (i) -> if i < 6 { i * i } }.array", squares.array)
+show("…and it answers the same thing twice", squares.array)
+
+# Endless is fine — it is the chain that decides where to stop.
+show("seq { (i) -> i * i }.take_while { it < 50 }.array",
+  seq { (i) -> i * i }.take_while { it < 50 }.array)
+
+# A generator that reads a counter of its own is a *stateful* source, and then a second
+# run carries on where the first stopped. That is not a special case: it is what state is.
+n = 0
+paged = seq { n = n + 1; if n <= 6 { "page " + n.str } }
+show("paged.take(2).array", paged.take(2).array)
+show("paged.take(2).array  (the same expression)", paged.take(2).array)
+show("paged.array          (what is left)", paged.array)
+
+rule("the rows")
+
+nums = (1..9).seq
+
+show("nums.map { it * 10 }.array", nums.map { it * 10 }.array)
+show("nums.filter { it.even }.array", nums.filter { it.even }.array)
+show("nums.reject { it.even }.array", nums.reject { it.even }.array)
+show("nums.flat_map { [it, -it] }.take(4).array", nums.flat_map { [it, -it] }.take(4).array)
+show("nums.drop(6).array", nums.drop(6).array)
+show("nums.drop_while { it < 7 }.array", nums.drop_while { it < 7 }.array)
+show("nums.sum", nums.sum)
+show("nums.min", nums.min)
+show("nums.reduce { (a, x) -> a * x }", nums.reduce { (a, x) -> a * x })
+show("nums.count { it.even }", nums.count { it.even })
+show("nums.first(3)", nums.first(3))
+show("nums.join(\"-\")", nums.join("-"))
+show("nums.all { it > 0 }", nums.all { it > 0 })
+show("5 in nums", 5 in nums)
+
+# `for` pulls too, so a loop over a sequence is a loop over anything else. A `break` stops
+# the pull — nothing after it is ever produced.
+head = []
+for x in ((1..1_000_000_000).seq.map { it * it }) {
+  break if x > 40
+  head.push(x)
+}
+show("for x in (…seq.map { it * it }) { break if x > 40 }", head)
+
+rule("what a seq is not")
+
+# Everything that needs the whole sequence at once — sort, reverse, uniq, tally, group_by,
+# last — is one row away, and it is the same name. Materialise, then ask.
+show("type((1..3).seq)", type((1..3).seq))
+show("(1..3).seq.is(\"seq\")", (1..3).seq.is("seq"))
+show("(1..3).seq.is(\"array\")", (1..3).seq.is("array"))
+show("(1..3).is(\"array\")  — a range says yes", (1..3).is("array"))
+show("str((1..3).seq)", str((1..3).seq))
+show("try [3,1,2].seq.sort", try [3, 1, 2].seq.sort else (e) { e["message"] })
+show("[3,1,2].seq.array.sort", [3, 1, 2].seq.array.sort)
+show("try {items: (1..3).seq}.json", try {items: (1..3).seq}.json else (e) { e["message"] })
+show("{items: (1..3).seq.array}.json", {items: (1..3).seq.array})
+
+# A range answers `is("array")` with true because it can be materialised on demand under
+# the cap. A seq is the value that refuses to be, so it answers false — host code that
+# takes an array is never handed one by accident. For the same reason a seq is not
+# compared (`==` is identity), not ordered, not a dict key, and has no JSON form.
+#
+# And the limits still hold: every source charges one interpreter step per element, so an
+# endless sequence ends the way `while true` does —
+#
+#   seq { (i) -> i }.len
+#   # limit: step budget exceeded (5000000 steps)
+
+rule("the shape this was written for")
+
+# Streaming a log without holding it. With `io` it is the same pipeline over `io.lines`:
+#
+#   include io
+#   io.lines.filter { it.has("ERROR") }.take(10).each { println(it) }
+#
+# Here the "log" is generated, so the example needs no file.
+log = seq { (i) ->
+  if i < 100_000 {
+    level = ["INFO", "WARN", "ERROR"][i % 3]
+    "2026-08-17 " + level + " request " + i.str + " took " + (i % 400).str + "ms"
+  }
+}
+
+slow = log.filter { it.has("ERROR") }.filter { (it.split(" ")[5].int) > 300 }.take(3).array
+println("first three slow errors, out of 100 000 lines:")
+slow.each { println("  " + it) }
+
+println("")
+println("errors in the first 3 000 lines: " + log.take(3_000).count { it.has("ERROR") }.str)
+println("longest of the first 500:        " + log.take(500).max { (a, b) ->
+  a.split(" ")[5].int <=> b.split(" ")[5].int
+})

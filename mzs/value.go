@@ -37,6 +37,9 @@ const (
 	// it will have. It is an opaque handle — `await` and `done` are all it answers — and
 	// it never leaves the Run that created it.
 	KTask
+	// KSeq is the lazy sequence of §12.14. type(s) reports "seq" and is("array") is
+	// false — the opposite of a Range, which can be materialised under a cap and says so.
+	KSeq
 )
 
 const (
@@ -70,6 +73,7 @@ var kindNames = map[Kind]string{
 	KTime:   "time",
 	KRange:  "range",
 	KTask:   "task",
+	KSeq:    "seq",
 	KAny:    "any",
 }
 
@@ -181,6 +185,8 @@ func regexOf(r *rx.Regexp) Value { return Value{k: KRegex, p: r} }
 func timeOf(t time.Time) Value { return Value{k: KTime, p: t} }
 
 func taskOf(t *task) Value { return Value{k: KTask, p: t} }
+
+func seqOf(s *Seq) Value { return Value{k: KSeq, p: s} }
 
 func rangeOf(lo, hi int64, excl bool) Value {
 	return Value{k: KRange, p: &Range{Lo: lo, Hi: hi, Excl: excl}}
@@ -299,6 +305,11 @@ func (v Value) Str() string {
 		return v.Time().Format(time.RFC3339)
 	case KTask:
 		return v.task().render()
+	case KSeq:
+		// A sequence has no text: rendering one would mean running it, and a `str` that
+		// consumed its receiver is not a `str`. `#<seq>` is what a function prints too,
+		// and for the same reason (§12.14).
+		return "#<seq>"
 	}
 	return ""
 }
@@ -425,6 +436,14 @@ func (v Value) task() *task {
 	return t
 }
 
+func (v Value) seq() *Seq {
+	if v.k != KSeq {
+		return nil
+	}
+	s, _ := v.p.(*Seq)
+	return s
+}
+
 // ---------------------------------------------------------------------------
 // Equality and ordering
 // ---------------------------------------------------------------------------
@@ -474,6 +493,10 @@ func (v Value) equal(o Value, depth int) bool {
 		// Identity, like a function: two tasks are the same task or they are not, and
 		// what they will produce is not a question `==` may block on.
 		return v.task() == o.task()
+	case KSeq:
+		// Identity as well, and for the stronger reason: comparing two sequences would
+		// mean running both, and a `==` with side effects is not one (§7.4, §12.14).
+		return v.seq() == o.seq()
 	case KRange:
 		a, b := v.rng(), o.rng()
 		return a.Lo == b.Lo && a.Hi == b.Hi && a.Excl == b.Excl
@@ -967,9 +990,12 @@ func appendJSON(dst []byte, v Value, indent string, level int) []byte {
 		return appendJSONString(dst, v.rx().Source())
 	case KTime:
 		return appendJSONString(dst, v.Time().Format(time.RFC3339))
-	case KFunc, KTask:
+	case KFunc, KTask, KSeq:
 		// A task is a running body, not data: it encodes as null, exactly as a function
-		// does. What a script wants in the document is `t.await`.
+		// does. What a script wants in the document is `t.await`. A seq is the same
+		// answer for the same reason — `json` itself raises rather than writing this
+		// one out (§12.14), because a sequence *has* a document form and it is
+		// `s.array`.
 		return append(dst, "null"...)
 	case KArray, KRange:
 		xs := v.Elems()

@@ -721,7 +721,10 @@ var arrayRowArgs = map[string][]Value{
 	"has": {Int(5)}, "index": {Int(5)}, "delete": {Int(5)}, "delete_at": {Int(0)},
 	"dig": {Int(0)}, "insert": {Int(0), Int(9)}, "push": {Int(9)}, "unshift": {Int(9)},
 	"concat": {colInts(7, 8)}, "zip": {colInts(7, 8)},
-	"join": {Str("-")},
+	"join":   {Str("-")},
+	"to_set": nil,
+	"union":  {colInts(7, 8)}, "intersect": {colInts(7, 8)},
+	"difference": {colInts(7, 8)}, "subset": {colInts(7, 8)},
 }
 
 // arrayRowNames is every row registered for arrays and ranges, deduplicated.
@@ -961,5 +964,150 @@ func TestChunkingRowsWithAClosure(t *testing.T) {
 				t.Errorf("%s swallowed the error its closure raised", name)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sets (§12.3)
+// ---------------------------------------------------------------------------
+
+// TestArraySetRows is the table of what the four set rows and `to_set` answer. Every one
+// of them answers with a *set* — first occurrence wins, no repeats — which is the whole
+// difference between them and the `+`/`-` of §8.3, and the reason both spellings exist.
+func TestArraySetRows(t *testing.T) {
+	c := colCtx(t, DefaultOptions())
+
+	tests := []struct {
+		name    string
+		method  string
+		recv    Value
+		args    []Value
+		want    string
+		wantErr bool
+	}{
+		{name: "to_set keeps the first occurrence, in order", method: "to_set",
+			recv: colInts(3, 1, 3, 2), want: `{"3":true,"1":true,"2":true}`},
+		{name: "to_set of empty", method: "to_set", recv: Array(), want: "{}"},
+		{name: "to_set of a range", method: "to_set", recv: rangeOf(1, 3, false),
+			want: `{"1":true,"2":true,"3":true}`},
+		{name: "to_set refuses an unhashable element", method: "to_set",
+			recv: Array(colInts(1)), wantErr: true},
+
+		{name: "union deduplicates both sides", method: "union",
+			recv: colInts(1, 1, 2), args: []Value{colInts(2, 3)}, want: "[1,2,3]"},
+		{name: "union is variadic", method: "union",
+			recv: colInts(1), args: []Value{colInts(2), colInts(3, 1)}, want: "[1,2,3]"},
+		{name: "union takes a range", method: "union",
+			recv: colInts(0), args: []Value{rangeOf(1, 2, false)}, want: "[0,1,2]"},
+		{name: "union refuses a scalar", method: "union",
+			recv: colInts(1), args: []Value{Int(2)}, wantErr: true},
+
+		{name: "intersect keeps the receiver's order", method: "intersect",
+			recv: colInts(3, 1, 2), args: []Value{colInts(2, 3)}, want: "[3,2]"},
+		{name: "intersect deduplicates", method: "intersect",
+			recv: colInts(1, 1), args: []Value{colInts(1)}, want: "[1]"},
+		{name: "intersect of several is the common part", method: "intersect",
+			recv: colInts(1, 2, 3), args: []Value{colInts(1, 2), colInts(2, 3)}, want: "[2]"},
+		{name: "intersect with nothing in common", method: "intersect",
+			recv: colInts(1), args: []Value{colInts(2)}, want: "[]"},
+
+		{name: "difference removes and deduplicates", method: "difference",
+			recv: colInts(1, 1, 2, 3), args: []Value{colInts(3)}, want: "[1,2]"},
+		{name: "difference of several removes from all", method: "difference",
+			recv: colInts(1, 2, 3), args: []Value{colInts(1), colInts(3)}, want: "[2]"},
+
+		{name: "subset true", method: "subset",
+			recv: colInts(1, 2), args: []Value{colInts(3, 2, 1)}, want: "true"},
+		{name: "subset false", method: "subset",
+			recv: colInts(1, 4), args: []Value{colInts(1, 2)}, want: "false"},
+		{name: "the empty set is a subset of everything", method: "subset",
+			recv: Array(), args: []Value{colInts(1)}, want: "true"},
+		{name: "a set is a subset of itself", method: "subset",
+			recv: colInts(1, 1), args: []Value{colInts(1)}, want: "true"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := colInvoke(c, KArray, tt.method, tt.recv, tt.args...)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("%s = %s; want an error", tt.method, got.Inspect())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%s error = %v", tt.method, err)
+			}
+			if got.Inspect() != tt.want {
+				t.Errorf("%s = %s; want %s", tt.method, got.Inspect(), tt.want)
+			}
+		})
+	}
+}
+
+// The set rows compare with `==` (§7.4) and therefore work on the elements a dict key
+// cannot hold: `to_set` is the one row that needs hashable elements, and the other four
+// fall back to a linear scan exactly as `uniq` does.
+func TestArraySetRowsOnUnhashableElements(t *testing.T) {
+	c := colCtx(t, DefaultOptions())
+	pair := func(a, b int64) Value { return colInts(a, b) }
+
+	got, err := colInvoke(c, KArray, "union",
+		Array(pair(1, 2), pair(1, 2)), Array(pair(3, 4)))
+	if err != nil {
+		t.Fatalf("union error = %v", err)
+	}
+	if got.Inspect() != "[[1,2],[3,4]]" {
+		t.Errorf("union = %s; want the two distinct pairs", got.Inspect())
+	}
+
+	yes, err := colInvoke(c, KArray, "subset", Array(pair(1, 2)), Array(pair(1, 2), pair(3, 4)))
+	if err != nil {
+		t.Fatalf("subset error = %v", err)
+	}
+	if !yes.Truthy() {
+		t.Error("subset said false for an array of arrays; membership is ==, not identity")
+	}
+}
+
+// The set rows and the operators of §8.3 look alike and are not the same operation, which
+// is why both are in the language and why this is a test rather than a comment. D17 is
+// satisfied because the answers differ: one keeps every element it was given, the other
+// answers with a set.
+func TestSetRowsAreNotTheOperators(t *testing.T) {
+	in := evInterp()
+
+	tests := []struct{ src, want string }{
+		{`([1, 1, 2] + [2]).json`, "[1,1,2,2]"},
+		{`[1, 1, 2].union([2]).json`, "[1,2]"},
+		{`([1, 1, 2] - [2]).json`, "[1,1]"},
+		{`[1, 1, 2].difference([2]).json`, "[1]"},
+	}
+	for _, tt := range tests {
+		if got := evStr(t, in, tt.src); got != tt.want {
+			t.Errorf("%s = %s; want %s", tt.src, got, tt.want)
+		}
+	}
+}
+
+// The set rows are reachable in both spellings, which is UFCS and not a second
+// registration (§4.3), and `to_set` produces a dict a script can ask `has` of — the
+// membership half of a set, which is the reason the pair exists at all.
+func TestSetRowsUnderUFCS(t *testing.T) {
+	in := evInterp()
+
+	tests := []struct{ src, want string }{
+		{`union([1], [2]).json`, "[1,2]"},
+		{`intersect([1, 2], [2]).json`, "[2]"},
+		{`difference([1, 2], [2]).json`, "[1]"},
+		{`subset([1], [1, 2])`, "true"},
+		{`to_set([1, 2]).len`, "2"},
+		{`seen = ["a", "b"].to_set; [seen.has("a"), seen.has("z")].json`, "[true,false]"},
+		{`("a b a".split(" ")).to_set.keys.json`, `["a","b"]`},
+	}
+	for _, tt := range tests {
+		if got := evStr(t, in, tt.src); got != tt.want {
+			t.Errorf("%s = %s; want %s", tt.src, got, tt.want)
+		}
 	}
 }

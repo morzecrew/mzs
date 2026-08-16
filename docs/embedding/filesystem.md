@@ -6,7 +6,7 @@ the host — not the library — resolves every path.
 ```go
 in := mzs.New(mzs.Options{
 	FS:           myFS{},          // installs the io module
-	Stdin:        os.Stdin,        // io.stdin / io.lines; nil is empty input
+	Stdin:        os.Stdin,        // io.stdin drains it, io.lines streams it; nil is empty input
 	Env:          os.Getenv,       // io.env; nil means every name is unset
 	ModuleLoader: myLoader,        // include x from "./x.mzs"
 })

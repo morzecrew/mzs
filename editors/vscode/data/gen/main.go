@@ -23,7 +23,7 @@ func main() {
 		"nil": mzs.KNil, "bool": mzs.KBool, "int": mzs.KInt, "float": mzs.KFloat,
 		"string": mzs.KString, "regex": mzs.KRegex, "array": mzs.KArray,
 		"dict": mzs.KDict, "fn": mzs.KFunc, "time": mzs.KTime, "range": mzs.KRange,
-		"task": mzs.KTask, "any": mzs.KAny,
+		"task": mzs.KTask, "seq": mzs.KSeq, "any": mzs.KAny,
 	}
 
 	methods := map[string][]string{}

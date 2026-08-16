@@ -352,6 +352,10 @@ func isKindName(v Value, name string) (yes, known bool) {
 		return v.Kind() == KFunc, true
 	case "range":
 		return v.Kind() == KRange, true
+	case "seq":
+		// And **not** under "array", unlike a range: a range materialises on demand
+		// under the collection cap and a seq is the value that refuses to (§12.14).
+		return v.Kind() == KSeq, true
 	case "time":
 		return v.Kind() == KTime, true
 	}

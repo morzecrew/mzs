@@ -55,7 +55,7 @@ Capabilities that are off unless a flag turns them on: the clock (`--time`), ran
 | a script file, or a program on stdin | nothing |
 | `-p` | the last value, `nil` included (an empty line) |
 | `--no-print` | nothing, ever |
-| `--json` | the value as JSON, even for a script file; `nil` prints as `null` |
+| `--json` | the value as JSON, even for a script file; `nil` prints as `null`, and a lazy [seq](../stdlib/sequences.md) is a diagnostic naming `.array` |
 | `--bool` | nothing; the value becomes the exit code — unless `-p` is also given |
 
 ```sh
@@ -64,6 +64,9 @@ mzs -p -e 'println("hi")'     # hi, then an empty line for the nil
 mzs -e '"hi"'             # hi
 mzs -e '"hi"' --json      # "hi"
 mzs --json -e 'nil'       # null
+mzs --json -e '(1..3).seq'
+# mzs: the value is a seq, which is lazy and has no JSON form; end the pipeline with .array
+mzs --json -e '(1..3).seq.array'   # [1,2,3]
 ```
 
 ## Exit codes

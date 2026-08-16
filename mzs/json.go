@@ -160,6 +160,12 @@ func jsonvWalk(c *Ctx, v Value, open map[any]bool, depth int) error {
 			return failed
 		}
 		delete(open, p)
+	case KSeq:
+		// A function and a task encode as null because there is nothing else they could
+		// be — neither is data. A seq *is* data, and it has a document form: the one it
+		// takes when it is materialised. Writing `null` there would turn "you forgot
+		// `.array`" into a field that silently disappeared (§12.14).
+		return c.ErrorfKind(ErrKindJSON, "json: a seq is lazy and has no JSON form; materialise it with .array")
 	}
 	return nil
 }

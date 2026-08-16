@@ -47,6 +47,16 @@ against `MaxCollection` (default 1,000,000).
 # -e:1:14: limit: collection too large: 2000000 elements exceeds the limit of 1000000
 ```
 
+`seq` is the third answer, for the rows that would otherwise have to materialise: it walks
+the range by counting, so nothing is ever built and the cap is never reached.
+
+```
+(1..1000000000).seq.filter { it % 7 == 0 }.take(3).array   # [7,14,21]
+(1..1000000000).seq.map { it * 2 }.first                   # 2
+```
+
+See [Sequences](./sequences.md).
+
 A range answers `true` to `is("array")` while `type(r)` stays `"range"` — the one place
 the two disagree.
 
@@ -157,6 +167,7 @@ A range indexes strings and arrays, and the result is a new string or array:
 ## See also
 
 - [Arrays](./arrays.md) — the rows a range shares with arrays
+- [Sequences](./sequences.md) — `(a..b).seq`, for the rows that would otherwise materialise
 - [Numbers](./numbers.md) — `times`, `upto`, `downto`, `step`
 - [Control flow](../language/control-flow.md) — `for` and `match`
 - [Sandbox and limits](../reference/sandbox.md) — `MaxCollection` and the step budget

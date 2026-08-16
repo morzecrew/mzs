@@ -129,9 +129,10 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | **Multi-line templates** | `<<~SQL` … `SQL` — dedented, interpolated, or raw with `<<~'SQL'` | [strings](docs/language/strings.md) |
 | **Shapes of your own** | `record Money(amount, currency)` — `m.amount`, `type(m)`, `match m { Money -> … }` | [values](docs/language/values.md) |
 | **Regex, two engines** | `"нужна CRM" ~ /\bcrm\b/i` — Unicode `\b`, rune indices, lookahead | [regex](docs/language/regex.md) |
-| **Collections** | `xs.group_by { it["k"] }.map { … }.sort_by { -it["n"] }` | [arrays](docs/stdlib/arrays.md) · [dicts](docs/stdlib/dicts.md) |
+| **Collections** | `xs.group_by { it["k"] }.map { … }.sort_by { -it["n"] }` · `a.union(b)`, `a.to_set` | [arrays](docs/stdlib/arrays.md) · [dicts](docs/stdlib/dicts.md) |
+| **Input that does not fit** | `(1..1e9).seq.filter { … }.take(3).array` — pulled, never materialised | [sequences](docs/stdlib/sequences.md) |
 | **JSON both ways** | `json.parse(s).dig("a", 1)` · `x.json` | [json](docs/modules/json.md) |
-| **Files, stdin, env** | `io.lines.filter { it ~ /ERROR/ }.len` | [io](docs/modules/io.md) |
+| **Files, stdin, env** | `io.lines.filter { it ~ /ERROR/ }.len` — a line at a time, so a 15 MB log is fine | [io](docs/modules/io.md) |
 | **HTTP client and server** | `http.serve(":8080", {"GET /hi/{name}": { (req) -> req["params"]["name"] }})` | [http](docs/modules/http.md) |
 | **Concurrency** | `urls.map { fetch(it) }.map { it.await }` | [async](docs/language/async.md) |
 | **Modules of your own** | `include cart from "./cart.mzs"` | [modules](docs/modules/custom.md) |
@@ -202,7 +203,7 @@ boundary: a script cannot bring its host down.
 | Reference | [sandbox and limits](docs/reference/sandbox.md) · [limitations](docs/reference/limitations.md) · [verification](docs/reference/verification.md) |
 
 The normative description is [`SPEC.md`](SPEC.md); the runnable one is
-[`examples/`](examples/README.md) — 38 programs, from the value model to a maze solver, an HTTP
+[`examples/`](examples/README.md) — 40 programs, from the value model to a maze solver, an HTTP
 service and `async fn`.
 
 ## Verification

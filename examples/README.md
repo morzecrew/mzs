@@ -1,6 +1,6 @@
 # Examples
 
-Thirty-eight complete programs, in order of difficulty. Each one runs on its own, prints a
+Forty complete programs, in order of difficulty. Each one runs on its own, prints a
 readable report, and is written to be read as much as to be executed:
 
 ```sh
@@ -56,6 +56,8 @@ does not have it at all.
 | 36 | `36_ensure_and_error_kinds.mzs` | the braced `try { … } else (e) { … } ensure { … }`, a release that runs on every way out that leaves the run alive, and `match e["kind"]` over the runtime's kinds plus the ones a script names |
 | 37 | `37_records.mzs` | `record` — a name for a shape over the dict you already had: fields by name, `type(m)`, a `match` arm on the shape, and what the label does and does not travel with. The one file that prints a warning on purpose |
 | 38 | `38_heredoc.mzs` | `<<~TAG` — multi-line text with the common indentation shed, the raw `<<~'TAG'`, two on one line, and a template applied per row |
+| 39 | `39_sets.mzs` | `union`, `intersect`, `difference`, `subset` and `to_set` — what tells a set operation from `+` and `-`, and the visited-set a graph walk always needed |
+| 40 | `40_lazy_sequences.mzs` | `seq` — a billion-element range walked in three steps, a generator ended by `nil`, laziness counted rather than promised, and why a seq is not an array |
 
 ## Text, patterns and data
 

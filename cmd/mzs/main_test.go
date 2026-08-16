@@ -56,6 +56,25 @@ func TestCLI(t *testing.T) {
 			wantOut: `{"b":1,"a":2}` + "\n",
 		},
 		{
+			name:    "a seq strs as what it is, without running it",
+			argv:    []string{"-e", "(1..3).seq"},
+			wantOut: "#<seq>\n",
+		},
+		{
+			// §12.14: JSON would have to run the sequence, so the CLI names the fix
+			// rather than printing the `null` a function renders as.
+			name:     "json of a seq is a diagnostic, not null",
+			argv:     []string{"--json", "-e", "(1..3).seq"},
+			wantCode: 1,
+			wantOut:  "",
+			errHas:   []string{"seq", ".array"},
+		},
+		{
+			name:    "…and the materialised form is what it wanted",
+			argv:    []string{"--json", "-e", "(1..3).seq.map { it * 2 }.array"},
+			wantOut: "[2,4,6]\n",
+		},
+		{
 			name:    "str is the default rendering: a dict strs as JSON (§12.7)",
 			argv:    []string{"-e", `{b: 1, a: "два"}`},
 			wantOut: `{"b":1,"a":"два"}` + "\n",

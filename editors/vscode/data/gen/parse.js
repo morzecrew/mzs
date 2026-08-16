@@ -27,6 +27,7 @@ const SECTION_RECV = {
   '9':  ['nil', 'bool', 'fn'],
   '10': ['range'],
   '12': ['task'],
+  '14': ['seq'],
 };
 
 let hdr = null, prev = null, defRecv = ['builtin'], sectionModule = null;
@@ -114,6 +115,9 @@ const alias = { string:['string'], array:['array'], dict:['dict','map'], map:['m
   float:['float','number','number (float)'], regex:['regex'], time:['time','Time'],
   // §12.10: a Range answers the array rows, so it inherits their prose.
   range:['range','array'],
+  // §12.14: a seq's rows have their own table, and where a name is only in §12.3 — the
+  // conversions of §12.1 above all — the array prose describes the same operation.
+  seq:['seq','array'],
   nil:['nil'], bool:['bool'], fn:['fn','function'], any:['any'] };
 
 const out = { methods:{}, builtins:{}, modules:{}, gates: reg.gates || {}, keywords: reg.keywords || [],

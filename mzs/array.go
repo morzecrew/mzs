@@ -55,6 +55,11 @@ func init() {
 		{Name: "partition", Min: 1, Max: 1, Fn: arrPartition},
 		{Name: "tally", Fn: arrTally},
 		{Name: "uniq", Max: 1, Fn: arrUniq},
+		{Name: "to_set", Fn: arrToSet},
+		{Name: "union", Min: 1, Max: -1, Fn: arrUnion},
+		{Name: "intersect", Min: 1, Max: -1, Fn: arrIntersect},
+		{Name: "difference", Min: 1, Max: -1, Fn: arrDifference},
+		{Name: "subset", Min: 1, Max: 1, Fn: arrSubset},
 		{Name: "reverse", Fn: arrReverse},
 		{Name: "flatten", Max: 1, Fn: arrFlatten},
 		{Name: "compact", Fn: arrCompact},
@@ -252,6 +257,37 @@ func (s *arrSeen) add(v Value) bool {
 	}
 	s.odd = append(s.odd, v)
 	return true
+}
+
+// has is add without the write, which is what a membership test over a set already built
+// needs (`intersect`, `difference`, `subset`).
+func (s *arrSeen) has(v Value) bool {
+	if k, err := hashKey(v); err == nil {
+		return s.keys[k]
+	}
+	for _, o := range s.odd {
+		if o.Equal(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// arrSetOf reads one argument of a set operation into a membership set. Every argument is
+// an array or a range, and each is charged one step per element before it is scanned.
+func arrSetOf(c *Ctx, v Value) (*arrSeen, error) {
+	ys, err := arrElems(c, v)
+	if err != nil {
+		return nil, err
+	}
+	if err := arrIter(c, ys); err != nil {
+		return nil, err
+	}
+	s := newArrSeen(len(ys))
+	for _, y := range ys {
+		s.add(y)
+	}
+	return s, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1231,6 +1267,157 @@ func arrCompact(c *Ctx, recv Value, args []Value) (Value, error) {
 		}
 	}
 	return arrayOf(out), nil
+}
+
+// ---------------------------------------------------------------------------
+// Sets (§12.3)
+// ---------------------------------------------------------------------------
+//
+// There is no ninth kind for a set and no module pretending to be one: a set is a dict
+// whose values are `true`, which is what a script already writes by hand the moment it
+// needs "have I seen this", and the operations that were missing live here, on the arrays
+// where they are wanted.
+//
+// The four of them answer with a **set**: first occurrence wins, no repeats, and the
+// order is the receiver's (§8.13). That is what tells them from `+` and `-`, which are the
+// *sequence* operations and keep every element they were given — one operation, one name
+// (D17), and the pair that looks alike is the pair that must be written down:
+//
+//	[1, 1, 2] + [2]                  # [1, 1, 2, 2]   — concatenation
+//	[1, 1, 2].union([2])             # [1, 2]         — the set of both
+//	[1, 1, 2] - [2]                  # [1, 1]         — removal
+//	[1, 1, 2].difference([2])        # [1]            — the set of what is left
+//
+// Membership is `==` (§7.4) through arrSeen, so an array of arrays works as well as an
+// array of strings: hashable elements go through the map and the rest through a linear
+// scan. `to_set` is the one row that cannot do that — a dict key must be hashable (§7.6) —
+// and it says so with the same diagnostic `tally` gives.
+
+// arrToSet is `to_set`: the distinct elements as a dict, every value `true`. It is the
+// membership half of a set, the half a dict already is: `xs.to_set.has(x)` is the O(1)
+// question `xs.has(x)` answers in O(n).
+func arrToSet(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	d := NewOrderedDictCap(len(xs))
+	for _, x := range xs {
+		if err := d.Set(x, Bool(true)); err != nil {
+			return Nil(), c.TypeErrorf("%s", err.Error())
+		}
+	}
+	return dictOf(d), nil
+}
+
+// arrUnion is every element of the receiver and then of each argument, once each.
+func arrUnion(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	seen := newArrSeen(len(xs))
+	out := []Value{}
+	take := func(ys []Value) error {
+		for _, y := range ys {
+			if !seen.add(y) {
+				continue
+			}
+			out = append(out, y)
+			if err := arrGrow(c, len(out)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := take(xs); err != nil {
+		return Nil(), err
+	}
+	for _, a := range args {
+		ys, err := arrElems(c, a)
+		if err != nil {
+			return Nil(), err
+		}
+		if err := arrIter(c, ys); err != nil {
+			return Nil(), err
+		}
+		if err := take(ys); err != nil {
+			return Nil(), err
+		}
+	}
+	return arrayOf(out), nil
+}
+
+// arrIntersect is the elements of the receiver that every argument has too.
+func arrIntersect(c *Ctx, recv Value, args []Value) (Value, error) {
+	return arrSetFilter(c, recv, args, true)
+}
+
+// arrDifference is the elements of the receiver that no argument has.
+func arrDifference(c *Ctx, recv Value, args []Value) (Value, error) {
+	return arrSetFilter(c, recv, args, false)
+}
+
+// arrSetFilter is the body both of them share: build a membership set per argument, then
+// keep the receiver's elements that are in all of them (want) or in none (!want).
+func arrSetFilter(c *Ctx, recv Value, args []Value, want bool) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	others := make([]*arrSeen, len(args))
+	for i, a := range args {
+		if others[i], err = arrSetOf(c, a); err != nil {
+			return Nil(), err
+		}
+	}
+	seen := newArrSeen(len(xs))
+	out := []Value{}
+	for _, x := range xs {
+		keep := true
+		for _, o := range others {
+			if o.has(x) != want {
+				keep = false
+				break
+			}
+		}
+		if keep && seen.add(x) {
+			out = append(out, x)
+		}
+	}
+	return arrayOf(out), nil
+}
+
+// arrSubset asks whether every element of the receiver is in the argument. An empty
+// receiver is a subset of everything, which is the only answer that keeps
+// `a.subset(b) && b.subset(a)` equivalent to "the same set".
+func arrSubset(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	other, err := arrSetOf(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	for _, x := range xs {
+		if !other.has(x) {
+			return Bool(false), nil
+		}
+	}
+	return Bool(true), nil
 }
 
 // ---------------------------------------------------------------------------

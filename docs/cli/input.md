@@ -17,9 +17,14 @@ $ cat data.txt | mzs -e 'include io; io.lines.len'      # program in -e, so stdi
 $ printf 'include io; println(io.lines.len)\n' | mzs        # stdin is the program
 0
 
-$ mzs -e 'include io; [io.stdin, io.lines]' < /dev/null # no data is not an error
+$ mzs -e 'include io; [io.stdin, io.lines.array]' < /dev/null # no data is not an error
 ["",[]]
 ```
+
+`io.lines` is a [seq](../stdlib/sequences.md) — the input a line at a time, so a file
+larger than `MaxStringBytes` is ordinary work where `io.stdin` would refuse it. The two
+share one reader: ask for the whole text first and every later `io.lines` splits it; stream
+the lines first and `io.stdin` says so rather than answering `""`.
 
 ## `--in` names the data explicitly
 
@@ -90,7 +95,8 @@ $ cat data.txt | mzs -n -e 'n = (n ?? 0) + 1'
 ```
 
 Because the budget is per line, a `-t 0.2` run over a slow input takes as long as the input
-does. Reach for `io.lines` when the program needs the whole input at once.
+does. Reach for `io.lines` when the program needs to see the input as a whole — it is still
+read a line at a time, so the memory cost is the same as `-n`'s.
 
 Under `-n` the CLI owns the reader, so `io.stdin` is `""` — the line is in `$_`:
 

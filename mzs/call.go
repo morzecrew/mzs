@@ -393,6 +393,21 @@ func (e ev) callNamed(name string, args []Value, named namedArgs, pos token.Pos,
 			v, err := e.call(fv, args, named, pos)
 			return v, true, err
 		}
+		// A seq answers its own rows in both spellings, and it is the one kind that has
+		// to: the builtins of §12.1 read a value that is already there — `len` counts
+		// what a Value holds, `sum` takes its elements — and a lazy sequence holds
+		// nothing until it is pulled. Letting `len(s)` fall through to the builtin would
+		// answer 0 while `s.len` counted, and UFCS promises the two are one operation
+		// (§12). So the row comes first, for this kind alone (§12.14).
+		if len(args) > 0 && args[0].Kind() == KSeq {
+			if m, ok := LookupMethod(KSeq, name); ok && m.Available(e.rs.opts) {
+				if err := named.reject(name); err != nil {
+					return Nil(), true, e.at(err, pos)
+				}
+				v, err := e.invokeMethod(m, name, args[0], args[1:], pos)
+				return v, true, err
+			}
+		}
 		if b, ok := LookupBuiltin(name); ok && b.Available(e.rs.opts) {
 			if err := named.reject(b.Name); err != nil {
 				return Nil(), true, e.at(err, pos)

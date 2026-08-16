@@ -177,7 +177,9 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return codeFor(err)
 	}
 	if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
-		printValue(stdout, res.Value, cfg.asJSON)
+		if !printValue(stdout, stderr, res.Value, cfg.asJSON) {
+			return exitError
+		}
 	}
 	if cfg.boolMode && !res.Value.Truthy() {
 		return exitError
@@ -306,7 +308,9 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 			vars[k] = v
 		}
 		if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
-			printValue(stdout, res.Value, cfg.asJSON)
+			if !printValue(stdout, stderr, res.Value, cfg.asJSON) {
+				return exitError
+			}
 		}
 		if res.Value.Truthy() {
 			truthy = true
@@ -434,17 +438,25 @@ func fileLoader(root string) mzs.ModuleLoader {
 	}
 }
 
-func printValue(w io.Writer, v mzs.Value, asJSON bool) {
+// printValue writes the program's value. A seq under --json is the one value that has no
+// rendering: it is lazy, so JSON would have to run it, and the language answers that with
+// a diagnostic rather than with `null` (§12.14). The fix is one row long and is named.
+func printValue(w, stderr io.Writer, v mzs.Value, asJSON bool) bool {
 	if asJSON {
+		if v.Kind() == mzs.KSeq {
+			fmt.Fprintln(stderr, "mzs: the value is a seq, which is lazy and has no JSON form; end the pipeline with .array")
+			return false
+		}
 		b, err := v.MarshalJSON()
 		if err != nil {
 			fmt.Fprintln(w, "null")
-			return
+			return true
 		}
 		fmt.Fprintln(w, string(b))
-		return
+		return true
 	}
 	fmt.Fprintln(w, v.Str())
+	return true
 }
 
 // dumpTokens implements --tokens. It runs before compiling so a program that does
