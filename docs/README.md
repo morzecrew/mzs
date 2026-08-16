@@ -32,7 +32,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [language/destructuring.md](./language/destructuring.md) | One shape rule in three places: assignment, `match` arm, `for` header |
 | [language/functions.md](./language/functions.md) | `fn`, defaults and `*rest`, closures and `it`, UFCS, scope, recursion depth |
 | [language/strings.md](./language/strings.md) | The two quote forms, escapes, `$`-interpolation, runes not bytes, the `%` operator |
-| [language/errors.md](./language/errors.md) | `try … else`, the error dict, `raise`, `assert`, and what is never catchable |
+| [language/errors.md](./language/errors.md) | `try … else … ensure`, the error dict and its kind, `raise`, `assert`, and what is never catchable |
 | [language/host-variables.md](./language/host-variables.md) | `$name`: a namespace the host owns, where an unbound read is `nil` rather than an error |
 | [language/async.md](./language/async.md) | `async fn`, `await`, `done`, one evaluator at a time, the task and time budgets |
 | [language/regex.md](./language/regex.md) | `/…/` literals, `~` and `!~`, the two engines, flags, the step budget, dynamic regexes |

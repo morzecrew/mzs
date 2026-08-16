@@ -330,7 +330,7 @@
    },
    "fetch": {
     "sig": "`(k) -> any`",
-    "sem": "raises when absent",
+    "sem": "raises `key` when absent (§13.5)",
     "ex": ""
    },
    "filter": {
@@ -1339,9 +1339,9 @@
    "ex": "`println(\"hi\")`"
   },
   "raise": {
-   "sig": "`raise(msg: any) -> never`",
-   "sem": "raises a script error",
-   "ex": "`raise(\"bad\")`"
+   "sig": "`raise(msg: any, kind: string = \"raise\") -> never`",
+   "sem": "raises a script error; a dict reads `message`/`kind`/`data`, and the dict an `else (e)` bound re-raises with its original position (§8.11)",
+   "ex": "`raise(\"bad\")`, `raise(\"no funds\", \"billing\")`"
   },
   "rand": {
    "sig": "`rand(n: int = 0) -> number`",
@@ -1614,6 +1614,7 @@
  "keywords": [
   "break",
   "else",
+  "ensure",
   "export",
   "false",
   "fn",

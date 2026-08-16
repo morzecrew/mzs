@@ -470,8 +470,8 @@ func (p *parser) parseBareStmt() ast.Stmt {
 // identifier is not that shape, so the caller carries on with an ordinary expression.
 //
 // `async` is positional, not a keyword (§3.5): it means something only immediately
-// before `fn`, exactly as `from` does only inside an `include`. The keyword table stays
-// at sixteen entries and a variable may still be called `async`.
+// before `fn`, exactly as `from` does only inside an `include`. It costs the keyword table
+// no entry, so a variable may still be called `async`.
 func (p *parser) parseAsyncFn() ast.Stmt {
 	if p.cur().Value != "async" || p.peekKind(1) != token.KW_FN {
 		return nil
@@ -790,21 +790,106 @@ func (p *parser) indexOf(t token.Token) int {
 	return -1
 }
 
-// parseTry reads `try X else Y` and `try X else (e) -> Y` (§4, §8.11).
+// parseTry reads the whole `try` form (§4, §8.11):
+//
+//	try X else Y                 try { … } else { … }
+//	try X else (e) -> Y          try { … } else (e) { … }
+//	                             try { … } ensure { … }
+//
+// The braced form needs no new grammar. A `{` in operand position is a closure and never
+// a body (D2, §3.11), so the only reading `try {` ever had was "a closure the try
+// evaluates" — a value that cannot fail, which is to say nothing anyone wrote. Claiming
+// it here is therefore an extension, and the block it reads is a scope like every other
+// brace. §3.12 still runs first, so `try {a: 1} else 0` is the dict it always was.
 func (p *parser) parseTry() ast.Expr {
-	kw := p.advance().Pos
-	x := p.parseExpr()
-	p.expect(token.KW_ELSE, "try")
-	name := ""
-	if p.kind() == token.LPAREN && p.peekKind(1) == token.IDENT &&
-		p.peekKind(2) == token.RPAREN && p.peekKind(3) == token.ARROW {
-		name = p.peek(1).Value
+	kw := p.advance()
+	n := &ast.TryExpr{Kw: kw.Pos, Stop: kw.End}
+	inHeader := false
+	n.X = p.tryClause("try", &inHeader)
+	if p.accept(token.KW_ELSE) {
+		n.Var = p.tryBinder()
+		n.Fallback = p.tryClause("try else", &inHeader)
+	}
+	if p.kind() == token.KW_ENSURE {
 		p.advance()
-		p.advance()
-		p.advance()
+		p.headerBrace(&inHeader)
+		n.Ensure = p.parseBody("ensure")
+	}
+	if n.Fallback == nil && n.Ensure == nil {
+		p.errorAt(p.cur().Pos, "expected 'else' or 'ensure' in try, found %s", describe(p.cur()))
+	}
+	n.Stop = tryStop(n)
+	return n
+}
+
+// tryClause reads one side of a `try`: a block when the brace is there for the taking,
+// and otherwise the expression `try` has always taken.
+func (p *parser) tryClause(what string, reported *bool) ast.Expr {
+	if p.blockFollows() {
+		p.headerBrace(reported)
+		return p.parseBody(what)
+	}
+	return p.parseExpr()
+}
+
+// blockFollows reports whether the cursor is on a `{` that opens a `try` clause's block.
+// `{}` and `{a: 1}` are the dict of §3.12 and stay operands, so the braced form takes
+// nothing away from the expression one.
+func (p *parser) blockFollows() bool {
+	return p.kind() == token.LBRACE && p.peekKind(1) != token.RBRACE && !p.dictFollowsAt(p.pos+1)
+}
+
+// headerBrace reports the §3.11 clash: inside a header the `{` is the body's, exactly as
+// it is for a trailing closure and for `(x) -> { … }`, so a braced clause there needs
+// parentheses. Saying so beats "unexpected '{'" and names the fix. It fires once per
+// `try` — reported carries that across the three clauses — and the braces are then read
+// as the blocks they plainly are, so one mistake stays one diagnostic (§17).
+func (p *parser) headerBrace(reported *bool) {
+	if p.header == 0 || *reported {
+		return
+	}
+	*reported = true
+	p.errorAt(p.cur().Pos, "a braced 'try' cannot open a header; parenthesise it: if (try { … } else { … }) { … }")
+}
+
+// tryBinder reads the optional `(e)` that names the error dict. The arrow is what the
+// expression form needs to separate the name from the value; before a `{` it is optional,
+// because the brace already separates them.
+//
+// That is a brace of either sort, and deliberately so: what the §3.12 lookahead goes on to
+// decide — block or dict — answers a different question than "where does the binder end",
+// and letting it answer both would make `else (e) {code: 1}` an undefined variable while
+// `else (e) { code(1) }` binds. The binder rule stays one token wide and free of the
+// lookahead, as §3.11 asks of everything that reads a brace.
+func (p *parser) tryBinder() string {
+	if p.kind() != token.LPAREN || p.peekKind(1) != token.IDENT || p.peekKind(2) != token.RPAREN {
+		return ""
+	}
+	arrow := p.peekKind(3) == token.ARROW
+	if !arrow && p.peekKind(3) != token.LBRACE {
+		return ""
+	}
+	name := p.peek(1).Value
+	p.advance() // (
+	p.advance() // the name
+	p.advance() // )
+	if arrow {
 		p.advance()
 	}
-	return &ast.TryExpr{X: x, Var: name, Fallback: p.parseExpr(), Kw: kw}
+	return name
+}
+
+// tryStop is the end of the whole form, which is the end of its last clause. The body is
+// always there — a clause that failed to parse is still a node (§17 recovery) — so there
+// is no fourth case.
+func tryStop(n *ast.TryExpr) token.Pos {
+	switch {
+	case n.Ensure != nil:
+		return n.Ensure.End()
+	case n.Fallback != nil:
+		return n.Fallback.End()
+	}
+	return n.X.End()
 }
 
 // parseBinary is the precedence-climbing core of §5.1 levels 4..12 plus the ranges of

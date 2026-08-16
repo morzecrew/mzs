@@ -195,6 +195,7 @@ func TestKeywords(t *testing.T) {
 		{"next", "next", KW_NEXT},
 		{"return", "return", KW_RETURN},
 		{"try", "try", KW_TRY},
+		{"ensure", "ensure", KW_ENSURE},
 		{"true", "true", KW_TRUE},
 		{"false", "false", KW_FALSE},
 		{"nil", "nil", KW_NIL},

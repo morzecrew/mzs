@@ -106,7 +106,7 @@ These are decided. No alternatives are offered anywhere in this document.
 | D10 | Strings are immutable UTF-8. All indexing, `len`, `[]`, `chars`, `reverse` operate on **runes**, not bytes. |
 | D11 | Dicts are **insertion-ordered**. Iteration and JSON output follow insertion order. Keys may be any hashable value (nil/bool/int/float/string/regex-source). |
 | D12 | Regex: two backends behind one interface. RE2 (`regexp`) is used when the pattern is RE2-safe and contains no `\b`/`\B`; otherwise a bundled backtracking engine with Unicode-aware `\b` and lookaround. Same syntax accepted either way. |
-| D13 | Errors are Go `error` values with position info. Scripts raise with `raise`, catch with `try … else …`. Internal panics are recovered at the API boundary. |
+| D13 | Errors are Go `error` values with position info and a kind from a closed list (§13.5). Scripts raise with `raise`, catch with `try … else …`, release with `ensure`. Internal panics are recovered at the API boundary. |
 | D14 | Parameter lists are **always parenthesised**: `fn f(a, b) { … }` and `{ (a, b) -> … }`. A closure with no parameter list implicitly binds `it`. |
 | D15 | Determinism by default: no clock, no RNG, no I/O unless the host supplies them via `Options` (`Now`, `Rand`, `Stdout`, `FS`, `Stdin`, `Env`, `Register`). |
 | D16 | Ambiguity is a diagnostic, never a silent reading. Every construct that another language resolves by a surprising precedence rule is rejected with a fix-it message (§5.6). |
@@ -164,9 +164,9 @@ const (
     STR_END      // closing quote of a string literal
     REGEX        // /pattern/flags   (Value = pattern, Flags = flags)
 
-    // keywords — all sixteen
+    // keywords — all seventeen
     KW_FN; KW_IF; KW_ELSE; KW_MATCH; KW_WHILE; KW_FOR; KW_IN
-    KW_BREAK; KW_NEXT; KW_RETURN; KW_TRY; KW_TRUE; KW_FALSE; KW_NIL
+    KW_BREAK; KW_NEXT; KW_RETURN; KW_TRY; KW_ENSURE; KW_TRUE; KW_FALSE; KW_NIL
     KW_INCLUDE; KW_EXPORT
 
     // operators and punctuation (one Kind per lexeme)
@@ -229,11 +229,17 @@ ident       ::= ident_start ident_part*
 ### 3.5 Keywords
 
 ```
-fn  if  else  match  while  for  in  break  next  return  try  true  false  nil
+fn  if  else  match  while  for  in  break  next  return  try  ensure  true  false  nil
 include  export
 ```
 
-Sixteen, and that is the complete list. All are lexed as their `KW_*` kind, never as `IDENT`.
+Seventeen, and that is the complete list. All are lexed as their `KW_*` kind, never as
+`IDENT`.
+
+`ensure` is the one addition since v0.1's first draft, and it costs what a keyword always
+costs: `ensure` is no longer a name a program may bind. It is here because the clause it
+opens has to be recognisable from the token stream alone, exactly as `else` is — a `try`'s
+release runs on paths no expression can name (§8.11).
 
 `from` is **not** a keyword. It is read positionally inside an `include` and is an ordinary
 identifier everywhere else, so a variable may still be called `from`.
@@ -429,6 +435,7 @@ language, and nothing may be added that reintroduces the ambiguity.
 | Position | Reading |
 |---|---|
 | after the header of `if`, `while`, `for`, `fn` or a `match` arm | the **body** |
+| in a clause of a `try` — the body, the `else`, the `ensure` (§8.11) | the **body** |
 | directly after a call-shaped expression (§4.2) | the **trailing closure** |
 | operand position | a **dict** if the §3.12 lookahead says so, otherwise a **closure** |
 
@@ -443,6 +450,15 @@ trailing closure in a header must therefore be parenthesised:
 ```
 if xs.any { it > 5 } { … }      # ERROR: the header ended at the first '{'
 if (xs.any { it > 5 }) { … }    # correct
+```
+
+A braced `try` clause is the same case and gets the same fix, because its brace would
+otherwise have to compete with the body's:
+
+```
+if try { f() } else { 0 } { … }     # ERROR: a braced 'try' cannot open a header
+if (try { f() } else { 0 }) { … }   # correct
+if try f() else 0 { … }             # correct: no clause took a brace
 ```
 
 A dict in a header needs no parentheses, because the lookahead runs before the header
@@ -594,7 +610,11 @@ MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]" ;   (* §8.15; 
 MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
                | Expr ;             (* compared, exactly as an ArmPattern is *)
-TryExpr        = "try" Expr "else" [ "(" IDENT ")" "->" ] Expr ;
+TryExpr        = "try" TryClause [ "else" [ TryBinder ] TryClause ] [ "ensure" Block ] ;
+               (* at least one of "else" and "ensure" is required (§8.11) *)
+TryClause      = Block | Expr ;     (* §3.12 reads a dict operand first: try {a: 1} is a dict *)
+TryBinder      = "(" IDENT ")" [ "->" ] ;   (* optional before a "{" — block or dict; required before any other Expr *)
+Block          = "{" StmtList "}" ; (* a body, not a closure: it declares no parameters *)
 
 (* ---------- expressions, loosest to tightest ---------- *)
 
@@ -814,7 +834,7 @@ From tightest (1) to loosest (14). All levels are left-associative unless noted.
 | 10 | `&&` | left | short-circuit, returns an operand |
 | 11 | `\|\|` | left | short-circuit, returns an operand |
 | 12 | `??` | left | fires on `nil` only, not on `false` |
-| 13 | `? :` and `try … else …` | **right** | |
+| 13 | `? :` and `try … else … ensure …` | **right** | the `else` and `ensure` clauses bind to the nearest `try` (§8.11) |
 | 14 | `=` `:=` `+=` `-=` `*=` `/=` `%=` `**=` `\|\|=` `&&=` `??=` | **right** | |
 | 15 | modifiers `if` `while` | left | statement level only |
 
@@ -1010,7 +1030,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `BreakStmt` | `X Expr` (may be nil) |
 | `NextStmt` | `X Expr` (may be nil) |
 | `FnDecl` | `Name string` (empty for the anonymous form, §4.1), `Params []Param`, `Body *BlockStmt`, `Async bool` (§8.14) |
-| `BlockStmt` | `Stmts []Stmt` — a statement list; carries its own scope (§8.2) |
+| `BlockStmt` | `Stmts []Stmt` — a statement list; carries its own scope (§8.2). An Expr as well as a Stmt: its value is its last statement (§8.1), which is what a braced `try` clause is (§8.11) |
 
 **Control flow (expressions)**
 
@@ -1020,7 +1040,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `WhileExpr` | `Cond Expr`, `Body *BlockStmt` |
 | `ForExpr` | `KeyVar string`, `ValVar string` (may be ""), `Iter Expr`, `Body *BlockStmt` |
 | `MatchExpr` | `Subject Expr` (nil for the subject-less form), `Arms []MatchArm` |
-| `TryExpr` | `X Expr`, `Var string` (may be ""), `Fallback Expr` |
+| `TryExpr` | `X Expr`, `Var string` (may be ""), `Fallback Expr` (nil with no `else`), `Ensure *BlockStmt` (nil with no `ensure`) — `X` and `Fallback` hold a `*BlockStmt` in the braced form (§8.11) |
 
 **Expressions**
 
@@ -1094,7 +1114,7 @@ concept in the language (§4.1).
 | `a..<b` | `RangeExpr{Exclusive: true}` |
 | `x if c` | `IfExpr{Cond: c, Then: BlockStmt{x}}` |
 | `x while c` | `WhileExpr{Cond: c, Body: BlockStmt{x}}` |
-| `try X else Y` | `TryExpr` |
+| `try X else Y`, `try { … } ensure { … }` | `TryExpr` — the braced clauses are `BlockStmt`s, not closures |
 | `a += b` | `AssignExpr{Op: PLUS_EQ}` (evaluator does read-modify-write; target evaluated once) |
 | `a \|\|= b` | `AssignExpr{Op: OR_EQ}` — `b` evaluated only if `a` is falsy |
 | `a ??= b` | `AssignExpr{Op: NIL_EQ}` — `b` evaluated only if `a` is nil |
@@ -1479,18 +1499,91 @@ xs.map(double)              # where double = { (x) -> x * 2 }
   field on the evaluator or a typed error), **never** as Go panics, so cost stays predictable
   and the step budget stays accurate.
 
-### 8.11 Errors, `raise`, `try`
+### 8.11 Errors, `raise`, `try`, `ensure`
 
-* `raise("msg")` raises a `ScriptError` with message `"msg"`; `raise(dict)` attaches the dict
-  as `err.data`.
 * Runtime errors (undefined method, type error, division by zero, index type errors, budget
-  exhaustion) are the same kind of value.
+  exhaustion) and a `raise` are the same kind of value.
 * `try X else Y` evaluates `Y` if `X` raises. `try X else (e) -> Y` additionally binds `e` to
-  a Dict `{message: …, kind: …, line: …}` while `Y` is evaluated.
+  a Dict `{message: …, kind: …, line: …}` while `Y` is evaluated; `data` is there too when
+  the error carries a payload.
 * `try` catches **script errors only**. It does **not** catch timeout, step-budget,
   depth-limit, context cancellation or `exit` (§12.1); those propagate to the host.
-* To guard several statements, group them: `try (a; b) else "-"`.
 * Errors carry the script name, line, column and a short call stack.
+
+**The braced form.** `try` and `else` take either an expression or a block; `ensure`
+takes a block and nothing else, since its value is discarded either way:
+
+```
+try { a; b } else { "-" }
+try { a } else (e) { e["message"] }         # before a brace the binder needs no arrow
+try { take() } ensure { release() }
+try { … } else { … } ensure { … }
+```
+
+A block is a body and not a value: it holds statements, its value is its last statement
+(§8.1), and its braces are a scope like every other pair (§8.2) — a name first bound inside
+one does not outlive it, which is the only difference from the `try (a; b)` grouping that
+predates it. §3.12 is unaffected and runs first, so `try {a: 1} else 0` and `try {} else 0`
+are the dict operands they always were. A braced clause may not open a header, where the
+brace is already the body's (§3.11): write `if (try { … } else { … }) { … }`.
+
+**`ensure`.** The clause runs on every way out of the `try` that leaves the Run alive:
+
+| Leaving by | `ensure` runs | Then |
+|---|---|---|
+| the body's value | yes | the value is the body's; the `ensure`'s own value is discarded |
+| a caught error | yes, after the `else` | the value is the `else`'s |
+| an uncaught error (no `else`, or an error the `else` re-raised) | yes | the error keeps unwinding |
+| `return`, `break`, `next` out of the body | yes | the signal keeps travelling |
+| a limit, a cancellation, `exit` | **no** | the Run is over |
+
+`ensure` does not catch: `try { … } ensure { … }` with no `else` releases and lets the
+failure through. Nor does it survive what `try` cannot catch — a timeout, the step budget,
+the depth limit, a cancelled context and `exit` end the Run, and running script code after
+that is exactly what the limit forbids (§14.1). An `ensure` that leaves by any way of its
+own — a raise, a `return`, a `break` — replaces whatever was pending: a release that itself
+broke is not something to swallow, and a release that decides where control goes has said
+so last.
+`e` is not in scope in an `ensure`; the binder belongs to the `else`.
+
+**Kinds.** Every error carries a `kind` from the closed list of §13.5 —
+`syntax`, `name`, `type`, `argument`, `index`, `key`, `zero-division`, `regex`, `json`,
+`http`, `io`, `raise`, `limit`, `exit`, `internal` — stamped where the failure is born, so a
+handler decides on a value rather than on the wording of a message:
+
+```
+try f() else (e) {
+  match e["kind"] {
+    "json" -> "bad payload"
+    "io"   -> "no file"
+    else   -> raise(e)
+  }
+}
+```
+
+**`raise`.** `raise("msg")` raises with kind `raise`. `raise("msg", kind)` names the kind
+instead; a script may invent any name — `"user"`, `"billing"` — except the four the runtime
+keeps for itself, `syntax`, `limit`, `exit` and `internal`, each of which is a claim only
+the runtime can make truthfully (§13.5). Raising one of those, or an empty kind, is an
+`argument` error.
+
+`raise(dict)` reads three keys — `message`, `kind` and `data` — and is the spelling for an
+error with a payload:
+
+```
+raise({message: "insufficient funds", kind: "billing", data: {short_by: 30}})
+```
+
+A dict that names neither a `kind` nor a `data` key is a payload and is carried whole as
+`data`, with its JSON as the message: `raise({code: "limit", id: o})` means what it always
+did.
+
+**Re-raising.** `raise(e)`, where `e` is the dict an `else (e)` bound, keeps the file, line
+and call stack of the *original* failure — the arm that does not know what to do passes the
+error on, and the diagnostic still names the line that broke rather than the handler that
+declined it. `message`, `kind` and `data` are read from the dict as it stands, so editing it
+before re-raising works. A dict built by hand has no such origin and is positioned at the
+`raise`, like any other value.
 
 ### 8.12 String interpolation
 
@@ -1825,7 +1918,7 @@ Conventions used in the tables:
 | `ceil` / `floor` | `(x: number, digits: int = 0) -> number` | | `1.2.ceil` |
 | `sort` | `sort(xs: array) [{ (a, b) -> int }] -> array` | stable, new array | `xs.sort { (a,b) -> b <=> a }` |
 | `format` | `format(fmt: string, *args) -> string` | §12.7 | `format("%.2f", x)` |
-| `raise` | `raise(msg: any) -> never` | raises a script error | `raise("bad")` |
+| `raise` | `raise(msg: any, kind: string = "raise") -> never` | raises a script error; a dict reads `message`/`kind`/`data`, and the dict an `else (e)` bound re-raises with its original position (§8.11) | `raise("bad")`, `raise("no funds", "billing")` |
 | `exit` | `exit(code: int = 0) -> never` | ends the Run with that status; not catchable, and never touches the process (§13.5) | `exit(1)` |
 | `assert` | `assert(cond: any, msg: string = "assertion failed") -> nil` | raises when falsy | |
 | `defined` | `defined(name) -> bool` | true if the identifier or `$var` is bound (parser-level special form) | `defined($price)` |
@@ -1943,7 +2036,7 @@ a byte silently truncated from 300 to 44 would surface as corruption much later.
 | `has` | `(k) -> bool` | key test |
 | `has_val` | `(v) -> bool` | value test |
 | `get` | `(k, default: any = nil) -> any` | `nil` (or the default) when absent |
-| `fetch` | `(k) -> any` | raises when absent |
+| `fetch` | `(k) -> any` | raises `key` when absent (§13.5) |
 | `set` | `(k, v) -> dict` | mutates, returns the receiver; inserts at the end when new |
 | `delete` | `(k) -> any` | returns the removed value |
 | `merge` | `(*others: dict) -> dict` | new dict, later wins |
@@ -2115,7 +2208,9 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
-needed — a second name for the second half is exactly what D17 forbids.
+needed — a second name for the second half is exactly what D17 forbids. Both halves fail
+with kind `json` (§13.5): bad input on the way in, a cycle or too much nesting on the way
+out.
 
 Time values: `strftime(layout)` (C-style `%Y %y %m %d %H %M %S %a %A %b %B %j %p %z %Z %%`,
 plus `%-d`/`%-m` for no padding), `to_date`, `int` (unix seconds), `in_time_zone(tz)` (uses
@@ -2208,8 +2303,8 @@ takes the listener down with it.
 Client calls are bounded by `opts.timeout` (default 10 s) **and** by whatever is left of
 the Run's own deadline, whichever is shorter. Running out of the Run's time is a limit
 error and is not catchable; everything else — refused connection, DNS failure, the
-per-call timeout — is an ordinary error, so `try http.get(u) else …` is how a script
-handles a service being down. A non-2xx status is a value, not an error. Responses are read
+per-call timeout — is an ordinary error of kind `http` (§13.5), so `try http.get(u) else …`
+is how a script handles a service being down. A non-2xx status is a value, not an error. Responses are read
 under `MaxStringBytes`.
 
 ### 12.12 Tasks
@@ -2266,8 +2361,8 @@ away once, so a second `io.stdin` must answer what the first one read, and the t
 §8.14 share that one string rather than racing for the reader.
 
 **Errors and limits.** Everything the outside world can refuse is an ordinary catchable
-error naming the path, so `try io.read(p) else ""` is how a script meets a missing file
-(§8.11). Each member charges 1000 steps before it starts, and file waits release the
+error of kind `io` naming the path, so `try io.read(p) else ""` is how a script meets a
+missing file (§8.11, §13.5). Each member charges 1000 steps before it starts, and file waits release the
 interpreter for the Run's other tasks the way `http` does (§8.14) — the stdin drain does
 not, because "read once" is a promise across the whole Run. `io.read` and `io.stdin` stop
 at `MaxStringBytes` and report it (§14.2); they never truncate.
@@ -2514,8 +2609,9 @@ var (
 )
 
 type Error struct {
-    Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "zero-division" |
-                   // "regex" | "raise" | "limit" | "exit" | "internal"
+    Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "key" |
+                   // "zero-division" | "regex" | "json" | "http" | "io" | "raise" |
+                   // "limit" | "exit" | "internal" — or a name the script chose, §8.11
     Msg     string
     File    string
     Line    int
@@ -2547,6 +2643,32 @@ becomes `Kind == "internal"` and is reported with the Go stack in `Msg` when
 the way a limit does — nothing catches it, and it always reaches the host — but it says the
 program is finished rather than broken. Nothing in the library calls `os.Exit`; a script
 inside a bot cannot end its process, and what the status means is the host's decision.
+
+**The kinds, and where each is born.** The list is closed for the runtime: a failure the
+language produces is always one of these, which is what makes `match e["kind"]` a decision
+over a known set (§8.11).
+
+| Kind | Born at |
+|---|---|
+| `syntax` | `Compile` — a parse or resolve failure; a script never sees one (§9.3) |
+| `name` | an undefined variable, function, method or module member (§17) |
+| `type` | an operand or receiver of the wrong kind (§8.3, §9.1) |
+| `argument` | an arity or argument-shape failure, in a builtin, a stdlib row or a call (§8.7) |
+| `index` | a position out of range, and a destructuring length mismatch (§8.15) |
+| `key` | a key that is not in the dict — `fetch` (§12.4) |
+| `zero-division` | integer `/` or `%` by zero (§8.3) |
+| `regex` | a pattern that does not compile (§12.6) |
+| `json` | `json.parse` on bad input, and a value `json` cannot encode (§12.8) |
+| `http` | a transport failure, and a body over the cap (§12.11, §14.2) |
+| `io` | a filesystem or stream failure, and a read over the cap (§12.13, §14.2) |
+| `raise` | `raise` and `assert` (§12.1) |
+| `limit` | a timeout, the step budget, the depth limit, a size cap, a cancellation (§14.1) |
+| `exit` | `exit(code)` (§12.1) |
+| `internal` | a recovered panic — a bug in mzs (A7) |
+
+A script may put a kind of its own on an error it raises (§8.11), so a host switching on
+`Kind` needs a default branch. Four are refused to a script and mean exactly what the table
+says wherever a host sees them: `syntax`, `limit`, `exit` and `internal`.
 
 ### 13.6 `mzs/engine` — the morzebot adapter
 
@@ -2651,7 +2773,8 @@ construction (`*`, `+`, `join`, `replace`, interpolation). Exceeding either rais
 
 The two members that read from *outside* the process are the exception, and only in how
 they report: an HTTP response (§12.11) and a file or a stdin bigger than `MaxStringBytes`
-(§12.13) raise an ordinary catchable error naming what was too big. The size is a property
+(§12.13) raise an ordinary catchable error of kind `http` or `io` naming what was too big.
+Neither is `Kind == "limit"`, and that is the point. The size is a property
 of what the world handed over rather than of the script's own arithmetic, so `try` is the
 right tool for it, and nothing is evaded by catching it — the reader stops at the limit
 either way and the bytes are never buffered.
@@ -2970,7 +3093,7 @@ if $__sent.int > 5 { print("big") }
 | `TestApostropheValue` | `$__sent == "О'Брайен"` with that bound value → true |
 | `TestEmojiValue` | `$__sent == "EN 🇬🇧"` with that bound value → true |
 | `TestUnboundGlobalIsNil` | `$not_existed == nil` → true; `Bool("$not_existed")` → false |
-| `TestClosureScope` | `x = 0; if true { x = 1 }; x` → `1`; `if true { y = 1 }; y` → `undefined variable 'y'` |
+| `TestClosureScope` | `x = 0; if true { x = 1 }; x` → `1`; `if true { y = 1 }; y` and `try { y = 1 } else 0; y` → `undefined variable 'y'` |
 | `TestImplicitIt` | `[1,2,3].map { it * 2 }` == `[1,2,3].map { (x) -> x * 2 }` |
 | `TestTrailingClosureIsArg` | `[1,2,3].map(double)` == `[1,2,3].map { it * 2 }` where `double = { it * 2 }` |
 | `TestDictLiteral` | `{a: 1}.json == "{\"a\":1}"`; `{}.len == 0`; `[].len == 0`; `type({}) == "dict"` |
@@ -2985,6 +3108,8 @@ if $__sent.int > 5 { print("big") }
 | `TestUfcsUserFn` | `fn shout(s) { s.upper + "!" }; "да".shout` → `"ДА!"` |
 | `TestDestructureMismatch` | `a, b = [1,2,3]`, `a, b = [1]`, `a, b = 1` and `a, b = {x: 1, y: 2}` each raise, with the kind and text of §8.15 |
 | `TestArrayPatternBinds` | `[x, [y, z]]`, `[x, y]`, `[]` and `else` pick the arm by shape; a literal element still compares |
+| `TestEnsureRunsOnEveryExit` | an `ensure` runs on the value, on a raise and on a `return` out of the body, in that order and without changing the value; a limit runs none (§8.11, §14.1) |
+| `TestErrorKindsAreClosed` | each of `type`, `name`, `index`, `key`, `zero-division`, `regex`, `json`, `raise` is stamped where it is born; `raise(msg, kind)` names a kind of its own; `limit`/`exit`/`internal`/`syntax` are refused; `raise(e)` keeps the original position and stack |
 | `TestBitOpsStayInt` | `shl(1, 63)` is still an `int` and `shl(1, 64)` is `0` where `2 ** 64` promotes to a Float; `2.9.band(1)`, `shl(1, -1)`, `bit(1, 64)` and a non-byte in `pack_bytes` each raise with the text of §12.5 |
 | `TestTimeout` | `Bool("while true { }")` returns `ErrTimeout` in ≤ 1.2 s |
 | `TestStepBudget` | a 10⁹-iteration loop returns `ErrBudget` without OOM |
@@ -3217,11 +3342,10 @@ and `shr` (§12.5), so nothing spends the lexeme. `&`, `|` and `^` are not reser
 each is a diagnostic naming its function (§5.6), and that is where they will stay, because
 `&` beside `&&` is exactly what D16 exists to prevent.
 
-Deliberately reserved for the feature most likely to be wanted next:
-
-* **Multi-statement `try`** — `try { … } else { … }`. Today `try` takes expressions and
-  grouping is `( … ; … )`. Since `{ … }` is a closure literal, the block form can be added
-  as sugar with no grammar conflict.
+The multi-statement `try` is no longer reserved: `try { … } else { … } ensure { … }` is
+§8.11, and it arrived the way that entry predicted — as sugar, with no grammar conflict,
+because the only thing `{` could have meant in that position was a closure nobody wrote.
+`ensure` is the keyword it cost (§3.5).
 
 Explicitly out of scope, permanently: shared-memory parallelism, `system`, reflection over
 Go types, user-defined operator overloading, and any dependency outside the Go standard

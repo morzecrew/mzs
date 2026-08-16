@@ -372,6 +372,11 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 	switch n := x.(type) {
 	case nil:
 		return nil
+	case *ast.BlockStmt:
+		// A braced `try` clause (§8.11): a block in expression position, and a scope
+		// like every other brace.
+		c.block(n)
+		return n
 	case *ast.RegexLit:
 		c.compileRegex(n)
 		return n
@@ -478,13 +483,15 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		n.X = c.expr(n.X)
 		if n.Var == "" {
 			n.Fallback = c.expr(n.Fallback)
-			return n
+		} else {
+			// `(e) -> …` binds the error dict for the fallback only, in a scope of its
+			// own so that a braced fallback still opens its own on top of it.
+			c.push()
+			c.declare(n.Var)
+			n.Fallback = c.expr(n.Fallback)
+			c.pop()
 		}
-		// `(e) -> …` binds the error dict for the fallback only.
-		c.push()
-		c.declare(n.Var)
-		n.Fallback = c.expr(n.Fallback)
-		c.pop()
+		c.block(n.Ensure)
 		return n
 	}
 	return x

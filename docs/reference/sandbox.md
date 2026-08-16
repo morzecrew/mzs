@@ -137,7 +137,7 @@ evaded by catching it:
 
 ```
 include io; try io.read("big.txt").len else (e) -> "${e["kind"]}: ${e["message"]}"
-# raise: io.read "big.txt": exceeds the 8388608 byte limit
+# io: io.read "big.txt": exceeds the 8388608 byte limit
 ```
 
 The per-attempt regex budget is the same shape — kind `regex`, catchable, the Run continues:

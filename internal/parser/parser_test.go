@@ -570,6 +570,50 @@ Program "t"
 `,
 		},
 		{
+			name: "the braced try, with an ensure and a binder without an arrow",
+			src:  "try { f() } else (e) { 0 } ensure { g() }",
+			want: `
+Program "t"
+  ExprStmt
+    Try e
+      body:
+        Block
+          ExprStmt
+            Call
+              fn:
+                Ident f
+      fallback:
+        Block
+          ExprStmt
+            Int 0
+      ensure:
+        Block
+          ExprStmt
+            Call
+              fn:
+                Ident g
+`,
+		},
+		{
+			name: "an ensure with no else catches nothing and still releases",
+			src:  "try f() ensure { g() }",
+			want: `
+Program "t"
+  ExprStmt
+    Try
+      body:
+        Call
+          fn:
+            Ident f
+      ensure:
+        Block
+          ExprStmt
+            Call
+              fn:
+                Ident g
+`,
+		},
+		{
 			name: "match on one line",
 			src:  `match $__sent.lower.trim { "да" -> 1; "нет" -> 0; else -> nil }`,
 			want: `
@@ -1306,6 +1350,12 @@ func TestParseErrors(t *testing.T) {
 		// would never end the loop either. Left unfixed this input never returns.
 		{"a bad dict key does not spin", "{A:0,A;;;", "expected a dict key, found 'A'", 1, 6},
 		{"an array pattern needs a subject", "match { [a, b] -> 1 }", "an array pattern needs a subject: match xs { [a, b] -> … }", 1, 9},
+		{"a try handles or releases", "try { f() }", "expected 'else' or 'ensure' in try, found end of input", 1, 12},
+		{"an ensure takes a block", "try f() else 0 ensure g()", "expected '{' in ensure, found 'g'", 1, 23},
+		{"a braced try in a header", "if try { f() } else { 0 } { 1 }",
+			"a braced 'try' cannot open a header; parenthesise it: if (try { … } else { … }) { … }", 1, 8},
+		{"a braced else in a header", "if try f() else { 0 } { 1 }",
+			"a braced 'try' cannot open a header; parenthesise it: if (try { … } else { … }) { … }", 1, 17},
 	}
 
 	for _, tt := range tests {

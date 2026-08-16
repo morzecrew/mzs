@@ -32,11 +32,11 @@
     },
 
     "keyword": {
-      "comment": "SPEC §3.5: sixteen keywords, and that is the whole list.",
+      "comment": "SPEC §3.5: seventeen keywords, and that is the whole list.",
       "patterns": [
         {
           "name": "keyword.control.mzs",
-          "match": "\\b(?:if|else|match|while|for|in|break|next|return|try)\\b"
+          "match": "\\b(?:if|else|match|while|for|in|break|next|return|try|ensure)\\b"
         },
         {
           "name": "keyword.control.import.mzs",

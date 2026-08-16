@@ -1,5 +1,5 @@
 // Package token defines the lexical vocabulary of mzs: the token kinds of SPEC §3.3, the
-// fourteen keywords of §3.5, the longest-match operator table of §3.9, and the small set
+// seventeen keywords of §3.5, the longest-match operator table of §3.9, and the small set
 // of predicates that the lexer and the parser must agree on — newline suppression (§3.10),
 // the regex-versus-division rule (§3.8) and the precedence levels of §5.1.
 //
@@ -46,7 +46,7 @@ const (
 	STR_END
 	REGEX
 
-	// The sixteen keywords of §3.5, in that section's order.
+	// The seventeen keywords of §3.5, in that section's order.
 	KW_FN
 	KW_IF
 	KW_ELSE
@@ -58,6 +58,7 @@ const (
 	KW_NEXT
 	KW_RETURN
 	KW_TRY
+	KW_ENSURE
 	KW_TRUE
 	KW_FALSE
 	KW_NIL
@@ -140,6 +141,7 @@ var kindNames = [numKinds]string{
 	KW_NEXT:    "next",
 	KW_RETURN:  "return",
 	KW_TRY:     "try",
+	KW_ENSURE:  "ensure",
 	KW_TRUE:    "true",
 	KW_FALSE:   "false",
 	KW_NIL:     "nil",
@@ -230,9 +232,12 @@ func (t Token) String() string {
 	return t.Kind.String()
 }
 
-// keywords is the complete table of SPEC §3.5. Sixteen entries, and nothing may be added:
-// "it", "_" and "from" are ordinary identifiers (§3.4) — "from" is read positionally inside
-// an `include`, so a variable may still be called that — and every word Ruby reserves that
+// keywords is the complete table of SPEC §3.5. Seventeen entries, and a new one costs a
+// name the whole language over, so the bar is a construct that cannot be spelled without
+// it: "ensure" is here because a clause that runs on every way out of a `try` has to be
+// recognisable from the token stream alone (§8.11), the way `else` is. "it", "_" and
+// "from" are ordinary identifiers (§3.4) — "from" is read positionally inside an
+// `include`, so a variable may still be called that — and every word Ruby reserves that
 // is absent here — do, end, elsif, unless, until, loop, and, or, not, def, rescue, then —
 // lexes as an IDENT and is diagnosed by the parser (§5.6).
 var keywords = map[string]Kind{
@@ -247,6 +252,7 @@ var keywords = map[string]Kind{
 	"next":    KW_NEXT,
 	"return":  KW_RETURN,
 	"try":     KW_TRY,
+	"ensure":  KW_ENSURE,
 	"true":    KW_TRUE,
 	"false":   KW_FALSE,
 	"nil":     KW_NIL,
@@ -385,7 +391,8 @@ func SuppressesNewlineAfter(k Kind) bool {
 		ARROW, QUESTION, COLON,
 		COMMA, LPAREN, LBRACKET, LBRACE,
 		INTERP_BEGIN,
-		KW_IF, KW_ELSE, KW_MATCH, KW_WHILE, KW_FOR, KW_IN, KW_RETURN, KW_TRY, KW_FN:
+		KW_IF, KW_ELSE, KW_MATCH, KW_WHILE, KW_FOR, KW_IN, KW_RETURN, KW_TRY, KW_ENSURE,
+		KW_FN:
 		return true
 	}
 	return false
@@ -393,7 +400,7 @@ func SuppressesNewlineAfter(k Kind) bool {
 
 // SuppressesNewlineBefore reports whether a pending NEWLINE is dropped because the next
 // significant token is k (SPEC §3.10). This is what makes leading-dot method chains, a
-// hanging `else` and multi-line `match` arms work.
+// hanging `else` or `ensure` and multi-line `match` arms work.
 //
 // `in` is the one binary operator excluded, and it has to be: a line that *starts* with
 // `in` is the `in` arm of a `match` (§5.3), so swallowing the newline in front of it
@@ -402,7 +409,7 @@ func SuppressesNewlineAfter(k Kind) bool {
 // expression while `-> "low"\nin 6..10 ->` stays two arms.
 func SuppressesNewlineBefore(k Kind) bool {
 	switch k {
-	case DOT, SAFEDOT, KW_ELSE, ARROW, RPAREN, RBRACKET, RBRACE:
+	case DOT, SAFEDOT, KW_ELSE, KW_ENSURE, ARROW, RPAREN, RBRACKET, RBRACE:
 		return true
 	case KW_IN:
 		return false
@@ -518,7 +525,7 @@ func AssignBinaryOp(k Kind) Kind {
 	return EOF
 }
 
-// IsKeywordKind reports whether k is one of the sixteen KW_* kinds. Keywords are legal
+// IsKeywordKind reports whether k is one of the KW_* kinds of §3.5. Keywords are legal
 // method names after '.' (§3.5, §4 MethodName), which is the only place the parser needs
 // this.
 func IsKeywordKind(k Kind) bool { return k >= KW_FN && k <= KW_EXPORT }

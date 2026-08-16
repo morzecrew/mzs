@@ -142,7 +142,9 @@ func dictvFetch(c *Ctx, recv Value, args []Value) (Value, error) {
 	if v, ok := d.Get(args[0]); ok {
 		return v, nil
 	}
-	return Nil(), c.ErrorfKind(ErrKindIndex, "key not found: %s", args[0].Inspect())
+	// `key` and not `index`: a handler that tells a missing key from a position out of
+	// range is the reason kinds are a closed list (§13.5).
+	return Nil(), c.ErrorfKind(ErrKindKey, "key not found: %s", args[0].Inspect())
 }
 
 func dictvSet(c *Ctx, recv Value, args []Value) (Value, error) {

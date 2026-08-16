@@ -28,18 +28,21 @@ the caret always follow it.
 | `name` | an undefined variable, function, method, or module capability |
 | `type` | an operation on the wrong kind |
 | `argument` | wrong arity, or an argument out of range |
-| `index` | a missing dict key, a destructuring length mismatch |
+| `index` | a position out of range, a destructuring length mismatch |
+| `key` | a dict key that is not there — `fetch` |
 | `zero-division` | `1/0`, `1%0` |
 | `regex` | a pattern that does not compile |
-| `raise` | `raise(...)` from the script |
+| `json` `http` `io` | the module that failed: bad JSON, a refused connection, a missing file |
+| `raise` | `raise(...)` from the script — or the kind the script named itself |
 | `limit` | timeout, step budget, call depth, tasks — exit 3 |
+| `exit` | `exit(code)` — the status the script asked for, and not a failure |
 | `internal` | a bug in the interpreter |
 
 ```sh
 $ mzs -e '"a" + 1'
 -e:1:5: type: cannot add int to string
 $ mzs -e '{a: 1}.fetch("b")'
--e:1:8: index: key not found: "b"
+-e:1:8: key: key not found: "b"
 $ mzs -e '"a" ~ /*/'
 -e:1:7: regex: cannot compile /*/: missing argument to repetition operator: `*`
 $ mzs --steps 1000 -e 'while true { 1 }'

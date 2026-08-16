@@ -108,6 +108,8 @@ filesystem before any of these names exist.
 | `a, b = [1, 2]; a + b` | `3` |
 | `nil ?? "fallback"` | `fallback` |
 | `try raise("nope") else "caught"` | `caught` |
+| `try { raise("nope") } else (e) { e["kind"] }` | `raise` |
+| `$log = ""; try { 1 } ensure { $log = "released" }; $log` | `released` |
 | `fn fib(n) { n < 2 ? n : fib(n-1) + fib(n-2) }; fib(20)` | `6765` |
 | `add = fn(a, b) { a + b }; add(2, 3)` | `5` |
 | `add = (a, b) -> { a + b }; add(2, 3)` | `5` |

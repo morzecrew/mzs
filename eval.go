@@ -224,6 +224,10 @@ func (e ev) evalChain(x ast.Expr) (Value, error) {
 	case *ast.GroupExpr:
 		// `( a; b )` groups statements without opening a scope: only a brace does that.
 		return e.execStmts(n.Stmts)
+	case *ast.BlockStmt:
+		// A braced `try` clause (§8.11). Its value is its last statement (§8.1) and its
+		// braces are a scope, which is the whole of what the braced form adds.
+		return e.execBlock(n)
 	case *ast.IfExpr:
 		return e.evalIf(n)
 	case *ast.WhileExpr:
@@ -685,25 +689,57 @@ func (e ev) matchPattern(pat *ast.ArrayPattern, v Value, env *Env) (bool, error)
 // try (§8.11)
 // ---------------------------------------------------------------------------
 
-// evalTry is `try X else Y` and `try X else (e) -> Y`. It catches script errors only:
-// a timeout, a budget overrun, a depth limit and a cancellation all keep unwinding.
-// The bound error dict lives in a scope of its own, so `e` does not leak past the
-// fallback.
+// evalTry runs a `try` in all of its forms. It catches script errors only: a timeout, a
+// budget overrun, a depth limit and a cancellation all keep unwinding. The bound error
+// dict lives in a scope of its own, so `e` does not leak past the fallback.
+//
+// An `ensure` runs on every way out that leaves the Run alive — the value, an error
+// caught or not, and a `return`/`break`/`next` from the body — and on no other. What
+// ends the Run (a limit, a cancellation, `exit`) does not run it, because running script
+// code past a limit is precisely what the limit forbids (§8.11, §14.1).
 func (e ev) evalTry(n *ast.TryExpr) (Value, error) {
 	v, err := e.eval(n.X)
-	if err == nil {
-		return v, nil
+	if err != nil {
+		if x, ok := catchableError(err); ok && n.Fallback != nil {
+			v, err = e.evalFallback(n, x)
+		}
 	}
-	x, ok := catchableError(err)
-	if !ok {
+	if n.Ensure != nil && ensureRuns(err) {
+		// The ensure's own failure replaces what was pending: swallowing it would hide
+		// a broken release, and there is nowhere else for it to go.
+		if _, eerr := e.execBlock(n.Ensure); eerr != nil {
+			return Nil(), eerr
+		}
+	}
+	if err != nil {
 		return Nil(), err
 	}
+	return v, nil
+}
+
+// evalFallback runs the `else` side with the error dict bound when the source asked for
+// it (§8.11).
+func (e ev) evalFallback(n *ast.TryExpr, x *Error) (Value, error) {
 	if n.Var == "" {
 		return e.eval(n.Fallback)
 	}
 	env := newEnv(e.env, 1)
 	env.Define(n.Var, x.ErrorValue())
 	return e.in(env).eval(n.Fallback)
+}
+
+// ensureRuns reports whether an `ensure` block runs while err is unwinding. A control
+// signal counts as a way out of the body: `return` from inside a `try` releases what the
+// `ensure` releases before it leaves the function.
+func ensureRuns(err error) bool {
+	if err == nil {
+		return true
+	}
+	if _, ok := ctrlOf(err); ok {
+		return true
+	}
+	_, ok := catchableError(err)
+	return ok
 }
 
 // catchableError reports whether `try` may swallow err, and yields the *Error its

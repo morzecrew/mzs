@@ -206,7 +206,7 @@ func HasBuiltin(name string) bool {
 // editor support in editors/, for one — can read the lexer's table instead of keeping a
 // copy that drifts.
 func Keywords() []string {
-	out := make([]string, 0, 16)
+	out := make([]string, 0, 17)
 	for k := range token.Keywords() {
 		out = append(out, k)
 	}

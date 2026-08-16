@@ -51,6 +51,13 @@ type OrderedDict struct {
 	keys []Value
 	vals []Value
 	n    int // live entries
+
+	// src is set on the dict an error binds itself to (§8.11) and on no other. It is
+	// provenance, not content: `raise(e)` reads it to keep the original position and
+	// stack, and nothing else in the language can see it — equality, hashing, JSON,
+	// `keys` and every copy this dict makes of itself all ignore it, so a dict built by
+	// hand and one bound by a handler are the same value with the same behaviour.
+	src *Error
 }
 
 // NewOrderedDict returns an empty dict.

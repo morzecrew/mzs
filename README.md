@@ -104,7 +104,9 @@ fn sum_all(*nums) { nums.sum }
 xs.map { it * 2 }                                 # `it` when you name no parameter
 a, b = [b, a]                                     # destructuring: a swap needs no temporary
 
-v = try json.parse(s) else {}                    # an error is a value you decide about
+v = try json.parse(s) else {}                     # an error is a value you decide about
+try { take() } ensure { release() }               # the ensure runs on every way out
+try f() else (e) { match e["kind"] { "json" -> …; else -> raise(e) } }   # kinds, not prose
 raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way out
 ```
 
@@ -170,7 +172,8 @@ run time. Every run is bounded:
 | `RegexSteps` | 200,000 | backtracking budget per match |
 
 The checks sit inside the node-walking loop, so `while true { }` is interrupted mid-iteration, and
-no limit is catchable by `try`. A panic anywhere inside becomes an ordinary error at the `Run`
+no limit is catchable by `try` — nor does an `ensure` run after one: what ends the run ends it.
+A panic anywhere inside becomes an ordinary error at the `Run`
 boundary: a script cannot bring its host down.
 
 → [sandbox and limits](docs/reference/sandbox.md)

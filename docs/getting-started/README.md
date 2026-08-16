@@ -8,7 +8,7 @@ mzs is an embeddable scripting language written in Go; this page is the entry po
 * **`{ … }` is a closure, unless it is a dict.** `if`, `while`, `for`, `fn` and `match` arms simply call it for you; in operand position `{a: 1}` and `{}` are dicts, and everything else is a closure. After a call the brace is the trailing closure, so `{}` there is the empty closure — as a value, write `{ nil }`.
 * **`[ … ]` is always an array**, and a dict is always braces: `[1, 2]` is an array, `[]` the empty array, `{a: 1}` a dict, `{}` the empty dict. So JSON pastes in as source.
 * **`x.f(y)` is exactly `f(x, y)`.** One flat namespace, and your own `fn` joins it — there are no methods on one side and functions on the other.
-* **`match` replaces the `if/else if` ladder.** Sixteen keywords in the whole language, and exactly one name per operation — `size`, `collect` and `select` are errors that name `len`, `map` and `filter`.
+* **`match` replaces the `if/else if` ladder.** Seventeen keywords in the whole language, and exactly one name per operation — `size`, `collect` and `select` are errors that name `len`, `map` and `filter`.
 
 ```
 [1, 2, 3].map { it * 2 }              # [2,4,6]
@@ -17,7 +17,7 @@ fn shout(s) { s.upper + "!" }
 len("привет") == "привет".len         # true
 ```
 
-The sixteen keywords are `fn if else match while for in break next return try true false nil include export`.
+The seventeen keywords are `fn if else match while for in break next return try ensure true false nil include export`.
 
 ## Your first program
 

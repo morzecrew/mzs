@@ -37,7 +37,7 @@ code --install-extension mzs-1.1.0.vsix
 | **Diagnostics** | `mzs --check -` as you type: the buffer goes in through stdin, so errors are visible **before the file is saved**. Warnings show up as warnings, errors as errors |
 | **Commands** | `mzs: Run file`, `mzs: Evaluate selection as a one-liner` (<kbd>Ctrl+Shift+E</kbd>), `mzs: Show the token stream`, `mzs: Show the AST` |
 | **File icon** | `.mzs` gets an icon of its own in the explorer — a light and a dark variant of the logo (`icons/mzs-*.svg`), plus the **mzs (Seti)** icon theme: the whole of Seti, with `.mzs` carrying the logo |
-| **Snippets** | `inc`, `incfrom`, `expfn`, `exp`, `fn`, `cl`, `if`, `match`, `for`, `try`, `map`, `filter`, `each`, `reduce`, `serve` — a web server — and `cond=`, `cond~`, `cond?`, skeletons for conditions in the morzebot style |
+| **Snippets** | `inc`, `incfrom`, `expfn`, `exp`, `fn`, `cl`, `if`, `match`, `for`, `try`, `tryb`, `ensure`, `map`, `filter`, `each`, `reduce`, `serve` — a web server — and `cond=`, `cond~`, `cond?`, skeletons for conditions in the morzebot style |
 
 ## Settings
 

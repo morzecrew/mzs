@@ -86,7 +86,7 @@ func TestAsyncIsPositional(t *testing.T) {
 	}
 	for _, kw := range Keywords() {
 		if kw == "async" {
-			t.Fatal("'async' reached the keyword table; §3.5 has sixteen entries")
+			t.Fatal("'async' reached the keyword table; §3.5 lists every keyword there is")
 		}
 	}
 }

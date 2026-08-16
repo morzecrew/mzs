@@ -477,6 +477,8 @@ http.request("GET", $base + "/who", {headers: {"x-who": "Иван"}})["body"]`, 
 http.request("PUT", $base + "/echo", {body: "42"})["headers"]["x-method"]`, "PUT"},
 		{"a dead host is catchable", `include http
 try http.get("http://127.0.0.1:1/x") else "нет связи"`, "нет связи"},
+		{"a transport failure knows which module it came from", `include http
+try http.get("http://127.0.0.1:1/x") else (e) -> e["kind"]`, "http"},
 	}
 
 	for _, tt := range tests {

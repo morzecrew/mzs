@@ -111,6 +111,28 @@
     "body": "try ${1:expr} else ${0:\"a fallback value\"}",
     "description": "Catch an error from an expression"
   },
+  "try block": {
+    "prefix": "tryb",
+    "body": [
+      "try {",
+      "\t${1:body}",
+      "} else (e) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Catch an error from a block, binding the error dict"
+  },
+  "try ensure": {
+    "prefix": "ensure",
+    "body": [
+      "try {",
+      "\t${1:body}",
+      "} ensure {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Release on every way out of the block that leaves the Run alive"
+  },
   "ternary": {
     "prefix": "?:",
     "body": "${1:cond} ? ${2:a} : ${3:b}",

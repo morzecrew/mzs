@@ -25,20 +25,59 @@ var (
 )
 
 // Error kinds (§13.5). These are the exact strings that appear between the position
-// and the message in a rendered diagnostic.
+// and the message in a rendered diagnostic, and the `kind` a handler reads off the error
+// dict (§8.11). The set is closed for the *runtime*: every failure the language itself
+// produces is one of these, so `match e["kind"]` is a decision over a known list rather
+// than over prose. A script names its own with `raise(msg, kind)`, which is why a host
+// switching on Kind still needs a default branch.
 const (
 	ErrKindSyntax   = "syntax"
 	ErrKindName     = "name"
 	ErrKindType     = "type"
 	ErrKindArgument = "argument"
 	ErrKindIndex    = "index"
+	ErrKindKey      = "key"
 	ErrKindZeroDiv  = "zero-division"
 	ErrKindRegex    = "regex"
+	ErrKindJSON     = "json"
+	ErrKindHTTP     = "http"
+	ErrKindIO       = "io"
 	ErrKindRaise    = "raise"
 	ErrKindLimit    = "limit"
 	ErrKindExit     = "exit"
 	ErrKindInternal = "internal"
 )
+
+// reservedKinds are the kinds a script may not put on an error of its own. Each one is a
+// claim only the runtime can make truthfully: `limit` and `exit` are what `try` refuses
+// to catch and what a host reads to end a Run (§13.5), `internal` means a recovered
+// panic, and `syntax` cannot happen at run time at all. Everything else is open —
+// "user", "billing", "retryable" are the point of the feature (§8.11).
+var reservedKinds = []string{ErrKindSyntax, ErrKindLimit, ErrKindExit, ErrKindInternal}
+
+// checkKind validates the kind a script asked for. The message names the whole reserved
+// set rather than just the one that failed, because the next guess is the interesting
+// part (§17).
+func checkKind(kind string) *Error {
+	if kind == "" {
+		return argErrorf("an error kind cannot be empty")
+	}
+	for _, k := range reservedKinds {
+		if kind == k {
+			return argErrorf("kind %q belongs to the runtime and cannot be raised by a script (%s)",
+				kind, strings.Join(quoteAll(reservedKinds), ", "))
+		}
+	}
+	return nil
+}
+
+func quoteAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = strconv.Quote(s)
+	}
+	return out
+}
 
 // Frame is one entry of a script call stack, innermost first.
 type Frame struct {
@@ -123,7 +162,11 @@ func (e *Error) Catchable() bool {
 	return true
 }
 
-// ErrorValue is the dict a `try X else (e) -> Y` clause binds to e (§8.11).
+// ErrorValue is the dict a `try X else (e) -> Y` clause binds to e (§8.11). The dict
+// remembers the error it was made from, which is what lets `raise(e)` re-throw with the
+// position and stack of the original failure instead of the position of the re-throw
+// (§8.11). Nothing in the language can read that link — it is not a key, it does not
+// serialise and it does not compare — so the dict is exactly the entries set below.
 func (e *Error) ErrorValue() Value {
 	d := NewOrderedDictCap(4)
 	_ = d.Set(Str("message"), Str(e.Msg))
@@ -132,7 +175,17 @@ func (e *Error) ErrorValue() Value {
 	if e.Data.Kind() != KNil {
 		_ = d.Set(Str("data"), e.Data)
 	}
+	d.src = e
 	return dictOf(d)
+}
+
+// errorSource returns the error a dict was made from by ErrorValue. A dict a script
+// built by hand has none, and is positioned at the `raise` like any other value.
+func errorSource(v Value) *Error {
+	if d := v.odict(); d != nil {
+		return d.src
+	}
+	return nil
 }
 
 // At stamps a position onto e and returns it, so call sites can build an error without
@@ -205,6 +258,64 @@ func zeroDivError() *Error { return newError(ErrKindZeroDiv, "divided by 0") }
 // raiseError is what the `raise` builtin produces. data is the payload of raise(dict).
 func raiseError(msg string, data Value) *Error {
 	return &Error{Kind: ErrKindRaise, Msg: msg, Data: data}
+}
+
+// raiseValue is the whole of `raise` (§8.11):
+//
+//	raise("msg")                             a message; the kind is "raise"
+//	raise("msg", "user")                     the same, with a kind the script names
+//	raise({message: …, kind: …, data: …})    the three keys the dict form reads
+//	raise(e)                                 re-raise the dict a handler bound
+//
+// A dict with none of those three keys is attached whole as `data`, exactly as it was
+// before kinds existed: `raise({code: "limit", id: o})` is still a payload and not a
+// malformed error. Re-raising the dict a handler bound keeps the original's file, line
+// and stack — the point of a `match` over kinds is that the branch which does not know
+// what to do says `raise(e)`, and a re-throw that moved the position would make the
+// diagnostic name the handler instead of the failure.
+func raiseValue(c *Ctx, args []Value) error {
+	v := args[0]
+	msg, kind, data := v.Str(), ErrKindRaise, Nil()
+	src := errorSource(v)
+	if src != nil {
+		msg, kind, data = src.Msg, src.Kind, src.Data
+	}
+	if d := v.odict(); d != nil {
+		if m, ok := d.Get(Str("message")); ok {
+			msg = m.Str()
+		}
+		k, hasKind := d.Get(Str("kind"))
+		if hasKind {
+			if k.Kind() != KString {
+				return c.ArgErrorf("raise: 'kind' must be a string, got %s", k.TypeName())
+			}
+			kind = k.Str()
+		}
+		switch x, hasData := d.Get(Str("data")); {
+		case hasData:
+			data = x
+		case src == nil && !hasKind:
+			// Neither an error a handler bound nor a dict that names a kind: this is a
+			// payload, and it is carried whole as it always was.
+			data = v
+		}
+	}
+	if len(args) > 1 {
+		k, err := argStr(c, args[1])
+		if err != nil {
+			return err
+		}
+		kind = k
+	}
+	if err := checkKind(kind); err != nil {
+		return c.position(err)
+	}
+	e := raiseError(msg, data)
+	e.Kind = kind
+	if src != nil {
+		e.File, e.Line, e.Col, e.Stack = src.File, src.Line, src.Col, src.Stack
+	}
+	return c.position(e)
 }
 
 // asError extracts an *Error from err, or synthesises one. Everything crossing the

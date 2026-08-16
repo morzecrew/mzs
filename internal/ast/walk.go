@@ -58,6 +58,7 @@ func Walk(n Node, f func(Node) bool) {
 	case *TryExpr:
 		Walk(x.X, f)
 		Walk(x.Fallback, f)
+		Walk(x.Ensure, f)
 	case *NilLit, *BoolLit, *IntLit, *FloatLit, *RegexLit, *Ident, *GlobalVar:
 		// leaves
 	case *StrLit:
@@ -362,6 +363,7 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		line(s)
 		labeled("body:", x.X)
 		labeled("fallback:", x.Fallback)
+		labeled("ensure:", x.Ensure)
 	case *NilLit:
 		line("Nil")
 	case *BoolLit:

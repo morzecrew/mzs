@@ -218,6 +218,11 @@ type FnDecl struct {
 // every `{ … }` is a scope (D2, §8.2). FrameSize is the number of local slots that scope
 // needs, filled by the compile pass; for a function or closure body it includes the
 // parameter slots, so it is the size of the frame a call allocates.
+//
+// It is an Expr as well as a Stmt, because its value is the value of its last statement
+// (§8.1) — the same thing an `if` body already yields. Only the braced clauses of a `try`
+// put one in expression position (§8.11); a `{ … }` an operand position reads is a
+// closure or a dict and neither is this node (D2, §3.12).
 type BlockStmt struct {
 	Stmts     []Stmt
 	Start     token.Pos
@@ -268,13 +273,22 @@ type MatchExpr struct {
 	Stop    token.Pos
 }
 
-// TryExpr is `try X else Y` and `try X else (e) -> Y` (§8.11). Var is "" unless the
-// source bound the error dict.
+// TryExpr is the whole `try` form (§8.11): `try X else Y`, `try X else (e) -> Y` and the
+// braced `try { … } else { … } ensure { … }`. X and Fallback hold an ordinary expression
+// in the first two forms and a *BlockStmt in the braced one; the evaluator runs either
+// the same way, which is what makes the braces sugar rather than a second semantics —
+// with the one difference every brace carries, that a block is a scope (D2, §8.2).
+//
+// Var is "" unless the source bound the error dict. Fallback is nil when there is no
+// `else` at all — `try { … } ensure { … }` releases without catching — and Ensure is nil
+// when there is no `ensure`; the parser rejects a `try` with neither.
 type TryExpr struct {
 	X        Expr
 	Var      string
 	Fallback Expr
+	Ensure   *BlockStmt
 	Kw       token.Pos
+	Stop     token.Pos
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +577,7 @@ func (*ForExpr) stmt()     {}
 func (*MatchExpr) stmt()   {}
 func (*TryExpr) stmt()     {}
 
+func (*BlockStmt) expr()         {}
 func (*FnDecl) expr()            {}
 func (*IfExpr) expr()            {}
 func (*WhileExpr) expr()         {}
@@ -637,7 +652,7 @@ func (n *MatchExpr) Pos() token.Pos { return n.Kw }
 func (n *MatchExpr) End() token.Pos { return n.Stop }
 
 func (n *TryExpr) Pos() token.Pos { return n.Kw }
-func (n *TryExpr) End() token.Pos { return nodeEnd(n.Fallback) }
+func (n *TryExpr) End() token.Pos { return n.Stop }
 
 func (n *NilLit) Pos() token.Pos   { return n.Start }
 func (n *NilLit) End() token.Pos   { return n.Stop }

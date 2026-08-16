@@ -925,6 +925,17 @@ func TestTryElse(t *testing.T) {
 		{"a group guards several statements", `try (x = 1; raise("e"); x) else "-"`, "-"},
 		{"try is right associative", `try (try raise("a") else raise("b")) else "outer"`, "outer"},
 		{"a caught error does not poison what follows", `v = try (1 / 0) else 0; v + 1`, "1"},
+
+		// The braced form (§8.11). It is the same evaluation with the same errors; what
+		// the braces add is a statement list and a scope.
+		{"a block guards several statements", `try { x = 1; raise("e"); x } else { "-" }`, "-"},
+		{"a block's value is its last statement", `try { 1; 2 } else 0`, "2"},
+		{"a block binds the error without an arrow", `try { 1 / 0 } else (e) { e["message"] }`, "divided by 0"},
+		{"a block binds the error with one", `try { 1 / 0 } else (e) -> { e["kind"] }`, "zero-division"},
+		{"a dict in operand position is still a dict", `try {a: 1} else 0`, `{"a":1}`},
+		{"the binder ends at the brace, dict or not", `try raise("x") else (e) {m: e["message"]}`, `{"m":"x"}`},
+		{"the same fallback with the arrow", `try raise("x") else (e) -> {m: e["message"]}`, `{"m":"x"}`},
+		{"the empty dict is still the empty dict", `try {} else 0`, "{}"},
 	}
 
 	in := evInterp()
@@ -932,6 +943,91 @@ func TestTryElse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := evStr(t, in, tt.src); got != tt.want {
 				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTryEnsure is the release half of §8.11. An `ensure` runs on every way out of the
+// body that leaves the Run alive, it never changes the value, and it never catches: a
+// `try … ensure` with no `else` releases and lets the error go on unwinding.
+func TestTryEnsure(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"it runs on the happy path",
+			`$log = ""; try { 1 } ensure { $log += "r" }; $log`, "r"},
+		{"the value is the body's, not the ensure's",
+			`try { 1 } ensure { 99 }`, "1"},
+		{"it runs before the error is handed on",
+			`$log = ""; try (try { raise("x") } ensure { $log += "r" }) else "-"; $log`, "r"},
+		{"it runs after the else that caught",
+			`$log = ""; try { raise("x") } else { $log += "e" } ensure { $log += "r" }; $log`, "er"},
+		{"it runs on a return out of the body",
+			`$log = ""; fn f() { try { return 1 } ensure { $log += "r" } }; f(); $log`, "r"},
+		{"it runs on a break out of the body",
+			`$log = ""; for i in 1..3 { try { break } ensure { $log += "r" } }; $log`, "r"},
+		{"a return out of the body is still a return",
+			`fn f() { try { return "early" } ensure { 0 }; "late" }; f()`, "early"},
+		{"the ensure's own failure replaces what was pending",
+			`try (try { raise("first") } ensure { raise("second") }) else (e) -> e["message"]`, "second"},
+		{"so does a control signal of its own",
+			`for i in 1..5 { try { i } ensure { break "stopped at ${i}" } }`, "stopped at 1"},
+		{"a return from the ensure wins too",
+			`fn f() { try { "body" } ensure { return "released" }; "after" }; f()`, "released"},
+		{"an else and an ensure are independent clauses",
+			`$log = ""; v = try { 1 } else { 2 } ensure { $log += "r" }; "${v}${$log}"`, "1r"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, evInterp(), tt.src); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+
+	// With no `else`, the error is not caught: the ensure runs and the error still
+	// reaches the host.
+	e := evErr(t, evInterp(), `try { raise("boom") } ensure { 1 }`, nil)
+	if e.Msg != "boom" {
+		t.Errorf("error = %q, want the body's error to survive the ensure", e.Msg)
+	}
+}
+
+// TestEnsureDoesNotOutliveALimit is §14.1 read from the `ensure` side: what ends the Run
+// ends it, and script code does not get one more turn. An `ensure` that ran here would be
+// a way to spend time and steps past the point the host said stop.
+func TestEnsureDoesNotOutliveALimit(t *testing.T) {
+	tests := []struct {
+		name string
+		opts Options
+		src  string
+		want error
+	}{
+		{"the step budget", Options{StepBudget: 5_000, Timeout: -1},
+			`try { while true { } } ensure { $ran = true }`, ErrBudget},
+		{"the deadline", Options{StepBudget: -1, Timeout: 30 * time.Millisecond},
+			`try { while true { } } ensure { $ran = true }`, ErrTimeout},
+		{"exit is not a failure and is not caught either", Options{},
+			`try { exit(3) } ensure { $ran = true }`, ErrExit},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := New(tt.opts)
+			p, err := in.Compile("ensure", tt.src)
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			res, err := in.RunResult(context.Background(), p, nil)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("error = %v, want %v", err, tt.want)
+			}
+			if v, ok := res.Globals["$ran"]; ok && v.Truthy() {
+				t.Errorf("the ensure ran; a limit ends the Run (§14.1)")
 			}
 		})
 	}

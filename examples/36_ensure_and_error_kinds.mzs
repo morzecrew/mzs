@@ -1,0 +1,186 @@
+# 36 — `ensure` and error kinds: releasing what you took, and handling by kind.
+#
+#   mzs examples/36_ensure_and_error_kinds.mzs
+#
+# Two halves of one subject. `try` used to be able to say "if this fails, use that
+# instead" and nothing else: no way to guard several statements without wrapping them in
+# `( … ; … )`, no way to run a release on the way out, and no way to tell *which* failure
+# arrived except by reading its message.
+#
+#   try { a; b } else { "-" }        the braces are a block and a scope, not a closure
+#   try { a } else (e) { … }         the binder needs no arrow in front of a block
+#   try { take() } ensure { give() } the ensure runs on every way out
+#   match e["kind"] { … }            the runtime's kinds are a closed list; a script adds its own
+#
+# The one thing `ensure` is not is a way to outlive a limit: a timeout, the step budget,
+# the depth limit and a cancelled context end the Run, and nothing else runs after them —
+# not an `else`, not an `ensure`. That is the whole of §14.1 and it has no exceptions.
+
+println("=== the braced try: statements, and a scope ===")
+println("")
+
+# Before, this needed `try (parse; check; use) else …`. The braces are the same block an
+# `if` body is: several statements, the last one is the value, and a name born inside does
+# not outlive it.
+raw = "  42 "
+n = try {
+  s = raw.trim
+  raise("not a number: ${s}") if !(s ~ /^\d+$/)
+  s.int
+} else {
+  0
+}
+
+println("parsed        → ${n}")
+
+# `s` was born inside those braces and does not outlive them — and that is settled when
+# the file compiles, not when it runs, so it cannot be shown as a caught error. Uncomment
+# the next line and the program does not start at all:
+#
+#   println(s)      # examples/36…mzs: name: undefined variable 's'
+
+# `else` binds the error with or without an arrow. Before a block the arrow buys nothing,
+# so it is optional; before an expression it is what separates the name from the value.
+println("bad input     → ${try { "x".int + nil } else (e) { e["message"] }}")
+println("same, arrowed → ${try ("x".int + nil) else (e) -> e["message"]}")
+
+# --- ensure ------------------------------------------------------------------
+
+println("")
+println("=== ensure: the way out is not the question ===")
+println("")
+
+$open = []
+$log = []
+
+fn acquire(name) {
+  $open = $open + [name]
+  $log = $log + ["+${name}"]
+  name
+}
+
+fn release(name) {
+  $open = $open.filter { it != name }
+  $log = $log + ["-${name}"]
+}
+
+# 1. The value leaves through the ensure and is not changed by it.
+fn read_ok() {
+  h = acquire("ok")
+  try {
+    "payload"
+  } ensure {
+    release(h)
+  }
+}
+
+# 2. So does an error. With no `else`, `try … ensure` catches nothing: it releases and
+#    lets the failure go on unwinding, which is the shape most releases actually want.
+fn read_broken() {
+  h = acquire("broken")
+  try {
+    raise("disk went away", "io")
+  } ensure {
+    release(h)
+  }
+}
+
+# 3. And so does a `return` from the middle of the body.
+fn read_early() {
+  h = acquire("early")
+  try {
+    return "short circuit"
+  } ensure {
+    release(h)
+  }
+  "never reached"
+}
+
+println("read_ok()      → ${read_ok()}")
+println("read_broken()  → ${try read_broken() else (e) -> "raised «${e["message"]}» and still released"}")
+println("read_early()   → ${read_early()}")
+println("")
+println("log            ${$log.join(" ")}")
+println("still open     ${$open.json}   ← nothing, on all three paths")
+
+# An `else` and an `ensure` are independent clauses: the `else` decides the value, the
+# `ensure` runs after it either way.
+answer = try {
+  raise("nope")
+} else {
+  "fallback"
+} ensure {
+  $log = $log + ["!"]
+}
+println("both clauses   → ${answer} (and the ensure still ran: ${$log.last})")
+
+# --- kinds -------------------------------------------------------------------
+
+println("")
+println("=== kinds: the failure says what it is ===")
+println("")
+
+# Every failure the runtime produces carries one of a closed list of kinds, and each is
+# stamped where the failure is born — so a handler branches on a value instead of matching
+# on English.
+include json
+
+samples = [
+  ["1 + \"x\"",              try (1 + "x") else (e) -> e],
+  ["7 / 0",                  try (7 / 0) else (e) -> e],
+  ["{a: 1}.fetch(\"b\")",    try ({a: 1}.fetch("b")) else (e) -> e],
+  ["[1, 2].insert(9, 3)",    try ([1, 2].insert(9, 3)) else (e) -> e],
+  ["json.parse(\"{\")",      try (json.parse("{")) else (e) -> e],
+  ["regex(\"(\")",           try (regex("(")) else (e) -> e],
+  ["raise(\"boom\")",        try (raise("boom")) else (e) -> e],
+]
+
+for s in samples {
+  println("${s[0].ljust(24)} ${s[1]["kind"].ljust(14)} ${s[1]["message"]}")
+}
+
+# A script names kinds of its own — that is what makes `match e["kind"]` worth writing.
+# The four the runtime keeps are `limit`, `exit`, `internal` and `syntax`: each is a claim
+# only the runtime can make truthfully, so raising one is an error rather than a lie.
+println("")
+println("raise(\"x\", \"limit\") → ${try (raise("x", "limit")) else (e) -> e["message"]}")
+
+fn charge(order) {
+  raise("no such order", "user") if order["id"] == ""
+  short = order["total"] - 100
+  raise({message: "insufficient funds", kind: "billing", data: {short_by: short}}) if short > 0
+  "charged ${order["total"]}"
+}
+
+fn attempt(order) {
+  try {
+    charge(order)
+  } else (e) {
+    match e["kind"] {
+      "user"    -> "rejected: ${e["message"]}"
+      "billing" -> "declined: short by ${e["data"]["short_by"]}"
+      else      -> raise(e)                     # not ours: pass it on unchanged
+    }
+  }
+}
+
+println("")
+for o in [{id: "A-1", total: 60}, {id: "", total: 60}, {id: "A-2", total: 130}] {
+  println("attempt(${o.json.ljust(24)}) → ${attempt(o)}")
+}
+
+# The `else` branch above re-raises, and a re-raise keeps the position and the stack of the
+# original failure — the diagnostic names the line that broke, not the handler that let it
+# through. Here the failure is a type error two calls deep, and no arm claims it.
+fn broken(order) { order["total"] + nil }
+fn attempt_broken(o) {
+  try {
+    broken(o)
+  } else (e) {
+    match e["kind"] { "billing" -> "declined"; else -> raise(e) }
+  }
+}
+
+println("")
+println("unclaimed → ${try attempt_broken({total: 1}) else (e) -> "${e["kind"]} at line ${e["line"]}: ${e["message"]}"}")
+println("            (line ${try attempt_broken({total: 1}) else (e) -> e["line"]} is `broken`, not the handler)")

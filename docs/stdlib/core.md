@@ -149,7 +149,7 @@ An unknown verb or a missing argument raises: `format("%q", 1)` → `argument: u
 
 | Name | Signature | Does | Example |
 |---|---|---|---|
-| `raise` | `raise(msg: any) -> never` | raises a script error; a Dict is attached under the caught error's `"data"` key | `raise("bad")` |
+| `raise` | `raise(msg: any, kind: string = "raise") -> never` | raises a script error; a Dict reads `message`/`kind`/`data`, and any other Dict is attached under the caught error's `"data"` key | `raise("bad")`, `raise("no funds", "billing")` |
 | `assert` | `assert(cond: any, msg: string = "assertion failed") -> nil` | raises when falsy | `assert(x.len == 1, "bad name")` |
 | `defined` | `defined(name) -> bool` | is the identifier or `$var` bound; never evaluates its operand | `defined($price)` |
 | `exit` | `exit(code: int = 0) -> never` | ends the run with that status; `try` never catches it | `exit(1)` |
@@ -157,6 +157,7 @@ An unknown verb or a missing argument raises: `format("%q", 1)` → `argument: u
 ```
 try raise("bad") else "caught"                       # caught
 try raise({code: 42}) else (e) -> e["data"]["code"]  # 42
+try raise("no funds", "billing") else (e) -> e["kind"]   # billing
 assert(false, "nope")                                # raise: nope
 defined(zzz)                                         # false
 ```
