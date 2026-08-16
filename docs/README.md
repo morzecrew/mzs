@@ -26,12 +26,12 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | Page | Answers |
 |---|---|
 | [language/README.md](./language/README.md) | The three rules, expression orientation, the keyword list, an index of these pages |
-| [language/values.md](./language/values.md) | The nine kinds and their literals, truthiness, equality, copying |
+| [language/values.md](./language/values.md) | The nine kinds and their literals, `record` shapes, truthiness, equality, copying |
 | [language/operators.md](./language/operators.md) | The precedence table, integer division, no implicit conversion, the runes that are not operators |
 | [language/control-flow.md](./language/control-flow.md) | `if`, `while`, `for`, `break`/`next`, statement modifiers, `match` — all as expressions |
 | [language/destructuring.md](./language/destructuring.md) | One shape rule in three places: assignment, `match` arm, `for` header |
 | [language/functions.md](./language/functions.md) | `fn`, defaults and `*rest`, closures and `it`, UFCS, scope, recursion depth |
-| [language/strings.md](./language/strings.md) | The two quote forms, escapes, `$`-interpolation, runes not bytes, the `%` operator |
+| [language/strings.md](./language/strings.md) | The three forms — two quoted and the heredoc — escapes, `$`-interpolation, runes not bytes, the `%` operator |
 | [language/errors.md](./language/errors.md) | `try … else … ensure`, the error dict and its kind, `raise`, `assert`, and what is never catchable |
 | [language/host-variables.md](./language/host-variables.md) | `$name`: a namespace the host owns, where an unbound read is `nil` rather than an error |
 | [language/async.md](./language/async.md) | `async fn`, `await`, `done`, one evaluator at a time, the task and time budgets |

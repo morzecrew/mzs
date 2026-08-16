@@ -248,6 +248,10 @@ identifier everywhere else, so a variable may still be called `from`.
 before `fn` (§8.14), and is an ordinary identifier everywhere else. `async = 1` and
 `fn async(x)` both still compile.
 
+`record` is **not** a keyword, and this is the rule holding rather than an exception to it:
+`record Name(` is three tokens that no expression of §4 can be, so the declaration of §7.8
+is recognisable without spending the name. `record = 3` and `fn record(x)` both compile.
+
 `it` is **not** a keyword — it is an ordinary identifier that a closure implicitly binds when
 it declares no parameter list (§8.9).
 
@@ -276,7 +280,7 @@ unambiguous against a ternary (§3.9).
 
 ### 3.7 String literals
 
-Two forms.
+Three forms: two quoted, and the heredoc below them.
 
 * **Single-quoted** `'…'` — **raw**. The only escapes are `\'` and `\\`. No interpolation.
   Everything else, including `\n` and `\b`, is literal. This is the form to use for regex
@@ -327,6 +331,49 @@ An unterminated string is an error at the position of the opening quote (never s
 accepted).
 
 There is no word-array literal: write `["yes", "yeah", "sure"]`.
+
+**Heredoc.** One form and not three:
+
+```
+heredoc ::= "<<~" ( ident | "'" ident "'" )
+```
+
+The tag is an operand wherever a string literal is one. Its **body** is the source lines
+*below* the line the tag stands on, up to the first line whose only content is the tag
+again; that terminator line may be indented and is not part of the body. The body keeps
+the line break in front of its terminator, so `<<~T` over one line of text ends in `"\n"`.
+
+```
+sql = <<~SQL
+  SELECT id
+    FROM users
+   WHERE name = '${name}'
+SQL
+```
+
+* **Indentation.** The shed prefix is the shortest run of leading spaces and tabs over the
+  body's **non-blank** lines. A line made only of blanks has no say, so a paragraph break
+  costs nothing. Every line then gives up that prefix, and a line shorter than it gives up
+  what it has. Runes are counted, not display columns: a tab is one rune.
+* **`<<~TAG` interpolates** exactly as `"…"` does — the same escapes, the same `$name` and
+  `${ … }` (and therefore the same token stream: `STR_BEGIN … STR_END`). A `"` inside the
+  body is an ordinary quote and a `#` is an ordinary hash; §3.2 gives `#` no meaning inside
+  any string literal.
+* **`<<~'TAG'` is raw** exactly as `'…'` is: no escapes at all, no interpolation. This is
+  the form for a shell snippet, a `${…}` belonging to something else's syntax, or a regex.
+
+Two rules follow from the body not being where the tag is, and both are normative:
+
+1. The rest of the tag's own line is read **as usual**, and the body is taken from below
+   it. `f(<<~A, <<~B)` is one call with two arguments whose bodies follow in that order,
+   and the line's own break still terminates the statement (or is suppressed by §3.10,
+   which is exactly why the body may not be read from the token's position).
+2. A `<<~` may not open **inside a `${ … }`**: the lines under an interpolation already
+   belong to the literal the interpolation sits in. It is a lex error saying so.
+
+A body with no terminator is an error at the position of the `<<~` (never silently
+accepted), and the message contains the word *unterminated*, which is what lets the REPL
+keep asking for more lines (§15).
 
 ### 3.8 Regex literals
 
@@ -390,6 +437,10 @@ Two lexemes exist only to produce a good error and are never valid tokens:
 `&`, `|` and `^` are not lexemes at all: the bit operations are functions (§12.5), because
 `&` beside `&&` is the ambiguity D16 refuses. Each of the three runes carries its own fix-it
 naming that function (§5.6), reported by the lexer since the parser never sees them.
+
+`<<~` is matched **before** this table, because what it opens is a string literal and not
+an operator (§3.7). `<<` and `>>` are not lexemes either and stay reserved (§20): the shifts
+are the functions `shl` and `shr` (§12.5), so `a << b` is still `LT LT`.
 
 ### 3.10 Statement termination and line continuation
 
@@ -566,11 +617,11 @@ StmtList       = SEP* [ Stmt ( SEP+ Stmt )* SEP* ] ;
 Stmt           = BareStmt { Modifier } ;
 Modifier       = "if" Expr | "while" Expr ;
 
-BareStmt       = IncludeStmt | ExportStmt | FnDecl | ReturnStmt | BreakStmt | NextStmt
-               | Destructure | Expr ;
+BareStmt       = IncludeStmt | ExportStmt | FnDecl | RecordDecl | ReturnStmt | BreakStmt
+               | NextStmt | Destructure | Expr ;
 
 IncludeStmt    = "include" IDENT [ "from" STRING ] ;   (* §12.8; "from" is positional *)
-ExportStmt     = "export" ( FnDecl | Assignment | IDENT ) ;
+ExportStmt     = "export" ( FnDecl | RecordDecl | Assignment | IDENT ) ;
 
 (* ---------- destructuring (§8.15) ---------- *)
 
@@ -594,6 +645,13 @@ Param          = IDENT [ "=" Expr ]                (* default value *)
 Closure        = "{" [ ClosureParams ] StmtList "}" ;
 ClosureParams  = "(" ParamList ")" "->" ;
 
+(* ---------- records (§7.8) ---------- *)
+
+RecordDecl     = "record" IDENT "(" FieldList ")" ;    (* "record" is positional, §3.5 *)
+               (* a declaration, and it hoists exactly as a named FnDecl does (§8.2) *)
+FieldList      = [ Field { "," Field } [ "," ] ] ;
+Field          = IDENT [ "=" Expr ] ;                  (* a Param without "*rest" *)
+
 (* ---------- control flow (all are expressions) ---------- *)
 
 IfExpr         = "if" Expr Closure { "else" "if" Expr Closure } [ "else" Closure ] ;
@@ -605,7 +663,7 @@ MatchArm       = ArmPattern { "," ArmPattern } [ "if" Expr ] "->" ( Expr | Closu
                | "else" "->" ( Expr | Closure ) ;
 ArmPattern     = "in" Expr          (* membership *)
                | "if" Expr          (* bare condition *)
-               | Expr ;             (* equality; a regex operand means match *)
+               | Expr ;             (* equality; a regex means match, a record the shape *)
 MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]" ;   (* §8.15; binds *)
 MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
@@ -876,6 +934,7 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 |---|---|
 | a literal (`"yes"`, `42`, `true`, `nil`) | `subject == pattern` |
 | a regex literal, or any expression of kind regex | `subject ~ pattern` |
+| a record's name (`Money`) | the subject was built by that `record` declaration (§7.8) |
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring of a string |
 | `if expr` | `expr` is truthy (the subject is not consulted) |
 | `[p, …]` | the subject is an array (or range) of exactly that length and every position fits — a bare name binds it (§8.15) |
@@ -1030,6 +1089,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `BreakStmt` | `X Expr` (may be nil) |
 | `NextStmt` | `X Expr` (may be nil) |
 | `FnDecl` | `Name string` (empty for the anonymous form, §4.1), `Params []Param`, `Body *BlockStmt`, `Async bool` (§8.14) |
+| `RecordDecl` | `Name string`, `Fields []Param` (no `*rest`), `Type any` — the runtime's record type, filled at compile time the way `RegexLit.compiled` is (§7.8) |
 | `BlockStmt` | `Stmts []Stmt` — a statement list; carries its own scope (§8.2). An Expr as well as a Stmt: its value is its last statement (§8.1), which is what a braced `try` clause is (§8.11) |
 
 **Control flow (expressions)**
@@ -1182,6 +1242,11 @@ nil/bool/int/float/string without allocation, and passing a `Value` never alloca
 `"nil" "bool" "int" "float" "string" "regex" "array" "dict" "function"`, plus the two
 internal kinds the language can produce: `"time"` (§12.8) and `"task"` (§8.14).
 
+A dict built by a `record` constructor reports the record's name instead — `type(m)` is
+`"Money"` — and answers `is("dict")` with `true`, because that is what it is (§7.8). It is
+the one place a type name is not a kind name, and the one place the set is open: a program
+declares its own.
+
 The data structure is called a **dict**, never a "map" — `map` is the higher-order function
 (§12.3), and one name may not mean two things (D17).
 
@@ -1199,7 +1264,9 @@ It is why `s.index(/re/)` returning `0` (a match at position 0) is still truthy.
 * Int vs Float: compared numerically (`1 == 1.0` → true).
 * String vs String: byte-exact (no case folding, no normalisation).
 * Array/Dict: deep structural equality, element order significant for arrays, insertion
-  order **in**significant for dicts.
+  order **in**significant for dicts. A record's label is not an entry and takes no part:
+  `Money(1500, "RUB") == {amount: 1500, currency: "RUB"}` is **true** (§7.8), and `hash`
+  ignores the label for the same reason.
 * Func: identity.
 * Regex on exactly one side: a **compile error** — use `~` (D5). If the regex only becomes
   known at runtime, `==` compares two regexes by source+flags and is `false` against any
@@ -1279,6 +1346,82 @@ become `nil`. That is what lets `dict.each { (k, v) -> … }` and `dict.each { i
 A closure literal invoked as a body (`if`, `while`, `for`, a `match` arm) additionally
 propagates `return`/`break`/`next` to its enclosing function or loop (§8.10).
 
+### 7.8 Records
+
+```
+record Money(amount, currency = "RUB")
+
+m = Money(1500, "USD")
+m.amount                    # 1500
+type(m) == "Money"          # true
+m.is("dict")                # true — it never stopped being one
+match m { Money -> … }      # dispatch on the shape
+```
+
+A record is **not a tenth kind**. It is a name for a shape over the dict of §7.1, so the
+value model, JSON, equality, hashing, iteration and every row of §12.4 are untouched. What
+the declaration adds is exactly two things: a constructor bound to the name, and a label
+the values it builds carry.
+
+**The declaration.** `record Name(FieldList)` is a statement, and it hoists like a named
+`fn` (§8.2), so the shape may be used above the line that names it. `Name` becomes an
+ordinary binding holding the constructor, which is an ordinary function value: it may be
+passed, stored and called through a variable. A field list is a parameter list minus
+`*rest` (§4), and that is not a coincidence — the constructor binds its fields by the rules
+of §8.7 and nothing else:
+
+```
+Money(700)                        # {"amount":700,"currency":"RUB"} — a default is filled
+Money(currency = "EUR", amount = 3)   # a field by name
+Money()                           # argument: Money expects 2 argument(s), got 0
+Money(1, curency = "EUR")         # argument: Money has no parameter named 'curency'; it takes …
+```
+
+The dict comes out with the fields as string keys in **declaration order** (D11), and a
+default is evaluated at each call, in the scope the declaration stands in.
+
+**Reading a field.** `m.amount` is the field. It is resolved where the file compiles: the
+name must be a field of some `record` declared in the same compilation unit, and a
+receiver's shape is no more known statically than its kind is, so the dispatch itself
+happens at run time. Two consequences, both normative:
+
+* A field **wins over a stdlib row of the same name** on that shape: `record Page(len, …)`
+  makes `p.len` the field. Nothing is lost — UFCS gives every row a prefix spelling, so
+  `len(p)` is still the entry count (D18) — and the compile pass emits a warning at the
+  declaration saying so (§17).
+* A shape declared in **another module** is read with `m["amount"]`. `type(m)` and
+  `m.is("Money")` still work, because the label rides on the value; the `.field` spelling
+  does not, because the name is resolved against this unit's declarations.
+
+**Matching.** A bare record name as an arm pattern (§5.3) asks whether the subject was
+built by that declaration. Identity belongs to the **declaration**, not to the name: two
+`record Money(…)` statements are two shapes. Equality against the constructor is the only
+other reading, and it could never fire — a dict is not a function — so nothing is taken
+away.
+
+**Two questions, and which one each spelling asks.** `type(m)` and `is(m, "Money")` ask by
+**name** and can never disagree: `m.is("Money")` is `type(m) == "Money"`, whatever else the
+program declared. A `match` arm asks by **identity**, because only there is the constructor
+itself in hand. So where one name is declared twice, `type` and `is` call both shapes
+`"Money"` and the arm tells them apart — which is the most either spelling can honestly do,
+a type name being a string. `is` with a name no `record` in the Run used is still an
+argument error, so a misremembered shape fails loudly rather than never matching.
+
+**What the label is not.** It is not content. Equality (§7.4), `hash` (§7.6), `json`,
+`keys`, `str` and iteration all see a plain dict, so a record and a hand-written dict with
+the same entries are the same value. What propagates it is the copy a record makes of
+itself — `dup` and `merge` — because "the same shape with one field changed" is the
+`with`-update the shape exists for. `filter`, `map`, `invert` and every other row that
+builds a *different* dict drop it, because what they hand back need not have the fields.
+
+**Mutability.** A record is an ordinary dict: `m["amount"] = 2` writes it in place and the
+label survives. There is no second model of change and no frozen value (I4 stands: `[ … ]`
+gains no third meaning, and neither does `{ … }`).
+
+**And what a record is not**: a class. There is no inheritance, no method table on the
+type, no `method_missing`, no `self`. Functions over a shape stay free functions and are
+reached both ways (D18), which is what keeps one namespace and one spelling per thing.
+
 ---
 
 ## 8. Evaluation semantics
@@ -1300,8 +1443,11 @@ ends the program with that value.
 * `:=` always **creates or shadows** a binding in the current scope.
 * `$name` never resolves through the chain: it reads and writes the **globals table** of the
   interpreter run (§10).
-* Top-level `fn` declarations are hoisted: they are bound before the first statement runs, so
-  `f(1,2)` may appear above `fn f(a, b) { … }`.
+* Top-level `fn` and `record` declarations are hoisted: they are bound before the first
+  statement runs, so `f(1,2)` may appear above `fn f(a, b) { … }` and `Money(1500)` above
+  `record Money(amount, currency)` (§7.8). A declaration `export` wraps is **not** — for
+  either keyword — because it is the `export` statement that stands at the top level, and
+  that one binds where it is written like any other statement (§12.8).
 
 ### 8.3 Arithmetic
 
@@ -1895,8 +2041,8 @@ Conventions used in the tables:
 | `debug` | `debug(*args) -> any` | writes the `inspect` form + `\n`; returns the first arg | `debug(x)` |
 | `len` | `len(x) -> int` | rune length of a String, element count of Array/Dict/Range; `nil` → 0 | `s.len > 2` |
 | `empty` | `empty(x) -> bool` | `len(x) == 0` | `xs.empty` |
-| `type` | `type(x) -> string` | §7.2 names | `type(1) == "int"` |
-| `is` | `is(x, name: string) -> bool` | kind test | `x.is("array")` |
+| `type` | `type(x) -> string` | §7.2 names, or the record's name (§7.8) | `type(1) == "int"` |
+| `is` | `is(x, name: string) -> bool` | kind test; also answers a record name declared in this run (§7.8). An unknown name is an argument error, never `false` | `x.is("array")` |
 | `str` | `str(x) -> string` | §12.7 | `str(1) == "1"` |
 | `int` | `int(x) -> int` | §12.7, never raises | `"12abc".int == 12` |
 | `float` | `float(x) -> float` | §12.7 | `"1.5".float` |
@@ -1905,8 +2051,8 @@ Conventions used in the tables:
 | `dict` | `dict(x) -> dict` | from an Array of `[k,v]` pairs; Dict→itself | `[[1,2]].dict` |
 | `json` | `json(x) -> string` | compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8) | `{a: 1}.json` |
 | `inspect` | `inspect(x) -> string` | §12.7 | |
-| `hash` | `hash(x) -> int` | FNV-1a, stable across runs | |
-| `dup` | `dup(x) -> any` | shallow copy for Array/Dict, identity otherwise | |
+| `hash` | `hash(x) -> int` | FNV-1a over the **kind** and the inspect form, stable across runs. It is not the equality of §7.4: the rendered form separates `1` from `1.0` and two dicts built in different orders | |
+| `dup` | `dup(x) -> any` | shallow copy for Array/Dict, identity otherwise; a record's label survives the copy (§7.8) | |
 | `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | |
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `x.pipe { it * 2 }` |
 | `regex` | `regex(pattern: string, flags: string = "") -> regex` | compiles at runtime (cached) | `regex('\bменю', "i")` |
@@ -2432,6 +2578,7 @@ func (v Value) Str() string                  // str() semantics, never panics
 func (v Value) String() string               // == Str(); implements fmt.Stringer
 func (v Value) Inspect() string
 func (v Value) Len() int                     // 0 for scalars
+func (v Value) TypeName() string             // what type(x) returns: the kind, or the record's name (§7.8)
 func (v Value) Equal(o Value) bool           // §7.4 ==
 
 // Collections (nil-safe; no-ops / zero values off-kind)
@@ -3153,7 +3300,9 @@ Rules:
 * Warnings never fail a compile unless `StrictWarnings`. Current warnings:
   `\\b` in a regex (§11.5); an unused closure parameter; a closure literal — or an
   anonymous `fn` (§4.1) — in statement position whose value is discarded; `=` used where
-  `==` was likely meant (an assignment as the whole condition of an `if`).
+  `==` was likely meant (an assignment as the whole condition of an `if`); a `record` field
+  that shadows a stdlib method of the same name (§7.8) — the field wins on that shape, and
+  the warning names the prefix spelling that still reaches the method.
 
 ---
 
@@ -3172,6 +3321,7 @@ mzs/                       module "mzs", go 1.26, zero external requires
   ops.go                   arithmetic, comparison, match, truthiness
   errors.go                Error, Warning, sentinel errors, formatting
   builtins.go              global builtins (§12.1)
+  record.go                RecordType, the `record` constructor and the shape label (§7.8)
   str.go array.go dict.go num.go regexv.go time.go json.go  method tables (§12.1-12.10)
   http.go                  the http module: listener, routing, client (§12.11)
   host.go                  HostFunc, Ctx, Register, RegisterModule, SetGlobal
@@ -3187,7 +3337,7 @@ mzs/                       module "mzs", go 1.26, zero external requires
   engine/                  Engine, Bool, String, Value (§13.6)
   cmd/mzs/                 CLI (§15)
   testdata/                §16.3 author files, corpus JSON, golden token/AST dumps, fuzz seeds
-  examples/                thirty-three runnable programs, one per feature area (examples/README.md)
+  examples/                thirty-eight runnable programs, one per feature area (examples/README.md)
 ```
 
 Four independent implementers, four seams. Each seam is a package boundary with a frozen
@@ -3327,7 +3477,7 @@ arithmetic or ordering operator — and it covers corpus rows 14, 15 and 29.
 
 Reserved syntax — lexed or parsed as an error today so it can be added later without breaking
 anyone: `@ivar`, `@@cvar`, `class`, `module`, `yield`, `defer`,
-`<<`/`>>`, `<<~HEREDOC`, `|>`, `**kwargs`, `*splat` at a call site, string mutation.
+`<<`/`>>`, `|>`, `**kwargs`, `*splat` at a call site, string mutation.
 
 `import`, `require` and `use` are not reserved for a future feature: mzs has the feature and
 spells it `include` (§12.8), so each of them is an ordinary identifier that the parser
@@ -3341,6 +3491,17 @@ together with `*splat` at a call site and lands with it or not at all.
 and `shr` (§12.5), so nothing spends the lexeme. `&`, `|` and `^` are not reserved either —
 each is a diagnostic naming its function (§5.6), and that is where they will stay, because
 `&` beside `&&` is exactly what D16 exists to prevent.
+
+`<<~HEREDOC` is no longer reserved: it is §3.7's third string form, in one shape rather
+than the three most languages ship — `<<~TAG` with the common indentation shed, `<<~'TAG'`
+raw. It cost `<<` nothing, because `<<~` is three runes and is matched before the operator
+table (§3.9), so `a << b` is the two comparisons it always was.
+
+`class`, `module` and inheritance stay out for good, and the reason is now something a
+program can point at: `record` (§7.8) is the shape half of what a class was wanted for, and
+it is a label over a dict rather than a second object model. The half it leaves out —
+methods bound to a type — is what D18 already answers: a function over a shape is reached
+as `total(cart)` and as `cart.total`, and that is one namespace instead of two.
 
 The multi-statement `try` is no longer reserved: `try { … } else { … } ensure { … }` is
 §8.11, and it arrived the way that entry predicted — as sugar, with no grammar conflict,

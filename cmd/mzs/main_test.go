@@ -1044,6 +1044,9 @@ func TestIncomplete(t *testing.T) {
 		{"an interpolation is not an open brace", `"${x}"`, false},
 		{"a multi-line match", "match s {\n  in [\"да\"] -> 1", true},
 		{"a finished multi-line match", "match s {\n  in [\"да\"] -> 1\n  else -> 0\n}", false},
+		{"an open heredoc keeps reading", "s = <<~T\n  a", true},
+		{"a closed heredoc stops", "s = <<~T\n  a\nT", false},
+		{"a heredoc with no tag does not keep reading", "s = <<~", false},
 	}
 
 	for _, tt := range tests {

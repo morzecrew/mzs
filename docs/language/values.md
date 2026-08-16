@@ -5,7 +5,8 @@ indexing, insertion order, copying — that differ from most other languages.
 
 ## The kinds
 
-Nine kinds make up the value model; `type` reports three more.
+Nine kinds make up the value model; `type` reports three more, plus whatever names your own
+`record` declarations add ([#records](#records)).
 
 | `type(x)` | Literal | Notes |
 |---|---|---|
@@ -160,6 +161,77 @@ is(1.0, "int")      # false
 is(1..5, "array")   # true
 ```
 
+## Records
+
+`record` names a **shape** over the dict you already had. It is not a new kind and not a
+class: the value it builds is a dict, and `json`, `keys`, `dig`, `merge`, `==` and every
+other dict row go on meaning exactly what they meant.
+
+```
+record Money(amount, currency = "RUB")
+
+m = Money(1500, "USD")
+m.amount                # 1500 — a field, by name
+type(m)                 # "Money"
+m.is("dict")            # true — it never stopped being one
+m.is("Money")           # true
+m.json                  # {"amount":1500,"currency":"USD"}
+```
+
+A field list is a parameter list, so a call is an ordinary call
+([./functions.md](./functions.md)): a default is filled at each call, a field may be given
+by name, and a missing one is the arity error.
+
+```
+Money(700)                             # {"amount":700,"currency":"RUB"}
+Money(currency = "EUR", amount = 3)    # a field by name
+Money()                                # argument: Money expects 2 argument(s), got 0
+```
+
+The name is an ordinary binding holding the constructor — pass it, store it, call it
+through a variable — and it hoists like a `fn`, so a shape may be used above the line that
+declares it.
+
+**Matching on the shape.** A bare record name in a `match` arm asks whether the subject was
+built by that declaration ([./control-flow.md](./control-flow.md)):
+
+```
+fn describe(x) {
+  match x {
+    Money -> "${x.amount} ${x.currency}"
+    else  -> "a plain ${type(x)}"
+  }
+}
+```
+
+Identity belongs to the declaration, not to the spelling: two `record Money(…)` statements
+are two shapes.
+
+**The label is a label, not content.** Equality, `hash`, `json`, `keys` and iteration all
+see a plain dict, so a record and a hand-written dict with the same entries are equal.
+What carries it forward is the copy a record makes of itself:
+
+```
+Money(1500) == {amount: 1500, currency: "RUB"}   # true
+type(Money(1500).dup)                            # Money
+type(Money(1500).merge({amount: 900}))           # Money — the with-update
+type(Money(1500).filter { (k, _) -> k == "amount" })   # dict — it may no longer fit
+```
+
+A record is mutable like any dict: `m["amount"] = 2` writes it in place and the label
+survives.
+
+**Two things to know.** A field may be named after a stdlib method — `record Page(len, …)`
+— and on that shape the field wins, so `p.len` is the field and `len(p)` is still the entry
+count; the compiler warns once, at the declaration. And the `.field` spelling is resolved
+where the file compiles, so a shape declared in an **included module** is read with
+`m["field"]`; `type(m)` and `m.is("Money")` work there as they do anywhere, because they
+ride on the value.
+
+What a record deliberately is not: a class. No inheritance, no methods on the type, no
+`self`. Functions over a shape stay free functions and are reached both ways —
+`total(cart)` and `cart.total` are one thing ([./functions.md](./functions.md)).
+
 ## Copying
 
 Arrays and dicts are references; `dup` makes a **shallow** copy and is the identity for
@@ -179,3 +251,4 @@ Strings are immutable, so they never need copying.
 - [./strings.md](./strings.md) — literals, escapes, interpolation
 - [../stdlib/README.md](../stdlib/README.md) — the methods each kind answers
 - [`examples/01_values_and_operators.mzs`](../../examples/01_values_and_operators.mzs) — this page as a runnable table
+- [`examples/37_records.mzs`](../../examples/37_records.mzs) — records end to end

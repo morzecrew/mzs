@@ -152,6 +152,7 @@ Warnings print in the same format and never fail a compile (an embedder can set
 | `closure literal in statement position: its value is discarded` |
 | `anonymous 'fn' in statement position: its value is discarded` |
 | `'<name>' is already bound; the include replaces it` |
+| `record field 'len' shadows the method of that name: on a Page, '.len' reads the field — write len(m) for the method` |
 
 ```sh
 $ mzs -e '"food" ~ /\\bfood\\b/'

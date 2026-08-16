@@ -36,6 +36,8 @@ func Walk(n Node, f func(Node) bool) {
 	case *FnDecl:
 		walkParams(x.Params, f)
 		Walk(x.Body, f)
+	case *RecordDecl:
+		walkParams(x.Fields, f)
 	case *BlockStmt:
 		walkStmts(x.Stmts, f)
 	case *IfExpr:
@@ -168,6 +170,8 @@ func isNilNode(n Node) bool {
 	case *ExportDecl:
 		return x == nil
 	case *FnDecl:
+		return x == nil
+	case *RecordDecl:
 		return x == nil
 	case *BlockStmt:
 		return x == nil
@@ -316,6 +320,8 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		}
 		line(kind + " (" + paramsText(x.Params) + ")")
 		labeled("body:", x.Body)
+	case *RecordDecl:
+		line("RecordDecl " + x.Name + " (" + paramsText(x.Fields) + ")")
 	case *BlockStmt:
 		line("Block")
 		for _, s := range x.Stmts {

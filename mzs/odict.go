@@ -58,6 +58,14 @@ type OrderedDict struct {
 	// `keys` and every copy this dict makes of itself all ignore it, so a dict built by
 	// hand and one bound by a handler are the same value with the same behaviour.
 	src *Error
+
+	// rec is the record this dict was built by (§7.8), or nil for an ordinary dict. It
+	// is a label rather than an entry, so equality, hashing, JSON, `keys` and iteration
+	// all go on seeing a plain dict; `type(m)`, `m.field` and a `match Money ->` arm are
+	// the three questions that read it. Unlike src it survives Clone, because a copy of a
+	// Money with one field changed is still a Money — that is the `with`-update the
+	// shape exists for.
+	rec *RecordType
 }
 
 // NewOrderedDict returns an empty dict.
@@ -242,6 +250,7 @@ func (d *OrderedDict) Clone() *OrderedDict {
 		return NewOrderedDict()
 	}
 	out := NewOrderedDictCap(d.n)
+	out.rec = d.rec
 	d.Each(func(k, v Value) bool {
 		_ = out.Set(k, v)
 		return true

@@ -71,6 +71,17 @@ func init() {
 			}
 			yes, known := isKindName(args[0], name)
 			if !known {
+				// A shape declared in this Run is a type name too (§7.8), and it has to
+				// answer for values that are *not* it — otherwise filtering a mixed array
+				// by `it.is("Money")` would raise on the first element that is not one.
+				//
+				// It answers by **name**, which is the same question `type` answers, so
+				// the two can never disagree. Identity is a question only `match` can
+				// ask, because only there is the constructor itself in hand (§5.3).
+				if c.rs.sh.records[name] {
+					rt := args[0].recordType()
+					return Bool(rt != nil && rt.Name == name), nil
+				}
 				return Nil(), c.ArgErrorf("is: unknown type name %s", quoteString(name))
 			}
 			return Bool(yes), nil
@@ -105,7 +116,15 @@ func init() {
 			return Str(args[0].Inspect()), nil
 		}},
 		Builtin{Name: "hash", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
-			return Int(fnv1a(args[0].TypeName() + "\x00" + args[0].Inspect())), nil
+			// The kind and not `type`: a record's label is not part of equality (§7.4,
+			// §7.8), so it must not be part of this either, or `Money(1500, "RUB")` and
+			// the dict it is equal to would hash apart.
+			//
+			// That fixes the label and nothing else. This hash is the rendered form, so
+			// it still distinguishes things `==` does not — two dicts built in different
+			// orders, `1` and `1.0` — and it always has; the docs promise it is stable
+			// across runs and no more than that.
+			return Int(fnv1a(args[0].Kind().String() + "\x00" + args[0].Inspect())), nil
 		}},
 		Builtin{Name: "dup", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
 			return args[0].Clone(), nil

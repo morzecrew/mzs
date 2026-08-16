@@ -363,6 +363,30 @@ func TestREPLInterruptAbortsAContinuation(t *testing.T) {
 	}
 }
 
+// TestREPLHeredocIsTypedALineAtATime: a heredoc's body is the lines below its tag, so the
+// REPL has to keep asking for them. It does, because an unfinished body is the one thing
+// `incomplete` already looks for — a diagnostic with the word "unterminated" in it.
+func TestREPLHeredocIsTypedALineAtATime(t *testing.T) {
+	t.Parallel()
+
+	out, errOut, prompts := replRun(t, []string{"--repl"},
+		scriptedLine{line: "s = <<~T"},
+		scriptedLine{line: "  hello"},
+		scriptedLine{line: "T"},
+		scriptedLine{line: "s.trim.upper"},
+		scriptedLine{line: ":q"},
+	)
+	if !strings.Contains(out, "HELLO") {
+		t.Errorf("stdout = %q, want the heredoc to have been read", out)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want no diagnostic", errOut)
+	}
+	if len(prompts) < 3 || prompts[1] != "...> " || prompts[2] != "...> " {
+		t.Errorf("prompts = %q, want two continuation prompts for the body", prompts)
+	}
+}
+
 // TestREPLBlankLineStillReportsTheFragment is the other half of the rule above: aborting
 // with an empty line is a request for the error.
 func TestREPLBlankLineStillReportsTheFragment(t *testing.T) {

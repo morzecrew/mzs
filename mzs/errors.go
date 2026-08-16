@@ -459,6 +459,19 @@ func undefinedMethodError(k Kind, name string) *Error {
 	return nameErrorf("undefined method '%s' for %s", name, k)
 }
 
+// undefinedRecordMethodError is undefinedMethodError for a receiver that carries a shape
+// (§7.8): it names the record rather than the dict underneath it, and it puts the
+// record's own fields at the head of the candidate pool, because on a value with a shape
+// the likeliest miss is a mistyped field.
+func undefinedRecordMethodError(rt *RecordType, name string) *Error {
+	cands := append(append([]string(nil), rt.Fields...), MethodNames(KDict)...)
+	cands = append(cands, MethodNames(KAny)...)
+	if s := suggest(name, cands); s != "" {
+		return nameErrorf("undefined method '%s' for %s (did you mean '%s'?)", name, rt.Name, s)
+	}
+	return nameErrorf("undefined method '%s' for %s", name, rt.Name)
+}
+
 // undefinedFunctionError is the same idea for a call whose name is not a method of any
 // kind and not a function in scope — UFCS step 3 with the receiver's kind unknown
 // (§4.3), and a plain `f(1)` whose f does not exist.

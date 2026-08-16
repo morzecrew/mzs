@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mzs/internal/ast"
 )
 
 // The evaluator's contract with SPEC §8, driven through the real front end: a semantics
@@ -1092,6 +1094,220 @@ func TestStringInterpolation(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestHeredoc is §3.7's third string form evaluated: one shape, `<<~TAG`, whose body is
+// the lines below the tag with their common indentation shed.
+func TestHeredoc(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"the body is the lines below", "<<~T\n  a\n  b\nT\n", "a\nb\n"},
+		{"the common indent is shed", "<<~T\n    a\n      b\nT\n", "a\n  b\n"},
+		{"a blank line has no say in the indent", "<<~T\n\n  a\nT\n", "\na\n"},
+		{"the terminator may be indented with the body", "  <<~T\n    a\n    T\n", "a\n"},
+		{"an empty body is the empty string", "<<~T\nT\n", ""},
+		{"it interpolates like a double-quoted string", "n = 2\n<<~T\n  n=${n} $__sent\nT\n", "n=2 here\n"},
+		{"it takes the same escapes", "<<~T\n  a\\tb\nT\n", "a\tb\n"},
+		{"a quote is ordinary text", "<<~T\n  say \"hi\"\nT\n", "say \"hi\"\n"},
+		{"a hash is ordinary text", "<<~T\n  # not a comment\nT\n", "# not a comment\n"},
+		{"the raw form takes neither escapes nor interpolation", "<<~'T'\n  ${x} $y \\n\nT\n", "${x} $y \\n\n"},
+		{"a trailer applies to the string", "<<~T.trim.upper\n  hi\nT\n", "HI"},
+		{"the rest of the tag's line is read after the body",
+			"[<<~T, \"z\"].join(\"|\")\n  a\nT\n", "a\n|z"},
+		{"two on one line take their bodies in order",
+			"[<<~A, <<~B].join(\"\")\n  one\nA\n  two\nB\n", "one\ntwo\n"},
+		{"the statement after it is the next line of source",
+			"x = <<~T\n  a\nT\ny = \"${x}!\"\ny", "a\n!"},
+	}
+
+	in := evInterp()
+	vars := map[string]Value{"$__sent": Str("here")}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evOK(t, in, tt.src, vars).Str(); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRecords is §7.8: a `record` names a shape over the dict mzs already has, and the
+// label it adds answers three questions and takes nothing away.
+func TestRecords(t *testing.T) {
+	const decl = `record Money(amount, currency = "RUB")` + "\n"
+
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"a field is read with a dot", `Money(1500, "USD").amount`, "1500"},
+		{"a default fills the field it names", `Money(700).currency`, "RUB"},
+		{"type names the shape", `type(Money(1))`, "Money"},
+		{"it is still a dict", `Money(1).is("dict")`, "true"},
+		{"is answers the shape too", `Money(1).is("Money")`, "true"},
+		{"and answers false for a plain dict", `{amount: 1}.is("Money")`, "false"},
+		{"the entries are the fields, in order", `Money(1500, "USD").json`, `{"amount":1500,"currency":"USD"}`},
+		{"keys are the field names", `Money(1).keys.json`, `["amount","currency"]`},
+		{"a field may be given by name", `Money(currency = "EUR", amount = 3).json`,
+			`{"amount":3,"currency":"EUR"}`},
+		{"an index reads a field as well", `Money(1)["amount"]`, "1"},
+		{"a dict row still works", `Money(1).dig("amount")`, "1"},
+		{"equality ignores the label", `Money(1, "USD") == {amount: 1, currency: "USD"}`, "true"},
+		{"and so does hash, for the same reason",
+			`hash(Money(1, "USD")) == hash({amount: 1, currency: "USD"})`, "true"},
+		{"a match arm asks the shape", `match Money(9) { Money -> "money"; else -> "no" }`, "money"},
+		{"and does not fire on a plain dict",
+			`d = {amount: 9, currency: "RUB"}; match d { Money -> "money"; else -> "no" }`, "no"},
+		{"nor on anything else", `match 42 { Money -> "money"; else -> "no" }`, "no"},
+		{"dup keeps the shape", `type(Money(1).dup)`, "Money"},
+		{"merge keeps it too, which is the with-update",
+			`m = Money(1500); type(m.merge({amount: 2000})) + ":" + m.merge({amount: 2000}).amount.str`,
+			"Money:2000"},
+		{"filter drops it, because the shape may no longer hold",
+			`type(Money(1).filter { (k, _) -> k == "amount" })`, "dict"},
+		{"a set writes a field in place", `m = Money(1); m["amount"] = 2; "${type(m)}:${m.amount}"`, "Money:2"},
+		{"the constructor is an ordinary value", `f = Money; f(5).amount`, "5"},
+		{"a field may be destructured out", `a, c = [Money(1).amount, Money(1).currency]; "${a}${c}"`, "1RUB"},
+	}
+
+	prelude := decl + "first = Money(1)\n"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, evInterp(), prelude+tt.src); got != tt.want {
+				t.Errorf("%s = %q, want %q", tt.src, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRecordHoisting is §8.2 for shapes: a top-level `record` is bound before the first
+// statement runs, exactly as a named `fn` is, so the shape may be used above the line that
+// names it. What `export` wraps is not hoisted — the `export` statement is the one at the
+// top level — and that is true of `fn` too, which is what the second half pins.
+func TestRecordHoisting(t *testing.T) {
+	t.Parallel()
+
+	got := evStr(t, evInterp(), "first = Money(1)\nrecord Money(amount)\nfirst.amount")
+	if got != "1" {
+		t.Errorf("a use above the declaration = %q, want %q", got, "1")
+	}
+
+	for _, src := range []string{
+		"Money(1)\nexport record Money(amount)",
+		"f(1)\nexport fn f(x) { x }",
+	} {
+		e := evErr(t, evInterp(), src, nil)
+		if e.Kind != ErrKindName {
+			t.Errorf("%q raised %s: %s, want a name error: what `export` wraps is not hoisted",
+				src, e.Kind, e.Msg)
+		}
+	}
+}
+
+// TestRecordTypeIsOnePerDeclaration pins what a `match Money ->` arm rests on: one
+// declaration is one shape, however many times it is evaluated. Compile fills
+// ast.RecordDecl.Type for every program it produces, so the fallback below is reached
+// only by a tree that never went through the pass — and it has to hold the same promise,
+// because a declaration is evaluated twice (the hoist and the statement) and two
+// identities would make the arm stop firing on what the hoisted constructor built.
+func TestRecordTypeIsOnePerDeclaration(t *testing.T) {
+	t.Parallel()
+
+	rs := newRunState(evInterp(), context.Background(), "t", nil)
+	n := &ast.RecordDecl{Name: "Money", Fields: []ast.Param{{Name: "amount"}}}
+
+	first := rs.recordTypeFor(n)
+	if second := rs.recordTypeFor(n); second != first {
+		t.Fatalf("recordTypeFor gave two identities for one declaration: %p and %p", first, second)
+	}
+	if n.Type != nil {
+		t.Errorf("recordTypeFor wrote %v onto the node; a *Program is shared by concurrent Runs", n.Type)
+	}
+	// A second Run is a second fallback, which is harmless: nothing outlives a Run but
+	// the *Program, and that is the copy the compile pass filled.
+	other := newRunState(evInterp(), context.Background(), "t", nil)
+	if other.recordTypeFor(n) == first {
+		t.Errorf("two Runs shared a fallback identity; the table belongs to one Run")
+	}
+}
+
+// TestRecordTypeAndIsAgree is the rule that keeps the two spellings of "what shape is
+// this" from drifting: both ask by name, so a second declaration of one name — which
+// `match` can still tell apart, having the constructor in hand — cannot make a value stop
+// being what `type` calls it.
+func TestRecordTypeAndIsAgree(t *testing.T) {
+	t.Parallel()
+
+	const src = `
+record A(x)
+first = A(1)
+if true { record A(y) }
+"${type(first)} ${first.is("A")} ${type({x: 1})} ${{x: 1}.is("A")}"`
+
+	if got := evStr(t, evInterp(), src); got != "A true dict false" {
+		t.Errorf("= %q, want %q", got, "A true dict false")
+	}
+}
+
+// TestRecordDiagnostics pins what a shape refuses. Every one of them is the diagnostic
+// the same mistake already had somewhere else: a record's constructor is bound by the
+// parameter rules of §8.7, so there is no second set to learn.
+func TestRecordDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		kind string
+		msg  string
+	}{
+		{"a missing field is the arity error", `record M(a, b)` + "\n" + `M(1)`,
+			ErrKindArgument, "M expects 2 argument(s), got 1"},
+		{"a name that is not a field", `record M(a, b)` + "\n" + `M(1, c = 2)`,
+			ErrKindArgument, "M has no parameter named 'c'; it takes 'a' and 'b'"},
+		{"a misspelled field names the shape", `record M(amount)` + "\n" + `M(1).amont`,
+			ErrKindName, "undefined method 'amont'; did you mean 'amount'?"},
+		{"a field takes no arguments", `record M(amount)` + "\n" + `M(1).amount(2)`,
+			ErrKindArgument, "'amount' is a field of M, so it takes no arguments, got 1"},
+		{"an undeclared shape is not a type name", `record M(a)` + "\n" + `M(1).is("Nope")`,
+			ErrKindArgument, `is: unknown type name "Nope"`},
+		{"another shape's field is not this one's", "record A(alpha)\nrecord B(beta)\nA(1).beta",
+			ErrKindName, "undefined method 'beta' for A"},
+		{"and a near miss is still suggested", "record A(amount)\nrecord B(amounts)\nA(1).amounts",
+			ErrKindName, "undefined method 'amounts' for A (did you mean 'amount'?)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := evErr(t, evInterp(), tt.src, nil)
+			if e.Kind != tt.kind || e.Msg != tt.msg {
+				t.Errorf("error = %s: %s, want %s: %s", e.Kind, e.Msg, tt.kind, tt.msg)
+			}
+		})
+	}
+}
+
+// TestRecordFieldShadowsAMethod is the one collision a shape can have with the standard
+// library, and §17's answer to it: the field wins on that shape — that is what naming a
+// shape is for — the warning says so once, and the operation is still there under the
+// prefix spelling UFCS gives every row (D18).
+func TestRecordFieldShadowsAMethod(t *testing.T) {
+	in := evInterp()
+	src := "record Row(len, name)\nr = Row(3, \"x\")\n\"${r.len}:${len(r)}\""
+	if got := evStr(t, in, src); got != "3:2" {
+		t.Errorf("= %q, want %q", got, "3:2")
+	}
+	prog, err := in.Compile("t", src)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	want := "record field 'len' shadows the method of that name: on a Row, '.len' reads the field — write len(m) for the method"
+	warns := prog.Warnings()
+	if len(warns) != 1 || warns[0].Msg != want {
+		t.Fatalf("warnings = %v, want one saying %q", warns, want)
 	}
 }
 

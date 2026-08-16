@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"mzs/internal/ast"
 	"mzs/internal/token"
 )
 
@@ -70,6 +71,20 @@ type runShared struct {
 	// string, not one string and one empty.
 	stdin     string
 	stdinRead bool
+
+	// records is every shape *name* a `record` declaration has used in this Run (§7.8).
+	// It answers one question — `x.is("Money")`, which has to tell a name nobody
+	// declared from one this value simply is not — and a name is all that takes, because
+	// `is` answers exactly what `type` answers. It is here for the same reason stdin is:
+	// a task runs on a *copy* of runState, so a declaration inside one must land in the
+	// half the whole Run shares. It is created on the first declaration and stays nil in
+	// the Runs that declare none, which is the common case and pays nothing.
+	records map[string]bool
+
+	// fallbackRecords gives one identity to a declaration the compile pass never saw, so
+	// that the hoist and the declaration itself agree on it. It stays nil for every
+	// program Compile produced, which fills ast.RecordDecl.Type for all of them.
+	fallbackRecords map[*ast.RecordDecl]*RecordType
 }
 
 // task is what an async call returns: a goroutine, the value it will produce, and the

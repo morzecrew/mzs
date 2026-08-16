@@ -7,7 +7,7 @@ it can be added later without breaking anyone.
 
 | Missing | What there is instead |
 |---|---|
-| classes, user-defined types, mixins | dicts, and `fn` called method-style through UFCS |
+| classes, inheritance, mixins | `record` for the shape ([values](../language/values.md#records)), and `fn` called method-style through UFCS for the behaviour |
 | `method_missing`, metaclasses, reflection | nothing |
 | operator overloading, macros | nothing |
 | string mutation | strings are immutable values — build a new one |
@@ -33,7 +33,6 @@ Each of these is a diagnostic today so that the lexeme is free later.
 | `class Foo { }` | `syntax: unexpected 'Foo' after statement` |
 | `yield 1` | `syntax: unexpected 1 after statement` |
 | `1 << 3` | `syntax: unexpected '<'` — the shifts are `shl` / `shr` |
-| `x = <<~TEXT` | `syntax: unexpected '<'` |
 | `x \|> f` | `syntax: '\|' is not an mzs operator; use bor(a, b), or '\|\|' for logical or` |
 | `fn f(**kw) { }` | `syntax: expected a parameter name, found '**'` |
 | `f(*xs)` | `syntax: unexpected '*'` |
@@ -43,14 +42,10 @@ Each of these is a diagnostic today so that the lexeme is free later.
 The destructuring rest element arrives together with `*splat` at a call site, or not at all.
 Plain destructuring is not reserved — see [destructuring](../language/destructuring.md).
 
-Multi-statement `try { … } else { … }` is reserved as future sugar, and today it is not an
-error at all, because `{ … }` is a closure literal:
-
-```
-try { 1 } else { 2 }      # #<fn> — the closure itself, not 1
-```
-
-Grouping in a `try` is `( … ; … )`.
+Two entries have left this table since the first draft. `try { … } else { … } ensure { … }`
+is the braced form of [errors](../language/errors.md), and `<<~TEXT` is the heredoc of
+[strings](../language/strings.md#heredoc) — which costs `<<` nothing, since `<<~` is three
+runes matched before the operator table and `1 << 3` is still the diagnostic above.
 
 ## One semantics
 

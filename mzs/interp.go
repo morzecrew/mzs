@@ -73,11 +73,20 @@ func (in *Interp) Compile(name, src string) (p *Program, err error) {
 // mutating the tree here is safe; nothing mutates it afterwards.
 func (in *Interp) compilePass(name string, file *ast.Program) ([]Warning, error) {
 	c := &compiler{in: in, file: name}
+	c.collectFields(file)
 	c.push()
-	// Top-level `fn`s are hoisted, so a call may appear above its declaration (§8.2).
+	// Top-level `fn`s and `record`s are hoisted, so a call may appear above its
+	// declaration (§8.2, §7.8).
 	for _, s := range file.Stmts {
-		if d, ok := s.(*ast.FnDecl); ok && d.Name != "" {
-			c.declare(d.Name)
+		switch d := s.(type) {
+		case *ast.FnDecl:
+			if d.Name != "" {
+				c.declare(d.Name)
+			}
+		case *ast.RecordDecl:
+			if d.Name != "" {
+				c.declare(d.Name)
+			}
 		}
 	}
 	c.stmts(file.Stmts)
@@ -119,7 +128,36 @@ type compiler struct {
 	warns []Warning
 	errs  []error
 	pool  []string // method and function names, built only to make a suggestion
+
+	// fields is every name any `record` in this unit declares (§7.8). A receiver's shape
+	// is no more known statically than its kind is, so `m.amount` survives step 2 the way
+	// a real method name does and the dispatch happens where the value is. It is
+	// collected before the walk, because a field may be read above the declaration that
+	// names it — inside a function, or simply further up the file.
+	fields map[string]bool
 }
+
+// collectFields gathers the record field names of the whole unit. Scope does not come
+// into it: the set answers "could any receiver answer this name", which is the same
+// question methodAnyKind answers for the stdlib (§6.3 step 2).
+func (c *compiler) collectFields(file *ast.Program) {
+	ast.Walk(file, func(n ast.Node) bool {
+		d, ok := n.(*ast.RecordDecl)
+		if !ok {
+			return true
+		}
+		if c.fields == nil {
+			c.fields = map[string]bool{}
+		}
+		for _, f := range d.Fields {
+			c.fields[f.Name] = true
+		}
+		return true
+	})
+}
+
+// recordField reports whether name is a field of some record declared in this unit.
+func (c *compiler) recordField(name string) bool { return c.fields[name] }
 
 func (c *compiler) push() {
 	c.scope = &cscope{parent: c.scope, names: map[string]bool{}, used: map[string]bool{}, mods: map[string]bool{}}
@@ -294,6 +332,9 @@ func (c *compiler) stmt(s ast.Stmt) ast.Stmt {
 		}
 		c.funcScope(n.Params, n.Body, false)
 		return n
+	case *ast.RecordDecl:
+		c.record(n)
+		return n
 	case *ast.BlockStmt:
 		c.block(n)
 		return n
@@ -342,6 +383,35 @@ func (c *compiler) funcScope(params []ast.Param, body *ast.BlockStmt, warnUnused
 		}
 	}
 	c.pop()
+}
+
+// record compiles a `record` declaration (§7.8). The name becomes an ordinary binding —
+// the constructor is a function value like any other — and the field defaults are
+// compiled in a scope holding the fields, exactly as a `fn`'s are, so a later default may
+// read an earlier field.
+//
+// The *RecordType is built here rather than at run time so that identity belongs to the
+// declaration: a `match Money ->` arm asks which shape a value has, and two Runs of one
+// *Program must agree on the answer.
+func (c *compiler) record(n *ast.RecordDecl) {
+	if n.Name == "" {
+		return
+	}
+	if !c.known(n.Name) {
+		c.declare(n.Name)
+	}
+	c.funcScope(n.Fields, nil, false)
+	n.Type = newRecordType(n)
+	for _, f := range n.Fields {
+		if methodExists(f.Name) {
+			// §17: the field wins on this shape, which is what the shape is for — but
+			// `m.len` then reads the field and not the count, and that is worth saying
+			// once, here, rather than leaving it to be discovered.
+			c.warnAt(f.NamePos,
+				"record field '%s' shadows the method of that name: on a %s, '.%s' reads the field — write %s(m) for the method",
+				f.Name, n.Name, f.Name, f.Name)
+		}
+	}
 }
 
 // itName is the parameter a bare `{ … }` gets (§8.9). It is synthesised rather than
@@ -777,9 +847,13 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 	for i := range n.Named {
 		n.Named[i].Value = c.expr(n.Named[i].Value)
 	}
-	if module || c.hasMethod(n.Name) {
-		// A module member and a real method are both resolved by the receiver's value,
-		// so the dispatch stays where it belongs, at run time.
+	if module || c.hasMethod(n.Name) || c.recordField(n.Name) {
+		// A module member, a real method and a record's field are all resolved by the
+		// receiver's value, so the dispatch stays where it belongs, at run time. The
+		// field is tested before the UFCS rewrite below on purpose: where a record's
+		// field and a function share a name, `m.total` must reach the field and `x.total`
+		// on anything else must still reach the function, and only the value can say
+		// which (§7.8).
 		return n
 	}
 	if (c.known(n.Name) && !c.knownModule(n.Name)) || c.hasFunc(n.Name) {
@@ -814,6 +888,11 @@ func (c *compiler) undefinedMethod(name string, pos token.Pos) {
 		}
 		c.pool = append(c.pool, BuiltinNames()...)
 		c.pool = append(c.pool, c.visible()...)
+		for f := range c.fields {
+			// A record's field is reached with a '.' like a method (§7.8), so a mistyped
+			// one is this diagnostic and its fix belongs in this pool.
+			c.pool = append(c.pool, f)
+		}
 	}
 	if s := suggest(name, c.pool); s != "" {
 		c.errorf(pos, "undefined method '%s'; did you mean '%s'?", name, s)

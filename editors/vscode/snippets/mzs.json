@@ -23,6 +23,21 @@
     "body": "export ${1:name} = ${2:value}",
     "description": "A value the module exports"
   },
+  "record": {
+    "prefix": "record",
+    "body": "record ${1:Money}(${2:amount}, ${3:currency} = ${4:\"RUB\"})",
+    "description": "Declare a record: a name for a shape over a dict (§7.8)"
+  },
+  "export a record": {
+    "prefix": "exrec",
+    "body": "export record ${1:Money}(${2:amount}, ${3:currency})",
+    "description": "Export a record from a module (§7.8, §12.8)"
+  },
+  "match on a record": {
+    "prefix": "matchrec",
+    "body": "match ${1:x} {\n  ${2:Money} -> ${3:\"money\"}\n  else  -> ${4:\"other\"}\n}",
+    "description": "Dispatch on a record's shape (§5.3, §7.8)"
+  },
   "function": {
     "prefix": "fn",
     "body": [
@@ -57,6 +72,16 @@
     "prefix": "cl",
     "body": "{ (${1:x}) -> $0 }",
     "description": "A closure with parameters"
+  },
+  "heredoc": {
+    "prefix": "heredoc",
+    "body": "<<~${1:TEXT}\n  $0\n${1:TEXT}",
+    "description": "A heredoc: the lines below, with the common indent shed (§3.7)"
+  },
+  "heredoc raw": {
+    "prefix": "heredocraw",
+    "body": "<<~'${1:TEXT}'\n  $0\n${1:TEXT}",
+    "description": "A raw heredoc: no escapes and no interpolation (§3.7)"
   },
   "if": {
     "prefix": "if",

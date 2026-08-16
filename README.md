@@ -81,6 +81,11 @@ m  = {1 -> "A", 2.5 -> "B", nil -> "C"}           # `->` for a key that is not a
 f  = { (x) -> x * 2 }                             # closure
 g  = fn(a, b) { a + b }                           # anonymous fn: a function value
 h  = (a, b) -> { a + b }                          # …the same function, arrow-spelled
+
+t  = <<~TEXT                                      # heredoc: the lines below, dedented
+       dear ${name},                              # `<<~'TEXT'` for the raw form
+       your table is ready.
+     TEXT
 ```
 
 ```
@@ -105,6 +110,9 @@ fn sum_all(*nums) { nums.sum }
 xs.map { it * 2 }                                 # `it` when you name no parameter
 a, b = [b, a]                                     # destructuring: a swap needs no temporary
 
+record Money(amount, currency = "RUB")            # a name for a shape, still a dict
+m = Money(1500); m.amount; type(m) == "Money"     # fields by name, and a type to match on
+
 v = try json.parse(s) else {}                     # an error is a value you decide about
 try { take() } ensure { release() }               # the ensure runs on every way out
 try f() else (e) { match e["kind"] { "json" -> …; else -> raise(e) } }   # kinds, not prose
@@ -118,6 +126,8 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | | Example | Docs |
 |---|---|---|
 | **Text and Unicode** | `"  ПРИВЕТ ".lower.trim.capitalize` → `Привет` | [strings](docs/stdlib/strings.md) |
+| **Multi-line templates** | `<<~SQL` … `SQL` — dedented, interpolated, or raw with `<<~'SQL'` | [strings](docs/language/strings.md) |
+| **Shapes of your own** | `record Money(amount, currency)` — `m.amount`, `type(m)`, `match m { Money -> … }` | [values](docs/language/values.md) |
 | **Regex, two engines** | `"нужна CRM" ~ /\bcrm\b/i` — Unicode `\b`, rune indices, lookahead | [regex](docs/language/regex.md) |
 | **Collections** | `xs.group_by { it["k"] }.map { … }.sort_by { -it["n"] }` | [arrays](docs/stdlib/arrays.md) · [dicts](docs/stdlib/dicts.md) |
 | **JSON both ways** | `json.parse(s).dig("a", 1)` · `x.json` | [json](docs/modules/json.md) |
@@ -192,7 +202,7 @@ boundary: a script cannot bring its host down.
 | Reference | [sandbox and limits](docs/reference/sandbox.md) · [limitations](docs/reference/limitations.md) · [verification](docs/reference/verification.md) |
 
 The normative description is [`SPEC.md`](SPEC.md); the runnable one is
-[`examples/`](examples/README.md) — 34 programs, from the value model to a maze solver, an HTTP
+[`examples/`](examples/README.md) — 38 programs, from the value model to a maze solver, an HTTP
 service and `async fn`.
 
 ## Verification
