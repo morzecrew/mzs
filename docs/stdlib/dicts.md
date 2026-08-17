@@ -72,6 +72,10 @@ d = {a: 1}; d.merge_in_place({b: 2}); d   # {"a":1,"b":2}
 
 A key that already exists keeps its position when merged over; a new key is appended.
 
+`a + b` is the same merge with an operator ([../language/operators.md](../language/operators.md)),
+except between two `record` values, where it is an error rather than a silent "the right
+side wins" ([../language/values.md](../language/values.md#records)).
+
 ## Iteration
 
 Every closure below receives the key and the value as two arguments; a one-parameter

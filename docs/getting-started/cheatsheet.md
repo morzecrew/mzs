@@ -68,6 +68,10 @@ $ mzs -e 'include json; json.pretty({a: 1})'
 | `popcount(255)` | `8` |
 | `(1..5).reduce(1) { (a, x) -> a * x }` | `120` |
 | `include math; math.sqrt(2)` | `1.4142135623730951` |
+| `0.1 + 0.2` | `0.30000000000000004` — floats are binary |
+| `include decimal; decimal.str(decimal.plus(decimal.of("0.1"), decimal.of("0.2")))` | `0.3` |
+| `include decimal; decimal.str(decimal.of("1500.3"), 2)` | `1500.30` |
+| `include decimal; decimal.split(decimal.of("10"), 3, 2).map { decimal.str(it, 2) }` | `["3.34","3.33","3.33"]` |
 
 ## Regex
 

@@ -40,6 +40,7 @@ const (
 	ErrKindZeroDiv  = "zero-division"
 	ErrKindRegex    = "regex"
 	ErrKindJSON     = "json"
+	ErrKindDecimal  = "decimal"
 	ErrKindHTTP     = "http"
 	ErrKindIO       = "io"
 	ErrKindRaise    = "raise"

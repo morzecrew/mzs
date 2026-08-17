@@ -76,6 +76,9 @@ func (e ev) add(a, b Value) (Value, error) {
 		if b.Kind() != KDict {
 			return Nil(), typeErrorf("cannot add %s to dict", b.Kind())
 		}
+		if err := recordAddError(a, b); err != nil {
+			return Nil(), err
+		}
 		d := a.odict().Clone()
 		d.Merge(b.odict())
 		return dictOf(d), nil

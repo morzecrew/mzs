@@ -60,6 +60,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/time.md](./modules/time.md) | The clock capability, the `time` kind, parsing, `strftime`, duration arithmetic |
 | [modules/io.md](./modules/io.md) | The eight io members — stdin, files, env — the filesystem a host must supply, and streaming a file that does not fit |
 | [modules/http.md](./modules/http.md) | The server whose routes are closures, and the client whose answers are dicts |
+| [modules/decimal.md](./modules/decimal.md) | Exact base-ten money: why a float is not one, the fourteen members, and the `+` that refuses |
 | [modules/custom.md](./modules/custom.md) | `include … from`, `export`, and how a path resolves |
 
 ## Embedding in Go
@@ -83,4 +84,4 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 ## See also
 
 * [../SPEC.md](../SPEC.md) — the normative specification; where it and these pages disagree, it wins
-* [../examples/README.md](../examples/README.md) — 40 example programs, in order of difficulty
+* [../examples/README.md](../examples/README.md) — 41 example programs, in order of difficulty

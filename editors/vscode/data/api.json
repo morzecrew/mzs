@@ -1599,6 +1599,78 @@
     "ex": ""
    }
   },
+  "decimal": {
+   "abs": {
+    "sig": "`(a) -> decimal`",
+    "sem": "",
+    "ex": ""
+   },
+   "cmp": {
+    "sig": "`(a, b) -> int`",
+    "sem": "`-1`, `0`, `1` — the `<=>` a dict does not have",
+    "ex": ""
+   },
+   "div": {
+    "sig": "`(a, b, places: int = nil, mode: string = \"half_up\") -> decimal`",
+    "sem": "`/`; **exact or an error** without `places`",
+    "ex": ""
+   },
+   "float": {
+    "sig": "`(a) -> float`",
+    "sem": "the way out, lossy and saying so",
+    "ex": ""
+   },
+   "int": {
+    "sig": "`(a) -> int`",
+    "sem": "truncates toward zero, as `.int` does to a Float (§12.7)",
+    "ex": ""
+   },
+   "minus": {
+    "sig": "`(a, b) -> decimal`",
+    "sem": "`-`; exact",
+    "ex": ""
+   },
+   "neg": {
+    "sig": "`(a) -> decimal`",
+    "sem": "",
+    "ex": ""
+   },
+   "of": {
+    "sig": "`(x: string | int | decimal) -> decimal`",
+    "sem": "the one way in; a Float is a **type error** naming the fix",
+    "ex": ""
+   },
+   "plus": {
+    "sig": "`(a, b, *rest) -> decimal`",
+    "sem": "`+`; exact",
+    "ex": ""
+   },
+   "round": {
+    "sig": "`(a, places: int, mode: string = \"half_up\") -> decimal`",
+    "sem": "`places` may be negative, as in §12.5",
+    "ex": ""
+   },
+   "split": {
+    "sig": "`(a, ways: int, places: int) -> array`",
+    "sem": "`ways` parts at `places` places that add back up to `a`",
+    "ex": ""
+   },
+   "str": {
+    "sig": "`(a, places: int = nil) -> string`",
+    "sem": "canonical, or padded and rounded to exactly `places`",
+    "ex": ""
+   },
+   "sum": {
+    "sig": "`(xs: array) -> decimal`",
+    "sem": "exact total; `[]` is `0`",
+    "ex": ""
+   },
+   "times": {
+    "sig": "`(a, b, *rest) -> decimal`",
+    "sem": "`*`; the places add",
+    "ex": ""
+   }
+  },
   "http": {
    "get": {
     "sig": "`(url: string, opts: dict = {}) -> dict`",
@@ -1787,6 +1859,7 @@
  },
  "gates": {
   "date": "--time",
+  "decimal": "",
   "http": "",
   "io": "",
   "json": "",

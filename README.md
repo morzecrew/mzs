@@ -132,6 +132,7 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | **Collections** | `xs.group_by { it["k"] }.map { … }.sort_by { -it["n"] }` · `a.union(b)`, `a.to_set` | [arrays](docs/stdlib/arrays.md) · [dicts](docs/stdlib/dicts.md) |
 | **Input that does not fit** | `(1..1e9).seq.filter { … }.take(3).array` — pulled, never materialised | [sequences](docs/stdlib/sequences.md) |
 | **JSON both ways** | `json.parse(s).dig("a", 1)` · `x.json` | [json](docs/modules/json.md) |
+| **Money that adds up** | `decimal.str(decimal.plus(decimal.of("0.1"), decimal.of("0.2")))` → `0.3` | [decimal](docs/modules/decimal.md) |
 | **Files, stdin, env** | `io.lines.filter { it ~ /ERROR/ }.len` — a line at a time, so a 15 MB log is fine | [io](docs/modules/io.md) |
 | **HTTP client and server** | `http.serve(":8080", {"GET /hi/{name}": { (req) -> req["params"]["name"] }})` | [http](docs/modules/http.md) |
 | **Concurrency** | `urls.map { fetch(it) }.map { it.await }` | [async](docs/language/async.md) |

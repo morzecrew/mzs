@@ -1,13 +1,23 @@
 {
   "include a built-in module": {
     "prefix": "inc",
-    "body": "include ${1|json,math,time,date,http|}",
+    "body": "include ${1|json,math,time,date,http,io,decimal|}",
     "description": "Include a built-in module (§12.8)"
   },
   "include a script module": {
     "prefix": "incfrom",
     "body": "include ${1:lib} from \"./${2:lib}.mzs\"",
     "description": "Include a neighbouring .mzs"
+  },
+  "exact money": {
+    "prefix": "dec",
+    "body": [
+      "include decimal",
+      "",
+      "${1:price} = decimal.of(\"${2:1500.35}\")",
+      "decimal.str(${1:price}, ${3:2})"
+    ],
+    "description": "An exact decimal, and the string it prints as (§12.15)"
   },
   "export a function": {
     "prefix": "expfn",
