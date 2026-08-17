@@ -3,6 +3,7 @@ package mzs
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // SPEC §12.15, driven through the front end: a decimal is a value the language already
@@ -509,6 +510,33 @@ decimal.times(decimal.of("9223372036854775807"), decimal.of(10))`, nil)
 		}
 		if len(e.Msg) > 200 {
 			t.Errorf("message is %d bytes; a diagnostic quotes back a person-sized excerpt", len(e.Msg))
+		}
+	})
+
+	t.Run("and so is every other long text, whatever it is", func(t *testing.T) {
+		// Not only the digits: a diagnostic quotes its input back, and the input may be
+		// megabytes of anything at all.
+		for _, src := range []string{
+			`include decimal; decimal.of("x" * 2_000_000)`,
+			`include decimal; decimal.of("0." + "9" * 2_000_000)`,
+		} {
+			e := evErr(t, in, src, nil)
+			if e.Kind != ErrKindDecimal {
+				t.Errorf("%s kind = %q; want %q (%s)", src, e.Kind, ErrKindDecimal, e.Msg)
+			}
+			if len(e.Msg) > 200 {
+				t.Errorf("%s message is %d bytes; want a person-sized excerpt", src, len(e.Msg))
+			}
+		}
+	})
+
+	t.Run("an excerpt is cut on a rune boundary", func(t *testing.T) {
+		e := evErr(t, in, `include decimal; decimal.of("é" * 60)`, nil)
+		if !utf8.ValidString(e.Msg) {
+			t.Errorf("message is not valid UTF-8: %q", e.Msg)
+		}
+		if !strings.Contains(e.Msg, strings.Repeat("é", 24)+"…") {
+			t.Errorf("message = %q; want 24 runes and an ellipsis", e.Msg)
 		}
 	})
 

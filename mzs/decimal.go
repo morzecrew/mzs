@@ -313,10 +313,14 @@ func decFloatText(f float64) string { return strconv.FormatFloat(f, 'g', -1, 64)
 // mean the reader guessed, and guessing is what this module is for avoiding.
 func decParse(c *Ctx, text string) (decNum, error) {
 	s := strings.TrimSpace(text)
+	// Everything a diagnostic quotes back goes through decEllipsis: the text may be as
+	// long as a string is allowed to be (§14.2), and an eight-megabyte error message is
+	// not a message.
+	shown := quoteString(decEllipsis(s))
 	bad := func() (decNum, error) {
 		return decNum{}, c.ErrorfKind(ErrKindDecimal,
 			"%s: cannot read %s as a decimal (digits, one dot and an optional sign — %s)",
-			c.Name(), quoteString(text), quoteString("1500.35"))
+			c.Name(), shown, quoteString("1500.35"))
 	}
 	neg := false
 	if len(s) > 0 && (s[0] == '+' || s[0] == '-') {
@@ -333,7 +337,7 @@ func decParse(c *Ctx, text string) (decNum, error) {
 	if len(fracPart) > maxDecScale {
 		return decNum{}, c.ErrorfKind(ErrKindDecimal,
 			"%s: %s has %d decimal places and a decimal holds %d",
-			c.Name(), quoteString(text), len(fracPart), maxDecScale)
+			c.Name(), shown, len(fracPart), maxDecScale)
 	}
 	// Leading zeros are free; significant digits are not, and the count is checked
 	// *before* anything is converted. A decimal that cannot fit is an error either way,
@@ -344,7 +348,7 @@ func decParse(c *Ctx, text string) (decNum, error) {
 	if len(whole) > maxDecDigits {
 		return decNum{}, c.ErrorfKind(ErrKindDecimal,
 			"%s: %s has %d digits before the dot and a decimal holds %d (the digits live in an int, so |units| < 2**63)",
-			c.Name(), quoteString(decEllipsis(s)), len(whole), maxDecDigits)
+			c.Name(), shown, len(whole), maxDecDigits)
 	}
 	u, ok := new(big.Int).SetString("0"+whole+fracPart, 10)
 	if !ok {
@@ -358,12 +362,21 @@ func decParse(c *Ctx, text string) (decNum, error) {
 
 // decEllipsis shortens what a diagnostic quotes back. The text a script hands to `of` may
 // be as long as a string is allowed to be (§14.2), and a diagnostic is read by a person.
+// It cuts on a rune boundary, because everything else in this language counts runes
+// (§3.1) and half a character in an error message is a second bug to read past.
 func decEllipsis(s string) string {
 	const show = 24
 	if len(s) <= show {
 		return s
 	}
-	return s[:show] + "…"
+	n := 0
+	for i := range s {
+		if n == show {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
 }
 
 // decDigits reports whether s is ASCII digits only. An empty part is allowed — ".5" and
