@@ -70,6 +70,17 @@ and `%` on a string is `format`:
 "%s has %d" % ["a", 2] # a has 2  format
 ```
 
+Two **record** values are the one pair of dicts `+` refuses, because merging them would
+answer with the right-hand one and call it a sum
+([values](./values.md#records)):
+
+```
+record Money(amount)
+Money(2) + Money(3)
+# type: cannot add Money to Money: '+' merges dicts, so this is the right-hand value and
+# not a sum; overwrite fields with 'merge'
+```
+
 ## No implicit conversion
 
 ```

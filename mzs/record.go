@@ -164,3 +164,28 @@ func (e ev) evalRecordDecl(n *ast.RecordDecl) (Value, error) {
 	}
 	return v, nil
 }
+
+// recordAddError is the one pair of dicts `+` refuses (§8.3). `+` on dicts is `merge`,
+// and merge keeps the right-hand value of every key both sides carry — which between two
+// dicts of one *shape* is every key, so `a + b` is `b`, silently and always. On a
+// hand-written dict that is a legible answer to a legible question ("these two dicts,
+// combined"); on two values of one shape it is never what the line meant, and the shapes
+// are exactly the values a program adds: `price + vat`, `Money(…) + Money(…)`.
+//
+// So the rule is narrow and reads off the label alone: **both** sides labelled is an
+// error, one side labelled is still the with-update the label exists for
+// (`m + {amount: 2}`), and everything else is the merge it always was. A shape that has
+// an addition of its own says so in the message, because that is the line the author was
+// reaching for (§17).
+func recordAddError(a, b Value) error {
+	ra, rb := a.recordType(), b.recordType()
+	if ra == nil || rb == nil {
+		return nil
+	}
+	hint := "overwrite fields with 'merge'"
+	if ra == decShape && rb == decShape {
+		hint = "add two decimals with 'decimal.plus' (§12.15), and overwrite fields with 'merge'"
+	}
+	return typeErrorf("cannot add %s to %s: '+' merges dicts, so this is the right-hand value and not a sum; %s",
+		rb.Name, ra.Name, hint)
+}

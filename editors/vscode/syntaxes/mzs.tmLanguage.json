@@ -261,7 +261,7 @@
 
     "module": {
       "comment": "The built-in modules of §12.8, highlighted where they are used as one. They still need an include; the extension's diagnostics say so if it is missing.",
-      "match": "\\b(json|math|time|date|http)\\b(?=\\s*\\.)",
+      "match": "\\b(json|math|time|date|http|io|decimal)\\b(?=\\s*\\.)",
       "name": "entity.name.namespace.mzs"
     },
 

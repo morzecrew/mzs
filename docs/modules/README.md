@@ -88,6 +88,7 @@ A module of your own has no function half, so the message stops at the rule:
 | `time` | `now parse at` | `EnableTime`; `Now` for `time.now` — `mzs --time` |
 | `date` | `today parse` | `EnableTime`; `Now` for `date.today` — `mzs --time` |
 | `io` | `stdin lines read write append exists ls env` | `Options.FS` — the CLI installs one, `--no-io` takes it back |
+| `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | none |
 
 A module the host did not enable is absent, and the diagnostic names the option instead of
 the symptom:
@@ -111,6 +112,7 @@ A host adds modules of its own with `RegisterModule` and removes built-ins with
 ## See also
 
 - [./json.md](./json.md) — parsing and encoding JSON
+- [./decimal.md](./decimal.md) — exact numbers for money
 - [./custom.md](./custom.md) — `include … from` and `export`
 - [./time.md](./time.md) — the clock-gated modules
 - [../reference/sandbox.md](../reference/sandbox.md) — the capabilities behind the gates

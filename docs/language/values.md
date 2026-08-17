@@ -228,6 +228,20 @@ type(Money(1500).filter { (k, _) -> k == "amount" })   # dict — it may no long
 A record is mutable like any dict: `m["amount"] = 2` writes it in place and the label
 survives.
 
+**Two shapes do not add.** `+` on dicts is `merge`, and merging two values of one shape
+keeps the right-hand one of every field — a wrong answer with nothing to see. So `+`
+between two labelled dicts is an error, and everything else is untouched:
+
+```
+record Money(amount, currency = "RUB")
+Money(1500) + Money(200)
+# type: cannot add Money to Money: '+' merges dicts, so this is the right-hand value and
+# not a sum; overwrite fields with 'merge'
+
+Money(1500) + {currency: "USD"}     # {"amount":1500,"currency":"USD"} — the with-update
+Money(1500).merge(Money(200))       # still merges: it was asked to
+```
+
 **Two things to know.** A field may be named after a stdlib method — `record Page(len, …)`
 — and on that shape the field wins, so `p.len` is the field and `len(p)` is still the entry
 count; the compiler warns once, at the declaration. And the `.field` spelling is resolved

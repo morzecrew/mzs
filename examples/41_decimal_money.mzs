@@ -1,0 +1,183 @@
+# 41 — decimal: exact money, and the float that never was.
+#
+#   mzs examples/41_decimal_money.mzs
+#
+# A float is binary and a price is not: `0.1 + 0.2` is 0.30000000000000004, and no amount
+# of rounding at the end puts back what the middle lost. `decimal` is the base-ten one:
+#
+#   decimal.of("1500.35")      the one way in — text, or an int, never a float
+#   decimal.plus / minus       + and -, exact
+#   decimal.times / div        * and /, and `div` says so when there is no exact answer
+#   decimal.round / str        change the number / change how it prints
+#   decimal.cmp / sum / split  order it, total it, share it out
+#
+# A decimal is not a new kind of value. It is a dict of two entries — `units` and `scale`,
+# meaning units × 10⁻ˢᶜᵃˡᵉ — carrying a record label, so `type` says "Decimal" while
+# everything a dict does goes on working. That buys exact `==` and costs the operators:
+# `a + b` is refused rather than answered wrongly, and `a < b` says a dict has no order.
+
+include decimal
+include json
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+fn show(label, v) { println(label.ljust(52) + " → " + v.str) }
+fn caught(label, f) { show(label, try f() else (e) -> "${e["kind"]}: ${e["message"]}") }
+
+rule("the money a float cannot hold")
+
+show("0.1 + 0.2", 0.1 + 0.2)
+show("(0.1 + 0.2) == 0.3", (0.1 + 0.2) == 0.3)
+show("1500.35 * 100", 1500.35 * 100)
+
+a = decimal.of("0.1")
+b = decimal.of("0.2")
+
+show("decimal.plus(0.1, 0.2)", decimal.str(decimal.plus(a, b)))
+show("decimal.plus(0.1, 0.2) == decimal.of(\"0.3\")", decimal.plus(a, b) == decimal.of("0.3"))
+show("decimal.times(1500.35, 100)", decimal.str(decimal.times(decimal.of("1500.35"), 100)))
+
+# An int is exact and mixes in with no conversion. A float never does: it arrives having
+# already lost the digits, and the message hands back the text to parse instead.
+caught("decimal.of(1500.35)", fn() { decimal.of(1500.35) })
+caught("decimal.of(\"1 500,35\")", fn() { decimal.of("1 500,35") })
+
+rule("what a decimal is")
+
+price = decimal.of("1500.35")
+
+show("decimal.of(\"1500.35\").json", price.json)
+show("type(price)", type(price))
+show("price.is(\"dict\")", price.is("dict"))
+show("price.is(\"Decimal\")", price.is("Decimal"))
+
+# The form is canonical: trailing zeros of the fraction are shed as the value is built, so
+# one number has exactly one form — and that is what makes `==` the numeric question
+# instead of a question about how the price was typed.
+show("decimal.of(\"1.50\") == decimal.of(\"1.5\")", decimal.of("1.50") == decimal.of("1.5"))
+show("decimal.of(\"2.000\") == decimal.of(2)", decimal.of("2.000") == decimal.of(2))
+show("decimal.of(\"1.50\").json", decimal.of("1.50").json)
+
+# So scale is a fact about the number, not about the column it prints in. Rounding changes
+# the number; `str` with places changes the rendering.
+show("decimal.str(decimal.of(\"1500.3\"))", decimal.str(decimal.of("1500.3")))
+show("decimal.str(decimal.of(\"1500.3\"), 2)", decimal.str(decimal.of("1500.3"), 2))
+show("decimal.str(decimal.round(decimal.of(\"1.005\"), 2), 2)", decimal.str(decimal.round(decimal.of("1.005"), 2), 2))
+
+rule("an invoice, end to end")
+
+vat_percent = decimal.of("20")
+hundred = decimal.of("100")
+
+lines = [
+  {name: "хостинг, месяц", qty: 1, price: "1500.35"},
+  {name: "домен .ru, год", qty: 2, price: "199.00"},
+  {name: "сертификат", qty: 1, price: "0.07"},
+  {name: "поддержка, час", qty: 7, price: "2400.00"},
+]
+
+fn line_total(line) { decimal.times(decimal.of(line["price"]), line["qty"]) }
+
+println("наименование                    кол-во        цена         сумма")
+println("─" * 64)
+lines.each { (line) ->
+  println(line["name"].ljust(30) +
+    line["qty"].str.rjust(6) +
+    decimal.str(decimal.of(line["price"]), 2).rjust(12) +
+    decimal.str(line_total(line), 2).rjust(14))
+}
+
+net = decimal.sum(lines.map { line_total(it) })
+vat = decimal.round(decimal.div(decimal.times(net, vat_percent), hundred, 2), 2)
+gross = decimal.plus(net, vat)
+
+println("─" * 64)
+println("итого без НДС".ljust(50) + decimal.str(net, 2).rjust(14))
+println("НДС 20%".ljust(50) + decimal.str(vat, 2).rjust(14))
+println("к оплате".ljust(50) + decimal.str(gross, 2).rjust(14))
+
+# Every step above is exact, and the check is that the parts still add up. In floats this
+# is the sum that comes out 0.01 short about as often as not.
+show("net + vat == gross", decimal.plus(net, vat) == gross)
+
+rule("division, which is the one that can fail")
+
+show("decimal.div(10, 4)", decimal.str(decimal.div(decimal.of(10), decimal.of(4))))
+show("decimal.div(1, 8)", decimal.str(decimal.div(decimal.of(1), decimal.of(8))))
+
+# Without `places`, `div` insists on an exact answer. A third has none, and picking a
+# precision nobody asked for is the silent reading this language does not do anywhere.
+caught("decimal.div(1, 3)", fn() { decimal.div(decimal.of(1), decimal.of(3)) })
+show("decimal.div(1, 3, 4)", decimal.str(decimal.div(decimal.of(1), decimal.of(3), 4), 4))
+caught("decimal.div(1, 0)", fn() { decimal.div(decimal.of(1), decimal.of(0)) })
+
+# Two rounding modes. half_up goes away from zero on a tie, which is what `round` already
+# does to a number; half_even is the banker's rounding a ledger asks for by name.
+show("round(2.665, 2)              half_up (default)", decimal.str(decimal.round(decimal.of("2.665"), 2), 2))
+show("round(2.665, 2, \"half_even\")", decimal.str(decimal.round(decimal.of("2.665"), 2, "half_even"), 2))
+show("round(2.675, 2, \"half_even\")", decimal.str(decimal.round(decimal.of("2.675"), 2, "half_even"), 2))
+show("round(1250, -2)", decimal.str(decimal.round(decimal.of("1250"), -2)))
+
+rule("splitting a bill without losing a kopeck")
+
+parts = decimal.split(gross, 3, 2)
+
+show("decimal.split(к оплате, 3, 2)", parts.map { decimal.str(it, 2) }.json)
+show("сумма долей", decimal.str(decimal.sum(parts), 2))
+show("сумма долей == к оплате", decimal.sum(parts) == gross)
+
+# The places are given rather than taken from the value, because a canonical decimal has
+# no memory of its zeros: "10.00" *is* 10, and splitting it at zero places is whole units.
+show("split(10, 3, 2)", decimal.split(decimal.of("10"), 3, 2).map { decimal.str(it, 2) }.json)
+show("split(10, 3, 0)", decimal.split(decimal.of("10"), 3, 0).map { decimal.str(it) }.json)
+
+rule("ordering, and the operators a dict does not have")
+
+prices = ["9.5", "10", "0.75", "1500.35"].map { decimal.of(it) }
+
+show("sorted", prices.sort { (a, b) -> decimal.cmp(a, b) }.map { decimal.str(it) }.json)
+show("cmp(9, 10)", decimal.cmp(decimal.of(9), decimal.of(10)))
+show("cmp(1.50, 1.5)", decimal.cmp(decimal.of("1.50"), decimal.of("1.5")))
+
+# `<` on two dicts says so rather than guessing — and that is the reason for the dict form.
+# A decimal carried as a string would answer `"9.00" < "10.00"` with false and say nothing.
+caught("decimal.of(9) < decimal.of(10)", fn() { decimal.of(9) < decimal.of(10) })
+show("\"9.00\" < \"10.00\"     — the trap that was avoided", "9.00" < "10.00")
+
+# `+` merges dicts, and merging two prices would answer with the right-hand one. It is the
+# one operator that could have been quietly wrong, so it is an error instead.
+caught("price + vat", fn() { price + vat })
+
+rule("storing a price")
+
+# `json` writes the dict, and `of` reads that dict back, so a price survives a round trip
+# through a store or an HTTP body — label or no label.
+stored = gross.json
+show("gross.json", stored)
+show("decimal.of(json.parse(…)) == gross", decimal.of(json.parse(stored)) == gross)
+
+# What `json` does not write is 1500.35, so a money *field* in a document is a string with
+# its places chosen where a reader can see it happen.
+invoice = {
+  number: "2026-0041",
+  net: decimal.str(net, 2),
+  vat: decimal.str(vat, 2),
+  total: decimal.str(gross, 2),
+  parts: parts.map { decimal.str(it, 2) },
+}
+println(json.pretty(invoice))
+
+rule("the edge, where an int would have promoted")
+
+show("decimal.of(\"9223372036854775807\")", decimal.str(decimal.of("9223372036854775807")))
+show("type(9223372036854775807 * 10)      — D9 promotes", type(9223372036854775807 * 10))
+caught("decimal.times(9223372036854775807, 10)",
+  fn() { decimal.times(decimal.of("9223372036854775807"), 10) })
+caught("decimal.times(1e-10, 1e-10)",
+  fn() { decimal.times(decimal.of("0.0000000001"), decimal.of("0.0000000001")) })
+
+# An exact number that cannot say the answer says so. That is the whole difference.

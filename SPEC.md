@@ -1433,6 +1433,24 @@ builds a *different* dict drop it, because what they hand back need not have the
 label survives. There is no second model of change and no frozen value (I4 stands: `[ … ]`
 gains no third meaning, and neither does `{ … }`).
 
+**`a + b` between two labelled dicts is an error.** `+` on dicts is `merge` (§8.3), and
+merge keeps the right-hand value of every key both sides have — which between two values of
+*one shape* is every key, so `a + b` would be `b`, always and silently. On hand-written
+dicts that is a legible answer to a legible question; on two shapes it is never what the
+line meant, and the shapes are exactly the values a program adds:
+
+```
+record Money(amount, currency = "RUB")
+Money(1500) + Money(200)     # type: cannot add Money to Money: '+' merges dicts, so this is
+                             # the right-hand value and not a sum; overwrite fields with 'merge'
+Money(1500) + {currency: "USD"}   # the with-update, unchanged: one side is a plain dict
+m.merge(other)               # still merges two shapes: it was asked to
+```
+
+The rule reads off the label alone — **both** sides labelled — so nothing about a plain dict
+changes, and a shape with an addition of its own names it in the message (a `Decimal` says
+`decimal.plus`, §12.15).
+
 **And what a record is not**: a class. There is no inheritance, no method table on the
 type, no `method_missing`, no `self`. Functions over a shape stay free functions and are
 reached both ways (D18), which is what keeps one namespace and one spelling per thing.
@@ -1474,7 +1492,7 @@ ends the program with that value.
 | `x / 0.0` | `±Inf` / `NaN` (IEEE, no error) |
 | `Str + Str` | concatenation |
 | `Arr + Arr` | new array, concatenation |
-| `Dict + Dict` | new dict, right side wins |
+| `Dict + Dict` | new dict, right side wins — **unless both carry a record label**, which is an error (§7.8) |
 | `Str * Int` | repetition (`"ab" * 3`) |
 | `Arr * Int` | repetition |
 | `Str % (Arr\|Value)` | `format` (§12.7) |
@@ -2394,6 +2412,7 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `date` | `parse` | `(s: string) -> time` | |
 | `http` | `serve stop json text get post request` | see §12.11 | no host option |
 | `io` | `stdin lines read write append exists ls env` | see §12.13 | requires `Options.FS` |
+| `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | see §12.15 | no host option |
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
@@ -2683,6 +2702,108 @@ parentheses: `for x in (seq { (i) -> i }) { … }`.
 for a seq the row is the implementation of both: the builtins of §12.1 read a value that is
 already there, and a lazy sequence holds nothing until it is pulled.
 
+### 12.15 The `decimal` module
+
+Neither numeric kind can hold money. A Float is binary, so `0.1 + 0.2` is
+`0.30000000000000004` and `1.005.round(2)` is a question about the *nearest double*; an Int
+that overflows is promoted to Float rather than raised on (D9), so the digits go without a
+word. `decimal` is the exact one: base-ten digits, no rounding that was not asked for, and
+an edge that is an error.
+
+```
+include decimal
+
+price = decimal.of("1500.35")
+total = decimal.plus(price, decimal.times(price, decimal.of("0.20")))
+decimal.str(total, 2)                         # "1800.42"
+```
+
+`decimal` needs no host capability — like `json` and `math`, the include is the whole of it.
+
+**A decimal is not a fourteenth kind.** It is a **dict of two entries** carrying the record
+label of §7.8, the same move §12.3 makes for sets: the value is `units × 10 ** -scale`, the
+label is what `type` reports, and every row of §12.4, `json`, `==` and `hash` go on meaning
+exactly what they meant.
+
+```
+decimal.of("1500.35")             # {"units": 150035, "scale": 2}
+type(decimal.of("1.5"))           # "Decimal"
+decimal.of("1.5").is("dict")      # true — it never stopped being one
+```
+
+The form is **canonical**: the trailing zeros of the fraction are shed when a value is
+built, so one number has exactly one form and `decimal.of("1.50") == decimal.of("1.5")` is
+**true** — the dict equality of §7.4 *is* the numeric question, which is why there is no
+`decimal.eq` to be a second spelling of `==` (D17). Scale is therefore a fact about the
+number and never about the column it is printed in: how many places to *show* is
+`decimal.str(d, 2)`.
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `of` | `(x: string \| int \| decimal) -> decimal` | the one way in; a Float is a **type error** naming the fix |
+| `plus` | `(a, b, *rest) -> decimal` | `+`; exact |
+| `minus` | `(a, b) -> decimal` | `-`; exact |
+| `times` | `(a, b, *rest) -> decimal` | `*`; the places add |
+| `div` | `(a, b, places: int = nil, mode: string = "half_up") -> decimal` | `/`; **exact or an error** without `places` |
+| `neg` / `abs` | `(a) -> decimal` | |
+| `cmp` | `(a, b) -> int` | `-1`, `0`, `1` — the `<=>` a dict does not have |
+| `round` | `(a, places: int, mode: string = "half_up") -> decimal` | `places` may be negative, as in §12.5 |
+| `str` | `(a, places: int = nil) -> string` | canonical, or padded and rounded to exactly `places` |
+| `float` | `(a) -> float` | the way out, lossy and saying so |
+| `int` | `(a) -> int` | truncates toward zero, as `.int` does to a Float (§12.7) |
+| `sum` | `(xs: array) -> decimal` | exact total; `[]` is `0` |
+| `split` | `(a, ways: int, places: int) -> array` | `ways` parts at `places` places that add back up to `a` |
+
+Every row but `of` takes a decimal **or an Int** — an Int is exact and needs no conversion —
+and refuses a String, because conversions are explicit (§9.1) and `of` is the one that reads
+text. `of` reads digits, one dot and an optional sign, and nothing else: no exponent, no
+thousands separator, no decimal comma, because a price that arrives as `"1 500,35"` is a
+column that needs a decision and not a guess.
+
+**Why the four are named after the operators.** `add`/`sub`/`mul`/`div` is the obvious set
+and `sub` is a name this language has already spent: §5.6 gives it to the did-you-mean for
+`replace_first`, so a member spelled `sub` would be a parse error in every file that wrote
+it. One story for four names beats three names and an exception.
+
+**Division says when it cannot.** With `places`, `div` rounds to that many. Without, it
+insists on an exact answer and raises when there is none — `1/3` has no decimal form, and a
+default precision nobody asked for is the silent reading D16 exists to prevent:
+
+```
+decimal.div(decimal.of(10), decimal.of(4))          # 2.5
+decimal.div(decimal.of(1), decimal.of(3))           # decimal: … no exact decimal form within 18 places
+decimal.div(decimal.of(1), decimal.of(3), 4)        # 0.3333
+decimal.div(decimal.of(1), decimal.of(0))           # zero-division: divided by 0
+```
+
+**Rounding.** Two modes, `"half_up"` (away from zero on a tie) and `"half_even"` (the
+banker's rounding a ledger asks for by name). The default is `half_up` because that is what
+`round` already does to a number (§12.5) — one language, one default. Any other spelling is
+an `argument` error naming both.
+
+**The width.** The digits live in an Int, so `-2**63 <= units < 2**63` and `scale` is
+`0..18`. Past either edge the module **raises**, kind `decimal` (§13.5), where an Int would
+have promoted to Float. That is the whole difference: an exact number that cannot say the
+answer says so.
+
+**What the dict form costs.** A dict has no ordering (§7.5), so `a < b` on two decimals is
+`cannot compare dict with dict` and `decimal.cmp` is the operation — which is also what
+`sort`'s comparator wants (§12.3):
+
+```
+xs.sort { (a, b) -> decimal.cmp(a, b) }
+```
+
+and a decimal is not a dict key (§7.6). Both are loud, and that is the point of choosing a
+dict: a decimal carried as a string would answer `"9.00" < "10.00"` with `false` and never
+say a word. The one operator that *would* have answered quietly is `+`, and it no longer
+does — `+` between two labelled dicts is a type error (§8.3, §7.8).
+
+**Storing one.** `json` writes the dict — `{"units":150035,"scale":2}` — and `of` reads that
+dict back, label or no label, so a decimal survives a round trip through a store or an HTTP
+body. What `json` does *not* do is write `1500.35`, so a money field in a document is
+`decimal.str(d, 2)`, written out where a reader can see the places being chosen.
+
 ---
 ## 13. Go API
 
@@ -2929,8 +3050,9 @@ var (
 
 type Error struct {
     Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "key" |
-                   // "zero-division" | "regex" | "json" | "http" | "io" | "raise" |
-                   // "limit" | "exit" | "internal" — or a name the script chose, §8.11
+                   // "zero-division" | "regex" | "json" | "decimal" | "http" | "io" |
+                   // "raise" | "limit" | "exit" | "internal" — or a name the script
+                   // chose, §8.11
     Msg     string
     File    string
     Line    int
@@ -2978,6 +3100,7 @@ over a known set (§8.11).
 | `zero-division` | integer `/` or `%` by zero (§8.3) |
 | `regex` | a pattern that does not compile (§12.6) |
 | `json` | `json.parse` on bad input, and a value `json` cannot encode (§12.8) |
+| `decimal` | text that is not a decimal, a result past the width, a division with no exact form (§12.15) |
 | `http` | a transport failure, and a body over the cap (§12.11, §14.2) |
 | `io` | a filesystem or stream failure, and a read over the cap (§12.13, §14.2) |
 | `raise` | `raise` and `assert` (§12.1) |
