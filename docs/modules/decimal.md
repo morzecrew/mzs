@@ -232,15 +232,15 @@ every run.
 
 ## The width, and what happens at the edge
 
-The digits live in an int, so `|units| < 2**63` and `scale` is `0..18`. Past either edge the
-module raises — kind `decimal` — where an int would have promoted to a float:
+The digits live in an int, so `-2**63 <= units < 2**63` and `scale` is `0..18`. Past either
+edge the module raises — kind `decimal` — where an int would have promoted to a float:
 
 ```
 include decimal
 decimal.str(decimal.of("9223372036854775807"))        # "9223372036854775807"
 decimal.of("9223372036854775808")
 # decimal: decimal.of: 9223372036854775808 does not fit a decimal (the digits live in an int,
-# so |units| < 2**63)
+# so -2**63 <= units < 2**63)
 decimal.times(decimal.of("0.0000000001"), decimal.of("0.0000000001"))
 # decimal: decimal.times: the result needs 20 decimal places and a decimal holds 18
 ```
@@ -254,7 +254,7 @@ took a minute would be a minute the deadline could not interrupt
 include decimal
 decimal.of("9" * 8_000_000)
 # decimal: decimal.of: "999999999999999999999999…" has 8000000 digits before the dot and a
-# decimal holds 19 (the digits live in an int, so |units| < 2**63)
+# decimal holds 19 (the digits live in an int, so -2**63 <= units < 2**63)
 ```
 
 ## Storing one

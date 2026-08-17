@@ -237,7 +237,7 @@ func decValue(c *Ctx, n decNum) (Value, error) {
 	}
 	if !n.u.IsInt64() {
 		return Nil(), c.ErrorfKind(ErrKindDecimal,
-			"%s: %s does not fit a decimal (the digits live in an int, so |units| < 2**63)",
+			"%s: %s does not fit a decimal (the digits live in an int, so -2**63 <= units < 2**63)",
 			c.Name(), decString(n))
 	}
 	d := NewOrderedDictCap(2)
@@ -347,7 +347,7 @@ func decParse(c *Ctx, text string) (decNum, error) {
 	whole := strings.TrimLeft(intPart, "0")
 	if len(whole) > maxDecDigits {
 		return decNum{}, c.ErrorfKind(ErrKindDecimal,
-			"%s: %s has %d digits before the dot and a decimal holds %d (the digits live in an int, so |units| < 2**63)",
+			"%s: %s has %d digits before the dot and a decimal holds %d (the digits live in an int, so -2**63 <= units < 2**63)",
 			c.Name(), shown, len(whole), maxDecDigits)
 	}
 	u, ok := new(big.Int).SetString("0"+whole+fracPart, 10)
@@ -393,6 +393,11 @@ func decDigits(s string) bool {
 // decPlaces reads a `places` argument. The bound is the same one a decimal itself has,
 // and a negative value is the `round(-2)` of §12.5 — rounding to hundreds — which only
 // the rows that round accept.
+//
+// An argument that is *there* is read, whatever it holds: an explicit `nil` is a type
+// error rather than a second way of writing "omitted", exactly as it is for `round(nil)`,
+// `255.str(nil)`, `"abc".slice(1, nil)` and `time.parse(s, nil)`. One optional argument,
+// one way to leave it out.
 func decPlaces(c *Ctx, v Value, allowNegative bool) (int, error) {
 	n, err := argInt(c, v)
 	if err != nil {
@@ -533,7 +538,7 @@ func decvDiv(c *Ctx, args []Value) (Value, error) {
 	// integers, which is what both branches below work on.
 	num := new(big.Int).Mul(a.u, decPow10(b.scale))
 	den := new(big.Int).Mul(b.u, decPow10(a.scale))
-	if len(args) >= 3 && args[2].Kind() != KNil {
+	if len(args) >= 3 {
 		places, err := decPlaces(c, args[2], true)
 		if err != nil {
 			return Nil(), err
@@ -666,7 +671,7 @@ func decvStr(c *Ctx, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	if len(args) == 2 && args[1].Kind() != KNil {
+	if len(args) == 2 {
 		places, err := decPlaces(c, args[1], false)
 		if err != nil {
 			return Nil(), err

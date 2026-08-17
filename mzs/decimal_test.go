@@ -159,6 +159,15 @@ func TestDecimalOperandRefusals(t *testing.T) {
 		{"split, first operand", `include decimal; decimal.split("10", 2, 2)`, ErrKindType},
 		{"split, ways that is not a number", `include decimal; decimal.split(decimal.of(10), "2", 2)`, ErrKindType},
 		{"split, places past the cap", `include decimal; decimal.split(decimal.of(10), 2, 19)`, ErrKindArgument},
+
+		// An optional argument is left out by leaving it out. An explicit nil is a value
+		// of the wrong kind, and says so here as it does for `round(nil)`, `255.str(nil)`
+		// and `time.parse(s, nil)` — one row, one way to omit it.
+		{"a nil where places goes, in str", `include decimal; decimal.str(decimal.of(1), nil)`, ErrKindType},
+		{"a nil where places goes, in div", `include decimal; decimal.div(decimal.of(1), decimal.of(4), nil)`, ErrKindType},
+		{"a nil where places goes, in round", `include decimal; decimal.round(decimal.of(1), nil)`, ErrKindType},
+		{"a nil where the mode goes, in round", `include decimal; decimal.round(decimal.of(1), 2, nil)`, ErrKindType},
+		{"a nil where the mode goes, in div", `include decimal; decimal.div(decimal.of(1), decimal.of(4), 2, nil)`, ErrKindType},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -202,8 +211,9 @@ decimal.str(decimal.div(decimal.of("2500"), decimal.of(1), -3))`, "3000"},
 decimal.str(decimal.div(decimal.of("1"), decimal.of("-4")))`, "-0.25"},
 		{"zero over anything is zero", `include decimal
 decimal.str(decimal.div(decimal.of(0), decimal.of(3)))`, "0"},
-		{"nil places is the same as none", `include decimal
-decimal.str(decimal.div(decimal.of(1), decimal.of(4), nil))`, "0.25"},
+		{"the widest negative decimal is one", `include decimal
+decimal.str(decimal.div(decimal.of("-9223372036854775808"), decimal.of(1)))`,
+			"-9223372036854775808"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -301,7 +311,8 @@ func TestDecimalStr(t *testing.T) {
 		{"zero places is a whole number", `include decimal; decimal.str(decimal.of("1.5"), 0)`, "2"},
 		{"a fraction keeps its leading zero", `include decimal; decimal.str(decimal.of("0.05"), 2)`, "0.05"},
 		{"a negative fraction too", `include decimal; decimal.str(decimal.of("-0.05"), 2)`, "-0.05"},
-		{"nil places is the same as none", `include decimal; decimal.str(decimal.of("1.50"), nil)`, "1.5"},
+		{"the smallest int is a decimal, and prints as one", `include decimal
+decimal.str(decimal.of("-9223372036854775808"))`, "-9223372036854775808"},
 		{"it is a string and interpolates", `include decimal
 "итого: ${decimal.str(decimal.of("1500.35"), 2)} ₽"`, "итого: 1500.35 ₽"},
 	}

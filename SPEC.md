@@ -2781,9 +2781,10 @@ banker's rounding a ledger asks for by name). The default is `half_up` because t
 `round` already does to a number (§12.5) — one language, one default. Any other spelling is
 an `argument` error naming both.
 
-**The width.** The digits live in an Int, so `|units| < 2**63` and `scale` is `0..18`. Past
-either edge the module **raises**, kind `decimal` (§13.5), where an Int would have promoted
-to Float. That is the whole difference: an exact number that cannot say the answer says so.
+**The width.** The digits live in an Int, so `-2**63 <= units < 2**63` and `scale` is
+`0..18`. Past either edge the module **raises**, kind `decimal` (§13.5), where an Int would
+have promoted to Float. That is the whole difference: an exact number that cannot say the
+answer says so.
 
 **What the dict form costs.** A dict has no ordering (§7.5), so `a < b` on two decimals is
 `cannot compare dict with dict` and `decimal.cmp` is the operation — which is also what

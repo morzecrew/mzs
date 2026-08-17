@@ -32,7 +32,7 @@ the caret always follow it.
 | `key` | a dict key that is not there — `fetch` |
 | `zero-division` | `1/0`, `1%0` |
 | `regex` | a pattern that does not compile |
-| `json` `http` `io` `decimal` | the module that failed: bad JSON, a refused connection, a missing file, a price that is not a number |
+| `json` `http` `io` `decimal` | the module that failed: bad JSON, a refused connection, a missing file; text that is not a decimal, a result past its width or its 18 places, a division with no exact form |
 | `raise` | `raise(...)` from the script — or the kind the script named itself |
 | `limit` | timeout, step budget, call depth, tasks — exit 3 |
 | `exit` | `exit(code)` — the status the script asked for, and not a failure |
