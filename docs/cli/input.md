@@ -21,6 +21,14 @@ $ mzs -e 'include io; [io.stdin, io.lines.array]' < /dev/null # no data is not a
 ["",[]]
 ```
 
+[`input(prompt)`](../stdlib/core.md#input) reads that same data stream one line at a
+time, and needs no `include`:
+
+```sh
+$ printf 'Иван\n' | mzs -e 'input("Имя: ")'
+Имя: Иван
+```
+
 `io.lines` is a [seq](../stdlib/sequences.md) — the input a line at a time, so a file
 larger than `MaxStringBytes` is ordinary work where `io.stdin` would refuse it. The two
 share one reader: ask for the whole text first and every later `io.lines` splits it; stream
@@ -98,7 +106,8 @@ Because the budget is per line, a `-t 0.2` run over a slow input takes as long a
 does. Reach for `io.lines` when the program needs to see the input as a whole — it is still
 read a line at a time, so the memory cost is the same as `-n`'s.
 
-Under `-n` the CLI owns the reader, so `io.stdin` is `""` — the line is in `$_`:
+Under `-n` the CLI owns the reader, so `io.stdin` is `""` and `input()` is `nil` — the line
+is in `$_`:
 
 ```sh
 $ cat data.txt | mzs -n -e 'include io; "[" + io.stdin + "]"'
@@ -171,4 +180,5 @@ script.
 - [./README.md](./README.md) — flags, printing rules, exit codes
 - [./diagnostics.md](./diagnostics.md) — the error format and `--check`
 - [../modules/io.md](../modules/io.md) — `io.stdin`, `io.lines`, files
+- [../stdlib/core.md](../stdlib/core.md#input) — `input`, the prompting read of one line
 - [../language/host-variables.md](../language/host-variables.md) — `$_` and the other `$vars`

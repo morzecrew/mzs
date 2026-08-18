@@ -2072,6 +2072,7 @@ Conventions used in the tables:
 | `print` | `print(*args) -> nil` | writes `str` of each arg to `Options.Stdout`, no separator, no newline | `print(a)` |
 | `println` | `println(*args) -> nil` | like `print` but appends `\n` after each arg; `println()` writes one `\n`; an Array arg prints one element per line | `println("hi")` |
 | `debug` | `debug(*args) -> any` | writes the `inspect` form + `\n`; returns the first arg | `debug(x)` |
+| `input` | `input(prompt: any = nil) -> string \| nil` | writes `str(prompt)` to `Options.Stdout` with no newline, then reads one line of `Options.Stdin` without its terminator (CRLF like LF). The end of the input — and a host that installed no reader — is `nil`, never an error. It is one pull of the reader `io.stdin` and `io.lines` share (§12.13) | `input("Имя: ")` |
 | `len` | `len(x) -> int` | rune length of a String, element count of Array/Dict/Range; `nil` → 0 | `s.len > 2` |
 | `empty` | `empty(x) -> bool` | `len(x) == 0` | `xs.empty` |
 | `type` | `type(x) -> string` | §7.2 names, or the record's name (§7.8) | `type(1) == "int"` |
@@ -2584,6 +2585,15 @@ decides what the other can still have:
   line by line by io.lines` — rather than answering `""`, which a script would read as "no
   data was piped in". It is an ordinary catchable error of kind `io`.
 
+**`input` is the third way of asking, and the same reader.** The global `input(prompt)`
+of §12.1 needs no `include`, because a console is one thing with two directions and the
+half that writes never needed one: `print` writes `Options.Stdout` and `input` reads
+`Options.Stdin`. It pulls **one line**, so it takes the reader the way `io.lines` does —
+after it, `io.stdin` raises the same error, naming `input` — and after an `io.stdin` it
+walks the cached text from a cursor the Run shares, so consecutive prompts answer
+consecutive lines and the whole text is still there for anything that asks again. A line
+over `MaxStringBytes` is the same catchable error, and ends the source the same way.
+
 That is what makes `io.lines` the member a file larger than `MaxStringBytes` arrives
 through: it promises one line, so only one line is ever in memory, while `io.stdin`
 promises the whole text and stops at the limit with a diagnostic (§14.2). A seq over a
@@ -2921,7 +2931,7 @@ type Options struct {
     EnableTime      bool             // installs the time/date modules (needs Now for now/today)
     ModuleLoader    ModuleLoader     // enables `include x from "path"` (§12.8); nil => error
     FS              FileSystem       // installs the io module (§12.13); nil => `include io` is an error
-    Stdin           io.Reader        // what io.stdin drains and io.lines streams (§12.13). nil => ""
+    Stdin           io.Reader        // what io.stdin drains, io.lines streams and input() pulls (§12.13, §12.1). nil => ""
     Env             func(string) string // answers io.env. nil => every name is unset
     Location        *time.Location   // default zone for in_time_zone/strftime. Default time.UTC.
 }
@@ -3258,6 +3268,13 @@ that evaluates stored conditions cannot even name the module.
 `Options.Env` is the same shape one step smaller: a `func(string) string`, usually
 `os.Getenv`, and `nil` means every name is unset rather than an error.
 
+The **console** is not gated by the module, because it is not the filesystem: `print`
+writes to `Options.Stdout` and `input` (§12.1) reads `Options.Stdin`, and a host that
+installed neither has a script that prompts nobody and hears nothing — `input()` is `nil`
+there, exactly as `io.stdin` is `""`. One field still grants one capability: a host that
+wants a script to read no console hands over no reader, which is what `mzs --no-io` does
+on the command line.
+
 Network access is the single exception: the `http` module (§12.11) is installed with no
 option asked for, so a script that says `include http` can open a listener and call out.
 A host that evaluates expressions it did not write — a condition out of a dialogue store
@@ -3569,6 +3586,7 @@ if $__sent.int > 5 { print("big") }
 | `TestSeqIsNotAnArray` | `type(s) == "seq"`, `s.is("array")` is false where a range's is true; `==` is identity, `<=>` is nil, a seq is not a dict key, and `json` raises naming `.array` |
 | `TestSeqEndlessChainsHitTheLimits` | an endless seq ends on `ErrBudget` — including when the runaway loop is inside `filter`/`drop` rather than in the terminal — and on the deadline with the budget disabled (§14.1) |
 | `TestIOLinesTakesTheReader` | `io.stdin` after `io.lines` has streamed is a catchable `io` error naming `io.lines`, and the other order answers every member from one read (§12.13) |
+| `TestInputReadsOneLine` | `input()` answers one line of `Options.Stdin` without its terminator, and `nil` at the end of the input and with no reader at all; `TestInputSharesTheReaderWithTheModule` pins that the line comes off the reader `io.stdin` and `io.lines` share (§12.1, §12.13) |
 | `TestTimeout` | `Bool("while true { }")` returns `ErrTimeout` in ≤ 1.2 s |
 | `TestStepBudget` | a 10⁹-iteration loop returns `ErrBudget` without OOM |
 | `TestNoHostPanic` | fuzz corpus of 10⁴ random byte strings: `Compile`+`Run` never panic |
@@ -3719,6 +3737,7 @@ publish time rather than silently at runtime.
 | `{ \|x\| … }` | `{ (x) -> … }` |
 | `->(x) { … }` / `&fn` | `{ (x) -> … }` / `fn` |
 | `puts(` / `p(` | `println(` / `debug(` |
+| `gets` / `raw_input(` / `readline(` | `input(` |
 | ` and ` / ` or ` / `not ` | ` && ` / ` \|\| ` / `!` |
 | `a rescue b` | `try a else b` |
 | `x&.y` | `x?.y` |

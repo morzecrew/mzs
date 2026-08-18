@@ -1,6 +1,6 @@
 # Examples
 
-Forty-one complete programs, in order of difficulty. Each one runs on its own, prints a
+Forty-two complete programs, in order of difficulty. Each one runs on its own, prints a
 readable report, and is written to be read as much as to be executed:
 
 ```sh
@@ -59,6 +59,7 @@ does not have it at all.
 | 39 | `39_sets.mzs` | `union`, `intersect`, `difference`, `subset` and `to_set` — what tells a set operation from `+` and `-`, and the visited-set a graph walk always needed |
 | 40 | `40_lazy_sequences.mzs` | `seq` — a billion-element range walked in three steps, a generator ended by `nil`, laziness counted rather than promised, and why a seq is not an array |
 | 41 | `41_decimal_money.mzs` | `decimal` — an invoice whose kopecks add up: exact `+ - * /` through the module, two rounding modes, a bill split without a remainder lost, and the `+` that refuses to be quietly wrong |
+| 42 | `42_input_dialogue.mzs` | `input` — the console's other direction: a prompt with no newline, an answer that is a string until you say otherwise, a yes/no `match`, and the `while` loop `nil` ends. Runs the same in a terminal, in a pipe and under `< /dev/null` |
 
 ## Text, patterns and data
 

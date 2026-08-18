@@ -478,7 +478,7 @@ func TestBuiltinDupTapAndPipe(t *testing.T) {
 // lookup and the §17 suggestions find it.
 func TestBuiltinRoster(t *testing.T) {
 	present := []string{
-		"print", "println", "debug", "len", "empty", "type", "is", "str", "int", "float",
+		"print", "println", "input", "debug", "len", "empty", "type", "is", "str", "int", "float",
 		"bool", "array", "dict", "json", "inspect", "hash", "dup", "tap", "pipe",
 		"regex", "range", "sum", "min", "max", "abs", "round", "ceil", "floor", "sort",
 		"format", "raise", "assert", "defined", "rand", "uuid", "now",
@@ -495,6 +495,9 @@ func TestBuiltinRoster(t *testing.T) {
 		old, use string
 	}{
 		{"puts", "println"},
+		{"gets", "input"},
+		{"raw_input", "input"},
+		{"readline", "input"},
 		{"say", "println"}, // mzs's own former spelling (§19.2)
 		{"p", "debug"},
 		{"sprintf", "format"},

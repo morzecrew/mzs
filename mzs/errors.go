@@ -379,6 +379,10 @@ var renameTable = map[string]string{
 	"to_json":  "json",
 	"puts":     "println",
 	"p":        "debug",
+	// The other languages' names for reading one line off the console (§12.1).
+	"gets":      "input",
+	"raw_input": "input",
+	"readline":  "input",
 	// mzs's own former spelling: `say` was renamed to `println` so that the pair with
 	// `print` says which one adds the newline.
 	"say": "println",

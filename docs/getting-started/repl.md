@@ -144,6 +144,10 @@ Two consequences:
 * a line with a side effect outside the process runs again on every later line. An
   `io.append(path, "x")` entered once, followed by three more lines, appends four times.
   Keep files, HTTP calls and other external writes out of a REPL session.
+* the terminal you are typing into is the session's, not the script's: there is no data
+  stream in a REPL, so `input()` is `nil` and `io.stdin` is `""` there. A prompt would be
+  asked again by every replay anyway. Put the dialogue in a file and run it —
+  `mzs ask.mzs` — see [core.md](../stdlib/core.md#input).
 
 ## See also
 

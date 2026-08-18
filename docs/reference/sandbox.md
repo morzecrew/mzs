@@ -26,7 +26,7 @@ field grants one capability.
 | Capability | `Options` field | CLI |
 |---|---|---|
 | `io` module (files) | `FS` | on by default, `--no-io` withholds |
-| `io.stdin` / `io.lines` | `Stdin` | the data stream ([input](../cli/input.md)) |
+| `io.stdin` / `io.lines` / `input()` | `Stdin` | the data stream ([input](../cli/input.md)) |
 | `io.env` | `Env` | on with `io` |
 | `include x from "…"` | `ModuleLoader` | rooted at the program's directory |
 | `time` / `date` modules | `EnableTime` | `--time` |

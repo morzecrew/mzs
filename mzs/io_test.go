@@ -577,3 +577,230 @@ func (r *countingReader) Read(p []byte) (int, error) {
 	}
 	return n, err
 }
+
+// ---------------------------------------------------------------------------
+// input (§12.1)
+// ---------------------------------------------------------------------------
+
+// `input` is a global and not a member of the module, so these tests give the host the
+// two stream fields and nothing else: no FS, no include. A console is not a filesystem,
+// and every assertion below would pass by accident if the module that guards the
+// filesystem were installed alongside it.
+
+// inputOpts is that host: a reader and a writer.
+func inputOpts(stdin string, out *bytes.Buffer) Options {
+	o := Options{Timeout: 5 * time.Second, Stdout: out}
+	if stdin != "" {
+		o.Stdin = strings.NewReader(stdin)
+	}
+	return o
+}
+
+func mustEvalInput(t *testing.T, o Options, src string) string {
+	t.Helper()
+	v, err := New(o).Eval(context.Background(), src, nil)
+	if err != nil {
+		t.Fatalf("%s: %v", src, err)
+	}
+	return v.Str()
+}
+
+// TestInputReadsOneLine is the whole of `input` in a table: one line, without its
+// terminator, and `nil` once there are none left.
+func TestInputReadsOneLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		stdin string
+		src   string
+		want  string
+	}{
+		{"one line, no terminator", "Иван\n", "input()", "Иван"},
+		{"the next call is the next line", "a\nb\n", `input() + input()`, "ab"},
+		{"CRLF reads like LF", "a\r\nb\r\n", `[input(), input()].join("|")`, "a|b"},
+		{"an empty line is a line", "\na\n", `[input(), input()].join("|")`, "|a"},
+		{"a last line with no terminator", "a\nb", `[input(), input()].join("|")`, "a|b"},
+		{"the end of the input is nil", "a\n", `[input(), input() == nil].join("|")`, "a|true"},
+		{"and stays nil", "a\n", `[input(), input(), input()].len.str`, "3"},
+		{"the line is a string, unparsed", " 42 \n", `input().trim.int + 1`, "43"},
+		{"?? is the empty-string default", "", `inspect(input() ?? "")`, `""`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			o := inputOpts(tt.stdin, &out)
+			if got := mustEvalInput(t, o, tt.src); got != tt.want {
+				t.Fatalf("%s = %q; want %q", tt.src, got, tt.want)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("an input() with no prompt wrote %q", out.String())
+			}
+		})
+	}
+}
+
+// TestInputWritesThePromptFirst pins the half that makes it a dialogue: the prompt goes
+// out before the read and gets no newline of its own, so the answer is typed where the
+// cursor is. It is written even when the read finds nothing — a script that asks and
+// hears nothing has still asked.
+func TestInputWritesThePromptFirst(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the prompt is written, the line is returned", func(t *testing.T) {
+		var out bytes.Buffer
+		o := inputOpts("Иван\n", &out)
+		if got := mustEvalInput(t, o, `input("Имя: ")`); got != "Иван" {
+			t.Fatalf("value = %q; want the line", got)
+		}
+		if out.String() != "Имя: " {
+			t.Fatalf("wrote %q; want the prompt with no newline of its own", out.String())
+		}
+	})
+
+	t.Run("any value is a prompt, by its str", func(t *testing.T) {
+		var out bytes.Buffer
+		o := inputOpts("x\n", &out)
+		mustEvalInput(t, o, `input(1)`)
+		if out.String() != "1" {
+			t.Fatalf("wrote %q; want %q", out.String(), "1")
+		}
+	})
+
+	t.Run("no reader still writes the prompt", func(t *testing.T) {
+		var out bytes.Buffer
+		o := inputOpts("", &out)
+		if got := mustEvalInput(t, o, `inspect(input("Имя: "))`); got != "nil" {
+			t.Fatalf("value = %s; want nil", got)
+		}
+		if out.String() != "Имя: " {
+			t.Fatalf("wrote %q; want the prompt", out.String())
+		}
+	})
+}
+
+// TestInputNeedsNoFilesystem is the capability claim of §12.1 in one test: `input` is
+// installed by the same host field that wires `print`'s other direction, and reaches
+// nothing else. A host that hands over a reader and no FS gets a script that can hold a
+// conversation and still cannot open a file.
+func TestInputNeedsNoFilesystem(t *testing.T) {
+	t.Parallel()
+
+	o := Options{Timeout: 5 * time.Second, Stdin: strings.NewReader("да\n")}
+	if got := mustEvalInput(t, o, `input()`); got != "да" {
+		t.Fatalf("input() = %q; want the line, with no FS and no include", got)
+	}
+
+	if _, err := New(o).Compile("t", `input(); include io`); err == nil {
+		t.Fatal("`include io` compiled without an FS; the reader is not the filesystem")
+	}
+}
+
+// TestInputWithoutAReader pins the other end of it: a host that installed no Stdin is not
+// an error but an input that is already over, exactly as `io.stdin` is "" there. One
+// script runs in a pipe and out of one.
+func TestInputWithoutAReader(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	o := inputOpts("", &out)
+
+	if got := mustEvalInput(t, o, `[input(), input()].all { it == nil }`); got != "true" {
+		t.Fatalf("got %s; want every input() to answer nil", got)
+	}
+	if got := mustEvalInput(t, o, `n = 0; while (l = input()) { n += 1 }; n`); got != "0" {
+		t.Fatalf("the read loop ran %s times; want 0", got)
+	}
+}
+
+// TestInputSharesTheReaderWithTheModule is the rule that keeps the third way of asking
+// from being a fourth reader: `input`, `io.stdin` and `io.lines` are one input (§12.13).
+func TestInputSharesTheReaderWithTheModule(t *testing.T) {
+	t.Parallel()
+
+	t.Run("io.stdin first keeps the whole text and input walks it", func(t *testing.T) {
+		o := ioOpts(newMemFS(nil), "a\nb\nc\n", nil)
+		got := mustEvalIO(t, o, `[io.stdin.len, input(), input(), io.stdin.len, input(), input() == nil]`)
+		if got != `[6,"a","b",6,"c",true]` {
+			t.Fatalf(`got %s; want [6,"a","b",6,"c",true]`, got)
+		}
+	})
+
+	t.Run("the cached text ends where the reader would", func(t *testing.T) {
+		// No trailing newline: the last line is still a line, and what follows it is the
+		// end of the input rather than an empty one. Read whole or read one at a time,
+		// the answer is the same input.
+		o := ioOpts(newMemFS(nil), "a\nb", nil)
+		if got := mustEvalIO(t, o, `[io.stdin.len, input(), input(), input() == nil]`); got != `[3,"a","b",true]` {
+			t.Fatalf(`got %s; want [3,"a","b",true]`, got)
+		}
+	})
+
+	t.Run("input first takes the reader and io.stdin says so", func(t *testing.T) {
+		o := ioOpts(newMemFS(nil), "a\nb\n", nil)
+		_, err := evalIO(t, o, `input(); io.stdin`)
+		if err == nil {
+			t.Fatal("io.stdin answered after input() had taken the reader")
+		}
+		var e *Error
+		if !errors.As(err, &e) || e.Kind != ErrKindIO {
+			t.Fatalf("error = %v; want a catchable io error", err)
+		}
+		if !strings.Contains(err.Error(), "line by line by input") {
+			t.Fatalf("error = %v; want it to name the member that has the bytes", err)
+		}
+	})
+
+	t.Run("input and io.lines pull from one reader, in turn", func(t *testing.T) {
+		o := ioOpts(newMemFS(nil), "a\nb\nc\nd\n", nil)
+		if got := mustEvalIO(t, o, `[input(), io.lines.take(2).array, input()]`); got != `["a",["b","c"],"d"]` {
+			t.Fatalf(`got %s; want ["a",["b","c"],"d"]`, got)
+		}
+	})
+}
+
+// TestInputBoundsOneLine: the streaming read has one bound it can have, and an overrun is
+// the same catchable io error `io.lines` reports — naming `input`, because that is the
+// spelling the script used — and it ends the source for the same reason.
+func TestInputBoundsOneLine(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	o := inputOpts("ok\n"+strings.Repeat("x", 9000)+"\nafter\n", &out)
+	o.MaxStringBytes = 8000
+
+	_, err := New(o).Eval(context.Background(), `[input(), input()]`, nil)
+	if err == nil {
+		t.Fatal("a 9000-byte line passed a limit of 8000")
+	}
+	var e *Error
+	if !errors.As(err, &e) || e.Kind != ErrKindIO {
+		t.Fatalf("error = %v; want a catchable io error", err)
+	}
+	if !strings.Contains(err.Error(), "input: a line exceeds") {
+		t.Fatalf("error = %v; want the diagnostic to name input", err)
+	}
+
+	o = inputOpts("ok\n"+strings.Repeat("x", 9000)+"TAIL\nafter\n", &out)
+	o.MaxStringBytes = 10
+	src := `[input(), try input() else "!", try input() else "!"].join("|")`
+	if got := mustEvalInput(t, o, src); got != "ok|!|!" {
+		t.Fatalf("got %q; want the overrun to end the source rather than leak the rest "+
+			"of the line as data", got)
+	}
+}
+
+// TestInputIsSharedWithTasks: the cursor lives on the half of the Run its tasks share
+// (§8.14), so a prompt inside a task reads the line after the one outside it — not the
+// same line twice.
+func TestInputIsSharedWithTasks(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	o := inputOpts("one\ntwo\n", &out)
+	src := `
+		async fn ask() { input() }
+		first = input()
+		first + "/" + ask().await
+	`
+	if got := mustEvalInput(t, o, src); got != "one/two" {
+		t.Fatalf("got %q; want one reader between the task and the program", got)
+	}
+}

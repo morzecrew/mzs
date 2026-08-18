@@ -1455,6 +1455,11 @@
    "sem": "FNV-1a over the **kind** and the inspect form, stable across runs. It is not the equality of §7.4: the rendered form separates `1` from `1.0` and two dicts built in different orders",
    "ex": ""
   },
+  "input": {
+   "sig": "`input(prompt: any = nil) -> string | nil`",
+   "sem": "writes `str(prompt)` to `Options.Stdout` with no newline, then reads one line of `Options.Stdin` without its terminator (CRLF like LF). The end of the input — and a host that installed no reader — is `nil`, never an error. It is one pull of the reader `io.stdin` and `io.lines` share (§12.13)",
+   "ex": "`input(\"Имя: \")`"
+  },
   "inspect": {
    "sig": "`inspect(x) -> string`",
    "sem": "§12.7",

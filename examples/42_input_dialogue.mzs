@@ -1,0 +1,87 @@
+# 42 — input: the console's other direction.
+#
+#   mzs examples/42_input_dialogue.mzs                          # answer the prompts
+#   printf 'Иван\n30\nда\n' | mzs examples/42_input_dialogue.mzs   # or pipe the answers in
+#   mzs examples/42_input_dialogue.mzs < /dev/null              # or answer nothing at all
+#
+# `input(prompt)` writes the prompt and reads one line of the input stream, without its
+# terminator. It is a plain global — no `include` — because it is the reading half of
+# `print`: the host wires one console, and a script that may write to it may read from it.
+#
+# The end of the input is `nil`, not an error, and so is a host that handed over no reader.
+# That is what makes every prompt below survive a `< /dev/null` and a Ctrl-D: `??` is the
+# default, and the file runs the same in a terminal, in a pipe, and out of both.
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+rule("one prompt, one line")
+
+# The prompt gets no newline of its own — the answer is typed where the cursor is — and
+# what comes back is a string, unparsed and untrimmed.
+
+name = input("Как вас зовут? ") ?? "аноним"
+println("Здравствуйте, ${name}!")
+
+rule("the line is a string until you say otherwise")
+
+# `.int` never raises, so a blank line and "тридцать" are both 0. Ask again, or take a
+# default; do not pretend the answer was a number.
+
+age = (input("Сколько вам лет? ") ?? "").trim.int
+println(age > 0 ? "Через год будет ${age + 1}." : "Возраст не назван.")
+
+rule("a question with a short list of answers")
+
+# `match` over the trimmed lower case is the shape a yes/no question wants: every spelling
+# that means yes in one arm, everything else in the last. The capital in `[Да/нет]` is the
+# promise the empty answer keeps — Enter takes the default, and so does no answer at all,
+# because `?? ""` makes the two the same line.
+
+reply = (input("Продолжить? [Да/нет] ") ?? "").trim.lower
+ok = match reply {
+  in ["", "да", "д", "yes", "y"] -> true
+  else -> false
+}
+println(ok ? "Продолжаем." : "Останавливаемся.")
+
+rule("the read loop")
+
+# `nil` ends the input, which is what makes the loop a plain `while`: one line at a time,
+# for as long as there are lines. In a terminal it ends on Ctrl-D; in a pipe, on the end
+# of the data.
+
+println("Введите числа, по одному на строку (Ctrl-D — закончить):")
+
+total = 0
+count = 0
+while (line = input("  > ")) {
+  n = line.trim
+  if !n.blank {
+    total += n.int
+    count += 1
+  }
+}
+
+println("")
+println(count == 0 ? "  ничего не введено" : "  ${count} чисел, сумма ${total}")
+
+rule("what input is, and is not")
+
+# It reads the same input stream `io.stdin` and `io.lines` read (§12.13) — one pull of it,
+# so the three mix without taking each other's bytes:
+#
+#   include io
+#   header = input()          # the first line
+#   rest   = io.lines.array    # everything after it
+#
+# It is not a capability of its own: `mzs --no-io` withholds the reader, and then every
+# prompt above answers nil instead of failing. And it is not `-n`, which is the CLI reading
+# the lines for you into `$_` — there `input()` is nil, because the CLI owns the reader:
+#
+#   printf 'a\nb\n' | mzs -n -e '$_.upper'
+
+println("Готово.")

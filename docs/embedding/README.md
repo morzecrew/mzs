@@ -84,7 +84,7 @@ not allow network access calls `Unregister("http")`, see
 | `EnableTime` | `false` | installs the `time` and `date` modules |
 | `ModuleLoader` | `nil` | enables `include x from "…"` |
 | `FS` | `nil` | installs the `io` module |
-| `Stdin` | `nil` | `io.stdin`/`io.lines`; nil is empty input |
+| `Stdin` | `nil` | `io.stdin`/`io.lines`/`input()`; nil is empty input |
 | `Env` | `nil` | answers `io.env`; nil means every name is unset |
 | `Location` | `time.UTC` | default zone for `strftime`/`in_time_zone` |
 

@@ -42,7 +42,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | Page | Answers |
 |---|---|
 | [stdlib/README.md](./stdlib/README.md) | One flat namespace, how `x.f(y)` resolves, how to read the tables |
-| [stdlib/core.md](./stdlib/core.md) | Output, sizes and kinds, conversions, aggregates, `format`, error introspection |
+| [stdlib/core.md](./stdlib/core.md) | Output and `input`, sizes and kinds, conversions, aggregates, `format`, error introspection |
 | [stdlib/strings.md](./stdlib/strings.md) | Case, trimming, testing, searching, splitting, replacing, padding — in runes |
 | [stdlib/arrays.md](./stdlib/arrays.md) | Every array function, with the ten mutating rows kept separate |
 | [stdlib/dicts.md](./stdlib/dicts.md) | Reading, writing, merging and iterating a dict, and the insertion-order guarantee |

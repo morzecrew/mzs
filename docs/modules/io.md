@@ -104,8 +104,43 @@ $ printf 'a\nb\n' | mzs -e 'include io; ls = io.lines.array; [ls.len, ls.len]' -
 [2,2]
 ```
 
-No reader at all is not an error — the text is `""` and the lines are empty, so one script
-runs both in a pipe and out of one.
+### `input` is the third way of asking
+
+[`input(prompt)`](../stdlib/core.md#input) is the same reader, one line at a time, and it
+is a plain global — no `include` — because it is the reading half of `print`. Prompting is
+what it adds:
+
+```sh
+$ printf 'Иван\n' | mzs -e 'input("Имя: ")'
+Имя: Иван
+```
+
+It counts as a line-at-a-time read, so it takes the reader the way `io.lines` does and a
+later `io.stdin` says which member has the bytes:
+
+```sh
+$ printf 'a\nb\n' | mzs -e 'include io; input(); io.stdin'
+-e:1:25: io: io.stdin: the input has already been read line by line by input
+```
+
+After an `io.stdin` there is nothing to take — the text is cached, and consecutive prompts
+walk it:
+
+```sh
+$ printf 'a\nb\n' | mzs -e 'include io; [io.stdin.len, input(), input(), io.stdin.len]' --json
+[4,"a","b",4]
+```
+
+`input` and `io.lines` interleave off one reader rather than racing for it, so a script may
+prompt for a header and stream the rest:
+
+```sh
+$ printf 'a\nb\nc\n' | mzs -e 'include io; [input(), io.lines.array]' --json
+["a",["b","c"]]
+```
+
+No reader at all is not an error — the text is `""`, the lines are empty and `input()` is
+`nil`, so one script runs both in a pipe and out of one.
 
 ```sh
 $ mzs -e 'include io; inspect(io.stdin)' < /dev/null
@@ -156,7 +191,9 @@ io.read "huge.txt": exceeds the 8388608 byte limit
 
 Every member that reaches the filesystem charges 1000 steps before it starts — `io.env` charges
 none, and `io.stdin`/`io.lines` charge once for the read itself, plus one step per line — so a loop over a
-directory spends the budget at the rate of the work it does:
+directory spends the budget at the rate of the work it does. `input` reaches no filesystem
+and charges one step per line and nothing else, which is what keeps a read loop over a large
+pipe bounded by the work rather than by 1000× it:
 
 ```sh
 $ mzs --steps 2000 -e 'include io; (0..4).map { io.exists("notes.txt") }.len'
@@ -220,4 +257,5 @@ A worked program using every member is [../../examples/32_io_files.mzs](../../ex
 - [./README.md](./README.md) — include, module rules, the module table
 - [./http.md](./http.md) — the other module that reaches outside the process, and needs no option
 - [../cli/input.md](../cli/input.md) — pipe vs data, `--in`, `-n` line mode
+- [../stdlib/core.md](../stdlib/core.md#input) — `input`, the prompting one-line read that needs no include
 - [../embedding/filesystem.md](../embedding/filesystem.md) — writing an `FS`, `Stdin`, `Env`

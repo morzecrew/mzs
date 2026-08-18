@@ -109,6 +109,7 @@ func TestOutputReportsAFailingWriter(t *testing.T) {
 		{"println", []Value{Array(Str("а"), Str("б"))}}, // an array prints one per line
 		{"println", nil}, // the bare newline
 		{"debug", []Value{Int(1)}},
+		{"input", []Value{Str("Имя: ")}}, // the prompt is output too, and may fail like any
 	} {
 		t.Run(tt.fn, func(t *testing.T) {
 			_, err := stdBuiltin(t, c, tt.fn, tt.args...)

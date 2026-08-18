@@ -1,6 +1,6 @@
 # Core functions
 
-The functions that are not tied to one kind: output, sizes and kinds, conversions, aggregates, formatting, and errors.
+The functions that are not tied to one kind: output and input, sizes and kinds, conversions, aggregates, formatting, and errors.
 
 Every row is also a method (`len(x)` ≡ `x.len`); see [README.md](./README.md). The one
 exception is `defined`, which must stay a call because it never evaluates its operand.
@@ -18,6 +18,65 @@ debug("a", "b").upper    # writes "a" and "b" on their own lines, evaluates to A
 ```
 
 Output goes to the interpreter's stdout, not to `os.Stdout` directly — a host can capture it.
+
+## Input
+
+| Name | Signature | Does | Example → value |
+|---|---|---|---|
+| `input` | `input(prompt: any = nil) -> string \| nil` | writes the prompt with no newline, then reads one line of the input stream without its terminator | `input("Имя: ")` → `"Иван"` |
+
+```ruby
+name = input("Как тебя зовут? ")
+println("Привет, ${name}!")
+```
+
+```
+$ mzs ask.mzs
+Как тебя зовут? Иван
+Привет, Иван!
+```
+
+The prompt is optional — `input()` reads without asking anything — and any value may be
+one: it is written by its `str`, exactly as `print` writes it, and nothing is added after
+it, so the answer is typed where the cursor already is.
+
+The line arrives **unparsed and untrimmed**. Only the terminator is dropped, a CRLF like an
+LF, so a number is a string until you say otherwise — and `?? ""` is what makes the end of
+the input answer the question too, because `nil` has no `trim`:
+
+```ruby
+age = (input("Возраст: ") ?? "").trim.int   # "" and "тридцать" are both 0; int never raises
+```
+
+The end of the input is `nil` rather than an error, which is what makes the read loop a
+plain `while` — and what makes `??` the way to a default:
+
+```ruby
+n = 0
+while (line = input()) { n += line.int }   # nil ends it: EOF, or Ctrl-D
+println(n)
+```
+
+```ruby
+name = input("Имя: ") ?? "аноним"
+```
+
+A host that handed over no input stream at all is the same `nil` on the first call, so a
+script written for a terminal still runs in a pipe, and in neither one does it need an
+`include`: `input` is the reading half of `print`, and both halves are the console the
+host wired.
+
+It reads the very same stream [`io.stdin` and `io.lines`](../modules/io.md#stdin) do — one
+pull of it — so the three mix without taking each other's bytes:
+
+```sh
+$ printf 'a\nb\nc\n' | mzs -e 'include io; [input(), io.lines.array]' --json
+["a",["b","c"]]
+```
+
+What that stream *is* belongs to the command line rather than to the script: a pipe, a
+`--in <path>`, or the terminal. Under `-n` the CLI owns the reader and hands the script one
+line at a time in `$_`, so `input()` there is `nil` — see [the input page](../cli/input.md).
 
 ## Size and kind
 
@@ -198,9 +257,16 @@ These three exist only when the host enables them; otherwise the name is undefin
 Without the flag the name does not resolve at all: `name: undefined function 'rand' (did you
 mean 'band'?)`.
 
+`input` is not in this table on purpose. A capability the host withheld makes it answer
+`nil`, not disappear: reading a console that is not there is an input that is already over,
+and a script that asks anyway still runs. `mzs --no-io` is how the command line withholds
+it.
+
 ## See also
 
 - [strings.md](./strings.md) — the string rows these conversions feed
 - [numbers.md](./numbers.md) — per-number rounding, predicates and bit functions
 - [../language/errors.md](../language/errors.md) — `try`/`else` and what `raise` produces
 - [../reference/sandbox.md](../reference/sandbox.md) — why `rand`, `uuid` and `now` are gated
+- [../modules/io.md](../modules/io.md) — the input stream `input` reads, and the files and environment beside it
+- [../cli/input.md](../cli/input.md) — where that stream comes from: a pipe, `--in`, and `-n` line mode

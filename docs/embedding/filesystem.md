@@ -6,7 +6,7 @@ the host — not the library — resolves every path.
 ```go
 in := mzs.New(mzs.Options{
 	FS:           myFS{},          // installs the io module
-	Stdin:        os.Stdin,        // io.stdin drains it, io.lines streams it; nil is empty input
+	Stdin:        os.Stdin,        // io.stdin drains it, io.lines and input() pull it; nil is empty input
 	Env:          os.Getenv,       // io.env; nil means every name is unset
 	ModuleLoader: myLoader,        // include x from "./x.mzs"
 })
@@ -144,7 +144,11 @@ Afterwards `fs["data/b.txt"] == "hi!"`. `io.ls` sorts what `List` returned, so a
 lists a directory prints the same thing twice in a row.
 
 `Stdin` is drained once per Run and cached: the second `io.stdin` of a program answers what
-the first one read; `nil` is empty input, not an error. `Env` is usually `os.Getenv`; `nil`
+the first one read; `nil` is empty input, not an error. It is also what the global
+[`input(prompt)`](../stdlib/core.md#input) reads — one line per call, with no `include`,
+because the console is the pair of fields a host wires together: `Stdout` for `print` and
+`Stdin` for `input`. A host that installs neither has a script that prompts nobody and
+hears `nil`. `Env` is usually `os.Getenv`; `nil`
 means every name is unset, and an empty result counts as unset, so
 `io.env("STAGE", "prod")` falls back the way `${STAGE:-prod}` does in a shell.
 

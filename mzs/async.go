@@ -73,12 +73,23 @@ type runShared struct {
 	stdin     string
 	stdinRead bool
 	// stdinRd is that same reader buffered, which is what `io.lines` pulls a line at a
-	// time (§12.14), and stdinLines records that something has. The two members are two
-	// ways of asking one reader for its bytes, so the Run has to remember which way was
-	// used: after the lines have been streamed there is no whole text left to hand back,
-	// and `io.stdin` says so rather than answering "".
-	stdinRd    *bufio.Reader
-	stdinLines bool
+	// time (§12.14) and what `input` pulls one of (§12.1); stdinTakenBy records that
+	// something has. The whole text and a line at a time are two ways of asking one
+	// reader for its bytes, so the Run has to remember which way was used: after the
+	// lines have been streamed there is no whole text left to hand back, and `io.stdin`
+	// says so rather than answering "".
+	stdinRd *bufio.Reader
+	// stdinTakenBy is the member that took the reader — "io.lines" or "input" — and is
+	// empty until one of them has. It is a name rather than a flag because it is what the
+	// later `io.stdin` diagnostic says: which member has the bytes is the one thing that
+	// answer needs, and a script that mixes the two spellings deserves to be told which
+	// of them it was.
+	stdinTakenBy string
+	// stdinAt is how far `input` has read into the cached text (§12.1). It only ever
+	// moves when `io.stdin` was drained first: consecutive `input()` calls must answer
+	// consecutive lines, and a cursor on the shared half of the Run is what a seq of its
+	// own cannot be.
+	stdinAt int
 	// stdinLineBad records that a line overran MaxStringBytes. The reader is then no
 	// longer positioned at the start of a line, and the rest of the one that overran would
 	// come back as a line of its own — a fragment presented as data — so every later pull

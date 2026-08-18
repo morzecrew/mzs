@@ -75,7 +75,7 @@ string and a regex say so explicitly.
 
 | Page | Contents |
 |---|---|
-| [core.md](./core.md) | printing, sizes, kinds, conversions, aggregates, `format`, errors |
+| [core.md](./core.md) | printing and `input`, sizes, kinds, conversions, aggregates, `format`, errors |
 | [strings.md](./strings.md) | case, trimming, searching, splitting, replacing, slicing |
 | [arrays.md](./arrays.md) | building, iterating, mapping, sorting, grouping |
 | [dicts.md](./dicts.md) | keys, lookup with defaults, merging, nested `dig` |

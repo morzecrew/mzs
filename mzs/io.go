@@ -37,6 +37,10 @@ import (
 // still runs where there is none instead of failing on line one. `io.stdin` and `io.lines`
 // are two ways of asking that one reader — the whole text, or a line at a time — and the
 // order they are asked in decides what the second one can still have.
+//
+// The third way of asking is `input` (§12.1), which is a global rather than a member of
+// this module and is implemented here anyway, because it reads the same reader and there
+// is only ever one implementation of a thing (D17).
 
 func init() {
 	SetModuleGate("io", ModuleGate{NeedsFS: true})
@@ -48,6 +52,10 @@ func init() {
 	RegisterModuleFunc("io", "exists", 1, 1, iovExists)
 	RegisterModuleFunc("io", "ls", 0, 1, iovLs)
 	RegisterModuleFunc("io", "env", 1, 2, iovEnv)
+
+	// `input` is a §12.1 global and not a member of this module — see bivInput for why
+	// the console's reading half needs no include when its writing half never did.
+	RegisterBuiltin(Builtin{Name: "input", Max: 1, Fn: bivInput})
 }
 
 // ioStepCost is what one filesystem operation is charged before it starts. It is the
@@ -125,7 +133,9 @@ func ioLineSeq() *Seq {
 					mode, cached = fromCache, textLines(sh.stdin)
 				case c.rs.opts.Stdin != nil:
 					mode = fromReader
-					sh.stdinLines = true
+					if sh.stdinTakenBy == "" {
+						sh.stdinTakenBy = "io.lines"
+					}
 					if sh.stdinRd == nil {
 						sh.stdinRd = bufio.NewReader(c.rs.opts.Stdin)
 					}
@@ -144,7 +154,7 @@ func ioLineSeq() *Seq {
 				at++
 				return Str(line), true, nil
 			}
-			line, ok, err := ioReadLine(c, c.rs.sh.stdinRd)
+			line, ok, err := ioReadLine(c, c.rs.sh.stdinRd, "io.lines")
 			if err != nil || !ok {
 				mode = exhausted
 				return Nil(), false, err
@@ -154,14 +164,108 @@ func ioLineSeq() *Seq {
 	})
 }
 
+// ---------------------------------------------------------------------------
+// input (§12.1)
+// ---------------------------------------------------------------------------
+
+// bivInput is the global `input(prompt = nil)`: write the prompt, read one line, hand it
+// back without its terminator, and answer `nil` when there is no line left.
+//
+// It is a §12.1 builtin and not a member of this module because a console is one thing
+// with two directions, and the half that writes has never needed an include: `print` and
+// `input` are the pair, exactly as `print` and `println` are. What the pair may *reach*
+// is still the host's to grant — `print` writes to Options.Stdout and `input` reads
+// Options.Stdin, and a host that installed neither has a script that can prompt nobody
+// and hear nothing rather than one that fails to compile. That is the shape every other
+// stream capability already has (§14.3): the CLI's `--no-io` withholds the reader too, so
+// `input` is `nil` under it.
+//
+// The implementation lives in io.go because the reader does. `input` is one pull of the
+// same stdin `io.stdin` drains and `io.lines` streams (§12.13); a second implementation
+// of "one line off the input" is the kind of thing D17 exists to forbid.
+func bivInput(c *Ctx, args []Value) (Value, error) {
+	if len(args) > 0 {
+		// The prompt is written before the read and gets no newline of its own: the
+		// answer is typed where the cursor already is. Nothing here flushes, because
+		// nothing here buffers — Options.Stdout is the host's writer, and the CLI's is
+		// the console itself.
+		if err := writeOut(c, c.Out(), args[0].Str()); err != nil {
+			return Nil(), err
+		}
+	}
+	// One line is one step, the charge `io.lines` pays per element. The 1000 of
+	// ioStepCost is what reaching the *filesystem* costs and no line of input does, which
+	// is what keeps `while (line = input()) { … }` over a large pipe a loop the budget
+	// bounds at the rate of the work rather than 1000× that.
+	if err := c.Step(1); err != nil {
+		return Nil(), err
+	}
+	line, ok, err := inputLine(c)
+	if err != nil || !ok {
+		return Nil(), err
+	}
+	return Str(line), nil
+}
+
+// inputLine pulls one line from whichever form the input has already taken, so that
+// `input` composes with the module instead of competing with it (§12.13):
+//
+//   - `io.stdin` has been drained → the lines of that cached text, from a cursor the Run
+//     shares, so consecutive `input()` calls answer consecutive lines and the whole text
+//     is still there for anything that asks again;
+//   - otherwise → straight off the reader, which from then on is what the line-at-a-time
+//     members have: a later `io.stdin` raises the "already read line by line" error of
+//     §12.13 naming `input`, because the bytes really are gone.
+//
+// The end of the input is `nil` and not an error, and so is a host that installed no
+// reader at all: `while (line = input()) { … }` is the loop this shape is for, and a
+// script written for a pipe still runs outside one.
+func inputLine(c *Ctx) (string, bool, error) {
+	sh := c.rs.sh
+	if sh.stdinRead {
+		// The cursor walks the cached string rather than a []string of its lines: the
+		// text is already in memory once and splitting it again on every prompt would put
+		// it there twice. The rules are textLines': the CR of a CRLF belongs to the
+		// terminator, and a trailing newline ends the text instead of starting an empty
+		// last line.
+		if sh.stdinAt >= len(sh.stdin) {
+			return "", false, nil
+		}
+		rest := sh.stdin[sh.stdinAt:]
+		i := strings.IndexByte(rest, '\n')
+		if i < 0 {
+			sh.stdinAt = len(sh.stdin)
+			return rest, true, nil
+		}
+		sh.stdinAt += i + 1
+		return strings.TrimSuffix(rest[:i], "\r"), true, nil
+	}
+	if c.rs.opts.Stdin == nil {
+		return "", false, nil
+	}
+	if sh.stdinTakenBy == "" {
+		// The member that took the reader is the one the later `io.stdin` names, so a
+		// second taker does not overwrite the first: what a script wants to be told is
+		// where its input went, and it went to whichever spelling reached it first.
+		sh.stdinTakenBy = "input"
+	}
+	if sh.stdinRd == nil {
+		sh.stdinRd = bufio.NewReader(c.rs.opts.Stdin)
+	}
+	return ioReadLine(c, sh.stdinRd, "input")
+}
+
 // ioReadLine reads one line, without its terminator and without a trailing CR, under
 // MaxStringBytes — which now bounds one *line* rather than the whole input, and is the
 // only bound a streaming read can have. A line over it is the catchable io error an
 // oversized read has always been (§14.2), never a truncation.
 //
+// `what` is the member asking — `io.lines` or `input` — because a diagnostic about the
+// input should name the spelling the script actually used.
+//
 // The lock is held throughout, for the reason ioStdinText gives: two tasks pulling from
 // one reader would take each other's lines.
-func ioReadLine(c *Ctx, r *bufio.Reader) (string, bool, error) {
+func ioReadLine(c *Ctx, r *bufio.Reader, what string) (string, bool, error) {
 	max := c.rs.opts.MaxStringBytes
 	tooLong := func() error {
 		// Failing the *source* and not just this pull: what is left of the line that
@@ -169,10 +273,10 @@ func ioReadLine(c *Ctx, r *bufio.Reader) (string, bool, error) {
 		// diagnostic into silent corruption. There is no resynchronising on a boundary
 		// that is not there, so the input stops being readable line by line here.
 		c.rs.sh.stdinLineBad = true
-		return c.ErrorfKind(ErrKindIO, "io.lines: a line exceeds the %d byte limit", max)
+		return c.ErrorfKind(ErrKindIO, "%s: a line exceeds the %d byte limit", what, max)
 	}
 	if c.rs.sh.stdinLineBad {
-		return "", false, c.ErrorfKind(ErrKindIO, "io.lines: a line exceeds the %d byte limit", max)
+		return "", false, c.ErrorfKind(ErrKindIO, "%s: a line exceeds the %d byte limit", what, max)
 	}
 	var buf []byte
 	for {
@@ -198,7 +302,7 @@ func ioReadLine(c *Ctx, r *bufio.Reader) (string, bool, error) {
 				return "", false, nil
 			}
 		default:
-			return "", false, c.ErrorfKind(ErrKindIO, "io.lines: %v", err)
+			return "", false, c.ErrorfKind(ErrKindIO, "%s: %v", what, err)
 		}
 		// The CR of a CRLF is part of the terminator, so it is dropped before the line is
 		// measured: a file off a Windows machine reaches the same limit as any other.
@@ -222,11 +326,11 @@ func ioStdinText(c *Ctx) (string, error) {
 	if sh.stdinRead {
 		return sh.stdin, nil
 	}
-	if sh.stdinLines {
+	if sh.stdinTakenBy != "" {
 		// The bytes are gone and the rest of them is not "the whole of stdin". Say which
 		// member has them rather than answering "" and letting a script conclude that
 		// nothing was piped in (§12.13).
-		return "", c.ErrorfKind(ErrKindIO, "io.stdin: the input has already been read line by line by io.lines")
+		return "", c.ErrorfKind(ErrKindIO, "io.stdin: the input has already been read line by line by %s", sh.stdinTakenBy)
 	}
 	sh.stdinRead = true
 	r := c.rs.opts.Stdin
