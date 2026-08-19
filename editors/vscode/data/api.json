@@ -1592,6 +1592,58 @@
   }
  },
  "modules": {
+  "crypto": {
+   "base64": {
+    "sig": "`(s: string, alphabet: string = \"std\") -> string`",
+    "sem": "RFC 4648 §4, or §5 under `\"url\"`: `-_` and no padding",
+    "ex": ""
+   },
+   "crc32": {
+    "sig": "`(s: string) -> int`",
+    "sem": "the IEEE checksum, `0..4294967295`",
+    "ex": ""
+   },
+   "equal": {
+    "sig": "`(a: string, b: string) -> bool`",
+    "sem": "`==` in time that does not depend on where the two differ",
+    "ex": ""
+   },
+   "hex": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the string's bytes as lowercase hex, and back; `unhex` reads either case",
+    "ex": ""
+   },
+   "hmac": {
+    "sig": "`(key: string, msg: string, alg: string = \"sha256\") -> string`",
+    "sem": "the signature, in hex; `alg` is one of the three above",
+    "ex": ""
+   },
+   "md5": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the digest, in hex",
+    "ex": ""
+   },
+   "sha1": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the digest, in hex",
+    "ex": ""
+   },
+   "sha256": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the digest, in hex",
+    "ex": ""
+   },
+   "unbase64": {
+    "sig": "`(s: string) -> string`",
+    "sem": "one decoder: either alphabet, padded or not",
+    "ex": ""
+   },
+   "unhex": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the string's bytes as lowercase hex, and back; `unhex` reads either case",
+    "ex": ""
+   }
+  },
   "date": {
    "parse": {
     "sig": "`(s: string) -> time`",
@@ -1860,16 +1912,50 @@
     "sem": "accepts RFC3339, `YYYY-MM-DD{ HH:MM[:SS]}`, `DD/MM/YY`, `DD.MM.YYYY`",
     "ex": ""
    }
+  },
+  "url": {
+   "build": {
+    "sig": "`(d: dict) -> string`",
+    "sem": "the inverse; every key is optional and an unknown key is an error",
+    "ex": ""
+   },
+   "decode": {
+    "sig": "`(s: string) -> string`",
+    "sem": "RFC 3986 percent-encoding; a space is `%20`, a `+` is a plus",
+    "ex": ""
+   },
+   "encode": {
+    "sig": "`(s: string) -> string`",
+    "sem": "RFC 3986 percent-encoding; a space is `%20`, a `+` is a plus",
+    "ex": ""
+   },
+   "parse": {
+    "sig": "`(s: string) -> dict`",
+    "sem": "the eight keys below, every one of them decoded",
+    "ex": ""
+   },
+   "parse_query": {
+    "sig": "`(s: string) -> dict`",
+    "sem": "a query string back; a leading `?` is allowed",
+    "ex": ""
+   },
+   "query": {
+    "sig": "`(d: dict) -> string`",
+    "sem": "a query string, in the dict's own order",
+    "ex": ""
+   }
   }
  },
  "gates": {
+  "crypto": "",
   "date": "--time",
   "decimal": "",
   "http": "",
   "io": "",
   "json": "",
   "math": "",
-  "time": "--time"
+  "time": "--time",
+  "url": ""
  },
  "keywords": [
   "break",

@@ -1,0 +1,148 @@
+# 43 — crypto: signing what you send, and checking what arrives.
+#
+#   mzs examples/43_crypto_webhook.mzs
+#
+# `http` has had both halves since the beginning — a server whose routes are closures and a
+# client whose answers are dicts — and until this module there was no way to check that the
+# webhook arriving at one of those routes came from who it says:
+#
+#   crypto.hex / unhex          bytes as hex, and back
+#   crypto.base64 / unbase64    RFC 4648, both alphabets, one reader
+#   crypto.sha256 / sha1 / md5  the digests, in hex
+#   crypto.hmac                 the signature, in hex
+#   crypto.crc32                the IEEE checksum — a flipped byte, not a sender
+#   crypto.equal                the comparison a signature check has to use
+#
+# The module is called `crypto` and not `hash` because `hash(x)` is already a function
+# (FNV-1a, §12.1) and an include gives a name to its module for the whole file: `include
+# hash` would have made `hash(x)` an error in every file that wanted a signature.
+
+include crypto
+include json
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+fn show(label, v) { println(label.ljust(46) + " → " + v.str) }
+fn caught(label, f) { show(label, try f() else (e) -> "${e["kind"]}: ${e["message"]}") }
+
+rule("the two encodings")
+
+show("crypto.hex(\"Hi\")", crypto.hex("Hi"))
+show("crypto.unhex(\"4869\")", crypto.unhex("4869"))
+show("crypto.hex(\"é\")", crypto.hex("é"))          # two bytes, one rune
+show("crypto.base64(\"Привет\")", crypto.base64("Привет"))
+show("crypto.unbase64(\"0J/RgNC40LLQtdGC\")", crypto.unbase64("0J/RgNC40LLQtdGC"))
+
+# "url" is RFC 4648 §5 as it is actually sent: `-_` for `+/`, and no padding, because that
+# is how a token travels in a URL or a JWT.
+show("crypto.base64(\"?~~~ ok\")", crypto.base64("?~~~ ok"))
+show("crypto.base64(\"?~~~ ok\", \"url\")", crypto.base64("?~~~ ok", "url"))
+
+# There is one decoder, and it takes no alphabet: the script did not choose how the text it
+# received was spelled. The alphabet is read off the text and the padding off its end.
+show("all four spellings decode",
+  [crypto.unbase64("SGk="), crypto.unbase64("SGk"),
+   crypto.unbase64("fn5-Pw"), crypto.unbase64("fn5+Pw==")].json)
+
+# A JWT's header and payload are base64url of JSON. Reading one is two calls.
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3IiwibmFtZSI6ItCY0LLQsNC9In0"
+parts = token.split(".")
+show("the header of a token", crypto.unbase64(parts[0]))
+show("its payload, parsed", json.parse(crypto.unbase64(parts[1]))["name"])
+
+rule("the digests")
+
+show("crypto.sha256(\"abc\")", crypto.sha256("abc"))
+show("crypto.sha1(\"abc\")", crypto.sha1("abc"))
+show("crypto.md5(\"abc\")", crypto.md5("abc"))
+show("crypto.crc32(\"mzs\")", crypto.crc32("mzs"))
+
+# The same polynomial example 34 works out by hand, one bit at a time — the module and the
+# script agree, which is what a checksum is for.
+show("crypto.crc32(\"123456789\").str(16)", crypto.crc32("123456789").str(16))
+
+# The bytes are hashed, not the runes — the same string in another normalisation is another
+# digest, and that is the whole point of one.
+show("crypto.sha256(\"привет\").first(16)", crypto.sha256("привет").first(16))
+
+rule("checking a webhook")
+
+# The shape a handler receives from http.serve, written out here so the example needs no
+# network. In a real service the two lines that matter are the two below the request.
+SECRET = "s3cret"
+
+request = {
+  path: "/hook",
+  body: '{"event":"order.paid","id":7}',
+  headers: {"x-signature": "67b1b757be5bacd98e3d1b3d2c0542d4bb63ad727600626c71aa2da8b2c74889"},
+}
+
+signed = crypto.hmac(SECRET, request["body"])
+show("crypto.hmac(SECRET, body)", signed)
+show("the header it arrived with", request["headers"]["x-signature"])
+show("crypto.equal(signed, header)", crypto.equal(signed, request["headers"]["x-signature"]))
+
+# The same signature over a body that changed by one digit on the way.
+tampered = request.set("body", '{"event":"order.paid","id":8}')
+show("the body changed by one digit",
+  crypto.equal(crypto.hmac(SECRET, tampered["body"]), tampered["headers"]["x-signature"]))
+
+# And the same body signed with somebody else's secret.
+forged = request.set("headers", {"x-signature": crypto.hmac("guess", request["body"])})
+show("a request signed with another secret",
+  crypto.equal(crypto.hmac(SECRET, forged["body"]), forged["headers"]["x-signature"]))
+
+# `crypto.equal` is not decoration. Written with `==`, that check tells an attacker —
+# through how long it takes — how much of a forged signature is right, one byte at a time.
+# What it does not hide is the length of the two strings, and it need not: the length of a
+# digest is a fact about the algorithm.
+#
+# The handler, in a real service:
+#
+#   include http
+#   http.serve(":8080", {"POST /hook": { (req) ->
+#     if !crypto.equal(crypto.hmac(SECRET, req["body"]), req["headers"]["x-signature"]) {
+#       {status: 401, body: "bad signature"}
+#     } else { {ok: true} }
+#   }})
+
+rule("a signature that arrives in base64")
+
+# Some senders spell the same bytes in base64. Decode the one you computed rather than the
+# one you received: then the comparison stays in one spelling and nothing is parsed twice.
+b64sig = crypto.base64(crypto.unhex(crypto.hmac(SECRET, request["body"])))
+show("the same signature, base64", b64sig)
+show("checked without re-encoding",
+  crypto.equal(b64sig, crypto.base64(crypto.unhex(crypto.hmac(SECRET, request["body"])))))
+
+rule("what the decoders refuse")
+
+caught("crypto.unhex(\"abc\")", fn() { crypto.unhex("abc") })
+caught("crypto.unhex(\"нет\")", fn() { crypto.unhex("нет") })
+caught("crypto.unbase64(\"a-b+c\")", fn() { crypto.unbase64("a-b+c") })
+caught("crypto.base64(\"x\", \"base64url\")", fn() { crypto.base64("x", "base64url") })
+caught("crypto.hmac(\"k\", \"m\", \"sha512\")", fn() { crypto.hmac("k", "m", "sha512") })
+
+# Blanks around the text are shed — a key read from a file has a newline on it — but a blank
+# inside is data, and saying so beats decoding something else.
+show("crypto.unhex(\"  4869\\n\")", crypto.unhex("  4869\n"))
+caught("crypto.unhex(\"48 69\")", fn() { crypto.unhex("48 69") })
+
+rule("bytes that are not text")
+
+# A decoder answers with bytes, and bytes need not be text. Nothing raises over it — the
+# same thing `pack_bytes` and a binary `io.read` already produce — and `bytes` is how a
+# script looks at what really came back.
+show("crypto.unhex(\"ff\").bytes", crypto.unhex("ff").bytes.json)
+show("crypto.unhex(\"ff\").len", crypto.unhex("ff").len)
+show("a round trip is exact", crypto.unhex(crypto.hex("привет")) == "привет")
+
+rule("the name")
+
+# `hash` is still the FNV-1a of §12.1: including this module costs nothing.
+show("type(hash(\"abc\"))", type(hash("abc")))
+show("crypto.keys", crypto.keys.json)

@@ -1,6 +1,6 @@
 # Examples
 
-Forty-two complete programs, in order of difficulty. Each one runs on its own, prints a
+Forty-four complete programs, in order of difficulty. Each one runs on its own, prints a
 readable report, and is written to be read as much as to be executed:
 
 ```sh
@@ -60,6 +60,8 @@ does not have it at all.
 | 40 | `40_lazy_sequences.mzs` | `seq` — a billion-element range walked in three steps, a generator ended by `nil`, laziness counted rather than promised, and why a seq is not an array |
 | 41 | `41_decimal_money.mzs` | `decimal` — an invoice whose kopecks add up: exact `+ - * /` through the module, two rounding modes, a bill split without a remainder lost, and the `+` that refuses to be quietly wrong |
 | 42 | `42_input_dialogue.mzs` | `input` — the console's other direction: a prompt with no newline, an answer that is a string until you say otherwise, a yes/no `match`, and the `while` loop `nil` ends. Runs the same in a terminal, in a pipe and under `< /dev/null` |
+| 43 | `43_crypto_webhook.mzs` | `crypto` — the webhook check `http` could not make: HMAC and the digests, hex and both base64 alphabets, one decoder for all four spellings, and `crypto.equal` instead of the `==` that leaks |
+| 44 | `44_urls.mzs` | `url` — the eight keys of a parsed URL and the inverse that builds one, the two encodings the `+` tells apart, a query written from an array, and a callback link that carries its own signature |
 
 ## Text, patterns and data
 

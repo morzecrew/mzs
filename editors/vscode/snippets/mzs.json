@@ -1,7 +1,7 @@
 {
   "include a built-in module": {
     "prefix": "inc",
-    "body": "include ${1|json,math,time,date,http,io,decimal|}",
+    "body": "include ${1|json,math,time,date,http,io,decimal,crypto,url|}",
     "description": "Include a built-in module (§12.8)"
   },
   "include a script module": {
@@ -18,6 +18,26 @@
       "decimal.str(${1:price}, ${3:2})"
     ],
     "description": "An exact decimal, and the string it prints as (§12.15)"
+  },
+  "check a webhook signature": {
+    "prefix": "hmac",
+    "body": [
+      "include crypto",
+      "",
+      "${1:signed} = crypto.hmac(${2:SECRET}, ${3:body})",
+      "crypto.equal(${1:signed}, ${4:header})"
+    ],
+    "description": "Sign a body and compare in constant time (\u00a712.16)"
+  },
+  "build a URL": {
+    "prefix": "url",
+    "body": [
+      "include url",
+      "",
+      "url.build({scheme: \"https\", host: \"${1:api.example.com}\", path: \"${2:/v1/orders}\",",
+      "           query: {${3:page}: ${4:2}}})"
+    ],
+    "description": "Assemble a URL out of its parts (\u00a712.17)"
   },
   "export a function": {
     "prefix": "expfn",

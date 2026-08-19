@@ -27,7 +27,7 @@ the caret always follow it.
 | `syntax` | the lexer and parser, including every fix-it below |
 | `name` | an undefined variable, function, method, or module capability |
 | `type` | an operation on the wrong kind |
-| `argument` | wrong arity, or an argument out of range |
+| `argument` | wrong arity, or an argument out of range — including text that is not hex, base64 or a URL (`crypto`, `url`) |
 | `index` | a position out of range, a destructuring length mismatch |
 | `key` | a dict key that is not there — `fetch` |
 | `zero-division` | `1/0`, `1%0` |

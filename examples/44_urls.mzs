@@ -1,0 +1,132 @@
+# 44 — url: taking one apart, putting one together.
+#
+#   mzs examples/44_urls.mzs
+#
+# The other half of the gap `http` left open: `http.get` takes a URL and `http.serve` hands
+# a request over, and a script could neither read one nor write one.
+#
+#   url.parse / build           eight keys, and the inverse
+#   url.encode / decode         RFC 3986 percent-encoding — a space is %20, a + is a plus
+#   url.query / parse_query     the form spelling over that — where a + read back is a space
+#
+# Everything `parse` hands back is decoded, so a path can be compared against what the
+# script was going to write; `build` escapes each part by the rule of the half it sits in,
+# which is the only place that knows which half a character is in.
+
+include url
+include crypto
+include json
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+fn show(label, v) { println(label.ljust(48) + " → " + v.str) }
+fn caught(label, f) { show(label, try f() else (e) -> "${e["kind"]}: ${e["message"]}") }
+
+rule("the eight keys")
+
+u = url.parse("https://ivan:s3cret@api.example.com:8443/v1/счета?page=2&sort=desc#top")
+
+println(json.pretty(u))
+println("")
+show("u[\"host\"]", u["host"])
+show("u[\"port\"]", u["port"])
+show("u[\"path\"] — decoded", u["path"])
+show("u[\"query\"][\"page\"]", u["query"]["page"])
+
+# Nothing is filled in. A relative URL borrows no scheme and no host, and a URL with no port
+# has 0 rather than the 443 its scheme would have used — that number is a fact about the
+# client that is going to dial, not about the text that was read.
+show("a relative URL", url.parse("/docs/index.html?a=1").json)
+show("no port is 0", url.parse("https://example.com/")["port"])
+
+# An opaque URL — no authority — keeps its body in `path`, and `build` writes it back so.
+show("mailto:", url.parse("mailto:ivan@example.com")["path"])
+show("and back", url.build(url.parse("mailto:ivan@example.com")))
+
+rule("the way back")
+
+show("build(parse(u)) is the same URL", url.build(u))
+show("one part changed", url.build(u.set("path", "/v1/invoices")))
+show("from nothing at all", url.build({path: "/a b"}))
+show("an IPv6 host is bracketed again",
+  url.build({scheme: "http", host: "::1", port: 9000, path: "/x"}))
+show("a page of an API",
+  url.build({scheme: "https", host: "api.example.com", path: "/v1/orders",
+             query: {page: 2, per_page: 100, sort: "-created_at"}}))
+
+rule("two encodings, and the + tells them apart")
+
+# encode/decode are RFC 3986 and nothing on top: a space is %20 and a + is a plus, which is
+# what a path segment means by it.
+show("url.encode(\"счёт 7\")", url.encode("счёт 7"))
+show("url.decode(...)", url.decode(url.encode("счёт 7")))
+show("url.encode(\"a+b\")", url.encode("a+b"))
+show("url.decode(\"a+b\")", url.decode("a+b"))
+
+# query/parse_query speak the form spelling over that, where a + read back *is* a space. The
+# two rules together: a foreign ?q=a+b reads as "a b", and a value written here round-trips
+# exactly, plus and all.
+show("url.parse_query(\"q=a+b\")[\"q\"]", url.parse_query("q=a+b")["q"])
+show("what this module wrote comes back", url.parse_query(url.query({q: "a+b"}))["q"])
+
+rule("a query in both directions")
+
+show("url.query(…)", url.query({q: "счёт 7", tag: ["a", "b"], ok: true, page: 2, debug: nil}))
+show("an array repeats the key", url.query({tag: ["a", "b"]}))
+show("nil is a key with an empty value", url.query({debug: nil}))
+show("the dict's own order", url.query({b: 1, a: 2}))
+
+# A repeated key keeps the first, which is what `http` already does with a request's query
+# and its headers: a script reaching for q["page"] wants the string, not a shape that
+# changes with the input. The cost is real and worth saying: ?tag=a&tag=b does not survive
+# `parse`, and `build` writes back what `parse` saw.
+show("parse_query(\"?q=a+b&tag=x&tag=y&flag\")", url.parse_query("?q=a+b&tag=x&tag=y&flag").json)
+show("a key with no value is present", url.parse_query("flag")["flag"] == "")
+show("a semicolon is an ordinary character", url.parse_query("a=1;b=2")["a"])
+
+rule("what build refuses")
+
+# A URL assembled out of a misspelled key is wrong in a way nothing downstream can see, so
+# every key is checked.
+caught("url.build({schema: \"https\"})", fn() { url.build({schema: "https"}) })
+caught("url.build({scheme: \"ht tp\", host: \"e.com\"})", fn() { url.build({scheme: "ht tp", host: "e.com"}) })
+caught("url.build({host: \"e.com/x\"})", fn() { url.build({host: "e.com/x"}) })
+caught("url.build({host: \"e.com\", password: \"s\"})", fn() { url.build({host: "e.com", password: "s"}) })
+caught("url.build({scheme: \"https\", port: 8080})", fn() { url.build({scheme: "https", port: 8080}) })
+caught("url.build({user: \"ivan\", path: \"a\"})", fn() { url.build({user: "ivan", path: "a"}) })
+caught("url.build({host: \"e.com\", query: nil})", fn() { url.build({host: "e.com", query: nil}) })
+caught("url.query({a: {b: 1}})", fn() { url.query({a: {b: 1}}) })
+caught("url.parse(\"http://a b/\")", fn() { url.parse("http://a b/") })
+caught("url.decode(\"100%\")", fn() { url.decode("100%") })
+
+rule("a signed callback URL")
+
+# The two new modules meet where they were both needed: a link that carries its own proof.
+SECRET = "s3cret"
+
+fn sign(query) {
+  raw = url.query(query)
+  raw + "&sig=" + crypto.hmac(SECRET, raw)
+}
+
+# The signature covers the text that was signed, so the check cuts at the same place rather
+# than rebuilding the query out of a dict: a dict has lost which spelling arrived.
+fn valid(query_string) {
+  i = query_string.last_index("&sig=")
+  if i == nil { return false }
+  raw = query_string.slice(0, i)
+  sig = query_string.slice(i + 5, query_string.len)
+  crypto.equal(crypto.hmac(SECRET, raw), sig)
+}
+
+link = url.build({scheme: "https", host: "example.com", path: "/unsubscribe"}) +
+  "?" + sign({user: "ivan", until: "2026-09-01"})
+
+println(link)
+println("")
+show("the callback verifies", valid(link.split("?")[1]))
+show("with one character changed", valid(link.split("?")[1].replace("ivan", "olga")))

@@ -32,7 +32,7 @@ func (e *Error) ErrorValue() Value  // the dict a `try X else (e) -> …` arm bi
 | `syntax` | `ErrKindSyntax` | `Compile` |
 | `name` | `ErrKindName` | undefined variable, method, member, module |
 | `type` | `ErrKindType` | wrong operand or argument kind |
-| `argument` | `ErrKindArgument` | arity and argument-shape failures |
+| `argument` | `ErrKindArgument` | arity and argument-shape failures, including undecodable text in `crypto` and `url` |
 | `index` | `ErrKindIndex` | index out of range, e.g. `[1,2].insert(9, 3)` |
 | `key` | `ErrKindKey` | a key that is not in the dict — `fetch` |
 | `zero-division` | `ErrKindZeroDiv` | integer `/` or `%` by 0 |

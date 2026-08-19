@@ -313,10 +313,10 @@ func decFloatText(f float64) string { return strconv.FormatFloat(f, 'g', -1, 64)
 // mean the reader guessed, and guessing is what this module is for avoiding.
 func decParse(c *Ctx, text string) (decNum, error) {
 	s := strings.TrimSpace(text)
-	// Everything a diagnostic quotes back goes through decEllipsis: the text may be as
+	// Everything a diagnostic quotes back goes through ellipsis: the text may be as
 	// long as a string is allowed to be (§14.2), and an eight-megabyte error message is
 	// not a message.
-	shown := quoteString(decEllipsis(s))
+	shown := quoteString(ellipsis(s))
 	bad := func() (decNum, error) {
 		return decNum{}, c.ErrorfKind(ErrKindDecimal,
 			"%s: cannot read %s as a decimal (digits, one dot and an optional sign — %s)",
@@ -358,25 +358,6 @@ func decParse(c *Ctx, text string) (decNum, error) {
 		u.Neg(u)
 	}
 	return decNum{u: u, scale: len(fracPart)}, nil
-}
-
-// decEllipsis shortens what a diagnostic quotes back. The text a script hands to `of` may
-// be as long as a string is allowed to be (§14.2), and a diagnostic is read by a person.
-// It cuts on a rune boundary, because everything else in this language counts runes
-// (§3.1) and half a character in an error message is a second bug to read past.
-func decEllipsis(s string) string {
-	const show = 24
-	if len(s) <= show {
-		return s
-	}
-	n := 0
-	for i := range s {
-		if n == show {
-			return s[:i] + "…"
-		}
-		n++
-	}
-	return s
 }
 
 // decDigits reports whether s is ASCII digits only. An empty part is allowed — ".5" and

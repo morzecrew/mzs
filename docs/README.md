@@ -61,6 +61,8 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/io.md](./modules/io.md) | The eight io members — stdin, files, env — the filesystem a host must supply, and streaming a file that does not fit |
 | [modules/http.md](./modules/http.md) | The server whose routes are closures, and the client whose answers are dicts |
 | [modules/decimal.md](./modules/decimal.md) | Exact base-ten money: why a float is not one, the fourteen members, and the `+` that refuses |
+| [modules/crypto.md](./modules/crypto.md) | Hex, base64 in both alphabets, sha256/sha1/md5, HMAC, and why the signature check is `crypto.equal` |
+| [modules/url.md](./modules/url.md) | The eight keys of a parsed URL, the inverse that builds one, and the two encodings the `+` tells apart |
 | [modules/custom.md](./modules/custom.md) | `include … from`, `export`, and how a path resolves |
 
 ## Embedding in Go
@@ -84,4 +86,4 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 ## See also
 
 * [../SPEC.md](../SPEC.md) — the normative specification; where it and these pages disagree, it wins
-* [../examples/README.md](../examples/README.md) — 41 example programs, in order of difficulty
+* [../examples/README.md](../examples/README.md) — 44 example programs, in order of difficulty
