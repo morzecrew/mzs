@@ -1615,7 +1615,7 @@
    },
    "hmac": {
     "sig": "`(key: string, msg: string, alg: string = \"sha256\") -> string`",
-    "sem": "the signature, in hex; `alg` is one of the three above",
+    "sem": "the signature, in hex; `alg` is `\"sha256\"`, `\"sha1\"` or `\"md5\"`",
     "ex": ""
    },
    "md5": {

@@ -86,13 +86,15 @@ show("crypto.hmac(SECRET, body)", signed)
 show("the header it arrived with", request["headers"]["x-signature"])
 show("crypto.equal(signed, header)", crypto.equal(signed, request["headers"]["x-signature"]))
 
-# The same signature over a body that changed by one digit on the way.
-tampered = request.set("body", '{"event":"order.paid","id":8}')
+# The same signature over a body that changed by one digit on the way. `set` mutates its
+# receiver and hands it back (§12.4), so the copy is what gets edited — `request` is the one
+# that arrived and stays that way for the rest of the file.
+tampered = request.dup.set("body", '{"event":"order.paid","id":8}')
 show("the body changed by one digit",
   crypto.equal(crypto.hmac(SECRET, tampered["body"]), tampered["headers"]["x-signature"]))
 
 # And the same body signed with somebody else's secret.
-forged = request.set("headers", {"x-signature": crypto.hmac("guess", request["body"])})
+forged = request.dup.set("headers", {"x-signature": crypto.hmac("guess", request["body"])})
 show("a request signed with another secret",
   crypto.equal(crypto.hmac(SECRET, forged["body"]), forged["headers"]["x-signature"]))
 
@@ -115,9 +117,10 @@ rule("a signature that arrives in base64")
 # Some senders spell the same bytes in base64. Decode the one you computed rather than the
 # one you received: then the comparison stays in one spelling and nothing is parsed twice.
 b64sig = crypto.base64(crypto.unhex(crypto.hmac(SECRET, request["body"])))
-show("the same signature, base64", b64sig)
-show("checked without re-encoding",
-  crypto.equal(b64sig, crypto.base64(crypto.unhex(crypto.hmac(SECRET, request["body"])))))
+arrived = crypto.base64(crypto.unhex(request["headers"]["x-signature"]))
+show("the signature we computed, base64", b64sig)
+show("the one that arrived, in the same spelling", arrived)
+show("checked in one spelling", crypto.equal(b64sig, arrived))
 
 rule("what the decoders refuse")
 

@@ -78,8 +78,12 @@ func TestURLBuild(t *testing.T) {
 		{"an empty query writes no question mark",
 			`include url; url.build({scheme: "https", host: "e.com", query: {}})`, "https://e.com"},
 		{"editing one part", `include url
-url.build(url.parse("https://e.com/v1/orders?page=2").set("path", "/v1/invoices"))`,
+url.build(url.parse("https://e.com/v1/orders?page=2").dup.set("path", "/v1/invoices"))`,
 			"https://e.com/v1/invoices?page=2"},
+		{"and the dict it was copied from is untouched", `include url
+u = url.parse("https://e.com/v1/orders")
+url.build(u.dup.set("path", "/v1/invoices")) + " " + url.build(u)`,
+			"https://e.com/v1/invoices https://e.com/v1/orders"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,18 +110,20 @@ func TestURLRoundTrip(t *testing.T) {
 	for _, u := range urls {
 		t.Run(u, func(t *testing.T) {
 			src := `include url; url.build(url.parse(` + quoteString(u) + `))`
-			got := evStr(t, in, src)
-			want := u
-			if u == "https://example.com/%D1%81%D1%87%D0%B5%D1%82%D0%B0" {
-				// The escaping is normalised on the way out, never the text: the same
-				// bytes come back, spelled the way `build` spells them.
-				want = "https://example.com/%D1%81%D1%87%D0%B5%D1%82%D0%B0"
-			}
-			if got != want {
-				t.Errorf("build(parse(%q)) = %q; want %q", u, got, want)
+			if got := evStr(t, in, src); got != u {
+				t.Errorf("build(parse(%q)) = %q; want %q", u, got, u)
 			}
 		})
 	}
+
+	// What is normalised is the spelling of an escape and never the bytes: a lowercase
+	// `%d1` is the same byte written the other way, and `build` writes it its own way.
+	t.Run("an escape comes back in upper case", func(t *testing.T) {
+		got := evStr(t, in, `include url; url.build(url.parse("https://example.com/%d1%81"))`)
+		if want := "https://example.com/%D1%81"; got != want {
+			t.Errorf("= %q; want %q", got, want)
+		}
+	})
 }
 
 // TestURLEncodedSlash pins the one shape that does not survive `parse` and `build`. The

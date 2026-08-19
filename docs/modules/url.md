@@ -9,7 +9,7 @@ include url
 u = url.parse("https://api.example.com:8443/v1/orders?page=2#top")
 u["host"]                                       # "api.example.com"
 u["query"]["page"]                              # "2"
-url.build(u.set("path", "/v1/invoices"))        # https://api.example.com:8443/v1/invoices?page=2#top
+url.build(u.dup.set("path", "/v1/invoices"))     # https://api.example.com:8443/v1/invoices?page=2#top — `set` mutates, `dup` keeps `u`
 ```
 
 Like `http` itself, the module needs no host capability: it reads and writes text and

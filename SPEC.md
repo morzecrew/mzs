@@ -2844,7 +2844,7 @@ http.serve(":8080", {"POST /hook": { (req) ->
 | `base64` | `(s: string, alphabet: string = "std") -> string` | RFC 4648 §4, or §5 under `"url"`: `-_` and no padding |
 | `unbase64` | `(s: string) -> string` | one decoder: either alphabet, padded or not |
 | `sha256` / `sha1` / `md5` | `(s: string) -> string` | the digest, in hex |
-| `hmac` | `(key: string, msg: string, alg: string = "sha256") -> string` | the signature, in hex; `alg` is one of the three above |
+| `hmac` | `(key: string, msg: string, alg: string = "sha256") -> string` | the signature, in hex; `alg` is `"sha256"`, `"sha1"` or `"md5"` |
 | `crc32` | `(s: string) -> int` | the IEEE checksum, `0..4294967295` |
 | `equal` | `(a: string, b: string) -> bool` | `==` in time that does not depend on where the two differ |
 
@@ -2896,7 +2896,7 @@ include url
 u = url.parse("https://api.example.com:8443/v1/orders?page=2#top")
 u["host"]                                       # "api.example.com"
 u["query"]["page"]                              # "2"
-url.build(u.set("path", "/v1/invoices"))        # "https://api.example.com:8443/v1/invoices?page=2#top"
+url.build(u.dup.set("path", "/v1/invoices"))     # "https://api.example.com:8443/v1/invoices?page=2#top"
 url.query({q: "счёт 7", tag: ["a", "b"]})       # "q=%D1%81%D1%87%D1%91%D1%82%207&tag=a&tag=b"
 ```
 

@@ -50,7 +50,8 @@ show("and back", url.build(url.parse("mailto:ivan@example.com")))
 rule("the way back")
 
 show("build(parse(u)) is the same URL", url.build(u))
-show("one part changed", url.build(u.set("path", "/v1/invoices")))
+# `set` mutates and returns the receiver (§12.4), so the copy is what gets the new path.
+show("one part changed", url.build(u.dup.set("path", "/v1/invoices")))
 show("from nothing at all", url.build({path: "/a b"}))
 show("an IPv6 host is bracketed again",
   url.build({scheme: "http", host: "::1", port: 9000, path: "/x"}))
