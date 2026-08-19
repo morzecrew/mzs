@@ -2414,6 +2414,8 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `http` | `serve stop json text get post request` | see §12.11 | no host option |
 | `io` | `stdin lines read write append exists ls env` | see §12.13 | requires `Options.FS` |
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | see §12.15 | no host option |
+| `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | see §12.16 | no host option |
+| `url` | `parse build encode decode query parse_query` | see §12.17 | no host option |
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
@@ -2513,6 +2515,9 @@ same timeouts, same limits, same errors.
 counter when `serve` returns. A handler error is 500 with the diagnostic on `Stderr` and
 never in the body (§13.5). A canceled context ends the Run with `ErrCanceled` (§14.1) and
 takes the listener down with it.
+
+Signing what goes out and checking what comes in is §12.16; taking a URL apart and putting
+it back together is §12.17. Both were written for this section and neither needs it.
 
 Client calls are bounded by `opts.timeout` (default 10 s) **and** by whatever is left of
 the Run's own deadline, whichever is shorter. Running out of the Run's time is a limit
@@ -2814,6 +2819,146 @@ dict back, label or no label, so a decimal survives a round trip through a store
 body. What `json` does *not* do is write `1500.35`, so a money field in a document is
 `decimal.str(d, 2)`, written out where a reader can see the places being chosen.
 
+### 12.16 The `crypto` module
+
+`http` has had both halves since the beginning — a server whose routes are closures and a
+client whose answers are dicts (§12.11) — and the webhook arriving at one of those routes
+could not be checked: there was no hex, no base64, no digest and no hmac anywhere in the
+language. `crypto` is the missing pair of hands, and like `json` and `decimal` it needs no
+host capability: a digest reaches nowhere the process is not already (§14.3).
+
+```
+include crypto
+include http
+
+http.serve(":8080", {"POST /hook": { (req) ->
+  signed = crypto.hmac($SECRET, req["body"])
+  if !crypto.equal(signed, req["headers"]["x-signature"]) { {status: 401} }
+  else { {ok: true} }
+}})
+```
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `hex` / `unhex` | `(s: string) -> string` | the string's bytes as lowercase hex, and back; `unhex` reads either case |
+| `base64` | `(s: string, alphabet: string = "std") -> string` | RFC 4648 §4, or §5 under `"url"`: `-_` and no padding |
+| `unbase64` | `(s: string) -> string` | one decoder: either alphabet, padded or not |
+| `sha256` / `sha1` / `md5` | `(s: string) -> string` | the digest, in hex |
+| `hmac` | `(key: string, msg: string, alg: string = "sha256") -> string` | the signature, in hex; `alg` is `"sha256"`, `"sha1"` or `"md5"` |
+| `crc32` | `(s: string) -> int` | the IEEE checksum, `0..4294967295` |
+| `equal` | `(a: string, b: string) -> bool` | `==` in time that does not depend on where the two differ |
+
+**The name is `crypto`, not `hash`.** §12.1 spends `hash` on the FNV-1a of a value, and an
+include gives a name to its module for the whole file (§12.8): `include hash` would make
+`hash(x)` a compile error in every file that wanted a signature, which is a price no other
+module charges. The contents are honestly wider than hashing anyway.
+
+**Bytes in, text out.** A string is bytes underneath (§7.1), so every row reads the bytes
+of its argument and the digests answer in lowercase hex — the form a header carries and the
+form two of them can be compared in. The decoders go the other way and may well answer with
+bytes that are not valid UTF-8; nothing raises over it, exactly as nothing raises for
+`pack_bytes` (§12.3) or for `io.read` of a binary file (§12.13). The rune rows of §12.2
+then see U+FFFD, and `s.bytes` is how a script looks at what really came back.
+
+**Two spellings of base64, one reader.** `crypto.base64(s, "url")` is RFC 4648 §5 as it is
+actually sent — `-_` and no `=` — because a token in a URL or a JWT is written that way and
+stripping the padding afterwards is the step everyone forgets. `unbase64` takes no alphabet
+argument at all: the script did not choose how the token it received was spelled, so the
+alphabet is read off the text (`-_` is §5, `+/` is §4) and the padding off its end. Text
+carrying both alphabets is refused by name rather than half-decoded. Both decoders shed the
+blanks around their input, as `decimal.of` does (§12.15); a blank *inside* is data.
+
+**`equal` is not a nicety.** `signed == header` leaks, one byte at a time, how much of a
+forged signature is right, and `==` is exactly what a script reaches for. What the row does
+not hide is the length, and it need not: the length of a digest is a fact about the
+algorithm. Without this row the check that everybody writes is the check that leaks, which
+is why it stands next to `hmac` rather than in a note.
+
+**`md5` and `sha1` are for reading what already exists.** A webhook signed with sha1 is
+still a webhook that has to be verified. Neither is a choice worth making today, and there
+is no fourth algorithm: what `crypto.sha256` computes is what `hmac` signs with, and the
+member list *is* the algorithm list (D17).
+
+**Limits.** Every row charges the walk over its bytes against the step budget, so hashing a
+megabyte is interruptible like any other loop (§14.1), and every row that builds a string
+asks `MaxStringBytes` before it builds one — `hex` doubles a length and `base64` grows it by
+a third (§14.2). A failure of either is a limit error and is not catchable.
+
+### 12.17 The `url` module
+
+The other half of the same pair: `http.get` takes a URL and `http.serve` hands a request
+over, and a script could neither take one apart nor put one together. `parse` and `build`
+are inverses, and what stands between them is an ordinary dict (§12.4).
+
+```
+include url
+
+u = url.parse("https://api.example.com:8443/v1/orders?page=2#top")
+u["host"]                                       # "api.example.com"
+u["query"]["page"]                              # "2"
+url.build(u.dup.set("path", "/v1/invoices"))     # "https://api.example.com:8443/v1/invoices?page=2#top"
+url.query({q: "счёт 7", tag: ["a", "b"]})       # "q=%D1%81%D1%87%D1%91%D1%82%207&tag=a&tag=b"
+```
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `parse` | `(s: string) -> dict` | the eight keys below, every one of them decoded |
+| `build` | `(d: dict) -> string` | the inverse; every key is optional and an unknown key is an error |
+| `encode` / `decode` | `(s: string) -> string` | RFC 3986 percent-encoding; a space is `%20`, a `+` is a plus |
+| `query` | `(d: dict) -> string` | a query string, in the dict's own order |
+| `parse_query` | `(s: string) -> dict` | a query string back; a leading `?` is allowed |
+
+| Key | Type | |
+|---|---|---|
+| `scheme` | string | `"https"`; `""` for a relative URL |
+| `user` / `password` | string | the userinfo, decoded; `""` when there is none |
+| `host` | string | no port, and no brackets around an IPv6 literal |
+| `port` | int | **`0` when the URL names none** — the scheme's default is not filled in |
+| `path` | string | decoded; an opaque URL (`mailto:ivan@example.com`) keeps its body here |
+| `query` | dict | parsed, in the order it was written |
+| `fragment` | string | decoded, without the `#` |
+
+**Decoded going in, escaped coming out.** `parse` answers with text a script can compare
+against what it was going to write — `path` is `/счета/1`, never
+`/%D1%81%D1%87%D0%B5%D1%82%D0%B0/1` — and `build` escapes each part by the rule of the half
+it sits in, which is the only place that knows which half a character is in. A URL that goes
+through both comes back the same URL, spelled the way `build` spells it: an over-escaped
+character comes back plain (`/a%41b` → `/aAb`), which RFC 3986 §6.2.2.2 calls the same URL.
+
+**The one shape that does not survive the trip is an encoded slash.** `%2F` decodes to the
+character that separates segments, so `parse` reads `/a%2Fb` as the path `/a/b` and `build`
+writes it back as two segments — a URL naming something else. That is the price of a decoded
+`path`, and it is paid deliberately: keeping the path escaped would make every comparison in
+every script a percent-decoding exercise, and refusing such a URL outright would put an API
+that identifies things by encoded path (`/api/v4/projects/group%2Fproject`) out of reach of
+even reading its host. A script that must forward such a URL forwards the text it received.
+
+**Two encodings, and the `+` tells them apart.** `encode`/`decode` are RFC 3986 and nothing
+on top: a space is `%20` and a `+` is a plus, which is what a *path* segment means by it.
+`query`/`parse_query` speak the form spelling over that, where a `+` read back **is** a
+space — so a foreign `?q=a+b` reads as `a b`, while a value this module writes round-trips
+exactly, plus and all, because writing escapes it as `%2B`.
+
+**A repeated key keeps the first**, which is what `http` already does with a request's query
+and its headers (§12.11): a script reaching for `q["page"]` wants the string, and one
+convention across the two modules beats a shape that changes with the input. The cost is
+stated rather than hidden: `?tag=a&tag=b` does not survive `parse`, and `build` writes what
+`parse` saw. Writing repeats is the other direction and is supported — an **array** value in
+`url.query` repeats its key, which is the only spelling `tag=a&tag=b` has.
+
+**What `build` refuses.** An unknown key, because `{scheme: …, hots: …}` would otherwise
+assemble a URL with no host in it and nothing downstream could see it (§17); a scheme that
+is not one; a host holding `/`, `?`, `#`, `@` or a blank, since each would move the boundary
+between the parts; a port outside `0..65535`, or one with no host to belong to; a password
+with no user, and a user with no host to sit in front of. A host may hold a colon or a bracket only as an
+IPv6 literal (`::1`, `[::1]`, `fe80::1%eth0`, judged by `net.ParseIP`): `example.com:443` is a
+host and a port written in the field for the host, and bracketing it would build
+`[example.com:443]` and call it a URL. `port` is an **Int** — a Float is refused rather than truncated, the way a decimal's
+`scale` is (§12.15), because `8080.9` has no reading as a port. A query value may be a string, a number, a bool, nil or an array of those — a
+nested dict is a type error, because `a[b]=1` and `a.b=1` are two framework conventions and
+neither is the standard (D16).
+
+---
 ---
 ## 13. Go API
 

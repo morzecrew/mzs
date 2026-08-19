@@ -73,6 +73,20 @@ $ mzs -e 'include json; json.pretty({a: 1})'
 | `include decimal; decimal.str(decimal.of("1500.3"), 2)` | `1500.30` |
 | `include decimal; decimal.split(decimal.of("10"), 3, 2).map { decimal.str(it, 2) }` | `["3.34","3.33","3.33"]` |
 
+## Signatures, encodings and URLs
+
+| One-liner | Result |
+|---|---|
+| `include crypto; crypto.sha256("abc")` | `ba7816bf…f20015ad` |
+| `include crypto; crypto.hmac("key", "msg")` | `2d93cbc1…b1b8c628` |
+| `include crypto; crypto.equal(a, b)` | the comparison a signature check needs |
+| `include crypto; crypto.base64("Hi")` | `SGk=` |
+| `include crypto; crypto.unbase64("SGk")` | `Hi` — padded or not, either alphabet |
+| `include crypto; crypto.hex("Hi")` | `4869` |
+| `include url; url.parse("https://e.com:8443/x?a=1")["port"]` | `8443` |
+| `include url; url.query({q: "a b", tag: ["x","y"]})` | `q=a%20b&tag=x&tag=y` |
+| `include url; url.parse_query("q=a+b")["q"]` | `a b` |
+
 ## Regex
 
 | One-liner | Result |

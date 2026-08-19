@@ -72,6 +72,25 @@ func checkKind(kind string) *Error {
 	return nil
 }
 
+// ellipsis shortens what a diagnostic quotes back. The text a script hands to a stdlib
+// row may be as long as a string is allowed to be (§14.2), and a diagnostic is read by a
+// person. It cuts on a rune boundary, because everything else in this language counts
+// runes (§3.1) and half a character in an error message is a second bug to read past.
+func ellipsis(s string) string {
+	const show = 24
+	if len(s) <= show {
+		return s
+	}
+	n := 0
+	for i := range s {
+		if n == show {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
+}
+
 func quoteAll(ss []string) []string {
 	out := make([]string, len(ss))
 	for i, s := range ss {

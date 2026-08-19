@@ -135,6 +135,8 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | **Money that adds up** | `decimal.str(decimal.plus(decimal.of("0.1"), decimal.of("0.2")))` → `0.3` | [decimal](docs/modules/decimal.md) |
 | **Files, stdin, env** | `io.lines.filter { it ~ /ERROR/ }.len` — a line at a time, so a 15 MB log is fine | [io](docs/modules/io.md) |
 | **HTTP client and server** | `http.serve(":8080", {"GET /hi/{name}": { (req) -> req["params"]["name"] }})` | [http](docs/modules/http.md) |
+| **Webhooks that verify** | `crypto.equal(crypto.hmac($SECRET, body), sig)` — HMAC, sha256, base64, hex | [crypto](docs/modules/crypto.md) |
+| **URLs both ways** | `url.parse(u)["query"]["page"]` · `url.build({scheme: "https", host: h, query: q})` | [url](docs/modules/url.md) |
 | **Concurrency** | `urls.map { fetch(it) }.map { it.await }` | [async](docs/language/async.md) |
 | **Modules of your own** | `include cart from "./cart.mzs"` | [modules](docs/modules/custom.md) |
 | **Shell pipelines** | `cat access.log \| mzs -n -e '$_.split(" ")[0]'` | [line mode](docs/cli/input.md) |

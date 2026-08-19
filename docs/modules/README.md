@@ -89,6 +89,8 @@ A module of your own has no function half, so the message stops at the rule:
 | `date` | `today parse` | `EnableTime`; `Now` for `date.today` — `mzs --time` |
 | `io` | `stdin lines read write append exists ls env` | `Options.FS` — the CLI installs one, `--no-io` takes it back |
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | none |
+| `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | none |
+| `url` | `parse build encode decode query parse_query` | none |
 
 A module the host did not enable is absent, and the diagnostic names the option instead of
 the symptom:
@@ -113,6 +115,8 @@ A host adds modules of its own with `RegisterModule` and removes built-ins with
 
 - [./json.md](./json.md) — parsing and encoding JSON
 - [./decimal.md](./decimal.md) — exact numbers for money
+- [./crypto.md](./crypto.md) — hex, base64, digests, HMAC, and the comparison that does not leak
+- [./url.md](./url.md) — taking a URL apart and putting one together
 - [./custom.md](./custom.md) — `include … from` and `export`
 - [./time.md](./time.md) — the clock-gated modules
 - [../reference/sandbox.md](../reference/sandbox.md) — the capabilities behind the gates
