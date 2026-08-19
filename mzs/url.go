@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"errors"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -180,6 +181,10 @@ func urlvBuild(c *Ctx, args []Value) (Value, error) {
 		return Nil(), c.ArgErrorf("%s: %s is not a host: it holds %s, which would move the boundary between the parts",
 			c.Name(), quoteString(ellipsis(host)), quoteString(host[i:i+1]))
 	}
+	if strings.ContainsAny(host, ":[]") && !urlIPv6(host) {
+		return Nil(), c.ArgErrorf("%s: %s is not a host: a colon or a bracket means an IPv6 literal like \"::1\", and a port goes in %s",
+			c.Name(), quoteString(ellipsis(host)), quoteString(urlKPort))
+	}
 	path, err := urlStrKey(c, d, urlKPath)
 	if err != nil {
 		return Nil(), err
@@ -265,6 +270,25 @@ func urlHostPort(host string, port int64) string {
 	return host + ":" + strconv.FormatInt(port, 10)
 }
 
+// urlIPv6 reports whether a host holding a colon is an IPv6 literal — the one host that may
+// hold one — with or without the brackets and with an optional zone. The judgement is
+// net.ParseIP's rather than a rule of this file's own, because "is this an address" is a
+// question the standard library already answers exactly. Everything else with a colon in it
+// is `example.com:443`: a host and a port written in the field for the host, which
+// bracketing would turn into `[example.com:443]` and call a URL.
+func urlIPv6(host string) bool {
+	if strings.HasPrefix(host, "[") {
+		if !strings.HasSuffix(host, "]") {
+			return false
+		}
+		host = host[1 : len(host)-1]
+	}
+	if zone := strings.IndexByte(host, '%'); zone >= 0 {
+		host = host[:zone]
+	}
+	return net.ParseIP(host) != nil
+}
+
 func urlKnownKey(name string) bool {
 	for _, k := range urlKeys {
 		if k == name {
@@ -310,7 +334,10 @@ func urlPortKey(c *Ctx, d *OrderedDict) (int64, bool, error) {
 	if !ok {
 		return 0, false, nil
 	}
-	if !v.IsNum() {
+	if v.Kind() != KInt {
+		// A float is refused rather than truncated, the way a decimal's `scale` is
+		// (§12.15): `8080.9` has no reading as a port, and answering `8080` would send a
+		// request to a service the script did not name.
 		return 0, false, c.TypeErrorf("%s: %s must be an int, got %s",
 			c.Name(), quoteString(urlKPort), v.TypeName())
 	}
@@ -516,14 +543,17 @@ func urlSplitQuery(c *Ctx, raw string) (*OrderedDict, error) {
 	if raw == "" {
 		return d, nil
 	}
-	pairs := strings.Split(raw, "&")
-	if err := c.CheckCollection(len(pairs)); err != nil {
+	// Counted before it is split: the count is one pass over bytes the runtime already
+	// holds, where the slice of pieces is a fresh header per pair, and a query over the
+	// limit should be refused rather than built and then refused.
+	n := strings.Count(raw, "&") + 1
+	if err := c.CheckCollection(n); err != nil {
 		return nil, err
 	}
-	if err := c.Step(int64(len(pairs))); err != nil {
+	if err := c.Step(int64(n)); err != nil {
 		return nil, err
 	}
-	for _, pair := range pairs {
+	for _, pair := range strings.Split(raw, "&") {
 		if pair == "" {
 			continue
 		}

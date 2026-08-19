@@ -2922,7 +2922,16 @@ url.query({q: "счёт 7", tag: ["a", "b"]})       # "q=%D1%81%D1%87%D1%91%D1%8
 against what it was going to write — `path` is `/счета/1`, never
 `/%D1%81%D1%87%D0%B5%D1%82%D0%B0/1` — and `build` escapes each part by the rule of the half
 it sits in, which is the only place that knows which half a character is in. A URL that goes
-through both comes back the same URL, spelled the way `build` spells it.
+through both comes back the same URL, spelled the way `build` spells it: an over-escaped
+character comes back plain (`/a%41b` → `/aAb`), which RFC 3986 §6.2.2.2 calls the same URL.
+
+**The one shape that does not survive the trip is an encoded slash.** `%2F` decodes to the
+character that separates segments, so `parse` reads `/a%2Fb` as the path `/a/b` and `build`
+writes it back as two segments — a URL naming something else. That is the price of a decoded
+`path`, and it is paid deliberately: keeping the path escaped would make every comparison in
+every script a percent-decoding exercise, and refusing such a URL outright would put an API
+that identifies things by encoded path (`/api/v4/projects/group%2Fproject`) out of reach of
+even reading its host. A script that must forward such a URL forwards the text it received.
 
 **Two encodings, and the `+` tells them apart.** `encode`/`decode` are RFC 3986 and nothing
 on top: a space is `%20` and a `+` is a plus, which is what a *path* segment means by it.
@@ -2941,7 +2950,11 @@ stated rather than hidden: `?tag=a&tag=b` does not survive `parse`, and `build` 
 assemble a URL with no host in it and nothing downstream could see it (§17); a scheme that
 is not one; a host holding `/`, `?`, `#`, `@` or a blank, since each would move the boundary
 between the parts; a port outside `0..65535`, or one with no host to belong to; a password
-with no user, and a user with no host to sit in front of. A query value may be a string, a number, a bool, nil or an array of those — a
+with no user, and a user with no host to sit in front of. A host may hold a colon or a bracket only as an
+IPv6 literal (`::1`, `[::1]`, `fe80::1%eth0`, judged by `net.ParseIP`): `example.com:443` is a
+host and a port written in the field for the host, and bracketing it would build
+`[example.com:443]` and call it a URL. `port` is an **Int** — a Float is refused rather than truncated, the way a decimal's
+`scale` is (§12.15), because `8080.9` has no reading as a port. A query value may be a string, a number, a bool, nil or an array of those — a
 nested dict is a type error, because `a[b]=1` and `a.b=1` are two framework conventions and
 neither is the standard (D16).
 

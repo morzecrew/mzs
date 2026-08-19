@@ -69,6 +69,10 @@ func TestURLBuild(t *testing.T) {
 			`include url; url.build({scheme: "http", host: "::1", port: 9000, path: "/x"})`, "http://[::1]:9000/x"},
 		{"an opaque URL stays opaque", `include url; url.build({scheme: "mailto", path: "ivan@example.com"})`,
 			"mailto:ivan@example.com"},
+		{"the unspecified address is a literal too",
+			`include url; url.build({scheme: "http", host: "::"})`, "http://[::]"},
+		{"an IPv6 zone survives the trip",
+			`include url; url.build(url.parse("http://[fe80::1%25eth0]:8080/x"))`, "http://[fe80::1%25eth0]:8080/x"},
 		{"a host that arrives bracketed is not bracketed twice",
 			`include url; url.build({scheme: "http", host: "[::1]", port: 9000})`, "http://[::1]:9000"},
 		{"an empty query writes no question mark",
@@ -111,6 +115,34 @@ func TestURLRoundTrip(t *testing.T) {
 			}
 			if got != want {
 				t.Errorf("build(parse(%q)) = %q; want %q", u, got, want)
+			}
+		})
+	}
+}
+
+// TestURLEncodedSlash pins the one shape that does not survive `parse` and `build`. The
+// path a script reads is decoded text (§12.17), and `%2F` decodes to the character that
+// separates segments — so it is rebuilt as a separator, and the rebuilt URL names something
+// else. Over-escaping is the harmless neighbour of that case: `%41` is `A` on the way in and
+// `A` on the way out, which RFC 3986 §6.2.2.2 calls the same URL.
+func TestURLEncodedSlash(t *testing.T) {
+	in := evInterp()
+
+	tests := []struct{ name, src, want string }{
+		{"the path decodes", `include url; url.parse("https://e.com/a%2Fb")["path"]`, "/a/b"},
+		{"and rebuilds as a separator", `include url; url.build(url.parse("https://e.com/a%2Fb"))`,
+			"https://e.com/a/b"},
+		{"an over-escaped character rebuilds as itself",
+			`include url; url.build(url.parse("https://e.com/a%41b"))`, "https://e.com/aAb"},
+		{"an encoded question mark stays encoded",
+			`include url; url.build(url.parse("https://e.com/a%3Fb"))`, "https://e.com/a%3Fb"},
+		{"and so does an encoded hash",
+			`include url; url.build(url.parse("https://e.com/a%23b"))`, "https://e.com/a%23b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := evStr(t, in, tt.src); got != tt.want {
+				t.Errorf("%s = %q; want %q", tt.src, got, tt.want)
 			}
 		})
 	}
@@ -216,6 +248,16 @@ func TestURLRefuses(t *testing.T) {
 			ErrKindArgument, "password with no user"},
 		{"a user with no host", `include url; url.build({scheme: "https", user: "ivan", path: "a"})`,
 			ErrKindArgument, "user with no host"},
+		{"a host and a port written in the host", `include url; url.build({host: "example.com:443"})`,
+			ErrKindArgument, `a port goes in "port"`},
+		{"a bracketed host that is not a literal", `include url; url.build({host: "[::1]:bad"})`,
+			ErrKindArgument, "IPv6 literal"},
+		{"empty brackets are not one either", `include url; url.build({host: "[]"})`,
+			ErrKindArgument, "IPv6 literal"},
+		{"nor is a stray closing bracket", `include url; url.build({host: "a]b"})`,
+			ErrKindArgument, "IPv6 literal"},
+		{"a float port is refused, not truncated", `include url; url.build({host: "e.com", port: 8080.9})`,
+			ErrKindType, `"port" must be an int, got float`},
 		{"an explicit nil is a value, not an omission", `include url; url.build({host: "e.com", query: nil})`,
 			ErrKindType, `"query" must be a dict`},
 		{"and so is a nil path", `include url; url.build({host: "e.com", path: nil})`,

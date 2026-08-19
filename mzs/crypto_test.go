@@ -81,6 +81,8 @@ crypto.hmac("key", "The quick brown fox jumps over the lazy dog", "sha1")`,
 		{"hmac-md5 of the fox", `include crypto
 crypto.hmac("key", "The quick brown fox jumps over the lazy dog", "md5")`,
 			"80070713463e7749b90c2dc24911e275"},
+		{"a key that is bytes rather than text", `include crypto
+crypto.hmac(crypto.unhex("ff00"), "m")`, "ba195d2f23a7663e26d840eb8cd7ac549113d9f6a2cbaf3f8298303aedaa6138"},
 		{"a signature is hex and can be compared as text", `include crypto
 crypto.equal(crypto.hmac("k", "m"), crypto.hmac("k", "m"))`, "true"},
 		{"crc32 is the ieee one", `include crypto; crypto.crc32("hello")`, "907060870"},

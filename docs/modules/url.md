@@ -80,7 +80,25 @@ url.build(u)                       # https://example.com/%D1%81%D1%87%D0%B5%D1%8
 
 `build` escapes each part by the rule of the half it sits in, which is the only place that
 knows which half a character is in. A URL that goes through both comes back the same URL,
-spelled the way `build` spells it.
+spelled the way `build` spells it — an over-escaped character comes back plain
+(`/a%41b` → `/aAb`), which RFC 3986 §6.2.2.2 calls the same URL.
+
+### What does not survive the round trip
+
+An **encoded slash**. `%2F` decodes to the character that separates segments, so the path
+comes back as two of them:
+
+```
+include url
+url.parse("https://e.com/a%2Fb")["path"]              # "/a/b"
+url.build(url.parse("https://e.com/a%2Fb"))           # https://e.com/a/b — a different URL
+```
+
+That is what a decoded `path` costs. It is paid deliberately: an escaped path would make
+every comparison a decoding exercise, and refusing such a URL outright would put an API that
+identifies things by encoded path (`/api/v4/projects/group%2Fproject`) out of reach of even
+reading its host. A script that has to *forward* such a URL forwards the text it received;
+`parse` is for reading it.
 
 ## Two encodings, and the `+` tells them apart
 
@@ -169,6 +187,13 @@ try url.build({scheme: "ht tp", host: "e.com"}) else (e) -> e["message"]
 
 try url.build({host: "e.com/x"}) else (e) -> e["message"]
 # url.build: "e.com/x" is not a host: it holds "/", which would move the boundary between the parts
+
+try url.build({host: "example.com:443"}) else (e) -> e["message"]
+# url.build: "example.com:443" is not a host: a colon or a bracket means an IPv6 literal like "::1",
+# and a port goes in "port"
+
+try url.build({host: "e.com", port: 8080.9}) else (e) -> e["message"]
+# url.build: "port" must be an int, got float
 
 try url.build({host: "e.com", password: "s"}) else (e) -> e["message"]
 # url.build: a password with no user has no URL to be written in
