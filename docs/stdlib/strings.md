@@ -3,13 +3,15 @@
 Every operation on a String, grouped by what it does, with rune semantics spelled out.
 
 Strings are immutable: nothing here mutates the receiver, every row returns a new value.
-All indices, lengths and widths are **runes**, never bytes.
+All indices and lengths are **runes**, never bytes. Padding is the one thing counted in
+display columns instead, because a column is what a table lines up by — `width` below.
 
 ```
 "привет".len          # 6
 "привет".bytes.len    # 12
 "привет".index("вет") # 3
 "👋 hi".len           # 4
+"👋 hi".width         # 5 — the emoji draws in two columns
 ```
 
 ## Case
@@ -20,6 +22,22 @@ All indices, lengths and widths are **runes**, never bytes.
 | `upper` | `-> string` | Unicode uppercase | `"Ёлка".upper` → `ЁЛКА` |
 | `capitalize` | `-> string` | first rune upper, rest lower | `"ПРИВЕТ мир".capitalize` → `Привет мир` |
 | `swapcase` | `-> string` | inverts each rune's case | `"aBc".swapcase` → `AbC` |
+| `casefold` | `-> string` | the key for comparing without case | `"Straße".casefold` → `strasse` |
+
+`casefold` is not `lower` with a longer name: it is Unicode's *full* case folding, the
+mapping made for the question "are these the same text if case is not looked at". It answers
+where lowercasing does not —
+
+```
+"Straße".casefold == "STRASSE".casefold    # true
+"Straße".lower == "STRASSE".lower          # false
+"ΟΔΟΣ".casefold == "Οδος".casefold         # true — final ς and Σ both fold to σ
+"K".casefold == "k"                        # true — that K is the Kelvin sign U+212A
+```
+
+— and the price is that a folded string is a key and not text: `"ß".casefold.len` is `2`, so
+fold both sides of a comparison and show neither. It is case that folding removes, not
+accents: `"Οδός".casefold` is `οδόσ`, the same way `ёж` is not `еж`.
 
 ## Trimming
 
@@ -39,6 +57,7 @@ U+FEFF, the two invisibles that are not `White_Space` and still arrive in pasted
 | Method | Signature | Does | Example → value |
 |---|---|---|---|
 | `len` | `-> int` | rune count | `"привет".len` → `6` |
+| `width` | `-> int` | display columns | `"日本".width` → `4` |
 | `empty` | `-> bool` | `len == 0` | `" ".empty` → `false` |
 | `blank` | `-> bool` | empty after `trim` | `" ".blank` → `true` |
 | `has` | `(sub: string) -> bool` | substring test | `"hello".has("lo")` → `true` |
@@ -119,13 +138,26 @@ match first, then one parameter per group.
 | `first_and_last` | `-> string` | `first(1) + last(1)` | `"привет".first_and_last` → `пт` |
 | `slice` | `(i: int, n: int = 1) -> string` | same as `s[i, n]`; negative `i` from the end | `"привет".slice(1, 3)` → `рив` |
 | `reverse` | `-> string` | rune-wise | `"👋 hi".reverse` → `ih 👋` |
-| `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | rune widths | `"ab".center(7, "-")` → `--ab---` |
+| `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | pads to `width` **columns** | `"ab".center(7, "-")` → `--ab---` |
 
 ```
 "привет"[-1]       # т
 "abc".slice(9)     # nil — out of range
 "ab".ljust(1)      # ab — a width below the length changes nothing
 ```
+
+The three padding rows count columns, not runes, which is what makes a table with CJK or
+emoji in it come out straight:
+
+```
+["Ivan", "日本語", "🙂 ok"].map { it.ljust(8, ".") + "|" }
+# ["Ivan....|", "日本語..|", "🙂 ok...|"]
+```
+
+`center` puts the odd column on the right. Padding two columns wide stops a column short
+rather than overrunning the width that was asked for (`"a".ljust(4, "日")` is `a日`), and
+padding of no width at all — `""`, or a lone combining mark — is an argument error rather
+than a loop that never ends.
 
 ## Iteration
 

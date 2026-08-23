@@ -120,6 +120,15 @@ The check lives inside the node loop (every 1024 steps, plus every loop back-edg
 why `while true { }` — a loop with nothing between statements — is still interrupted, and why
 a pathological regex stops mid-attempt rather than after it.
 
+Waiting is inside these limits rather than beside them. `sleep`, `await`, `t.timeout` and
+`tasks.all`/`tasks.race` all wake on the deadline and on the host's context as well as on
+what they were waiting for, so a pause is spent from the run's clock and never extends it:
+
+```sh
+mzs -e 'sleep(2)'
+# -e:1:1: limit: execution timed out after 1s
+```
+
 ## Limits are not catchable
 
 `try … else …` never swallows a limit; it reaches the host every time.

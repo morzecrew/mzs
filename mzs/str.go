@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"mzs/internal/rx"
+	"mzs/internal/width"
 )
 
 // String methods (SPEC §12.2) and the shared formatting of §12.7.
@@ -126,16 +127,30 @@ func substr(rs []rune, i, n int) (string, bool) {
 }
 
 // padTo builds n runes of padding by repeating pad.
-func padTo(pad string, n int) string {
+func padTo(pad string, n int64) string {
 	if n <= 0 {
 		return ""
 	}
 	pr := []rune(pad)
-	out := make([]rune, 0, n)
-	for len(out) < n {
-		out = append(out, pr[len(out)%len(pr)])
+	var (
+		b    strings.Builder
+		have int64
+		i    int
+	)
+	// The pad is repeated rune by rune until the next one would overshoot. A pad two
+	// columns wide against an odd gap therefore stops a column short rather than
+	// running past the width that was asked for, and never inserts a rune — a space,
+	// say — that the caller did not supply.
+	for {
+		r := pr[i%len(pr)]
+		rw := int64(width.Rune(r))
+		if have+rw > n {
+			return b.String()
+		}
+		b.WriteRune(r)
+		have += rw
+		i++
 	}
-	return string(out)
 }
 
 // expandCharSet expands the character set `squeeze` takes: "a-z0-9" names its runes, a
@@ -368,6 +383,18 @@ func init() {
 				return unicode.ToUpper(r)
 			}, s)), nil
 		}),
+		// casefold is the comparison key of fold.go, not a rendering: it may be longer
+		// than what it folded, so it is charged as a string that was built (§14.1).
+		sm("casefold", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
+			if err := c.Step(int64(len(s))/64 + 1); err != nil {
+				return Nil(), err
+			}
+			folded := foldString(s)
+			if err := c.CheckString(len(folded)); err != nil {
+				return Nil(), err
+			}
+			return Str(folded), nil
+		}),
 		sm("trim", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			return Str(strings.TrimFunc(s, isTrimSpace)), nil
 		}),
@@ -418,6 +445,9 @@ func init() {
 		}),
 		sm("len", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			return Int(int64(utf8.RuneCountInString(s))), nil
+		}),
+		sm("width", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
+			return Int(int64(width.String(s))), nil
 		}),
 		sm("empty", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			return Bool(s == ""), nil
@@ -740,7 +770,10 @@ func strIndex(c *Ctx, s string, args []Value, last bool) (Value, error) {
 	return Int(int64(from + utf8.RuneCountInString(hay[:b]))), nil
 }
 
-// justify backs ljust/rjust/center; widths are counted in runes.
+// justify backs ljust/rjust/center. The width is **display columns**, not runes (§12.2):
+// "日本" is two runes and four columns, and a column is what a terminal, a Markdown table
+// and a fixed-width report all align by. Counting runes made every table with CJK or emoji
+// in it come out ragged — the one thing these three rows exist to prevent.
 func justify(c *Ctx, s string, args []Value, mode byte) (Value, error) {
 	w, err := argInt(c, args[0])
 	if err != nil {
@@ -751,18 +784,31 @@ func justify(c *Ctx, s string, args []Value, mode byte) (Value, error) {
 		if pad, err = argStr(c, args[1]); err != nil {
 			return Nil(), err
 		}
-		if pad == "" {
+		// Padding that occupies no columns — "", but also a lone combining mark — can
+		// never fill a field: the loop below would run forever, so both are the same
+		// argument error.
+		if width.String(pad) == 0 {
 			return Nil(), c.ArgErrorf("%s: zero width padding", c.Name())
 		}
 	}
-	n := utf8.RuneCountInString(s)
-	if int(w) <= n {
+	n := int64(width.String(s))
+	if w <= n {
 		return Str(s), nil
 	}
-	if err := c.CheckString(int(w) * 4); err != nil {
+	total := w - n
+	// What this would build is bounded before it is built: the width is a number the
+	// script chose and may be absurd. Each column costs at most len(pad) bytes, and the
+	// estimate **saturates** rather than being computed and then clamped — a product that
+	// overflowed an int64 would come back small or negative and walk straight past the
+	// check into a loop with no end.
+	bound := int64(c.rs.opts.MaxStringBytes) + 1
+	est := bound
+	if total < bound/int64(len(pad)) {
+		est = int64(len(s)) + total*int64(len(pad))
+	}
+	if err := c.CheckString(int(est)); err != nil {
 		return Nil(), err
 	}
-	total := int(w) - n
 	switch mode {
 	case 'l':
 		return Str(s + padTo(pad, total)), nil

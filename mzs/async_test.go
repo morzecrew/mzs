@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -489,6 +490,396 @@ func TestAsyncDiagnostics(t *testing.T) {
 			} else {
 				_, err = asyncEval(t, tt.src)
 			}
+			if err == nil {
+				t.Fatalf("%s: no error", tt.src)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v; want it to mention %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Waiting (§12.12): sleep, tasks.all, tasks.race, t.timeout, t.cancel
+// ---------------------------------------------------------------------------
+
+// TestSleepPauses is the row itself: a pause of the length that was asked for, and nil
+// for a value.
+func TestSleepPauses(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+	v := asyncMustEval(t, "sleep(0.1)")
+	elapsed := time.Since(start)
+	if v.Kind() != KNil {
+		t.Fatalf("sleep = %s; want nil", v.Inspect())
+	}
+	if elapsed < 90*time.Millisecond {
+		t.Fatalf("sleep(0.1) returned after %s; it did not wait", elapsed)
+	}
+}
+
+// TestSleepReleasesTheInterpreter is the test this whole row exists for (D19). A sleep
+// that held the Run's lock would stop every task of the Run with it, and five tasks
+// sleeping in parallel would cost five sleeps instead of one.
+func TestSleepReleasesTheInterpreter(t *testing.T) {
+	t.Parallel()
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	start := time.Now()
+	v, err := New(o).Eval(context.Background(), `include tasks
+async fn nap(n) { sleep(0.2); n }
+tasks.all((1..5).map { nap(it) }).sum`, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if v.Str() != "15" {
+		t.Fatalf("sum = %s; want 15", v.Str())
+	}
+	// Sequentially this is 5×200ms. Anything under half of that can only be overlap.
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("five 200ms sleeps took %s; the interpreter was held during them", elapsed)
+	}
+}
+
+// TestSleepIsBoundedByTheDeadline pins that a pause is spent from the Run's clock and
+// does not extend it (§14.1): the limit arrives on time, not after the sleep.
+func TestSleepIsBoundedByTheDeadline(t *testing.T) {
+	t.Parallel()
+
+	o := asyncOpts()
+	o.Timeout = 200 * time.Millisecond
+	start := time.Now()
+	_, err := New(o).Eval(context.Background(), "sleep(30)", nil)
+	elapsed := time.Since(start)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("sleep(30) = %v; want a timeout limit error", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("the deadline fired after %s; the sleep outlasted it", elapsed)
+	}
+}
+
+// TestSleepArgumentErrors: a duration is a number of seconds, and the two numbers that
+// are not durations say so rather than waiting forever.
+func TestSleepArgumentErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct{ src, want string }{
+		{`sleep("1")`, "expects a number"},
+		{"sleep(-1)", "cannot be negative"},
+		{"sleep(0.0 / 0.0)", "nan is not a duration"},
+	} {
+		t.Run(tt.src, func(t *testing.T) {
+			t.Parallel()
+			_, err := asyncEval(t, tt.src)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("%s = %v; want it to mention %q", tt.src, err, tt.want)
+			}
+		})
+	}
+}
+
+// TestTasksAll pins the order: results come back in the order of the tasks, never in the
+// order they finished, which is not a fact about the program.
+func TestTasksAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"results keep the order of the tasks", `include tasks
+async fn nap(n) { sleep(n / 100.0); n }
+tasks.all([3, 1, 2].map { nap(it) }).json`, "[3,1,2]"},
+		{"no tasks, no results", "include tasks\ntasks.all([]).json", "[]"},
+		{"a finished task is its value again", `include tasks
+async fn f() { 7 }
+t = f()
+[t.await, tasks.all([t, t])[1]].json`, "[7,7]"},
+		{"a failure is raised at the call, and is catchable", `include tasks
+async fn ok() { 1 }
+async fn bad() { raise("boom") }
+try tasks.all([ok(), bad()]) else (e) -> e["message"]`, "boom"},
+	}
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			v, err := New(o).Eval(context.Background(), tt.src, nil)
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if v.Str() != tt.want {
+				t.Fatalf("= %q; want %q", v.Str(), tt.want)
+			}
+		})
+	}
+}
+
+// TestTasksAllQuietsTheSiblings: a failure inside `tasks.all` is reported once, where it
+// was raised. The tasks the call never reached are not "never awaited" — the program did
+// ask about them (§8.14).
+func TestTasksAllQuietsTheSiblings(t *testing.T) {
+	t.Parallel()
+
+	var errOut strings.Builder
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	o.Stderr = &errOut
+	_, err := New(o).Eval(context.Background(), `include tasks
+async fn bad(n) { raise("boom ${n}") }
+tasks.all([bad(1), bad(2), bad(3)])`, nil)
+	if err == nil || !strings.Contains(err.Error(), "boom 1") {
+		t.Fatalf("Eval = %v; want the first failure", err)
+	}
+	if got := errOut.String(); got != "" {
+		t.Fatalf("stderr = %q; want nothing about the siblings", got)
+	}
+}
+
+// TestTasksRace is the shape the concurrency was added for: ask several, keep the first
+// answer, and stop the rest.
+func TestTasksRace(t *testing.T) {
+	t.Parallel()
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	in := New(o)
+	start := time.Now()
+	v, err := in.Eval(context.Background(), `include tasks
+async fn slow() { sleep(5); "slow" }
+async fn fast() { sleep(0.05); "fast" }
+losers = [slow(), slow()]
+winner = tasks.race([losers[0], fast(), losers[1]])
+[winner, try losers[0].await else (e) -> e["kind"]].json`, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if v.Str() != `["fast","canceled"]` {
+		t.Fatalf("race = %s; want the fast answer and two cancelled losers", v.Str())
+	}
+	// The losers sleep for five seconds. If the cancel did not reach them, joining them
+	// at the end of the Run would.
+	if elapsed > 3*time.Second {
+		t.Fatalf("the race took %s; the losers were not cancelled", elapsed)
+	}
+}
+
+// TestTasksRaceIsDeterministicWhenNothingIsPending: a race whose answer is already in
+// picks the first task in the array, not whichever ready channel a select chose.
+func TestTasksRaceIsDeterministicWhenNothingIsPending(t *testing.T) {
+	t.Parallel()
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	for i := 0; i < 20; i++ {
+		v, err := New(o).Eval(context.Background(), `include tasks
+async fn f(n) { n }
+ts = (1..4).map { f(it) }
+tasks.all(ts)
+tasks.race(ts)`, nil)
+		if err != nil {
+			t.Fatalf("Eval: %v", err)
+		}
+		if v.Str() != "1" {
+			t.Fatalf("race of four finished tasks = %s; want the first", v.Str())
+		}
+	}
+}
+
+// TestTaskTimeout pins that what runs out is the waiting and not the work: the task is
+// still running afterwards and still has its value.
+func TestTaskTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"a task that finishes in time is its value", `async fn f() { 42 }
+f().timeout(5)`, "42"},
+		{"a finished task needs no waiting at all", `async fn f() { 42 }
+t = f()
+t.await
+t.timeout(0)`, "42"},
+		{"the limit is catchable, and names the task", `async fn f() { sleep(0.2); "value" }
+t = f()
+[try t.timeout(0.01) else (e) -> [e["kind"], e["message"]], t.await].json`,
+			`[["timeout","task 'f' did not finish within 10ms"],"value"]`},
+		{"a failure still surfaces at the timeout", `async fn f() { raise("boom") }
+try f().timeout(5) else (e) -> e["message"]`, "boom"},
+	}
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			v, err := New(o).Eval(context.Background(), tt.src, nil)
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if v.Str() != tt.want {
+				t.Fatalf("= %q; want %q", v.Str(), tt.want)
+			}
+		})
+	}
+}
+
+// TestTaskCancel pins the three things a cancel is: it stops the task, it is answered at
+// the await as an ordinary catchable error, and it is not a failure anyone must hear
+// about twice.
+func TestTaskCancel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"the await says the task was cancelled", `async fn f() { sleep(5); "value" }
+t = f()
+t.cancel
+try t.await else (e) -> [e["kind"], e["message"]].json`, `["canceled","task 'f' was canceled"]`},
+		{"cancel answers nil and is idempotent", `async fn f() { sleep(5) }
+t = f()
+[t.cancel, t.cancel].json`, "[null,null]"},
+		{"a task that already finished keeps its value", `async fn f() { 7 }
+t = f()
+t.await
+t.cancel
+t.await`, "7"},
+		{"a cancelled task is done", `async fn f() { sleep(5) }
+t = f()
+t.cancel
+try t.await else (e) -> t.done`, "true"},
+	}
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			v, err := New(o).Eval(context.Background(), tt.src, nil)
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if v.Str() != tt.want {
+				t.Fatalf("= %q; want %q", v.Str(), tt.want)
+			}
+		})
+	}
+}
+
+// TestTaskCancelStopsAComputation pins that a cancel reaches a task that is not waiting
+// for anything: it lands at the task's next step, which is where every other limit of
+// §14.1 lands too.
+func TestTaskCancelStopsAComputation(t *testing.T) {
+	t.Parallel()
+
+	var errOut strings.Builder
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	o.Stderr = &errOut
+	start := time.Now()
+	v, err := New(o).Eval(context.Background(), `async fn spin() { i = 0; while true { i += 1 }; i }
+t = spin()
+sleep(0.05)
+t.cancel
+"ok"`, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if v.Str() != "ok" {
+		t.Fatalf("= %q; want ok", v.Str())
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("the Run took %s; the endless task did not stop when it was cancelled", elapsed)
+	}
+	// A task the script cancelled did what it was told: that is not a failure to report.
+	if got := errOut.String(); got != "" {
+		t.Fatalf("stderr = %q; want nothing", got)
+	}
+}
+
+// TestTaskCancelStopsARequest is the cancel that matters in practice: the loser of a race
+// is usually blocked on a socket, and a cancel that only landed at the next interpreter
+// step would leave it there.
+func TestTaskCancelStopsARequest(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(5 * time.Second):
+			fmt.Fprint(w, "late")
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	o := asyncOpts()
+	o.Timeout = 20 * time.Second
+	src := fmt.Sprintf(`include http
+async fn get() { http.get("%s")["body"] }
+t = get()
+sleep(0.05)
+t.cancel
+try t.await else (e) -> e["kind"]`, srv.URL)
+
+	start := time.Now()
+	v, err := New(o).Eval(context.Background(), src, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if v.Str() != "canceled" {
+		t.Fatalf("= %q; want canceled", v.Str())
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("the Run took %s; the cancel did not reach the request", elapsed)
+	}
+}
+
+// TestWaitingDiagnostics covers the shapes that are not it: what `tasks.all` and
+// `tasks.race` take, and the two waits that would wait for themselves.
+func TestWaitingDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ name, src, want string }{
+		{"all wants an array", "include tasks\ntasks.all(5)", "expects an array of tasks, got int"},
+		{"all wants tasks in it", "include tasks\nasync fn f() { 1 }\ntasks.all([f(), 2])",
+			"element 1 is int, not a task"},
+		{"race wants something to race", "include tasks\ntasks.race([])",
+			"an empty array has nothing to wait for"},
+		{"a task cannot race itself", `include tasks
+async fn f() { tasks.race([$t]) }
+$t = f()
+$t.await`, "cannot race itself"},
+		{"a task cannot await itself through all", `include tasks
+async fn f() { tasks.all([$t]) }
+$t = f()
+$t.await`, "cannot await itself"},
+		{"timeout wants a duration", "async fn f() { 1 }\nf().timeout(\"soon\")", "expects a number"},
+		{"timeout on a value that is not a task", "5.timeout(1)", "undefined method 'timeout' for int"},
+		{"cancel on a value that is not a task", "5.cancel", "undefined method 'cancel' for int"},
+	}
+
+	o := asyncOpts()
+	o.Timeout = 10 * time.Second
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := New(o).Eval(context.Background(), tt.src, nil)
 			if err == nil {
 				t.Fatalf("%s: no error", tt.src)
 			}

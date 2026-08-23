@@ -1138,10 +1138,15 @@
     "sem": "element 0 is the whole match, 1..n the groups; named groups also reachable as `m[\"name\"]`",
     "ex": ""
    },
+   "casefold": {
+    "sig": "`-> string`",
+    "sem": "Unicode **full** case folding: the key two texts are equal by when case is not to be looked at. Stronger than `lower` — `ß` folds to `ss`, `ς` and `Σ` both to `σ`, `K` (U+212A) to `k` — and longer than what it folded, so it is a comparison key and not a rendering",
+    "ex": "`a.casefold == b.casefold`"
+   },
    "center": {
     "sig": "`(width: int, pad: string = \" \") -> string`",
-    "sem": "rune widths",
-    "ex": ""
+    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
+    "ex": "`name.ljust(20)`"
    },
    "chars": {
     "sig": "`-> array`",
@@ -1235,8 +1240,8 @@
    },
    "ljust": {
     "sig": "`(width: int, pad: string = \" \") -> string`",
-    "sem": "rune widths",
-    "ex": ""
+    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
+    "ex": "`name.ljust(20)`"
    },
    "lower": {
     "sig": "`-> string`",
@@ -1270,8 +1275,8 @@
    },
    "rjust": {
     "sig": "`(width: int, pad: string = \" \") -> string`",
-    "sem": "rune widths",
-    "ex": ""
+    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
+    "ex": "`name.ljust(20)`"
    },
    "slice": {
     "sig": "`(i: int, n: int = 1) -> string`",
@@ -1322,6 +1327,11 @@
     "sig": "`-> string`",
     "sem": "Unicode uppercase",
     "ex": "`\"да\".upper == \"ДА\"`"
+   },
+   "width": {
+    "sig": "`-> int`",
+    "sem": "display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by",
+    "ex": "`\"日本\".width == 4`"
    }
   },
   "task": {
@@ -1330,10 +1340,20 @@
     "sem": "waits for the task and yields the value of its body; raises here, at the await, whatever the body raised. Awaiting a finished task again is the same answer again.",
     "ex": "`t.await`"
    },
+   "cancel": {
+    "sig": "`cancel(t) -> nil`",
+    "sem": "stop the task. It ends at its next step or its next wait, and the context it was given ends with it, so a request already on the wire is aborted rather than waited out (§12.11). Always nil: cancelling a finished task changes nothing, and cancelling twice is the first cancel",
+    "ex": "`t.cancel`"
+   },
    "done": {
     "sig": "`done(t) -> bool`",
     "sem": "has the task finished — the one question about a task that never waits",
     "ex": "`t.done`"
+   },
+   "timeout": {
+    "sig": "`timeout(t, d: number) -> any`",
+    "sem": "`await` with a limit of `d` seconds. What runs out is the **waiting**, not the work: the task carries on and can still be awaited. Expiry is a catchable error of kind `timeout` (§13.5)",
+    "ex": "`t.timeout(2)`"
    }
   },
   "time": {
@@ -1559,6 +1579,11 @@
    "sig": "`(a: int, n: int) -> int`",
    "sem": "**arithmetic** right shift: the sign bit is copied in, so `shr(-8, 1) == -4`",
    "ex": ""
+  },
+  "sleep": {
+   "sig": "`sleep(d: number) -> nil`",
+   "sem": "waits `d` **seconds** (`0.25` and `5.minutes` are both durations, §12.15) and answers nil. It hands the interpreter back while it waits, so the tasks of §8.14 run during the pause, and it is spent from the Run's clock rather than added to it: a `sleep(5)` under a one second timeout ends the Run on time (§14.1)",
+   "ex": "`sleep(0.2)`"
   },
   "sort": {
    "sig": "`sort(xs: array) [{ (a, b) -> int }] -> array`",
@@ -1896,6 +1921,18 @@
     "ex": ""
    }
   },
+  "tasks": {
+   "all": {
+    "sig": "`(ts: array) -> array`",
+    "sem": "waits for every task and answers their values **in the order of the array**, never in the order they finished. The first failure in that same order is raised here; the siblings are counted as read, so nothing is reported to `Options.Stderr` afterwards",
+    "ex": "`tasks.all(ts)`"
+   },
+   "race": {
+    "sig": "`(ts: array) -> any`",
+    "sem": "the value of the first task to finish — and `cancel` for every other one. An array that is empty is an argument error; an already-finished task wins by its position, so a race whose answer is already in is not decided by chance",
+    "ex": "`tasks.race(ts)`"
+   }
+  },
   "time": {
    "at": {
     "sig": "`(unix: int) -> time`",
@@ -1954,6 +1991,7 @@
   "io": "",
   "json": "",
   "math": "",
+  "tasks": "",
   "time": "--time",
   "url": ""
  },

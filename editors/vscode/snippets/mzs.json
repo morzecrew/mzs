@@ -1,7 +1,7 @@
 {
   "include a built-in module": {
     "prefix": "inc",
-    "body": "include ${1|json,math,time,date,http,io,decimal,crypto,url|}",
+    "body": "include ${1|json,math,time,date,http,tasks,io,decimal,crypto,url|}",
     "description": "Include a built-in module (§12.8)"
   },
   "include a script module": {
@@ -92,6 +92,24 @@
       "${1:task}.await"
     ],
     "description": "Await a task and take its value"
+  },
+  "wait for every task": {
+    "prefix": "all",
+    "body": [
+      "include tasks",
+      "",
+      "tasks.all(${1:items}.map { ${2:fetch}(it) })"
+    ],
+    "description": "Start one task per item and take every answer, in order (\u00a712.12)"
+  },
+  "race several tasks": {
+    "prefix": "race",
+    "body": [
+      "include tasks",
+      "",
+      "tasks.race(${1:mirrors}.map { ${2:fetch}(it) })"
+    ],
+    "description": "The first answer wins; the other tasks are cancelled (\u00a712.12)"
   },
   "function one-line": {
     "prefix": "fn1",

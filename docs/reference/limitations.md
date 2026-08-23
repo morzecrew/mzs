@@ -92,9 +92,10 @@ $n                       # 8000 — every time, with no lock anywhere
 
 Consequences worth knowing:
 
-- Nothing is preemptive. A switch happens at three points and nowhere else: an `await`, a
-  blocking host call (the `http` client and the `io` module are the ones in the box;
-  `Ctx.Blocking` is how a host adds its own), and a task finishing.
+- Nothing is preemptive. A switch happens at three points and nowhere else: a wait (`await`,
+  `t.timeout`, `tasks.all`, `tasks.race`, `sleep`), a blocking host call (the `http` client
+  and the `io` module are the ones in the box; `Ctx.Blocking` is how a host adds its own),
+  and a task finishing.
 - All tasks of a Run share one step counter, one deadline and one context, so a task cannot
   outlive the limits set for the Run.
 - `MaxTasks` (default 64) bounds how many are live at once; `--tasks 0` forbids them.

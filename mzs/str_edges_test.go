@@ -317,6 +317,18 @@ func TestStringRowsRespectTheLimits(t *testing.T) {
 			t.Errorf("ljust = %v; want a limit error", err)
 		}
 	})
+	t.Run("a width near the top of an int64 is bounded too", func(t *testing.T) {
+		// The size of a padded string is the width times the padding, and that product
+		// overflows an int64 long before the width itself does. An estimate that wrapped
+		// would come back small, pass the check and leave the padding loop with a target
+		// it can never reach.
+		c := stdCtx(DefaultOptions())
+		for _, w := range []int64{1 << 62, 6148914691236517206, 1<<63 - 1} {
+			if _, err := stdCall(t, c, Str("а"), "ljust", Int(w), Str("xyz")); !errors.Is(err, ErrBudget) {
+				t.Errorf("ljust(%d) = %v; want a limit error", w, err)
+			}
+		}
+	})
 	t.Run("replace is bounded by MaxStringBytes", func(t *testing.T) {
 		c := stdCtx(Options{MaxStringBytes: 32})
 		wide := Str(strings.Repeat("a", 1000))

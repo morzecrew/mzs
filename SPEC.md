@@ -112,7 +112,7 @@ These are decided. No alternatives are offered anywhere in this document.
 | D16 | Ambiguity is a diagnostic, never a silent reading. Every construct that another language resolves by a surprising precedence rule is rejected with a fix-it message (§5.6). |
 | D17 | Every operation has exactly one name. There are no aliases anywhere in the standard library. |
 | D18 | Function-call syntax and method syntax are the same thing: `x.f(y)` ≡ `f(x, y)` (UFCS). The library is one flat namespace. |
-| D19 | Concurrency is `async fn` + `t.await` and nothing else: calling one starts a task on a goroutine, and **one goroutine of a Run evaluates at a time**. A script gets overlapping waits, never shared-memory parallelism, so no value in the language needs a lock (§8.14). |
+| D19 | Concurrency is `async fn` and the waits — `t.await`, `t.timeout`, `t.cancel`, `tasks.all`, `tasks.race`, `sleep` — and nothing else: calling one starts a task on a goroutine, and **one goroutine of a Run evaluates at a time**. Every wait hands that goroutine back. A script gets overlapping waits, never shared-memory parallelism, so no value in the language needs a lock (§8.14, §12.12). |
 
 ---
 ## 3. Lexical structure
@@ -1727,7 +1727,8 @@ so last.
 
 **Kinds.** Every error carries a `kind` from the closed list of §13.5 —
 `syntax`, `name`, `type`, `argument`, `index`, `key`, `zero-division`, `regex`, `json`,
-`http`, `io`, `raise`, `limit`, `exit`, `internal` — stamped where the failure is born, so a
+`http`, `io`, `timeout`, `canceled`, `raise`, `limit`, `exit`, `internal` — stamped where the
+failure is born, so a
 handler decides on a value rather than on the wording of a message:
 
 ```
@@ -1791,9 +1792,9 @@ b = fetch(u2)          # started too, alongside the first
 ```
 
 Calling an `async fn` **starts a task** and returns it; it never runs the body to a value
-the way `fn` does. A task is an opaque value (`type(t) == "task"`) that answers exactly two
-names, `await` and `done` (§12.12); by UFCS both are also `await(t)` and `done(t)` (D18),
-and every other name is `undefined method 'x' for task`.
+the way `fn` does. A task is an opaque value (`type(t) == "task"`) that answers exactly four
+names — `await`, `done`, `timeout` and `cancel` (§12.12); by UFCS each is also a prefix call,
+`await(t)` and the rest (D18), and every other name is `undefined method 'x' for task`.
 
 `async` is positional, not a keyword (§3.5), and it is legal in exactly one place: directly
 before a `fn`. Before a named one it is a declaration, and `export async fn f(…)` is that
@@ -1808,7 +1809,8 @@ same arity checks, and `return` ends it with a value. Default arguments are eval
 **One evaluator at a time.** A task is a goroutine, and a Run holds one lock that whichever
 goroutine is evaluating must hold. A task releases it at exactly three points:
 
-1. at `await`, while waiting for another task;
+1. at `await` — and at `t.timeout`, `tasks.all`, `tasks.race` and `sleep` (§12.12), which
+   are the same wait with a different thing to wait for;
 2. inside a blocking host call — `http.get`/`post`/`request` are the ones in the box
    (§12.11), and `Ctx.Blocking` is how a host adds its own;
 3. when it finishes.
@@ -1820,6 +1822,13 @@ is the point — N slow requests in N tasks cost about one of them.
 Nothing is preemptive: a task that only computes runs to its end once it holds the lock.
 Which *runnable* task takes over at a release point is unspecified, so two tasks that both
 `println` may print in either order. Code outside a task is as ordered as it ever was.
+
+**Waiting.** `await` is one task; `tasks.all` and `tasks.race` are several, and `sleep` is
+none (§12.1, §12.12). All four release the interpreter exactly as `await` does, which is what
+makes them useful rather than merely present: five tasks each sleeping a second cost about a
+second, and a poll loop that sleeps between attempts does not stop the requests that are
+already on the wire. `t.timeout(d)` bounds a wait without ending the task; `t.cancel` ends
+the task.
 
 **Limits.** One Run, one budget: the steps a task spends are the Run's steps and the
 deadline is the Run's deadline (§14.1). Waiting honours both, so a task awaiting one that can
@@ -1836,8 +1845,9 @@ awaited is written to `Options.Stderr` — never into the value, never silently.
 
 **Errors.** They surface at the `await`, with the position and the call stack of where they
 happened, and are catchable there like any other (`try t.await else …`, §8.11). Limit errors
-stay uncatchable wherever they are reached. A task that awaits itself is a named error, not a
-hang.
+stay uncatchable wherever they are reached, and the two waits a script can end itself — a
+`t.timeout(d)` that ran out and an await of a task it cancelled — are catchable errors of
+their own kinds (§12.12). A task that awaits itself is a named error, not a hang.
 
 ### 8.15 Destructuring
 
@@ -2103,6 +2113,7 @@ Conventions used in the tables:
 | `exit` | `exit(code: int = 0) -> never` | ends the Run with that status; not catchable, and never touches the process (§13.5) | `exit(1)` |
 | `assert` | `assert(cond: any, msg: string = "assertion failed") -> nil` | raises when falsy | |
 | `defined` | `defined(name) -> bool` | true if the identifier or `$var` is bound (parser-level special form) | `defined($price)` |
+| `sleep` | `sleep(d: number) -> nil` | waits `d` **seconds** (`0.25` and `5.minutes` are both durations, §12.15) and answers nil. It hands the interpreter back while it waits, so the tasks of §8.14 run during the pause, and it is spent from the Run's clock rather than added to it: a `sleep(5)` under a one second timeout ends the Run on time (§14.1) | `sleep(0.2)` |
 | `rand` | `rand(n: int = 0) -> number` | **only if `Options.Rand` is set**, else `undefined function` | |
 | `uuid` | `uuid() -> string` | **only if `Options.Rand` is set** | |
 | `now` | `now() -> time` | **only if `Options.Now` is set** | |
@@ -2115,12 +2126,14 @@ Conventions used in the tables:
 | `upper` | `-> string` | Unicode uppercase | `"да".upper == "ДА"` |
 | `capitalize` | `-> string` | first rune upper, rest lower | |
 | `swapcase` | `-> string` | | |
+| `casefold` | `-> string` | Unicode **full** case folding: the key two texts are equal by when case is not to be looked at. Stronger than `lower` — `ß` folds to `ss`, `ς` and `Σ` both to `σ`, `K` (U+212A) to `k` — and longer than what it folded, so it is a comparison key and not a rendering | `a.casefold == b.casefold` |
 | `trim` | `-> string` | trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF** | `"  ОПЕРАТОР ".lower.trim` |
 | `trim_start` / `trim_end` | `-> string` | | |
 | `chomp` | `(suffix: string = "\n") -> string` | | |
 | `chop` | `-> string` | drops the last rune | |
 | `squeeze` | `(set: string = "") -> string` | collapses runs of repeated runes | |
 | `len` | `-> int` | rune count | `s.len` |
+| `width` | `-> int` | display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by | `"日本".width == 4` |
 | `empty` | `-> bool` | `len == 0` | |
 | `blank` | `-> bool` | empty after `trim` | |
 | `has` | `(sub: string) -> bool` | substring test | `"hello".has("lo")` |
@@ -2140,7 +2153,7 @@ Conventions used in the tables:
 | `reverse` | `-> string` | rune-wise | |
 | `first` / `last` | `(n: int = 1) -> string` | first/last `n` runes | |
 | `first_and_last` | `-> string` | `first(1) + last(1)` | |
-| `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | rune widths | |
+| `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error | `name.ljust(20)` |
 | `slice` | `(i: int, n: int = 1) -> string` | same as `s[i, n]` | |
 | `ord` | `-> int` | code point of the first rune | |
 | `each_char` | `{ (c) -> … } -> string` | iterates, returns the receiver | |
@@ -2412,6 +2425,7 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `date` | `today` | `-> time` (midnight) | requires `Options.Now` |
 | `date` | `parse` | `(s: string) -> time` | |
 | `http` | `serve stop json text get post request` | see §12.11 | no host option |
+| `tasks` | `all race` | see §12.12 | no host option |
 | `io` | `stdin lines read write append exists ls env` | see §12.13 | requires `Options.FS` |
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | see §12.15 | no host option |
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | see §12.16 | no host option |
@@ -2526,14 +2540,39 @@ per-call timeout — is an ordinary error of kind `http` (§13.5), so `try http.
 is how a script handles a service being down. A non-2xx status is a value, not an error. Responses are read
 under `MaxStringBytes`.
 
-### 12.12 Tasks
+### 12.12 Tasks and the `tasks` module
 
-The receiver an `async fn` call produces (§8.14). Two names, and a task answers nothing else.
+The receiver an `async fn` call produces (§8.14), and the two ways to wait for several at
+once. A task answers four names and nothing else.
 
 | Receiver | Name | Signature | Semantics | Example |
 |---|---|---|---|---|
 | task | `await` | `await(t) -> any` | waits for the task and yields the value of its body; raises here, at the await, whatever the body raised. Awaiting a finished task again is the same answer again. | `t.await` |
 | task | `done` | `done(t) -> bool` | has the task finished — the one question about a task that never waits | `t.done` |
+| task | `timeout` | `timeout(t, d: number) -> any` | `await` with a limit of `d` seconds. What runs out is the **waiting**, not the work: the task carries on and can still be awaited. Expiry is a catchable error of kind `timeout` (§13.5) | `t.timeout(2)` |
+| task | `cancel` | `cancel(t) -> nil` | stop the task. It ends at its next step or its next wait, and the context it was given ends with it, so a request already on the wire is aborted rather than waited out (§12.11). Always nil: cancelling a finished task changes nothing, and cancelling twice is the first cancel | `t.cancel` |
+
+| Member | Signature | Semantics | Example |
+|---|---|---|---|
+| `all` | `(ts: array) -> array` | waits for every task and answers their values **in the order of the array**, never in the order they finished. The first failure in that same order is raised here; the siblings are counted as read, so nothing is reported to `Options.Stderr` afterwards | `tasks.all(ts)` |
+| `race` | `(ts: array) -> any` | the value of the first task to finish — and `cancel` for every other one. An array that is empty is an argument error; an already-finished task wins by its position, so a race whose answer is already in is not decided by chance | `tasks.race(ts)` |
+
+```
+include tasks
+async fn ask(host) { http.get("https://${host}/status")["body"] }
+
+tasks.all(["a", "b", "c"].map { ask(it) })          # all three, in that order
+tasks.race(["a", "b", "c"].map { ask(it) })         # the first answer; the others stop
+```
+
+**A cancelled task at an await.** The task itself ends on an uncatchable limit — a task that
+could `try` its way out of its own cancel would not be cancelled — but the *await* raises an
+ordinary catchable error of kind `canceled`: the program made that decision and may well
+want to handle it. A cancelled task is never reported as "failed and was never awaited"
+either; it did what it was told (§8.14).
+
+Waiting for something that is not a task is a type error naming the position: `tasks.all` and
+`tasks.race` take an array of tasks, and a task cannot wait for itself (§8.14).
 
 ### 12.13 The `io` module
 
@@ -3206,8 +3245,8 @@ var (
 type Error struct {
     Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "key" |
                    // "zero-division" | "regex" | "json" | "decimal" | "http" | "io" |
-                   // "raise" | "limit" | "exit" | "internal" — or a name the script
-                   // chose, §8.11
+                   // "timeout" | "canceled" | "raise" | "limit" | "exit" | "internal"
+                   // — or a name the script chose, §8.11
     Msg     string
     File    string
     Line    int
@@ -3258,6 +3297,8 @@ over a known set (§8.11).
 | `decimal` | text that is not a decimal, a result past the width, a division with no exact form (§12.15) |
 | `http` | a transport failure, and a body over the cap (§12.11, §14.2) |
 | `io` | a filesystem or stream failure, and a read over the cap (§12.13, §14.2) |
+| `timeout` | `t.timeout(d)` — the limit the *script* set on a wait ran out (§12.12) |
+| `canceled` | awaiting a task the script cancelled, with `t.cancel` or by losing a `tasks.race` (§12.12) |
 | `raise` | `raise` and `assert` (§12.1) |
 | `limit` | a timeout, the step budget, the depth limit, a size cap, a cancellation (§14.1) |
 | `exit` | `exit(code)` (§12.1) |
@@ -3355,9 +3396,11 @@ both interrupted **mid-loop**, not merely between statements. No timer per Run (
 asked for one with `async fn`.
 
 Tasks change none of it and share all of it: one counter, one deadline, one context for the
-whole Run (§8.14). The one addition is that *waiting* is checked too — an `await` and the
-join at the end of a Run both wake on the deadline and on `ctx.Done()`, so no wait can
-outlive the limits the host set.
+whole Run (§8.14). The one addition is that *waiting* is checked too — an `await`, a `sleep`,
+a `tasks.all`/`tasks.race` and the join at the end of a Run all wake on the deadline and on
+`ctx.Done()`, so no wait can outlive the limits the host set. A pause is therefore spent from
+the Run's clock rather than added to it, and a task carries a context of its own so that
+`t.cancel` can end that one wait without touching the Run (§12.12).
 
 A lazy sequence is inside all of this, not beside it: every source of §12.14 charges one
 step per element it hands out, so a chain that never ends — an endless generator, a `filter`
@@ -3732,6 +3775,9 @@ if $__sent.int > 5 { print("big") }
 | `TestSeqEndlessChainsHitTheLimits` | an endless seq ends on `ErrBudget` — including when the runaway loop is inside `filter`/`drop` rather than in the terminal — and on the deadline with the budget disabled (§14.1) |
 | `TestIOLinesTakesTheReader` | `io.stdin` after `io.lines` has streamed is a catchable `io` error naming `io.lines`, and the other order answers every member from one read (§12.13) |
 | `TestInputReadsOneLine` | `input()` answers one line of `Options.Stdin` without its terminator, and `nil` at the end of the input and with no reader at all; `TestInputSharesTheReaderWithTheModule` pins that the line comes off the reader `io.stdin` and `io.lines` share (§12.1, §12.13) |
+| `TestSleepReleasesTheInterpreter` | five tasks each sleeping 200 ms cost about one sleep, not five: `sleep` hands the interpreter back while it waits (D19, §12.1) |
+| `TestTaskCancelStopsARequest` | `t.cancel` reaches a task blocked on a socket — the request is aborted, not waited out — and the await answers a catchable error of kind `canceled` (§12.12) |
+| `TestJustifyAlignsATable` | `"Ivan".ljust(10)` and `"日本語".ljust(10)` end in the same column, which counting runes did not do (§12.2) |
 | `TestTimeout` | `Bool("while true { }")` returns `ErrTimeout` in ≤ 1.2 s |
 | `TestStepBudget` | a 10⁹-iteration loop returns `ErrBudget` without OOM |
 | `TestNoHostPanic` | fuzz corpus of 10⁴ random byte strings: `Compile`+`Run` never panic |
@@ -3797,10 +3843,12 @@ mzs/                       module "mzs", go 1.26, zero external requires
   builtins.go              global builtins (§12.1)
   record.go                RecordType, the `record` constructor and the shape label (§7.8)
   str.go array.go dict.go num.go regexv.go time.go json.go  method tables (§12.1-12.10)
+  fold.go                  case folding, the tables `lower` does not have (§12.2)
+  decimal.go crypto.go url.go  the modules of §12.15-12.17
   http.go                  the http module: listener, routing, client (§12.11)
   host.go                  HostFunc, Ctx, Register, RegisterModule, SetGlobal
   limits.go                step counter, deadline, depth, collection/string caps
-  async.go                 `async fn`, tasks, the per-Run lock and the join (§8.14)
+  async.go                 `async fn`, tasks, waiting, the per-Run lock and the join (§8.14, §12.12)
   internal/token/          Kind, Token, Pos, keyword table, operator table
   internal/lexer/          Lexer (runes in, tokens out, error recovery, no panics)
   internal/ast/            node types, Walk, Print
@@ -3808,10 +3856,11 @@ mzs/                       module "mzs", go 1.26, zero external requires
   internal/rx/             Regexp facade, backend selection, pattern parser
   internal/rx/bt/          backtracking engine (Unicode \b, lookaround, backrefs, budget)
   internal/lru/            tiny generic LRU used for programs and regexes
+  internal/width/          display width, read by `s.width` and by the REPL's cursor (§12.2)
   engine/                  Engine, Bool, String, Value (§13.6)
   cmd/mzs/                 CLI (§15)
   testdata/                §16.3 author files, corpus JSON, golden token/AST dumps, fuzz seeds
-  examples/                thirty-eight runnable programs, one per feature area (examples/README.md)
+  examples/                forty-odd runnable programs, one per feature area (examples/README.md)
 ```
 
 Four independent implementers, four seams. Each seam is a package boundary with a frozen

@@ -1,6 +1,6 @@
 # Async functions and tasks
 
-`async fn` is the whole of concurrency in mzs: calling one starts a task, `await` reads it, and one goroutine of a run evaluates at a time.
+`async fn` is the whole of concurrency in mzs: calling one starts a task, `await` reads it, `tasks.all`/`tasks.race` read several, and one goroutine of a run evaluates at a time.
 
 ## A call starts a task, it does not run the body
 
@@ -33,14 +33,17 @@ What *does* happen at the call site is argument binding: arity is checked there
 (`f expects 1 argument(s), got 0`), and a default argument is the caller's code, run before
 the task exists — after `async fn f(x = bump()) { x }; t = f()`, `bump` has already run.
 
-## `await` and `done`
+## The four methods of a task
 
-A task has exactly two methods; by UFCS they are also `await(t)` and `done(t)`.
+A task answers four names and nothing else; by UFCS each is also a prefix call, `await(t)`
+and the rest.
 
 | Name | Meaning |
 |---|---|
 | `t.await` | wait, then yield the body's value; re-raises the body's error here |
 | `t.done` | has it finished — the only question that never waits |
+| `t.timeout(d)` | `await` with a limit of `d` seconds; the task itself carries on |
+| `t.cancel` | stop the task; always nil, and doing it twice is doing it once |
 
 ```
 async fn f() { 7 }
@@ -80,13 +83,107 @@ Five 300 ms requests cost 300 ms. Awaiting each task as it starts gives the sequ
 number back: the same two URLs cost 0.60 s awaited immediately and 0.30 s awaited after both
 calls.
 
+## Waiting for several: `tasks.all`
+
+`include tasks` gives two rows for an array of tasks. `tasks.all` waits for every one of them
+and answers their values **in the order of the array** — never in the order they happened to
+finish, which is not a fact about the program:
+
+```
+include tasks
+async fn nap(n) { sleep(n / 10.0); n }
+tasks.all([3, 1, 2].map { nap(it) })      # [3,1,2]
+```
+
+That is the second `map` of the fan-out above, with the order written down and one fewer
+thing to get wrong. A failure in any of them is raised at the call and catchable there:
+
+```
+include tasks
+async fn ok() { 1 }
+async fn bad() { raise("boom") }
+try tasks.all([ok(), bad()]) else (e) -> e["message"]    # "boom"
+```
+
+The tasks the call never reached still count as read, so nothing about them arrives on stderr
+afterwards: asking for all of them is asking about all of them.
+
+## The first answer wins: `tasks.race`
+
+`tasks.race` answers the first task to finish and cancels every other one — the shape the
+concurrency was added for:
+
+```
+include tasks
+include http
+async fn ask(host) { http.get("https://${host}/status")["body"] }
+tasks.race(["a.example", "b.example", "c.example"].map { ask(it) })
+```
+
+The losers stop where they are: a request already on the wire is aborted rather than waited
+out, and a loser that had failed is not reported to stderr — a race is a script saying it
+wants one answer out of several, and the ones it did not want are not mistakes.
+
+An empty array has nothing to wait for and is an argument error; a race whose answer is
+already in picks the first finished task in the array, not whichever one a select happened to
+notice.
+
+## `sleep`
+
+`sleep(d)` waits `d` seconds — `0.25` as readily as `2`, and `5.minutes` under
+`include time` — and hands the interpreter back while it waits. That is the whole of its
+design: a sleeping task stops nothing else.
+
+```sh
+$ /usr/bin/time -f '%e s' mzs -t 10 -e 'include tasks
+async fn nap(n) { sleep(0.3); n }
+tasks.all((1..5).map { nap(it) }).sum'
+15
+0.30 s          # five 300 ms sleeps, one 300 ms wait
+```
+
+A pause is spent from the run's clock rather than added to it, and the default clock is one
+second:
+
+```sh
+$ mzs -e 'sleep(2)'
+-e:1:1: limit: execution timed out after 1s      # exit 3
+```
+
+## Time limits and cancelling
+
+`t.timeout(d)` is an `await` that gives up after `d` seconds. What runs out is the *waiting*
+and not the work: the task carries on and can still be awaited.
+
+```
+async fn slow() { sleep(0.5); "value" }
+t = slow()
+[try t.timeout(0.1) else (e) -> e["kind"], t.await].json   # ["timeout","value"]
+```
+
+`t.cancel` ends the task instead. It lands at the task's next step or its next wait, and the
+context the task was given ends with it, so a request on the wire is aborted rather than left
+running:
+
+```
+async fn slow() { sleep(5); "value" }
+t = slow()
+t.cancel
+try t.await else (e) -> [e["kind"], e["message"]].json
+# ["canceled","task 'slow' was canceled"]
+```
+
+Both are ordinary catchable errors — kinds `timeout` and `canceled` — because the script set
+the limit and the script may want to handle it. Inside the cancelled task the cancel is *not*
+catchable: a task that could `try` its way out of its own cancel would not be cancelled.
+
 ## One evaluator at a time
 
 A task is a goroutine, but a run holds one lock and whichever goroutine evaluates must hold
-it. It is released at exactly three points: at an `await`, inside a blocking host call
-(the `http` client, `http.serve` between connections, and the `io` file calls are the ones
-in the box), and when the task finishes. So two tasks never touch one array, dict or `$var`
-at the same time.
+it. It is released at exactly three points: at a wait (`await`, `t.timeout`, `tasks.all`,
+`tasks.race`, `sleep`), inside a blocking host call (the `http` client, `http.serve` between
+connections, and the `io` file calls are the ones in the box), and when the task finishes. So
+two tasks never touch one array, dict or `$var` at the same time.
 
 ```
 counter = [0]
@@ -186,5 +283,6 @@ ordinary variable.
 
 - [functions.md](./functions.md) — `fn`, closures, defaults, UFCS
 - [errors.md](./errors.md) — `try … else`, what is not catchable
+- [../stdlib/core.md](../stdlib/core.md) — `sleep` among the other global builtins
 - [../modules/http.md](../modules/http.md) — the blocking calls worth fanning out
 - [../reference/sandbox.md](../reference/sandbox.md) — `MaxTasks` among the other limits

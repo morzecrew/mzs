@@ -162,7 +162,7 @@ x = 1; x = 5
 | [./strings.md](./strings.md) | literals, heredocs, interpolation, runes, escapes |
 | [./errors.md](./errors.md) | `try` / `else` / `ensure`, error kinds, `raise`, what is not catchable |
 | [./host-variables.md](./host-variables.md) | `$variables` and the globals table |
-| [./async.md](./async.md) | `async fn`, `await`, `done`, the scheduling model |
+| [./async.md](./async.md) | `async fn`, `await`, `sleep`, `tasks.all`/`tasks.race`, timeouts and cancellation, the scheduling model |
 | [./regex.md](./regex.md) | the two engines, flags, dynamic patterns |
 
 ## See also

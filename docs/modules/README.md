@@ -85,6 +85,7 @@ A module of your own has no function half, so the message stops at the rule:
 | `json` | `parse pretty` | none |
 | `math` | `pi e sqrt cbrt sin cos tan atan atan2 log log2 log10 exp pow hypot` | none |
 | `http` | `serve stop json text get post request` | none (reaches the network) |
+| `tasks` | `all race` | none |
 | `time` | `now parse at` | `EnableTime`; `Now` for `time.now` — `mzs --time` |
 | `date` | `today parse` | `EnableTime`; `Now` for `date.today` — `mzs --time` |
 | `io` | `stdin lines read write append exists ls env` | `Options.FS` — the CLI installs one, `--no-io` takes it back |
@@ -117,6 +118,7 @@ A host adds modules of its own with `RegisterModule` and removes built-ins with
 - [./decimal.md](./decimal.md) — exact numbers for money
 - [./crypto.md](./crypto.md) — hex, base64, digests, HMAC, and the comparison that does not leak
 - [./url.md](./url.md) — taking a URL apart and putting one together
+- [../language/async.md](../language/async.md) — `tasks.all` and `tasks.race`, and the tasks they wait for
 - [./custom.md](./custom.md) — `include … from` and `export`
 - [./time.md](./time.md) — the clock-gated modules
 - [../reference/sandbox.md](../reference/sandbox.md) — the capabilities behind the gates
