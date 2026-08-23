@@ -60,7 +60,11 @@ The one spelling it does not keep is the arrow function: `(a, b) -> { a + b }` a
 the only place where two ways of writing a thing reach the formatter as one.
 * **Comments**, which keep the line they were written on, or the line above the statement
   they were written above. Nothing is ever re-wrapped, and a blank line the author left
-  survives as exactly one blank line.
+  survives as exactly one blank line. A comment inside a bracket keeps its place as well —
+  the broken form gives every element a line and adds one before the closing bracket — and
+  a comment written where the output has no line for it, between an operator and its
+  operand for one, is written out at the next place that does. It moves; it is never
+  dropped.
 
 The one thing it normalises without being asked is the line ending: the output is `\n`
 throughout, heredoc bodies included. The lexer drops a carriage return either way, so the

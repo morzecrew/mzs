@@ -3689,7 +3689,12 @@ What it leaves alone, on purpose:
   what the author meant to say — the one spelling *not* kept is the arrow function, since
   `(a) -> { … }` and `fn(a) { … }` are one node (§4.1) and both come out as the second;
 * **comments**, which keep the line they were written on, or the line above the statement
-  they were written above. Nothing is ever re-wrapped.
+  they were written above, and are never re-wrapped. A comment inside a bracket keeps its
+  place too — the broken form of a bracket has a line for every element and one more
+  before the closing bracket, so there is somewhere to put it — and one written where the
+  output has no line for it, between an operator and its operand for instance, is written
+  out at the next place that does have one. It moves; it is never dropped, and the check
+  below is what makes that a promise rather than an intention.
 
 Every run reparses its own output and compares both the tree and the comment text with what
 it started from. A mismatch is a **refusal** — the file is left alone and the error says so

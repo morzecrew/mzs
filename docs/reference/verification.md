@@ -90,7 +90,7 @@ the parser, lexer, printer and language-server suites, and `cmd/mzs/main_test.go
 CLI). Together:
 
 ```sh
-go test ./... -list '.*' | grep -c '^Test'   # 631
+go test ./... -list '.*' | grep -c '^Test'   # 660
 ```
 
 Every example is also exercised somewhere: 29 through the corpus suite, the rest through
