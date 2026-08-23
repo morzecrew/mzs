@@ -1,0 +1,3 @@
+println("a string that is far too long to fit on a single line no matter how it is broken up here")
+cond = first_condition_name && second_condition_name && third_condition_name && fourth_one
+t = some_condition_here ? "a rather long consequence string" : "an equally long alternative one"

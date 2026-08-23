@@ -10,6 +10,8 @@ const cp = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const { Client } = require('./lsp');
+
 const API = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'api.json'), 'utf8'));
 
 // The keyword list is generated from the lexer's own table (SPEC §3.5), so it cannot
@@ -415,6 +417,21 @@ function runFile() {
   });
 }
 
+// runTests is `mzs test` in a terminal: the report is many lines long and belongs where
+// the output of a test run belongs.
+function runTests() {
+  const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  const target = folder ? folder.uri.fsPath : '.';
+  // `mzs test` reads the files on disk, so an unsaved edit would be tested as it was the
+  // last time it was written. `runFile` saves for the same reason.
+  vscode.workspace.saveAll(false).then(() => {
+    const t = mzsTerminal();
+    const flags = capabilityFlags().join(' ');
+    t.show(true);
+    t.sendText(`${binary()} test${flags ? ' ' + flags : ''} ${quote(target)}`);
+  });
+}
+
 function evalSelection() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return;
@@ -451,6 +468,200 @@ function dump(flag, title) {
   };
 }
 
+// --- formatting -------------------------------------------------------------------
+
+// `mzs fmt` is a filter: source on stdin, source on stdout, and nothing to configure
+// (SPEC §15.1). That makes the provider a pipe, and it is registered whether or not the
+// language server is running — formatting is the one answer that needs no analysis.
+const formattingProvider = {
+  provideDocumentFormattingEdits(document) {
+    return new Promise(resolve => {
+      const proc = cp.spawn(binary(), ['fmt'], {});
+      let out = '';
+      let err = '';
+      proc.stdout.on('data', d => (out += d));
+      proc.stderr.on('data', d => (err += d));
+      proc.on('error', () => {
+        vscode.window.showErrorMessage(`mzs: could not find "${binary()}"`);
+        resolve([]);
+      });
+      proc.on('close', code => {
+        // A file that does not parse has no formatted form, and the diagnostics already
+        // say why: leaving the buffer alone beats an error on every save.
+        if (code !== 0 || !out) {
+          if (err) vscode.window.setStatusBarMessage(err.trim().split('\n')[0], 5000);
+          resolve([]);
+          return;
+        }
+        const whole = new vscode.Range(
+          document.positionAt(0),
+          document.positionAt(document.getText().length)
+        );
+        resolve(out === document.getText() ? [] : [vscode.TextEdit.replace(whole, out)]);
+      });
+      proc.stdin.on('error', () => {});
+      proc.stdin.end(document.getText());
+    });
+  },
+};
+
+// --- the language server ------------------------------------------------------------
+
+// `mzs lsp` answers the same questions this file answers from data/api.json, plus the two
+// it cannot: where a name was bound, and what a file declares. It is opt-in
+// (`mzs.lsp.enable`) because the built-in providers work with no process to manage, and
+// this is the first version of the client.
+
+const LSP_COMPLETION_KIND = {
+  2: vscode.CompletionItemKind.Method,
+  3: vscode.CompletionItemKind.Function,
+  6: vscode.CompletionItemKind.Variable,
+  9: vscode.CompletionItemKind.Module,
+  14: vscode.CompletionItemKind.Keyword,
+};
+
+const LSP_SYMBOL_KIND = {
+  2: vscode.SymbolKind.Module,
+  12: vscode.SymbolKind.Function,
+  13: vscode.SymbolKind.Variable,
+  23: vscode.SymbolKind.Struct,
+};
+
+function toRange(r) {
+  if (!r) return new vscode.Range(0, 0, 0, 0);
+  return new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character);
+}
+
+function toMarkdown(contents) {
+  const md = new vscode.MarkdownString(contents && contents.value ? contents.value : '');
+  md.supportHtml = false;
+  return md;
+}
+
+function documentParams(document) {
+  return { textDocument: { uri: document.uri.toString() } };
+}
+
+function positionParams(document, position) {
+  return {
+    textDocument: { uri: document.uri.toString() },
+    position: { line: position.line, character: position.character },
+  };
+}
+
+/** startServer wires `mzs lsp` to the editor and returns its disposables, or null. */
+function startServer(context, collection, onFail) {
+  const client = new Client(binary(), ['lsp'], (method, params) => {
+    if (method !== 'textDocument/publishDiagnostics' || !params) return;
+    const uri = vscode.Uri.parse(params.uri);
+    collection.set(uri, (params.diagnostics || []).map(d => {
+      const diag = new vscode.Diagnostic(
+        toRange(d.range),
+        d.message,
+        d.severity === 2 ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
+      );
+      diag.source = d.source || 'mzs';
+      if (d.code) diag.code = d.code;
+      return diag;
+    }));
+  }, message => {
+    collection.clear();
+    onFail(message);
+  }, text => {
+    // Anything the server says on stderr is shown and nothing more: the session is still
+    // running, and the status bar is where a line of diagnostics about the tool belongs.
+    vscode.window.setStatusBarMessage('mzs lsp: ' + text.split('\n')[0], 8000);
+  });
+
+  client.start();
+  // Everything the editor does before the handshake answers is queued by the client, so
+  // the documents already open are sent once, here, and the listeners below cannot race
+  // them.
+  client.initialize({
+    processId: process.pid,
+    rootUri: null,
+    capabilities: {},
+  }).then(() => {
+    vscode.workspace.textDocuments.forEach(doc => openOnServer(client, doc));
+  }).catch(err => onFail(err.message));
+
+  const selector = { language: 'mzs', scheme: 'file' };
+  return [
+    { dispose: () => client.stop() },
+    vscode.languages.registerHoverProvider(selector, {
+      provideHover(document, position) {
+        return client.request('textDocument/hover', positionParams(document, position))
+          .then(res => (res ? new vscode.Hover(toMarkdown(res.contents), toRange(res.range)) : null))
+          .catch(() => null);
+      },
+    }),
+    vscode.languages.registerCompletionItemProvider(selector, {
+      provideCompletionItems(document, position) {
+        return client.request('textDocument/completion', positionParams(document, position))
+          .then(res => (res || []).map(it => {
+            const item = new vscode.CompletionItem(it.label, LSP_COMPLETION_KIND[it.kind]);
+            if (it.detail) item.detail = it.detail;
+            if (it.documentation) item.documentation = toMarkdown(it.documentation);
+            if (it.sortText) item.sortText = it.sortText;
+            return item;
+          }))
+          .catch(() => []);
+      },
+    }, '.'),
+    vscode.languages.registerDefinitionProvider(selector, {
+      provideDefinition(document, position) {
+        return client.request('textDocument/definition', positionParams(document, position))
+          .then(res => (res ? new vscode.Location(vscode.Uri.parse(res.uri), toRange(res.range)) : null))
+          .catch(() => null);
+      },
+    }),
+    vscode.languages.registerDocumentSymbolProvider(selector, {
+      provideDocumentSymbols(document) {
+        return client.request('textDocument/documentSymbol', documentParams(document))
+          .then(res => (res || []).map(sym => new vscode.DocumentSymbol(
+            sym.name,
+            sym.detail || '',
+            LSP_SYMBOL_KIND[sym.kind] || vscode.SymbolKind.Variable,
+            toRange(sym.range),
+            toRange(sym.selectionRange)
+          )))
+          .catch(() => []);
+      },
+    }),
+    vscode.workspace.onDidOpenTextDocument(doc => openOnServer(client, doc)),
+    vscode.workspace.onDidChangeTextDocument(e => {
+      if (e.document.languageId !== 'mzs') return;
+      client.notify('textDocument/didChange', {
+        textDocument: { uri: e.document.uri.toString(), version: e.document.version },
+        contentChanges: [{ text: e.document.getText() }],
+      });
+    }),
+    vscode.workspace.onDidSaveTextDocument(doc => {
+      if (doc.languageId !== 'mzs') return;
+      client.notify('textDocument/didSave', {
+        textDocument: { uri: doc.uri.toString() },
+        text: doc.getText(),
+      });
+    }),
+    vscode.workspace.onDidCloseTextDocument(doc => {
+      if (doc.languageId !== 'mzs') return;
+      client.notify('textDocument/didClose', { textDocument: { uri: doc.uri.toString() } });
+    }),
+  ];
+}
+
+function openOnServer(client, doc) {
+  if (doc.languageId !== 'mzs') return;
+  client.notify('textDocument/didOpen', {
+    textDocument: {
+      uri: doc.uri.toString(),
+      languageId: 'mzs',
+      version: doc.version,
+      text: doc.getText(),
+    },
+  });
+}
+
 // --- activation -------------------------------------------------------------------
 
 function activate(context) {
@@ -459,12 +670,38 @@ function activate(context) {
 
   context.subscriptions.push(
     collection,
-    vscode.languages.registerCompletionItemProvider(selector, completionProvider, '.'),
-    vscode.languages.registerHoverProvider(selector, hoverProvider),
+    vscode.languages.registerDocumentFormattingEditProvider(selector, formattingProvider),
     vscode.commands.registerCommand('mzs.runFile', runFile),
+    vscode.commands.registerCommand('mzs.runTests', runTests),
     vscode.commands.registerCommand('mzs.evalSelection', evalSelection),
     vscode.commands.registerCommand('mzs.showTokens', dump('--tokens', 'the token stream')),
     vscode.commands.registerCommand('mzs.showAst', dump('--ast', 'AST'))
+  );
+
+  if (cfg().get('lsp.enable')) {
+    let fallen = false;
+    const fallBack = message => {
+      if (fallen) return;
+      fallen = true;
+      vscode.window.showWarningMessage(
+        `mzs: ${message}. Falling back to the built-in analysis; turn off mzs.lsp.enable to silence this.`
+      );
+      registerBuiltins(context, selector, collection);
+    };
+    context.subscriptions.push(...startServer(context, collection, fallBack));
+    return;
+  }
+
+  registerBuiltins(context, selector, collection);
+}
+
+// registerBuiltins is the extension's own analysis: hover and completion out of
+// data/api.json, diagnostics out of `mzs --check`. It is what runs when the language
+// server is switched off, and what it falls back to when the server cannot be started.
+function registerBuiltins(context, selector, collection) {
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(selector, completionProvider, '.'),
+    vscode.languages.registerHoverProvider(selector, hoverProvider)
   );
 
   let timer = null;

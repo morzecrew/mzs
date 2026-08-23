@@ -39,6 +39,29 @@ mzs --check examples/29_time_scheduling.mzs
 One file per invocation — the CLI takes a single program and turns the rest of the arguments
 into `$ARGV`.
 
+## The two checks written in mzs
+
+The `cli smoke` job also runs the tests that are written in the language itself, and the one
+property the formatter is built around:
+
+```sh
+mzs test --time examples/     # 27_lib_money_test.mzs, case by case
+```
+
+```sh
+set -e
+for f in examples/*.mzs; do
+  mzs fmt "$f" > /tmp/once.mzs
+  mzs fmt /tmp/once.mzs > /tmp/twice.mzs
+  cmp -s /tmp/once.mzs /tmp/twice.mzs || { echo "mzs fmt is not idempotent on $f"; exit 1; }
+done
+```
+
+`fmt(fmt(x)) == fmt(x)` is asserted in Go as well (`internal/printer`), together with the
+two promises every run of `mzs fmt` makes for itself: the formatted text parses to the same
+tree, and it carries the same comments. A run that cannot promise both refuses and leaves
+the file alone — see [../cli/tools.md](../cli/tools.md).
+
 ## The acceptance suite
 
 `corpus_test.go` is the project's definition of done: the normative corpus of `SPEC.md` §16,
@@ -62,11 +85,12 @@ The corpus is the acceptance material for the language, not a data set: every ro
 expression whose value the specification fixes.
 
 Around it are the per-area unit suites (`str_test.go`, `array_test.go`, `dict_test.go`,
-`num_test.go`, `http_test.go`, `io_test.go`, `async_test.go`, `module_test.go`, the parser,
-lexer and regex suites, and `cmd/mzs/main_test.go` for the CLI). Together:
+`num_test.go`, `http_test.go`, `io_test.go`, `async_test.go`, `module_test.go`, `test_test.go`,
+the parser, lexer, printer and language-server suites, and `cmd/mzs/main_test.go` for the
+CLI). Together:
 
 ```sh
-go test ./... -list '.*' | grep -c '^Test'   # 397
+go test ./... -list '.*' | grep -c '^Test'   # 660
 ```
 
 Every example is also exercised somewhere: 29 through the corpus suite, the rest through

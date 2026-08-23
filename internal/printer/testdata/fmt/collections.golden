@@ -1,0 +1,9 @@
+short = [1, 2, 3]
+rows = [
+    {id: 1, who: "ivan", total: 1500},
+    {id: 2, who: "olga", total: 4200},
+    {id: 3, who: "pyotr", total: 800},
+]
+call = some_function(first_argument, second_argument, third_argument, fourth_argument, fifth)
+hug = serve(":8080", {"GET /a": 1, "GET /b": 2})
+named = f(1, b = 2, c = 3)

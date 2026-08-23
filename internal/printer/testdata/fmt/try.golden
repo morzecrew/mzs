@@ -1,0 +1,10 @@
+v = try risky() else 0
+w = try risky() else (e) -> e["message"]
+u = try {
+    risky()
+} else (e) {
+    0
+} ensure {
+    cleanup()
+}
+t = try risky() ensure { cleanup() }

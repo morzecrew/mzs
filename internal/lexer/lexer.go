@@ -43,6 +43,34 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Msg }
 
+// Comment is one `#` comment, kept for the tools that need the text a token stream
+// throws away. The scanner still skips comments — the parser never sees one (§3.2) —
+// and only records what it skipped, so nothing downstream changes shape.
+//
+// Text is the whole comment including the `#`, with the line break left off. OwnLine
+// says nothing but whitespace stands before it on its line, which is the difference
+// between a comment *about* the line below and a remark *on* the line it ends: the
+// formatter puts the first on a line of its own and the second back where it was.
+type Comment struct {
+	Text    string
+	OwnLine bool
+	Pos     token.Pos
+	End     token.Pos
+}
+
+// Heredoc is one `<<~TAG` and the lines below it (§3.7). The token stream cannot say
+// where those lines are: STR_END is reported back up on the tag's own line, which is
+// what makes the literal's node span the six characters the author wrote there — and
+// leaves nothing pointing at the body.
+//
+// Term is the rune offset just past the terminator's line break, so src[Pos.Offset:Term]
+// is the tag, the body and the terminator: everything a tool must move as one piece.
+type Heredoc struct {
+	Tag  string
+	Pos  token.Pos
+	Term int
+}
+
 // frame is one open string literal. interp is true while the scanner is inside a
 // `${ … }` of that literal, in which case depth counts the `{` nesting so the `}`
 // that returns depth to zero can be recognised as INTERP_END.
@@ -88,6 +116,12 @@ type Lexer struct {
 	pendingNL bool
 	nlPos     token.Pos
 
+	// comments holds every `#` comment in source order, for Comments(), and heredocs
+	// every `<<~TAG` for Heredocs(). Nothing in the scanner reads either back: a comment
+	// is still whitespace to every other caller, and a body is still a string.
+	comments []Comment
+	heredocs []Heredoc
+
 	// A heredoc's body was read from the lines below the one its tag stands on, so the
 	// scanner owes that line's own line break a jump over what it already consumed.
 	// hdEnd is where the source resumes — just past the terminator of the last heredoc
@@ -113,6 +147,14 @@ func (l *Lexer) Name() string { return l.name }
 
 // Errors returns every diagnostic recorded so far, in source order.
 func (l *Lexer) Errors() []*Error { return l.errs }
+
+// Comments returns every comment scanned so far, in source order. A comment inside a
+// string literal or a heredoc body is not one: there `#` is ordinary text and the
+// scanner never reaches the branch that records it (§3.2).
+func (l *Lexer) Comments() []Comment { return l.comments }
+
+// Heredocs returns every `<<~TAG` scanned so far, in the order the tags appeared.
+func (l *Lexer) Heredocs() []Heredoc { return l.heredocs }
 
 // Next returns the next token. After the first token.EOF it keeps returning EOF.
 func (l *Lexer) Next() token.Token {
@@ -154,6 +196,22 @@ func Lex(name, src string) ([]token.Token, []*Error) {
 		}
 	}
 	return out, l.Errors()
+}
+
+// Scan is Lex with everything the parser is not given: the comments of §3.2 and the
+// heredoc bodies of §3.7, both of which a token stream drops on purpose. It exists for
+// the printer, the one caller that has to put them back.
+func Scan(name, src string) ([]token.Token, []Comment, []Heredoc, []*Error) {
+	l := New(name, src)
+	out := make([]token.Token, 0, len(src)/3+2)
+	for {
+		t := l.Next()
+		out = append(out, t)
+		if t.Kind == token.EOF {
+			break
+		}
+	}
+	return out, l.Comments(), l.Heredocs(), l.Errors()
 }
 
 // ---------------------------------------------------------------------------
@@ -368,9 +426,32 @@ func (l *Lexer) finish() token.Token {
 }
 
 func (l *Lexer) skipLineComment() {
+	start, own := l.mark(), l.ownLine()
+	var sb strings.Builder
 	for l.pos < len(l.rs) && l.rs[l.pos] != '\n' && l.rs[l.pos] != '\r' {
+		sb.WriteRune(l.rs[l.pos])
 		l.bump()
 	}
+	l.comments = append(l.comments, Comment{
+		Text: sb.String(), OwnLine: own, Pos: start, End: l.mark(),
+	})
+}
+
+// ownLine reports whether only whitespace stands between the start of the line and the
+// cursor. It walks back rather than tracking a flag because the cursor arrives here from
+// four different branches of the scan loop, and one of them forgetting to clear a flag
+// is a bug nobody would see until a comment moved.
+func (l *Lexer) ownLine() bool {
+	for i := l.pos - 1; i >= 0; i-- {
+		switch l.rs[i] {
+		case '\n', '\r':
+			return true
+		case ' ', '\t', '\u00a0':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -812,6 +893,7 @@ func (l *Lexer) scanHeredoc(start token.Pos) token.Token {
 	}
 
 	l.hdEnd, l.hdLines = 0, 0
+	l.heredocs = append(l.heredocs, Heredoc{Tag: tag.String(), Pos: start, Term: termEnd})
 	l.stack = append(l.stack, frame{
 		heredoc:    true,
 		raw:        raw,

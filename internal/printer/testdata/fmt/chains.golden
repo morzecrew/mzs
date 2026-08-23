@@ -1,0 +1,11 @@
+n = xs.filter { it.even }.map { it * 2 }.sum
+long = collection_of_things.filter { it["status"] >= 400 }
+    .map { it["path"] }
+    .tally
+    .sort_by { (k, v) -> v }
+    .first(10)
+one = xs.map { (m) ->
+    m + 1
+}
+safe = maybe?.trim?.upper
+z = xs.reduce(0) { (acc, it) -> acc + it }

@@ -211,7 +211,12 @@ type FnDecl struct {
 	Body   *BlockStmt
 	Async  bool
 	Kw     token.Pos
-	Stop   token.Pos
+	// NamePos is where the name stands, as RecordDecl has had from the beginning. It is
+	// the zero Pos for the anonymous form, which has no name to point at. A tool that
+	// selects a declaration — go to definition, an outline, a rename one day — needs the
+	// name and not the whole body, and Kw points at `fn`, which is not it.
+	NamePos token.Pos
+	Stop    token.Pos
 }
 
 // RecordDecl is `record Name(field, field = default)` (§7.8): a named shape over the

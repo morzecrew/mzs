@@ -7,6 +7,13 @@ readable report, and is written to be read as much as to be executed:
 mzs examples/01_values_and_operators.mzs
 ```
 
+One of them is a **test file** rather than a program, and the test runner is how it is
+meant to be read:
+
+```sh
+mzs test examples/          # 27_lib_money_test.mzs, the money module checked case by case
+```
+
 Two of them need a capability the host has to grant, which is the point of those files:
 
 ```sh
@@ -100,6 +107,7 @@ does not have it at all.
 | # | File | What it is about |
 |---|---|---|
 | 27 | `27_modules_main.mzs` | `include`/`export` across three files (`27_lib_money.mzs`, `27_lib_text.mzs`), private names, a diamond include |
+| 27 | `27_lib_money_test.mzs` | the same money module under `mzs test`: `test.case` for a name, `test.eq` for a message worth reading, a property checked over a loop, and the exports asserted to be the whole surface |
 | 28 | `28_async_tasks.mzs` | `async fn`, `await`, `done`, fan-out, errors at the await, shared state without locks |
 | 45 | `45_waiting_tasks.mzs` | the other half of a task: `sleep` that hands the interpreter back, `tasks.all` in the order of the array, `tasks.race` with the losers cancelled, `t.timeout` that gives up waiting but not on the task, and `t.cancel` wherever the task has got to |
 | 29 | `29_time_scheduling.mzs` | **`--time`** · parsing four formats, durations, a slot grid, the first free gap, reminders |

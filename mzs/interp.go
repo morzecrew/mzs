@@ -1064,7 +1064,7 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 		r := recover()
 		rs.joinTasks()
 		rs.unlock()
-		res.Steps, res.Elapsed = rs.sh.steps, time.Since(start)
+		res.Steps, res.Elapsed, res.Tests = rs.sh.steps, time.Since(start), rs.sh.tests
 		if r != nil {
 			res.Value = Nil()
 			err = internalError(p.name, r, in.opts.StrictWarnings)

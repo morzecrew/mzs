@@ -20,6 +20,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [cli/README.md](./cli/README.md) | Every flag, the printing rules, exit codes, `$ARGV` |
 | [cli/input.md](./cli/input.md) | Whether stdin carries the program or the data, `--in`, `-n` and `-l` line mode |
 | [cli/diagnostics.md](./cli/diagnostics.md) | The shape of an error message, the error kinds, the fix-its, warnings, `--check` |
+| [cli/tools.md](./cli/tools.md) | `mzs fmt`, `mzs test` and `mzs lsp`: the formatter's rules, the test runner, the language server |
 
 ## Language
 
@@ -63,6 +64,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/decimal.md](./modules/decimal.md) | Exact base-ten money: why a float is not one, the fourteen members, and the `+` that refuses |
 | [modules/crypto.md](./modules/crypto.md) | Hex, base64 in both alphabets, sha256/sha1/md5, HMAC, and why the signature check is `crypto.equal` |
 | [modules/url.md](./modules/url.md) | The eight keys of a parsed URL, the inverse that builds one, and the two encodings the `+` tells apart |
+| [modules/test.md](./modules/test.md) | `test.case` and `test.eq`, what a case catches, and the report `mzs test` counts |
 | [modules/custom.md](./modules/custom.md) | `include … from`, `export`, and how a path resolves |
 
 ## Embedding in Go

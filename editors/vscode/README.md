@@ -1,6 +1,6 @@
 # mzs for VS Code
 
-Syntax highlighting, completion, hovers and diagnostics for the mzs language (the language
+Syntax highlighting, completion, hovers, formatting and diagnostics for the mzs language (the language
 itself is described in `README.md` at the root of the repository, the specification is
 `SPEC.md`).
 
@@ -15,7 +15,7 @@ cd /home/alexander/go-test-project/mzs
 go build -o ~/bin/mzs ./cmd/mzs
 
 # 2. link the extension in (edits show up straight away)
-ln -s "$PWD/editors/vscode" ~/.vscode/extensions/mzs-1.1.0
+ln -s "$PWD/editors/vscode" ~/.vscode/extensions/mzs-1.2.0
 ```
 
 Restart VS Code. If `mzs` is not on the `PATH`, name the path in the `mzs.path` setting.
@@ -24,8 +24,12 @@ To install from a VSIX (needs `npx @vscode/vsce`, and the network):
 
 ```sh
 cd editors/vscode && npx @vscode/vsce package
-code --install-extension mzs-1.1.0.vsix
+code --install-extension mzs-1.2.0.vsix
 ```
+
+`mzs-1.2.0.vsix` in this folder is that command's output, checked in so the extension can be
+installed without the network. `data/gen/` — the generator behind `data/api.json`, an 11 MB
+compiled copy of it included — is excluded from the package, which is what keeps it at 84 KB.
 
 ## What it does
 
@@ -35,7 +39,9 @@ code --install-extension mzs-1.1.0.vsix
 | **Completion** | after `include ` — the built-in modules, each marked with the flag it needs; after `module.` — its members (for a neighbouring `.mzs`, the names it really exports); after `.` — the receiver's methods (the type is inferred from the literal on the left); otherwise — built-in functions, keywords, the modules already included, plus the functions, local variables and `$globals` of the file itself |
 | **Hovers** | the signature, the description and the example from SPEC §12; for a module member, also what has to be `include`d (and with which flag) |
 | **Diagnostics** | `mzs --check -` as you type: the buffer goes in through stdin, so errors are visible **before the file is saved**. Warnings show up as warnings, errors as errors |
-| **Commands** | `mzs: Run file`, `mzs: Evaluate selection as a one-liner` (<kbd>Ctrl+Shift+E</kbd>), `mzs: Show the token stream`, `mzs: Show the AST` |
+| **Formatting** | `mzs fmt` as a document formatter — Format Document, and Format On Save if you have it switched on. The buffer goes through stdin, so an unsaved file formats too; a file that does not parse is left exactly as it is |
+| **Commands** | `mzs: Run file`, `mzs: Run the tests` (`mzs test` in a terminal), `mzs: Evaluate selection as a one-liner` (<kbd>Ctrl+Shift+E</kbd>), `mzs: Show the token stream`, `mzs: Show the AST` |
+| **Language server** | off by default: switch on `mzs.lsp.enable` and the extension starts `mzs lsp` and takes diagnostics, hovers, completion, **go to definition** and the **outline** from it instead. The client is 150 lines of plain CommonJS in `src/lsp.js` — the protocol is a `Content-Length` header and a JSON object, and this extension buys no dependency for that |
 | **File icon** | `.mzs` gets an icon of its own in the explorer — a light and a dark variant of the logo (`icons/mzs-*.svg`), plus the **mzs (Seti)** icon theme: the whole of Seti, with `.mzs` carrying the logo |
 | **Snippets** | `inc`, `incfrom`, `expfn`, `exp`, `record`, `exrec`, `matchrec`, `fn`, `cl`, `heredoc`, `heredocraw`, `if`, `match`, `for`, `try`, `tryb`, `ensure`, `map`, `filter`, `each`, `reduce`, `serve` — a web server — and `cond=`, `cond~`, `cond?`, skeletons for conditions in the morzebot style |
 
@@ -48,6 +54,7 @@ code --install-extension mzs-1.1.0.vsix
 | `mzs.diagnostics.enable` | `true` | turn checking on |
 | `mzs.diagnostics.delay` | `300` | delay after typing, in ms |
 | `mzs.completion.enable` | `true` | turn completion on |
+| `mzs.lsp.enable` | `false` | run `mzs lsp` and take the analysis from it |
 
 `mzs.time` is on so that a file is checked the way it is going to be run. Turn it off to see
 the file through the eyes of an embedding host that does not grant that capability. The
@@ -111,6 +118,8 @@ To rebuild the data after a change to the stdlib, see `editors/vscode/data/READM
 * The grammar tells a regex from a division by the same rule the lexer uses (SPEC §3.8), but
   by TextMate means — in rare expressions such as `a /b/ c` the highlighting may get it wrong
   where the interpreter itself parses it right.
-* There is no "go to definition" and no rename: that needs a language server, not a
-  highlighter. If it turns out to be wanted, that is the next step — the interpreter already
-  hands out the AST through `mzs --ast`.
+* Every limit above is about the **built-in** analysis, which reads the buffer with regexes.
+  `mzs.lsp.enable` replaces it with `mzs lsp`, which parses: there the receiver of a `.` is
+  still untyped — the language has no type annotations — but go to definition, the outline
+  and the diagnostics come from the compiler itself. Rename is in neither, and needs the
+  server to learn it first.

@@ -64,6 +64,11 @@ type runShared struct {
 	// once at the end instead of vanishing.
 	all []*task
 
+	// tests is what the `test` module recorded during this Run, in the order the cases
+	// ran (§12.18). It lives here for the reason stdin does: a case may be written inside
+	// a task, and one report per Run is the only reading of "the tests this Run ran".
+	tests []TestCase
+
 	// cancel ends the context every task derives from. RunResult calls it before joining,
 	// so a task blocked on the network or on another task stops instead of holding the
 	// Run open.

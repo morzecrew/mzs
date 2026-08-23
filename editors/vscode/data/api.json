@@ -1933,6 +1933,18 @@
     "ex": "`tasks.race(ts)`"
    }
   },
+  "test": {
+   "case": {
+    "sig": "`(name: string) { … } -> bool`",
+    "sem": "runs the block, records the case, prints one line, and answers whether it passed",
+    "ex": ""
+   },
+   "eq": {
+    "sig": "`(actual: any, expected: any) -> nil`",
+    "sem": "raises when the two differ, with `inspect` of both in the message",
+    "ex": ""
+   }
+  },
   "time": {
    "at": {
     "sig": "`(unix: int) -> time`",
@@ -1992,6 +2004,7 @@
   "json": "",
   "math": "",
   "tasks": "",
+  "test": "",
   "time": "--time",
   "url": ""
  },

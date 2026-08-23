@@ -106,6 +106,10 @@ type Result struct {
 	Globals map[string]Value
 	Steps   int64
 	Elapsed time.Duration
+	// Tests is what the `test` module recorded, one entry per `test.case`, in the order
+	// they ran (§12.18). It is empty for a program that never included the module, which
+	// is every program but a test file.
+	Tests []TestCase
 }
 
 // Func is a callable: a script `fn`, a `{ … }` closure literal, or a Go function

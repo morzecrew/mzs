@@ -1,0 +1,21 @@
+if x > 1 {
+        println("big")
+} else if x == 1 { println("one") } else {
+  println("small")
+}
+
+while x > 0 { x -= 1 }
+
+for k, v in {a: 1} {
+  println("${k}=${v}")
+}
+
+fn add(a, b = 1, *rest) {
+  a + b
+}
+
+async fn slow(n) { sleep(n) }
+
+record Money(amount, currency = "RUB")
+
+fn one(x) { x + 1 }

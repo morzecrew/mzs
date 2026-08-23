@@ -1,0 +1,17 @@
+v = match status {
+    in 200..299 -> "ok"
+    301 -> "moved"
+    in [401, 403] -> "auth"
+    else -> "unknown"
+}
+
+w = match {
+    x > 10 -> "big"
+    if x < 0 -> "negative"
+    else -> "small"
+}
+
+u = match xs {
+    [a, b] -> a + b
+    else -> 0
+}
