@@ -1727,8 +1727,8 @@ so last.
 
 **Kinds.** Every error carries a `kind` from the closed list of §13.5 —
 `syntax`, `name`, `type`, `argument`, `index`, `key`, `zero-division`, `regex`, `json`,
-`http`, `io`, `timeout`, `canceled`, `raise`, `limit`, `exit`, `internal` — stamped where the
-failure is born, so a
+`decimal`, `http`, `io`, `timeout`, `canceled`, `raise`, `limit`, `exit`, `internal` —
+stamped where the failure is born, so a
 handler decides on a value rather than on the wording of a message:
 
 ```

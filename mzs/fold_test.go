@@ -131,6 +131,11 @@ func TestStringWidth(t *testing.T) {
 		// a width to code points, not to grapheme clusters — and this is the same table the
 		// REPL moves its cursor by, where guessing wrong costs two columns per emoji.
 		{"a joined emoji sequence counts its emoji", "\U0001f469\u200d\U0001f3a8", 4},
+		// The width table is generated from the Unicode data and covers the emoji blocks
+		// whole, so the ones added after it was written are two columns as well.
+		{"a symbol that is an emoji is two", "\u2705\u2b50\u26a1", 6},
+		{"an emoji from a block added later is two", "\U0001fa77", 2},
+		{"and one from the block after that", "\U0001fae0", 2},
 	}
 
 	c := stdCtx(DefaultOptions())

@@ -558,7 +558,9 @@ func TestSleepIsBoundedByTheDeadline(t *testing.T) {
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("sleep(30) = %v; want a timeout limit error", err)
 	}
-	if elapsed > 2*time.Second {
+	// The deadline is 200ms and the sleep is thirty seconds, so anything near a second
+	// means the wait, not the clock, decided when this Run ended.
+	if elapsed > time.Second {
 		t.Fatalf("the deadline fired after %s; the sleep outlasted it", elapsed)
 	}
 }

@@ -92,7 +92,7 @@ println("  numbered:  ${"2026-03-05".replace(/(\d+)-(\d+)-(\d+)/, '\3.\2.\1')}")
 println("")
 println("| ${"item".ljust(20)} | ${"price".rjust(9)} |")
 println("| ${"-" * 20} | ${"-" * 9} |")
-[["haircut", 1500], ["окрашивание 👩‍🎨", 3200], ["borodá", 800]].each { (row) ->
+[["haircut", 1500], ["окрашивание 💇", 3200], ["borodá", 800]].each { (row) ->
   println("| ${row[0].ljust(20)} | ${("%d €" % row[1]).rjust(9)} |")
 }
 println("")
@@ -101,8 +101,13 @@ println(" ${"THE END".center(30, "·")} ")
 # The emoji row above lines up with the others, which is not something a rune count could
 # do: a CJK ideograph and an emoji occupy two terminal columns, a combining mark occupies
 # none, and `ljust`/`rjust`/`center` pad to columns. `width` is that number on its own.
+#
+# The last row is the boundary worth knowing: a width is counted per code point, so an emoji
+# written as a joined sequence — 👩 + ZWJ + 🎨 — is counted as its two emoji. Terminals
+# disagree about whether to draw such a sequence as one glyph or two, and Unicode gives a
+# width to code points rather than to sequences.
 println("")
-['hi', 'привет', '日本語', '👩‍🎨'].each { (s) ->
+['hi', 'привет', '日本語', '💇', '👩‍🎨'].each { (s) ->
   println("  ${inspect(s).ljust(12)} len ${s.len}  width ${s.width}")
 }
 
