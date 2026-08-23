@@ -1811,9 +1811,11 @@ func (p *parser) parseArrowFn() ast.Expr {
 func (p *parser) parseFn() *ast.FnDecl {
 	kw := p.advance().Pos
 	name := ""
+	var namePos token.Pos
 	switch {
 	case p.kind() == token.IDENT:
-		name = p.advance().Value
+		t := p.advance()
+		name, namePos = t.Value, t.Pos
 	case p.kind() != token.LPAREN:
 		p.errorAt(p.cur().Pos, "expected a function name or '(' after 'fn', found %s", describe(p.cur()))
 	}
@@ -1824,7 +1826,7 @@ func (p *parser) parseFn() *ast.FnDecl {
 		p.errorAt(p.cur().Pos, "expected '(' in parameter list, found %s", describe(p.cur()))
 	}
 	body := p.parseBody("function body")
-	return &ast.FnDecl{Name: name, Params: params, Body: body, Kw: kw, Stop: body.Stop}
+	return &ast.FnDecl{Name: name, NamePos: namePos, Params: params, Body: body, Kw: kw, Stop: body.Stop}
 }
 
 // ---------------------------------------------------------------------------
@@ -2219,15 +2221,17 @@ func (p *parser) parseRubyWord() (ast.Expr, bool) {
 	case "def":
 		p.advance()
 		name := ""
+		var namePos token.Pos
 		if p.kind() == token.IDENT {
-			name = p.advance().Value
+			nt := p.advance()
+			name, namePos = nt.Value, nt.Pos
 		}
 		var params []ast.Param
 		if p.kind() == token.LPAREN {
 			params = p.parseParams()
 		}
 		body := p.parseBody("function body")
-		return &ast.FnDecl{Name: name, Params: params, Body: body, Kw: t.Pos, Stop: body.Stop}, true
+		return &ast.FnDecl{Name: name, NamePos: namePos, Params: params, Body: body, Kw: t.Pos, Stop: body.Stop}, true
 	}
 	p.advance()
 	return &ast.NilLit{Start: t.Pos, Stop: t.End}, true

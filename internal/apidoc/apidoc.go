@@ -65,24 +65,25 @@ func Load() *API {
 }
 
 // Method returns what is known about a method name, together with the receiver kinds
-// that answer it. A name several kinds share — `len`, `map` — is documented once per
-// kind, and the first non-empty entry is the one worth showing.
+// that answer it. A name several kinds share — `all`, `len`, `map` — is documented once
+// per kind, and the entry shown is the first non-empty one **in the sorted order of the
+// kinds**: `all` on an array and `all` on a dict have different signatures, and which of
+// the two a hover shows must not depend on Go's map iteration order.
 func (a *API) Method(name string) (Entry, []string) {
-	var (
-		best  Entry
-		kinds []string
-	)
+	kinds := make([]string, 0, len(a.Methods))
 	for kind, table := range a.Methods {
-		e, ok := table[name]
-		if !ok {
-			continue
-		}
-		kinds = append(kinds, kind)
-		if best.Empty() {
-			best = e
+		if _, ok := table[name]; ok {
+			kinds = append(kinds, kind)
 		}
 	}
 	sort.Strings(kinds)
+	var best Entry
+	for _, kind := range kinds {
+		if e := a.Methods[kind][name]; !e.Empty() {
+			best = e
+			break
+		}
+	}
 	return best, kinds
 }
 

@@ -15,6 +15,7 @@ package lsp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -31,11 +32,24 @@ type request struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// A JSON-RPC response carries exactly one of `result` and `error`, and a success with
+// nothing to say still carries `result: null` — which is why these are two types rather
+// than one with two omitempty fields. `shutdown` is the reply that shape is about: its
+// result is null, and a client entitled to reject a response with neither member would
+// be right to reject it.
 type response struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Result  any             `json:"result,omitempty"`
-	Error   *responseError  `json:"error,omitempty"`
+	ID      json.RawMessage `json:"id"`
+	Result  any             `json:"result"`
+}
+
+// A response always carries an id, and a parse error — the one answer with no request to
+// attach to — carries `null`, which is what a nil RawMessage marshals to. Neither member
+// is omitted, because "absent" and "null" are different words in this protocol.
+type errorResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Error   responseError   `json:"error"`
 }
 
 type responseError struct {
@@ -103,10 +117,18 @@ func (c *conn) read() (*request, error) {
 	}
 	var req request
 	if err := json.Unmarshal(buf, &req); err != nil {
-		return nil, err
+		// The frame was read whole, so the stream is still aligned and the next message
+		// is readable: this is one bad payload, not a broken transport. Saying so lets
+		// the caller answer with a parse error and keep the editor's server alive, which
+		// a `return nil, err` would not — a server that exits on one malformed message
+		// takes the diagnostics down with it until the editor is restarted.
+		return nil, fmt.Errorf("%w: %v", errBadPayload, err)
 	}
 	return &req, nil
 }
+
+// errBadPayload is a frame whose bytes arrived intact and whose JSON did not.
+var errBadPayload = errors.New("malformed JSON-RPC payload")
 
 func (c *conn) write(msg any) error {
 	b, err := json.Marshal(msg)
@@ -127,7 +149,7 @@ func (c *conn) reply(id json.RawMessage, result any) error {
 }
 
 func (c *conn) replyError(id json.RawMessage, code int, msg string) error {
-	return c.write(response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: code, Message: msg}})
+	return c.write(errorResponse{JSONRPC: "2.0", ID: id, Error: responseError{Code: code, Message: msg}})
 }
 
 func (c *conn) notify(method string, params any) error {

@@ -422,10 +422,14 @@ function runFile() {
 function runTests() {
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   const target = folder ? folder.uri.fsPath : '.';
-  const t = mzsTerminal();
-  const flags = capabilityFlags().join(' ');
-  t.show(true);
-  t.sendText(`${binary()} test${flags ? ' ' + flags : ''} ${quote(target)}`);
+  // `mzs test` reads the files on disk, so an unsaved edit would be tested as it was the
+  // last time it was written. `runFile` saves for the same reason.
+  vscode.workspace.saveAll(false).then(() => {
+    const t = mzsTerminal();
+    const flags = capabilityFlags().join(' ');
+    t.show(true);
+    t.sendText(`${binary()} test${flags ? ' ' + flags : ''} ${quote(target)}`);
+  });
 }
 
 function evalSelection() {
@@ -566,12 +570,14 @@ function startServer(context, collection, onFail) {
   });
 
   client.start();
-  client.request('initialize', {
+  // Everything the editor does before the handshake answers is queued by the client, so
+  // the documents already open are sent once, here, and the listeners below cannot race
+  // them.
+  client.initialize({
     processId: process.pid,
     rootUri: null,
     capabilities: {},
   }).then(() => {
-    client.notify('initialized', {});
     vscode.workspace.textDocuments.forEach(doc => openOnServer(client, doc));
   }).catch(err => onFail(err.message));
 

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
 )
 
 // document is one open file: its text, and the line index every position question is
@@ -61,19 +60,6 @@ func (d *document) lspPosition(line, col int) position {
 		return position{Line: i, Character: 0}
 	}
 	return position{Line: i, Character: utf16Len(runePrefix(d.lines[i], col-1))}
-}
-
-// runeOffset converts a protocol position into a rune offset into the whole document,
-// which is what the token stream is indexed by.
-func (d *document) runeOffset(p position) int {
-	off := 0
-	for i := 0; i < p.Line && i < len(d.lines); i++ {
-		off += utf8.RuneCountInString(d.lines[i]) + 1 // the line break counts as one rune
-	}
-	if p.Line < len(d.lines) {
-		off += utf8.RuneCountInString(utf16Prefix(d.lines[p.Line], p.Character))
-	}
-	return off
 }
 
 // lineText returns the zero-based line, or "" past the end.

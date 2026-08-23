@@ -38,3 +38,44 @@ func TestLoadHasTheStandardLibrary(t *testing.T) {
 		t.Errorf("IsModule disagrees with the table")
 	}
 }
+
+// A name several kinds answer to is documented once per kind, and the entry a hover shows
+// must be the same one every run: `all` is `[{ (x) -> … }] -> bool` on an array and
+// `{ (k, v) -> … } -> bool` on a dict, and Go's map iteration order is not a tie-breaker
+// anyone can read.
+func TestMethodIsDeterministic(t *testing.T) {
+	a := Load()
+	shared := 0
+	for _, name := range a.MethodNames() {
+		first, kinds := a.Method(name)
+		if len(kinds) < 2 {
+			continue
+		}
+		shared++
+		for i := 0; i < 100; i++ {
+			got, gotKinds := a.Method(name)
+			if got != first {
+				t.Fatalf("%s: two calls disagree:\n%+v\n%+v", name, first, got)
+			}
+			if len(gotKinds) != len(kinds) {
+				t.Fatalf("%s: the receiver list changed between calls", name)
+			}
+		}
+	}
+	if shared == 0 {
+		t.Fatal("no method is answered by two kinds; this test proves nothing")
+	}
+}
+
+// The entry shown is the first non-empty one in the sorted order of the kinds, which is
+// what makes it predictable rather than merely stable.
+func TestMethodPrefersTheFirstKindAlphabetically(t *testing.T) {
+	a := Load()
+	e, kinds := a.Method("all")
+	if len(kinds) < 2 || kinds[0] != "array" {
+		t.Fatalf("all is answered by %v; this test assumed array came first", kinds)
+	}
+	if want := a.Methods["array"]["all"]; e != want {
+		t.Errorf("all = %+v, want the array row %+v", e, want)
+	}
+}

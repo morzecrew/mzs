@@ -263,6 +263,55 @@ func TestDefinitionFindsTheDeclaration(t *testing.T) {
 	}
 }
 
+// What a function body binds is a local of that body (§8.2). A walk of the tree would
+// report it as something the file declares, which is how a loop variable ends up in the
+// outline and in top-level completion.
+func TestOnlyTheTopLevelDeclares(t *testing.T) {
+	src := "fn helper(x) {\n    inner = x + 1\n    inner\n}\ntop = 1\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, src),
+		msg("textDocument/documentSymbol", 2, map[string]any{"textDocument": map[string]any{"uri": uri}}),
+		at("textDocument/completion", uri, 3, 4, 3),
+		msg("exit", nil, nil),
+	)
+	var syms []documentSymbol
+	into(t, s.reply(2)["result"], &syms)
+	var names []string
+	for _, sym := range syms {
+		names = append(names, sym.Name)
+	}
+	if strings.Join(names, ",") != "helper,top" {
+		t.Errorf("symbols = %v, want helper,top: a body's locals are not the file's", names)
+	}
+	var items []completionItem
+	into(t, s.reply(3)["result"], &items)
+	if hasLabel(items, "inner") {
+		t.Errorf("a function-local binding is offered at the top level")
+	}
+}
+
+// `export` wraps the declaration it exports (§12.8), so the outline has to look through
+// it or a module's whole surface goes missing from its own file.
+func TestExportedDeclarationsAreDeclarations(t *testing.T) {
+	src := "export fn total(xs) { xs.sum }\nexport rate = 0.2\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, src),
+		msg("textDocument/documentSymbol", 2, map[string]any{"textDocument": map[string]any{"uri": uri}}),
+		msg("exit", nil, nil),
+	)
+	var syms []documentSymbol
+	into(t, s.reply(2)["result"], &syms)
+	var names []string
+	for _, sym := range syms {
+		names = append(names, sym.Name)
+	}
+	if strings.Join(names, ",") != "total,rate" {
+		t.Errorf("symbols = %v, want total,rate", names)
+	}
+}
+
 func TestDefinitionOpensAnIncludedFile(t *testing.T) {
 	dir := t.TempDir()
 	lib := filepath.Join(dir, "lib.mzs")
@@ -274,13 +323,16 @@ func TestDefinitionOpensAnIncludedFile(t *testing.T) {
 	s := run(t,
 		msg("initialize", 1, map[string]any{}),
 		open(mainURI, "include lib from \"./lib.mzs\"\ny = lib\n"),
-		at("textDocument/definition", mainURI, 2, 0, 9),
+		at("textDocument/definition", mainURI, 2, 0, 9), // on the include itself
+		at("textDocument/definition", mainURI, 3, 1, 5), // on a reference to it
 		msg("exit", nil, nil),
 	)
-	var loc location
-	into(t, s.reply(2)["result"], &loc)
-	if loc.URI != pathToURI(lib) {
-		t.Errorf("definition uri = %q, want %q", loc.URI, pathToURI(lib))
+	for _, id := range []int{2, 3} {
+		var loc location
+		into(t, s.reply(float64(id))["result"], &loc)
+		if loc.URI != pathToURI(lib) {
+			t.Errorf("definition %d uri = %q, want %q", id, loc.URI, pathToURI(lib))
+		}
 	}
 }
 
@@ -387,6 +439,65 @@ func TestSymbolsAreTheOutline(t *testing.T) {
 	}
 }
 
+// What a jump selects is the name, not the body: `fn` is where the declaration starts and
+// is not what anybody was looking for.
+func TestDefinitionSelectsTheName(t *testing.T) {
+	src := "fn greet(name) {\n    \"hi ${name}\"\n}\nx = greet(\"ann\")\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, src),
+		at("textDocument/definition", uri, 2, 3, 6),
+		msg("textDocument/documentSymbol", 3, map[string]any{"textDocument": map[string]any{"uri": uri}}),
+		msg("exit", nil, nil),
+	)
+	var loc location
+	into(t, s.reply(2)["result"], &loc)
+	want := rng{Start: position{Line: 0, Character: 3}, End: position{Line: 0, Character: 8}}
+	if loc.Range != want {
+		t.Errorf("definition range = %+v, want %+v (the name, not the body)", loc.Range, want)
+	}
+	var syms []documentSymbol
+	into(t, s.reply(3)["result"], &syms)
+	if len(syms) == 0 || syms[0].SelectionRange != want {
+		t.Errorf("outline selection = %+v, want %+v", syms, want)
+	}
+}
+
+// One malformed message is one bad message, not a dead server: the frame was read whole,
+// so the stream is still aligned and the next request must still be answered.
+func TestAMalformedPayloadDoesNotEndTheServer(t *testing.T) {
+	var in bytes.Buffer
+	writeFrame := func(body string) {
+		fmt.Fprintf(&in, "Content-Length: %d\r\n\r\n%s", len(body), body)
+	}
+	writeFrame(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	writeFrame(`{"jsonrpc":"2.0",,,`) // whole frame, broken JSON
+	writeFrame(`{"jsonrpc":"2.0","id":2,"method":"shutdown"}`)
+	writeFrame(`{"jsonrpc":"2.0","method":"exit"}`)
+
+	var out bytes.Buffer
+	if err := Serve(&in, &out, "test"); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	s := &session{t: t, out: frames(t, out.Bytes())}
+	// The parse error is answered with a null id, and the request after it still works.
+	var sawParseError bool
+	for _, m := range s.out {
+		if raw, ok := m["error"]; ok && string(m["id"]) == "null" {
+			sawParseError = true
+			if !bytes.Contains(raw, []byte("-32700")) {
+				t.Errorf("error code = %s, want -32700", raw)
+			}
+		}
+	}
+	if !sawParseError {
+		t.Errorf("no parse error with a null id in %d frames", len(s.out))
+	}
+	if _, ok := s.reply(2)["result"]; !ok {
+		t.Errorf("the request after the bad frame was not answered")
+	}
+}
+
 func TestDidChangeRepublishes(t *testing.T) {
 	s := run(t,
 		msg("initialize", 1, map[string]any{}),
@@ -433,6 +544,33 @@ func TestDidCloseClearsTheDiagnostics(t *testing.T) {
 	}
 }
 
+// A JSON-RPC response carries exactly one of `result` and `error`, and a success with
+// nothing to say still carries `result: null`. `shutdown` is that reply.
+func TestAResponseCarriesExactlyOneOfResultAndError(t *testing.T) {
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		msg("shutdown", 2, nil),
+		msg("exit", nil, nil),
+	)
+	reply := s.reply(2)
+	raw, ok := reply["result"]
+	if !ok || string(raw) != "null" {
+		t.Errorf("shutdown result = %s (present=%v), want null", raw, ok)
+	}
+	if _, bad := reply["error"]; bad {
+		t.Errorf("a success reply also carries an error: %v", reply)
+	}
+
+	s2 := run(t,
+		msg("initialize", 1, map[string]any{}),
+		msg("textDocument/nothing", 2, map[string]any{}),
+		msg("exit", nil, nil),
+	)
+	if _, has := s2.reply(2)["result"]; has {
+		t.Errorf("an error reply carries a result member: %v", s2.reply(2))
+	}
+}
+
 func TestUnknownRequestIsAnErrorAndUnknownNotificationIsNot(t *testing.T) {
 	s := run(t,
 		msg("initialize", 1, map[string]any{}),
@@ -463,6 +601,125 @@ func TestShutdownRefusesFurtherWork(t *testing.T) {
 	}
 	if _, ok := s.reply(3)["error"]; !ok {
 		t.Errorf("a request after shutdown was answered: %v", s.reply(3))
+	}
+}
+
+// The server compiles; it never runs a program. The filesystem it installs exists to make
+// `include io` compile (§12.8) and answers every call with a refusal, which is the promise
+// "an editor does not read your files on your behalf" stated where it can be checked.
+func TestTheServersFilesystemReadsNothing(t *testing.T) {
+	fs := checkFS{}
+	if _, err := fs.Open("x"); err == nil {
+		t.Error("Open succeeded")
+	}
+	if _, err := fs.Create("x"); err == nil {
+		t.Error("Create succeeded")
+	}
+	if _, err := fs.Append("x"); err == nil {
+		t.Error("Append succeeded")
+	}
+	if _, _, _, err := fs.Stat("x"); err == nil {
+		t.Error("Stat succeeded")
+	}
+	if _, err := fs.List("."); err == nil {
+		t.Error("List succeeded")
+	}
+}
+
+// A request whose params are not what the method takes is answered, not ignored: a client
+// waiting on an id it never gets back is a client that has stopped working.
+func TestBadParamsAreAnswered(t *testing.T) {
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		msg("textDocument/hover", 2, "not an object"),
+		msg("textDocument/didOpen", nil, "not an object either"),
+		msg("exit", nil, nil),
+	)
+	reply := s.reply(2)
+	if _, ok := reply["error"]; !ok {
+		t.Errorf("bad params were not answered with an error: %v", reply)
+	}
+	// The malformed *notification* is dropped in silence — there is no id to answer to —
+	// and the server is still alive to say so.
+	if len(s.out) != 2 {
+		t.Errorf("frames = %d, want 2", len(s.out))
+	}
+}
+
+// Recovery finds more than one error in a file (§17), and an editor shows all of them.
+func TestEveryCompileErrorBecomesADiagnostic(t *testing.T) {
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, "x = nope\ny = alsonope\nz = stillnope\n"),
+		msg("exit", nil, nil),
+	)
+	var p publishDiagnosticsParams
+	into(t, s.notice("textDocument/publishDiagnostics")["params"], &p)
+	if len(p.Diagnostics) != 3 {
+		t.Fatalf("diagnostics = %+v, want three", p.Diagnostics)
+	}
+	for i, want := range []string{"nope", "alsonope", "stillnope"} {
+		if !strings.Contains(p.Diagnostics[i].Message, want) {
+			t.Errorf("diagnostic %d = %q, want it to name %q", i, p.Diagnostics[i].Message, want)
+		}
+	}
+}
+
+// A warning is a warning, not an error: §11.5's regex note and the §17 shadowing warnings
+// have to reach the editor at their own severity or they read as breakage.
+func TestWarningsArriveAsWarnings(t *testing.T) {
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, "include json\ninclude json\nx = 1\n"),
+		msg("exit", nil, nil),
+	)
+	var p publishDiagnosticsParams
+	into(t, s.notice("textDocument/publishDiagnostics")["params"], &p)
+	if len(p.Diagnostics) == 0 {
+		t.Fatal("the second include of one module produced no diagnostic")
+	}
+	for _, d := range p.Diagnostics {
+		if d.Severity != severityWarning {
+			t.Errorf("severity = %d, want %d (a warning): %q", d.Severity, severityWarning, d.Message)
+		}
+	}
+}
+
+// Hover on nothing is nothing: a cursor in whitespace, on a number, past the end of a
+// line. Each of these is a null answer rather than a made-up one.
+func TestHoverOnNothing(t *testing.T) {
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, "x = 42\n"),
+		at("textDocument/hover", uri, 2, 0, 2),   // the '='
+		at("textDocument/hover", uri, 3, 0, 5),   // inside the number
+		at("textDocument/hover", uri, 4, 9, 0),   // past the end of the document
+		at("textDocument/hover", uri, 5, 0, 200), // past the end of the line
+		msg("exit", nil, nil),
+	)
+	for _, id := range []int{2, 3, 4, 5} {
+		if raw := s.reply(float64(id))["result"]; string(raw) != "null" {
+			t.Errorf("hover %d = %s, want null", id, raw)
+		}
+	}
+}
+
+// Every request against a document the server has never been told about answers emptily
+// rather than failing: a client may ask about a buffer it has just closed.
+func TestRequestsAboutAnUnknownDocument(t *testing.T) {
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		at("textDocument/hover", uri, 2, 0, 0),
+		at("textDocument/definition", uri, 3, 0, 0),
+		at("textDocument/completion", uri, 4, 0, 0),
+		msg("textDocument/documentSymbol", 5, map[string]any{"textDocument": map[string]any{"uri": uri}}),
+		msg("textDocument/formatting", 6, map[string]any{"textDocument": map[string]any{"uri": uri}}),
+		msg("exit", nil, nil),
+	)
+	for _, id := range []int{2, 3, 4, 5, 6} {
+		if _, bad := s.reply(float64(id))["error"]; bad {
+			t.Errorf("request %d failed instead of answering emptily", id)
+		}
 	}
 }
 

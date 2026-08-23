@@ -38,6 +38,16 @@ var errExit = errors.New("exit")
 func (s *server) loop() error {
 	for {
 		req, err := s.conn.read()
+		if errors.Is(err, errBadPayload) {
+			// One message did not parse. The frame was whole, so the stream is still
+			// aligned: answer the way JSON-RPC says to — a parse error with a null id —
+			// and go back for the next one. Exiting here would cost the editor every
+			// feature until it restarted the server, over one bad message.
+			if werr := s.conn.replyError(nil, codeParseError, "mzs lsp: "+err.Error()); werr != nil {
+				return werr
+			}
+			continue
+		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				// The client went away without saying goodbye, which is what happens

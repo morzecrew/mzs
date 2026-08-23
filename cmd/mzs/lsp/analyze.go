@@ -215,20 +215,27 @@ func isSpace(r rune) bool { return r == ' ' || r == '\t' }
 // What a file declares
 // ---------------------------------------------------------------------------
 
-// decl is one name a file binds: a function, a record, an include, or a variable the
-// program assigns at the top level.
+// decl is one name the file binds at its top level: a function, a record, an include, or
+// a variable an ordinary assignment creates.
 type decl struct {
-	name    string
-	detail  string
-	kind    int // a symbolKind
-	full    rng
-	name_   rng
-	modPath string // the path an `include … from` names, or ""
+	name      string
+	detail    string
+	kind      int // a symbolKind
+	full      rng
+	nameRange rng
+	modPath   string // the path an `include … from` names, or ""
 }
 
-// declarations reads what a document binds. It is the whole of go-to-definition and half
-// of completion, and it needs the file to parse: a tree is the only thing that knows a
-// `fn` inside a `match` arm from the word "fn" inside a string.
+// declarations reads what a document binds **in its own top-level scope**. It is the
+// whole of go-to-definition and half of completion, and it needs the file to parse: a
+// tree is the only thing that knows a `fn` inside a `match` arm from the word "fn"
+// inside a string.
+//
+// It reads the program's statement list rather than walking the tree, and that is the
+// point: `x` assigned inside a function body is a local of that body (§8.2), and a walk
+// would report it as something the file declares — offering it in completion at the top
+// level, listing it in the outline, and sending go-to-definition into a scope the cursor
+// is not in.
 func declarations(d *document) []decl {
 	// A file being typed does not parse, and parser.Parse answers nil for it. There is
 	// nothing to read off a tree that does not exist, and the diagnostics already say why.
@@ -245,60 +252,74 @@ func declarations(d *document) []decl {
 		seen[dc.name] = true
 		out = append(out, dc)
 	}
-	ast.Walk(prog, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.FnDecl:
-			if x.Name == "" {
-				return true
-			}
-			head := "fn"
-			if x.Async {
-				head = "async fn"
-			}
-			add(decl{
-				name:   x.Name,
-				detail: fmt.Sprintf("%s %s(%s)", head, x.Name, paramList(x.Params)),
-				kind:   symbolFunction,
-				full:   d.nodeRange(x),
-				name_:  d.nodeRange(x),
-			})
-		case *ast.RecordDecl:
-			add(decl{
-				name:   x.Name,
-				detail: fmt.Sprintf("record %s(%s)", x.Name, paramList(x.Fields)),
-				kind:   symbolStruct,
-				full:   d.nodeRange(x),
-				name_:  d.spanAt(x.NamePos.Line, x.NamePos.Col),
-			})
-		case *ast.IncludeDecl:
-			detail := "include " + x.Name
-			if x.HasPath {
-				detail += " from " + strconv.Quote(x.Path)
-			}
-			add(decl{
-				name:    x.Name,
-				detail:  detail,
-				kind:    symbolModule,
-				full:    d.nodeRange(x),
-				name_:   d.spanAt(x.NamePos.Line, x.NamePos.Col),
-				modPath: x.Path,
-			})
-		case *ast.AssignExpr:
-			id, ok := x.Target.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			add(decl{
-				name:   id.Name,
-				detail: id.Name,
-				kind:   symbolVariable,
-				full:   d.nodeRange(id),
-				name_:  d.nodeRange(id),
-			})
-		}
-		return true
-	})
+	for _, stmt := range prog.Stmts {
+		d.declare(stmt, add)
+	}
 	return out
+}
+
+// declare reads one top-level statement. `export` is unwrapped rather than skipped: what
+// it exports is declared here too, and the tree spells `export fn f(…)` as a declaration
+// inside the export (§12.8).
+func (d *document) declare(stmt ast.Stmt, add func(decl)) {
+	switch x := stmt.(type) {
+	case *ast.ExportDecl:
+		if x.Decl != nil {
+			d.declare(x.Decl, add)
+		}
+	case *ast.FnDecl:
+		if x.Name == "" {
+			return
+		}
+		head := "fn"
+		if x.Async {
+			head = "async fn"
+		}
+		add(decl{
+			name:      x.Name,
+			detail:    fmt.Sprintf("%s %s(%s)", head, x.Name, paramList(x.Params)),
+			kind:      symbolFunction,
+			full:      d.nodeRange(x),
+			nameRange: d.spanAt(x.NamePos.Line, x.NamePos.Col),
+		})
+	case *ast.RecordDecl:
+		add(decl{
+			name:      x.Name,
+			detail:    fmt.Sprintf("record %s(%s)", x.Name, paramList(x.Fields)),
+			kind:      symbolStruct,
+			full:      d.nodeRange(x),
+			nameRange: d.spanAt(x.NamePos.Line, x.NamePos.Col),
+		})
+	case *ast.IncludeDecl:
+		detail := "include " + x.Name
+		if x.HasPath {
+			detail += " from " + strconv.Quote(x.Path)
+		}
+		add(decl{
+			name:      x.Name,
+			detail:    detail,
+			kind:      symbolModule,
+			full:      d.nodeRange(x),
+			nameRange: d.spanAt(x.NamePos.Line, x.NamePos.Col),
+			modPath:   x.Path,
+		})
+	case *ast.ExprStmt:
+		assign, ok := x.X.(*ast.AssignExpr)
+		if !ok {
+			return
+		}
+		id, ok := assign.Target.(*ast.Ident)
+		if !ok {
+			return
+		}
+		add(decl{
+			name:      id.Name,
+			detail:    id.Name,
+			kind:      symbolVariable,
+			full:      d.nodeRange(id),
+			nameRange: d.nodeRange(id),
+		})
+	}
 }
 
 func (d *document) nodeRange(n ast.Node) rng {
@@ -493,19 +514,21 @@ func filterByPrefix(items []completionItem, prefix string) []completionItem {
 // Go to definition and the outline
 // ---------------------------------------------------------------------------
 
-// definitionFor finds where a name was bound. An `include … from "path"` jumps to the
-// file, which is the one answer that leaves the document.
+// definitionFor finds where a name was bound. A name an `include … from "path"` brought
+// in resolves to that file from every reference to it, which is the one answer that
+// leaves the document — the include statement itself is one line from the top and is not
+// where anybody was trying to get to.
 func definitionFor(d *document, w word) (location, bool) {
 	for _, dc := range declarations(d) {
 		if dc.name != w.name {
 			continue
 		}
-		if dc.modPath != "" && dc.name_ == w.span {
+		if dc.modPath != "" {
 			if uri, ok := includeURI(d, dc.modPath); ok {
 				return location{URI: uri, Range: rng{}}, true
 			}
 		}
-		return location{URI: d.uri, Range: dc.name_}, true
+		return location{URI: d.uri, Range: dc.nameRange}, true
 	}
 	return location{}, false
 }
@@ -535,7 +558,7 @@ func symbolsOf(d *document) []documentSymbol {
 			Detail:         dc.detail,
 			Kind:           dc.kind,
 			Range:          dc.full,
-			SelectionRange: dc.name_,
+			SelectionRange: dc.nameRange,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {

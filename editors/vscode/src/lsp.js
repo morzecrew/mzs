@@ -27,6 +27,11 @@ class Client {
     this.nextId = 1;
     this.pending = new Map();
     this.stopped = false;
+    // Nothing but `initialize` may be written before the server has answered it, so
+    // everything else queues here until it has. Without the gate a `didOpen` fired by the
+    // editor during activation races the handshake.
+    this.initialized = false;
+    this.queue = [];
   }
 
   start() {
@@ -53,18 +58,53 @@ class Client {
 
   stop() {
     if (this.stopped || !this.proc) return;
-    this.stopped = true;
     try {
-      this.notify('exit');
+      // `exit` first: `send` refuses to write once `stopped` is set, so setting the flag
+      // before the notification would drop the very message this method is here to send.
+      this.write({ jsonrpc: '2.0', method: 'exit' });
       this.proc.stdin.end();
     } catch (_) {
       // The process is already gone, which is the state we were asking for.
     }
+    this.stopped = true;
+    this.queue = [];
     this.proc.kill();
+  }
+
+  /**
+   * initialize performs the handshake and releases everything queued behind it. Every
+   * other request and notification waits for the server's answer, which is what the
+   * protocol asks of a client.
+   */
+  initialize(params) {
+    const id = this.nextId++;
+    const answer = new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.write({ jsonrpc: '2.0', id, method: 'initialize', params });
+    });
+    return answer.then(result => {
+      this.write({ jsonrpc: '2.0', method: 'initialized', params: {} });
+      this.initialized = true;
+      const queued = this.queue;
+      this.queue = [];
+      for (const message of queued) this.write(message);
+      return result;
+    });
   }
 
   send(message) {
     if (this.stopped || !this.proc) return;
+    if (!this.initialized) {
+      this.queue.push(message);
+      return;
+    }
+    this.write(message);
+  }
+
+  // write puts a message on the wire with no regard for the handshake. Only initialize,
+  // the queue it releases, and `exit` use it directly.
+  write(message) {
+    if (!this.proc) return;
     const body = Buffer.from(JSON.stringify(message), 'utf8');
     this.proc.stdin.write(`Content-Length: ${body.length}${HEADER_END}`);
     this.proc.stdin.write(body);
