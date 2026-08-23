@@ -128,11 +128,23 @@ func (p *printer) export(x *ast.ExportDecl, ind int) {
 }
 
 func (p *printer) fnDecl(x *ast.FnDecl, ind int) {
-	if x.Async {
-		p.w("async ")
-	}
-	p.w("fn " + x.Name + "(" + p.params(x.Params) + ") ")
+	p.w(fnHead(x, p.params(x.Params)))
 	p.writeBlock(x.Body, ind)
+}
+
+// fnHead is `fn name(params) ` — and `fn(params) ` for the anonymous form, where a space
+// in front of the parenthesis would read as a name that is not there. The arrow spelling
+// of §4.1 arrives here too: the parser makes `(a) -> { … }` the same node, so it is
+// written back as the `fn` it became.
+func fnHead(x *ast.FnDecl, params string) string {
+	head := "fn"
+	if x.Async {
+		head = "async fn"
+	}
+	if x.Name != "" {
+		head += " " + x.Name
+	}
+	return head + "(" + params + ") "
 }
 
 // params renders a parameter list. A default is an expression and is written flat: a

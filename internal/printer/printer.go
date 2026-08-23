@@ -33,6 +33,7 @@ import (
 	"mzs/internal/ast"
 	"mzs/internal/lexer"
 	"mzs/internal/parser"
+	"mzs/internal/token"
 )
 
 // bom is the byte-order mark the lexer drops before it counts an offset, dropped here
@@ -225,10 +226,19 @@ func (p *printer) leading(off, ind int) {
 	for p.ci < len(p.cmts) && p.cmts[p.ci].Pos.Offset < off {
 		c := p.cmts[p.ci]
 		p.ci++
+		// A comment standing further up the file than the line just written is one the
+		// layout moved — out of a condition, out from between an operator and its
+		// operand. Its distance from what follows it is a fact about the source it no
+		// longer has, so the blank line that distance would buy is not written either.
+		moved := c.Pos.Line < p.last
 		p.blank(c.Pos.Line)
 		p.tab(ind)
 		p.w(strings.TrimRight(c.Text, " \t"))
 		p.nl()
+		if moved {
+			p.last = 0
+			continue
+		}
 		p.last = c.End.Line
 	}
 }
@@ -248,16 +258,72 @@ func (p *printer) trailing(line int) {
 	p.last = c.End.Line
 }
 
-// skip drops the comments inside a span the printer has just copied verbatim: the text
-// is already there, and writing it twice is the other way to get this wrong.
-func (p *printer) skip(off int) {
-	for p.ci < len(p.cmts) && p.cmts[p.ci].Pos.Offset < off {
+// skip drops the comments inside [from, to) — a span the printer has just written out
+// whole, where the text is already there and writing it twice is the other way to get
+// this wrong.
+//
+// It stops at a comment standing *before* from rather than dropping it. Such a comment
+// has not been written by anybody yet — it sits in a gap the layout has no slot for, an
+// operator and its operand for one — and the cursor staying on it is what sends it to
+// leading() or leftovers() instead of into the void.
+func (p *printer) skip(from, to int) {
+	for p.ci < len(p.cmts) {
+		off := p.cmts[p.ci].Pos.Offset
+		if off < from || off >= to {
+			return
+		}
 		p.ci++
 	}
 }
 
-// hasComment reports whether a comment stands inside [from, to). A node that holds one
-// cannot be written on a single line: the line would end at the `#`.
+// hasParens reports whether pos really points at a `(`. A call written without them —
+// `f { … }`, the trailing closure of §4.2 — carries no position there, and reading rune
+// zero of the file instead would make the answer depend on what the file starts with.
+func (p *printer) hasParens(pos token.Pos) bool {
+	return pos.IsValid() && p.at(pos.Offset) == '('
+}
+
+// brackets returns the span between a node's own brackets — the region whose broken form
+// has a slot for every comment in it — and whether the node has any.
+func (p *printer) brackets(e ast.Expr) (from, to int, ok bool) {
+	switch x := e.(type) {
+	case *ast.ArrayLit:
+		return x.Lbrack.Offset, x.Rbrack.Offset, true
+	case *ast.DictLit:
+		return x.Lbrack.Offset, x.Rbrack.Offset, true
+	case *ast.GroupExpr:
+		return x.Lparen.Offset, x.Rparen.Offset, true
+	case *ast.CallExpr:
+		if !p.hasParens(x.Lparen) {
+			return 0, 0, false
+		}
+		return x.Lparen.Offset, x.Stop.Offset, true
+	case *ast.MethodCall:
+		lp := p.parenAfter(x.NamePos.Offset + utf8.RuneCountInString(x.Name))
+		if lp < 0 {
+			return 0, 0, false
+		}
+		return lp, x.Stop.Offset, true
+	}
+	return 0, 0, false
+}
+
+// parenAfter is the offset of the `(` that follows off across blanks, or -1 when the next
+// thing is something else — a method written without parentheses (§4.2).
+func (p *printer) parenAfter(off int) int {
+	for i := off; i < len(p.rs); i++ {
+		switch p.rs[i] {
+		case ' ', '\t':
+		case '(':
+			return i
+		default:
+			return -1
+		}
+	}
+	return -1
+}
+
+// hasComment reports whether a comment stands inside [from, to).
 func (p *printer) hasComment(from, to int) bool {
 	for i := p.ci; i < len(p.cmts); i++ {
 		off := p.cmts[i].Pos.Offset
@@ -336,7 +402,7 @@ func (p *printer) verbatim(from, to, ind int) {
 		p.nl()
 		p.w(shiftLine(ln, shift))
 	}
-	p.skip(to)
+	p.skip(from, to)
 }
 
 // lineStart is the offset of the first rune of the line off stands on.
@@ -349,12 +415,13 @@ func (p *printer) lineStart(off int) int {
 	return 0
 }
 
-// runeIndent counts the leading blanks of s, which is the column its first non-blank
-// rune stands in.
+// runeIndent counts the leading blanks of s, which is the column its first non-blank rune
+// stands in. U+00A0 is one of them for the reason §3.2 has: messengers send it instead of
+// a space, and a line indented with one is indented.
 func runeIndent(s string) int {
 	n := 0
 	for _, r := range s {
-		if r != ' ' && r != '\t' && r != ' ' {
+		if r != ' ' && r != '\t' && r != '\u00a0' {
 			break
 		}
 		n++
@@ -362,15 +429,31 @@ func runeIndent(s string) int {
 	return n
 }
 
-// canDedent reports whether every non-blank line has n blanks to give up. A heredoc that
-// moves left past its own margin would lose text, so when one line cannot afford the
-// shift, none of them makes it.
+// blankIndent counts what `<<~` actually sheds: spaces and tabs, and nothing else. It is
+// deliberately *not* runeIndent — a U+00A0 at the start of a body line is text the heredoc
+// keeps (the lexer's heredocIndent counts the same two runes), so a shift that treated one
+// as indentation would delete a character from the string the program builds.
+func blankIndent(s string) int {
+	n := 0
+	for _, r := range s {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// canDedent reports whether every non-blank line has n shed-able blanks to give up. Moving
+// a body left past its own margin would take text with it — the terminator's own line
+// included, which is why that line is not exempt — so when one line cannot afford the
+// shift, none of them makes it and the block stays where it was written.
 func canDedent(lines []string, n int) bool {
 	for _, ln := range lines {
 		if strings.TrimSpace(ln) == "" {
 			continue
 		}
-		if runeIndent(ln) < n {
+		if blankIndent(ln) < n {
 			return false
 		}
 	}
@@ -388,7 +471,9 @@ func shiftLine(ln string, shift int) string {
 	case shift > 0:
 		return strings.Repeat(" ", shift) + strings.TrimRight(ln, " \t\r")
 	case shift < 0:
-		return strings.TrimRight(ln[-shift:], " \t\r")
+		// Runes, not bytes: runeIndent counted runes, and a U+00A0 in the indentation is
+		// two bytes wide. Slicing by the count would cut inside a character.
+		return strings.TrimRight(string([]rune(ln)[-shift:]), " \t\r")
 	}
 	return strings.TrimRight(ln, " \t\r")
 }

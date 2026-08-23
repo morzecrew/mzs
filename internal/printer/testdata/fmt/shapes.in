@@ -1,0 +1,54 @@
+# Shapes that appear once each: the formatter has to know them all, and a golden file is
+# where "it still knows them" is asserted.
+
+a, b = [1, 2]
+[x, [y, z]] = pairs
+a, b := xs
+
+r1 = 1..10
+r2 = xs[1, 2]
+safe = maybe?.name
+q = obj?.field?.other
+
+fn defaults(a, b = 1 + 1, *rest) { [a, b, rest] }
+g = fn(a) { a }
+h = (a, b) -> { a + b }
+cl = { (x, y = 2) -> x * y }
+
+each = xs.each { break }
+n = xs.map { next it }
+fn early(x) { return x }
+fn nothing() { return }
+
+grouped = (1; 2; 3)
+one = (1 + 2)
+
+t1 = try f() else 0
+t2 = try f() else (e) -> e["kind"]
+t3 = try { f() } ensure { g() }
+
+m = match v {
+  1, 2 -> "few"
+  in [3], in [4] -> "some"
+  if v > 10, if v < -10 -> "far"
+  /re/i -> "matched"
+  [head, tail] -> head
+  else -> { x = 1; x }
+}
+
+d = {}
+e = []
+neg = -x
+notx = !x
+pos = +1
+
+w = while cond { step() }
+loops = for k, v in d { println(k) }
+
+record Point(x, y = 0)
+export record Labelled(name)
+
+async fn later(n) { n }
+awaited = later(1).await
+
+nested = if a { 1 } else if b { 2 } else { 3 }

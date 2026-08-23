@@ -17,8 +17,16 @@ func (p *printer) flat(e ast.Expr) (string, bool) {
 	if e == nil {
 		return "", true
 	}
-	from, to := e.Pos().Offset, e.End().Offset
-	if p.hasComment(from, to) || p.hasHeredoc(from, to) {
+	if p.hasHeredoc(e.Pos().Offset, e.End().Offset) {
+		// A heredoc's body is on the lines below its tag and cannot follow it onto one.
+		return "", false
+	}
+	if from, to, ok := p.brackets(e); ok && p.hasComment(from, to) {
+		// A comment inside a bracket keeps its place, because the broken form of a
+		// bracket has a line for every element and one more before the closing bracket:
+		// there is somewhere to put it. Everywhere else a comment does not decide the
+		// layout — it is written out where the layout allows and the line is measured
+		// without it, which is what makes one pass enough (`fmt(fmt(x)) == fmt(x)`).
 		return "", false
 	}
 	if braced(e) && e.Pos().Line != e.End().Line {
@@ -123,7 +131,7 @@ func (p *printer) flatNode(e ast.Expr) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		return p.flatCall(fn, x.Args, x.Named, p.at(x.Lparen.Offset) == '(')
+		return p.flatCall(fn, x.Args, x.Named, p.hasParens(x.Lparen))
 	case *ast.MethodCall:
 		recv, ok := p.flat(x.Recv)
 		if !ok {
@@ -145,11 +153,7 @@ func (p *printer) flatNode(e ast.Expr) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		head := "fn " + x.Name + "(" + p.params(x.Params) + ") "
-		if x.Async {
-			head = "async " + head
-		}
-		return head + body, true
+		return fnHead(x, p.params(x.Params)) + body, true
 	case *ast.IfExpr:
 		return p.flatIf(x)
 	case *ast.WhileExpr:

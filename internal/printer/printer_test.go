@@ -230,6 +230,112 @@ func TestFormatNormalisesLineEndings(t *testing.T) {
 	}
 }
 
+// U+00A0 is whitespace in code (§3.2) and *text* inside a heredoc body: `<<~` sheds
+// spaces and tabs and nothing else. A body indented with it therefore cannot be moved
+// left — the characters are the string — and the formatter leaves it exactly where it
+// was rather than deleting a character from the program's data.
+func TestHeredocDoesNotShedANonBreakingSpace(t *testing.T) {
+	const nbsp = "\u00a0"
+	body := strings.Repeat(nbsp, 12) + "line one"
+	src := "if x {\n" +
+		strings.Repeat(nbsp, 8) + "s = <<~T\n" +
+		body + "\n" +
+		strings.Repeat(nbsp, 8) + "T\n" +
+		"}\n"
+	got, err := Format("t.mzs", src)
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
+	if !strings.Contains(got, body+"\n") {
+		t.Errorf("the body line changed:\n%q", got)
+	}
+	twice, err := Format("t.mzs", got)
+	if err != nil || twice != got {
+		t.Errorf("not idempotent: err=%v\n%q\n%q", err, got, twice)
+	}
+}
+
+// A heredoc that can afford the move is moved: the body's lines and its terminator shift
+// with the code around them, and `<<~` sheds the same amount either way.
+func TestHeredocMovesWithItsCode(t *testing.T) {
+	src := "if x {\n" +
+		"      s = <<~T\n" +
+		"        line one\n" +
+		"      T\n" +
+		"}\n"
+	want := "if x {\n" +
+		"    s = <<~T\n" +
+		"      line one\n" +
+		"    T\n" +
+		"}\n"
+	got, err := Format("t.mzs", src)
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
+	if got != want {
+		t.Errorf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A comment inside a bracket keeps its place: the broken form has a line for every element
+// and one more before the closing bracket. A comment anywhere else — between an operator
+// and its operand, say — does not decide the layout; it is written out wherever the layout
+// allows and is never lost, which is the whole of the promise.
+func TestACommentWithNoSlotIsKept(t *testing.T) {
+	for _, src := range []string{
+		"while a && # why\n    b {\n    step()\n}\n",
+		"x = f(\n    a, # first\n    b,\n)\n",
+		"if a || # why\n    b {\n    step()\n}\n",
+		"xs = [\n    1,\n    2,\n    # a last word\n]\n",
+		"d = {\n    # about a\n    a: 1,\n}\n",
+	} {
+		got, err := Format("t.mzs", src)
+		if err != nil {
+			t.Fatalf("Format(%q): %v", src, err)
+		}
+		if strings.Count(got, "#") != strings.Count(src, "#") {
+			t.Errorf("a comment was dropped from %q:\n%s", src, got)
+		}
+		twice, err := Format("t.mzs", got)
+		if err != nil || twice != got {
+			t.Errorf("not idempotent: err=%v\n%q\n%q", err, got, twice)
+		}
+	}
+}
+
+// A comment on a heredoc's own line travels with the statement and is written once.
+func TestACommentBesideAHeredocIsKeptOnce(t *testing.T) {
+	src := "s = <<~T # the tag's own line\n  body\nT\n"
+	got, err := Format("t.mzs", src)
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
+	if n := strings.Count(got, "# the tag's own line"); n != 1 {
+		t.Errorf("the comment appears %d times:\n%s", n, got)
+	}
+}
+
+// A condition too long for one line breaks after its operator, which §3.10 lets a line end
+// on. `while` and `if` take the same path and both are worth pinning.
+func TestALongConditionBreaks(t *testing.T) {
+	long := strings.Repeat("a", 50)
+	for _, kw := range []string{"if", "while"} {
+		src := kw + " " + long + " && " + long + " {\n    step()\n}\n"
+		got, err := Format("t.mzs", src)
+		if err != nil {
+			t.Fatalf("Format: %v", err)
+		}
+		if !strings.Contains(got, "&&\n") {
+			t.Errorf("%s: the condition did not break after its operator:\n%s", kw, got)
+		}
+		for _, line := range strings.Split(got, "\n") {
+			if len([]rune(line)) > Width {
+				t.Errorf("%s: a line is %d columns wide:\n%s", kw, len([]rune(line)), got)
+			}
+		}
+	}
+}
+
 func TestFormatRefusesWhatDoesNotParse(t *testing.T) {
 	for _, src := range []string{"x = (1 +", "fn f( {", "x = 'unterminated"} {
 		if _, err := Format("t.mzs", src); err == nil {

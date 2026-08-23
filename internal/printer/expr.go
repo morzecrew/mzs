@@ -15,8 +15,12 @@ func (p *printer) writeExpr(e ast.Expr, ind int) {
 		return
 	}
 	if s, ok := p.flat(e); ok && p.col+utf8.RuneCountInString(s) <= Width {
+		// Nothing is skipped here: a flat form is built out of the node's parts, so a
+		// comment that stood inside the node is not in the text, and it stays pending for
+		// leading() or leftovers() to write. (A comment cannot hide inside a literal's own
+		// text either: `#` inside a string is text, and inside an interpolation it would
+		// swallow the closing brace and fail to lex.)
 		p.w(s)
-		p.skip(e.End().Offset)
 		return
 	}
 	p.breakExpr(e, ind)
@@ -46,9 +50,9 @@ func (p *printer) breakExpr(e ast.Expr, ind int) {
 	case *ast.GroupExpr:
 		p.group(x, ind)
 	case *ast.ArrayLit:
-		p.list("[", "]", x.Lbrack.Line, exprItems(x.Elems), ind)
+		p.list("[", "]", x.Lbrack.Line, x.Rbrack.Offset, exprItems(x.Elems), ind)
 	case *ast.DictLit:
-		p.list("{", "}", x.Lbrack.Line, p.dictItems(x), ind)
+		p.list("{", "}", x.Lbrack.Line, x.Rbrack.Offset, p.dictItems(x), ind)
 	case *ast.MethodCall, *ast.CallExpr:
 		p.callish(e, ind)
 	case *ast.BinaryExpr:
@@ -89,7 +93,7 @@ func (p *printer) breakExpr(e ast.Expr, ind int) {
 		// honest answer; folding it would only move the problem into the middle of a
 		// word.
 		p.w(p.text(e))
-		p.skip(e.End().Offset)
+		p.skip(e.Pos().Offset, e.End().Offset)
 	}
 }
 
@@ -214,7 +218,8 @@ func (p *printer) arm(a ast.MatchArm, ind int) {
 // at when there was one.
 func (p *printer) armBody(b *ast.BlockStmt, ind int) {
 	if p.isBlock(b) {
-		p.writeBlock(b, ind)
+		// Through writeExpr, so a braced arm written on one line stays on it.
+		p.writeExpr(b, ind)
 		return
 	}
 	if len(b.Stmts) == 1 {
@@ -304,10 +309,10 @@ func (p *printer) callish(e ast.Expr, ind int) {
 	case *ast.MethodCall:
 		p.writeExpr(x.Recv, ind)
 		p.w(p.dot(x) + x.Name)
-		p.args(x.Args, x.Named, p.methodParens(x), x.NamePos.Line, ind)
+		p.args(x.Args, x.Named, p.methodParens(x), x.NamePos.Line, x.Stop.Offset, ind)
 	case *ast.CallExpr:
 		p.writeExpr(x.Fn, ind)
-		p.args(x.Args, x.Named, p.at(x.Lparen.Offset) == '(', x.Lparen.Line, ind)
+		p.args(x.Args, x.Named, p.hasParens(x.Lparen), x.Lparen.Line, x.Stop.Offset, ind)
 	}
 }
 
@@ -335,7 +340,7 @@ func (p *printer) closureTail(e ast.Expr, ind int) bool {
 			return false
 		}
 		cl, _ = p.trailingClosure(x.Args)
-		head, ok = p.flatCallHead(fn, x.Args, x.Named, p.at(x.Lparen.Offset) == '(')
+		head, ok = p.flatCallHead(fn, x.Args, x.Named, p.hasParens(x.Lparen))
 	default:
 		return false
 	}
@@ -377,7 +382,7 @@ func (p *printer) chain(base ast.Expr, links []*ast.MethodCall, ind int) {
 			p.tab(ind + 1)
 		}
 		p.w(p.dot(m) + m.Name)
-		p.args(m.Args, m.Named, p.methodParens(m), m.NamePos.Line, ind+1)
+		p.args(m.Args, m.Named, p.methodParens(m), m.NamePos.Line, m.Stop.Offset, ind+1)
 	}
 }
 
@@ -404,7 +409,7 @@ func (p *printer) methodParens(m *ast.MethodCall) bool {
 
 // args writes an argument list, breaking one argument to a line when the flat form does
 // not fit. A trailing closure is written after the parentheses, where it was written.
-func (p *printer) args(all []ast.Expr, named []ast.NamedArg, parens bool, line, ind int) {
+func (p *printer) args(all []ast.Expr, named []ast.NamedArg, parens bool, line, closeOff, ind int) {
 	closure, args := p.trailingClosure(all)
 	if parens || len(args) > 0 || len(named) > 0 {
 		items := callItems(args, named)
@@ -413,7 +418,7 @@ func (p *printer) args(all []ast.Expr, named []ast.NamedArg, parens bool, line, 
 		if s, ok := p.flatList("(", ")", items); ok && p.col+utf8.RuneCountInString(s) <= Width {
 			p.w(s)
 		} else if !p.hug(items, ind) {
-			p.list("(", ")", line, items, ind)
+			p.list("(", ")", line, closeOff, items, ind)
 		}
 	}
 	if closure != nil {
@@ -548,7 +553,7 @@ func isLiteralKey(e ast.Expr) bool {
 
 // list writes a bracketed list broken one item to a line, with the trailing comma the
 // grammar allows everywhere it allows a list (§3.12, §4.1).
-func (p *printer) list(open, close string, line int, items []item, ind int) {
+func (p *printer) list(open, close string, line, closeOff int, items []item, ind int) {
 	p.w(open)
 	if len(items) == 0 {
 		p.w(close)
@@ -561,7 +566,6 @@ func (p *printer) list(open, close string, line int, items []item, ind int) {
 		if s, ok := p.flat(items[0].value); ok {
 			if (ind+1)*Indent+utf8.RuneCountInString(items[0].prefix+s)+1 > Width {
 				p.w(items[0].prefix + s)
-				p.skip(items[0].value.End().Offset)
 				p.w(close)
 				return
 			}
@@ -580,10 +584,17 @@ func (p *printer) list(open, close string, line int, items []item, ind int) {
 		}
 		p.w(",")
 		if it.value != nil {
-			p.trailing(it.value.End().Line)
+			line := it.value.End().Line
+			p.trailing(line)
+			if p.last < line {
+				// So that a comment on the line below this element is next to it and not
+				// a blank line away from it.
+				p.last = line
+			}
 		}
 		p.nl()
 	}
+	p.leading(closeOff, ind+1)
 	p.tab(ind)
 	p.w(close)
 }
