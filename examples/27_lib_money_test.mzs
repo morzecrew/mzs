@@ -1,0 +1,76 @@
+# 27 (tests) — the money module of `27_lib_money.mzs`, checked by `mzs test`.
+#
+#   mzs test examples/
+#   mzs test examples/27_lib_money_test.mzs      # just this file
+#
+# A file named `*_test.mzs` is what `mzs test` looks for, and `include test` is what gives
+# a check a name. It is the same language and the same includes as everywhere else: the
+# module under test arrives through `include … from` exactly as it would in a program.
+#
+# Running this file directly works too — `mzs examples/27_lib_money_test.mzs` prints the
+# same report — because `test.case` is an ordinary function and the runner only adds the
+# summary and the exit status.
+
+include test
+include money from "./27_lib_money.mzs"
+
+# --- the conversions -------------------------------------------------------------
+
+test.case("units become cents and back") {
+  test.eq(money.from_units(15), 1500)
+  test.eq(money.to_units(1500), 15)
+}
+
+# `test.eq` says what it wanted and what it got, which is the whole reason it exists next
+# to `assert`: a failure here would read `expected 1500, got 150`, not `assertion failed`.
+test.case("a formatted amount carries its currency") {
+  test.eq(money.format(1500), "15.00 ₽")
+  test.eq(money.format(1234567), "12 345.67 ₽")
+  test.eq(money.format(5), "0.05 ₽")
+}
+
+# --- the VAT half ----------------------------------------------------------------
+
+test.case("VAT comes out of a gross amount") {
+  test.eq(money.vat(12000), 2000)
+  test.eq(money.with_vat(10000), 12000)
+}
+
+# A property rather than a table: whatever the price, adding VAT and then extracting it
+# gives the VAT back. One `assert` per row is what `assert` is still for.
+test.case("adding VAT and extracting it agree") {
+  for cents in [100, 999, 10000, 123456] {
+    assert(money.vat(money.with_vat(cents)) == money.with_vat(cents) - cents,
+      "VAT disagreed at ${cents}")
+  }
+}
+
+# --- splitting -------------------------------------------------------------------
+
+test.case("a split loses no cent") {
+  parts = money.split_evenly(10000, 3)
+  test.eq(parts.sum, 10000)
+  test.eq(parts, [3334, 3333, 3333])
+}
+
+test.case("a split into one is the whole amount") {
+  test.eq(money.split_evenly(777, 1), [777])
+}
+
+# --- discounts -------------------------------------------------------------------
+
+test.case("a discount rounds half up") {
+  test.eq(money.discount(10000, 10), 9000)
+  test.eq(money.discount(999, 33), 700)
+  test.eq(money.discount(10000, 0), 10000)
+}
+
+# What a module does not export is not part of its surface, and a test is the right place
+# to say so out loud: `rate` and `round_half_up` are implementation. A module's value is a
+# dict of its exports, so its keys are the surface.
+test.case("the private names stay private") {
+  assert(!money.keys.has("rate"), "rate leaked out of the module")
+  assert(!money.keys.has("round_half_up"), "round_half_up leaked out of the module")
+  test.eq(money.keys.filter { it.starts_with("split") }, ["split_evenly"])
+  test.eq(money.currency, "₽")
+}

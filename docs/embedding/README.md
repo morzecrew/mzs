@@ -34,10 +34,22 @@ res.Value    // mzs.Value — the value of the last expression
 res.Globals  // map[string]mzs.Value — final $vars, keys '$'-prefixed, incl. ones the script created
 res.Steps    // int64 — interpreter steps charged
 res.Elapsed  // time.Duration
+res.Tests    // []mzs.TestCase — one per `test.case`, in the order they ran; empty otherwise
 ```
 
 `res.Globals` is how a script hands values back: assigning `$total = …` in the script makes
 `res.Globals["$total"]` readable afterwards.
+
+`res.Tests` is the report of the [`test` module](../modules/test.md), which is what lets a
+host run its own scripts' tests the way `mzs test` runs them:
+
+```go
+for _, c := range res.Tests {
+	if !c.Passed() {
+		log.Printf("%s failed: %v (%s)", c.Name, c.Err, c.Elapsed)
+	}
+}
+```
 
 ## Eval and the program cache
 

@@ -113,3 +113,25 @@ jobs:
             /tmp/mzs --check --time "$f" || status=1
           done
           exit $status
+
+      # The tests written in mzs itself. `mzs test` is the runner and its exit status is
+      # the answer, so there is nothing to grep for here.
+      - name: mzs test examples
+        run: /tmp/mzs test --time examples/
+
+      # `mzs fmt` reformats its own output to itself, which is the property the formatter
+      # is built around, and it must hold over every program the repository ships. The
+      # command refuses rather than rewrites when it cannot promise that (SPEC §15.1), so
+      # a non-zero status here is the whole assertion.
+      - name: mzs fmt is idempotent over examples
+        run: |
+          status=0
+          for f in examples/*.mzs; do
+            /tmp/mzs fmt "$f" > /tmp/once.mzs || { status=1; continue; }
+            /tmp/mzs fmt /tmp/once.mzs > /tmp/twice.mzs || { status=1; continue; }
+            if ! cmp -s /tmp/once.mzs /tmp/twice.mzs; then
+              echo "mzs fmt is not idempotent on $f"
+              status=1
+            fi
+          done
+          exit $status

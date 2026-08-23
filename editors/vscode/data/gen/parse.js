@@ -152,7 +152,15 @@ for (const [mod, members] of Object.entries(reg.modules || {})) {
   }
 }
 
-fs.writeFileSync(require('path').join(__dirname, '..', 'api.json'), JSON.stringify(out, null, 1));
+// Two copies of one generated file: the extension reads its own out of the .vsix, and
+// `mzs lsp` compiles the other into the binary (internal/apidoc). A Go test compares
+// them, so writing only one of them here fails the build rather than drifting quietly.
+const text = JSON.stringify(out, null, 1);
+const join = require('path').join;
+for (const dest of [join(__dirname, '..', 'api.json'),
+                    join(__dirname, '..', '..', '..', '..', 'internal', 'apidoc', 'api.json')]) {
+  fs.writeFileSync(dest, text);
+}
 const total = Object.values(reg.methods).reduce((a,b)=>a+b.length,0) + reg.builtins.length +
   Object.values(reg.modules || {}).reduce((a,b)=>a+b.length,0);
 console.log(`documented ${withDoc}/${total} (${Math.round(withDoc/total*100)}%)`);

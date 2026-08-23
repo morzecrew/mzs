@@ -2432,6 +2432,7 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | see §12.15 | no host option |
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | see §12.16 | no host option |
 | `url` | `parse build encode decode query parse_query` | see §12.17 | no host option |
+| `test` | `case eq` | see §12.18 | no host option |
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
@@ -3000,6 +3001,52 @@ nested dict is a type error, because `a[b]=1` and `a.b=1` are two framework conv
 neither is the standard (D16).
 
 ---
+### 12.18 The `test` module
+
+`assert` has been in §12.1 from the beginning and was never a runner. A file of assertions
+stops at the first one that fails, says nothing about the ones after it, and has no name to
+put in a report — which is why the whole acceptance corpus of this language lives in Go
+(§16) and a script of your own had nothing to be tested with. `include test` is the missing
+half, and `mzs test` (§15) is the command that runs it.
+
+```
+include test
+
+test.case("нормализация") { assert("  ДА ".lower.trim == "да") }
+test.case("деньги")       { test.eq(decimal("10.00") * 3, decimal("30.00")) }
+```
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `case` | `(name: string) { … } -> bool` | runs the block, records the case, prints one line, and answers whether it passed |
+| `eq` | `(actual: any, expected: any) -> nil` | raises when the two differ, with `inspect` of both in the message |
+
+**A case catches; the file keeps going.** `test.case` runs its block and holds on to
+whatever it raised, so the case after a failure still runs and the report names both. What
+it does not catch is what `try` does not catch either (§8.11): a timeout, a step budget and
+`exit` end the file, because a Run that ran out of time has not failed a test — it has
+stopped.
+
+**`eq` exists for its message.** `assert(a == b)` can only say `assertion failed`;
+`test.eq(a, b)` says `expected "нет", got "да"` — the same `inspect` spelling §12.1 gives
+every other value. Equality is the language's own (§7.4), so `test.eq(1, 1.0)` passes
+exactly as `1 == 1.0` does: a test that disagreed with `==` would be testing something no
+program can observe.
+
+**The report is a value, not a print.** Every case is recorded on the Run and comes back in
+`Result.Tests` (§13.3), which is what `mzs test` counts, what decides its exit status, and
+what an embedder reads to run its own scripts' tests. The lines on stdout are for the person
+watching:
+
+```
+ok   нормализация
+FAIL деньги
+     expected 30.00, got 29.99 (money_test.mzs:7:5)
+```
+
+The module needs nothing from the host — like `json` and `decimal`, the include is all of it
+(§14.3).
+
 ---
 ## 13. Go API
 
@@ -3183,7 +3230,16 @@ type Result struct {
     Globals map[string]Value // final state of $vars, including ones the script created
     Steps   int64
     Elapsed time.Duration
+    Tests   []TestCase       // one per `test.case`, in the order they ran (§12.18); empty otherwise
 }
+
+type TestCase struct {
+    Name    string
+    Err     error         // nil when the case passed
+    Elapsed time.Duration
+}
+
+func (t TestCase) Passed() bool
 
 type Program struct{ /* unexported */ }
 
@@ -3499,7 +3555,15 @@ mzs [flags] [file.mzs] [args...]
 mzs -e '<source>'
 cat script.mzs | mzs -
 cat data | mzs -n -e '<source>'
+
+mzs fmt [-w|-l] [path...]     format mzs source
+mzs test [flags] [path...]    run the *_test.mzs files
+mzs lsp                       the language server, started by an editor
 ```
+
+The three subcommands are words rather than flags because none of them runs a program.
+They are matched as a bare first argument, so a script of one's own is never shadowed: a
+file is `fmt.mzs`, not `fmt`.
 
 | Flag | Meaning |
 |---|---|
@@ -3591,6 +3655,106 @@ mzs -e '(0..6).map { it * 2 }.each_slice(2).array' --json
 mzs -e 'fn f(a, b) { a += b; return a }; f(1, 2)'
 mzs -e 'match $__sent.lower.trim { in ["да","ага"] -> 1; else -> 0 }' -v '__sent=Ага'
 ```
+
+### 15.1 `mzs fmt`
+
+One spelling of a program, chosen by the tool so that nobody has to choose it in review.
+There is nothing to configure, for the reason `gofmt` has nothing: a formatter with a knob
+is a formatter you argue about.
+
+```
+mzs fmt a.mzs             print the formatted text
+mzs fmt -w src/           write it back to every .mzs file under src/
+mzs fmt -l .              name the files that are not already formatted
+mzs fmt < a.mzs           a filter: stdin to stdout, for an editor's format-on-save
+```
+
+What it decides: four spaces per level; spaces around every binary operator; one space
+after a comma and none before it; a collection, an argument list or a method chain that
+does not fit inside **96 columns** breaks — the chain by its dots (§3.10 drops the newline
+in front of a leading `.`), everything else one element to a line with the trailing comma
+the grammar allows.
+
+What it leaves alone, on purpose:
+
+* **the text of a literal**, which is copied from the source: `0xff` does not become `255`,
+  `1.50` does not become `1.5`, and `'raw'` gains no escapes;
+* **a body written across lines**, which stays across them — `fn f(a) { a }` keeps its line
+  and a body opened onto several keeps its shape. Where a program is cut into steps is a
+  claim about the program, not about spacing;
+* **a statement whose text includes a heredoc** (§3.7), which is moved sideways with the
+  code around it and otherwise reproduced as written. The body's lines are the program's
+  data, and re-flowing data is not formatting;
+* **parentheses**, which are a node of their own in this grammar (§4) and therefore say
+  what the author meant to say;
+* **comments**, which keep the line they were written on, or the line above the statement
+  they were written above. Nothing is ever re-wrapped.
+
+Every run reparses its own output and compares both the tree and the comment text with what
+it started from. A mismatch is a **refusal** — the file is left alone and the error says so
+— rather than a rewrite, because a formatter that quietly changed a program would be found
+out by a test suite one day and by an incident the day before. `fmt(fmt(x)) == fmt(x)` is
+asserted over the whole of `examples/`.
+
+Exit codes: `0` ok, `1` a file that could not be read, parsed or written, `2` usage.
+
+### 15.2 `mzs test`
+
+Finds the `*_test.mzs` files, runs each one, and answers with a status.
+
+```
+mzs test                  every *_test.mzs under the working directory
+mzs test lib/             …under one directory
+mzs test money_test.mzs   one file, whatever it is called
+```
+
+Each file is its own **Run** (§10): its globals, its includes and its budget reach no other
+file, so a test that leaves `$state` behind cannot make the next file pass and the order the
+files run in is not something anybody has to know. The per-file limits are the ordinary ones
+— `-t`, `--steps`, `--tasks` — and so are the capability flags, `--time`, `--rand` and
+`--no-io`: a test file is a script and the host is still the person typing.
+
+The report is `Result.Tests` (§12.18, §13.3), counted per file and once at the end:
+
+```
+money_test.mzs
+ok   sums stay exact
+FAIL rounding
+     expected 30.00, got 29.99 (money_test.mzs:7:5)
+
+1 file, 2 cases, 1 failed  (3ms)
+```
+
+A file that raises **outside** a case did not finish, and that is counted apart from a case
+that failed: the fixes are different. Exit codes: `0` every case passed, `1` a case failed
+or a file did not finish, `2` usage.
+
+### 15.3 `mzs lsp`
+
+The language server. It speaks the Language Server Protocol on stdin and stdout, framed with
+`Content-Length` headers, written on `encoding/json` alone — the protocol is a header, a
+length and a JSON object, and a language whose promise is "the standard library and nothing
+else" (I1) cannot buy a client for that.
+
+| Request | Answer |
+|---|---|
+| `textDocument/publishDiagnostics` | the compiler's errors and warnings (§17, §11.5), on open, on change and on save |
+| `textDocument/hover` | the signature and the meaning of the name under the cursor, from the generated §12 table |
+| `textDocument/definition` | the `fn`, `record` or `include` that bound the name; the file itself for `include … from` |
+| `textDocument/completion` | members after a `.`, and names, modules and keywords elsewhere |
+| `textDocument/formatting` | the whole document through §15.1 |
+| `textDocument/documentSymbol` | the outline: what the file declares, in source order |
+
+Two decisions worth stating. **Every capability is installed while checking** — `include
+time` is not an error in an editor, because which flags the program will be run with is not
+something a buffer knows (§12.8); a diagnostic that depends on a flag is a diagnostic about
+a command line. And **the server never runs a program**: it compiles, which is why an
+`include … from` is not read and a `record` with a side effect in its default has none here.
+
+Positions cross a boundary in both directions: the protocol counts lines from zero and
+characters in UTF-16 code units, and mzs counts lines from one and columns in runes (§3.1).
+Everything is converted, which is why a caret lands on the right character in a line of
+Russian.
 
 ---
 ## 16. Acceptance corpus
@@ -3859,8 +4023,12 @@ mzs/                       module "mzs", go 1.26, zero external requires
   internal/rx/bt/          backtracking engine (Unicode \b, lookaround, backrefs, budget)
   internal/lru/            tiny generic LRU used for programs and regexes
   internal/width/          display width, read by `s.width` and by the REPL's cursor (§12.2)
+  internal/printer/        the formatter behind `mzs fmt`: tree in, canonical source out (§15)
+  internal/apidoc/         the generated standard-library table `mzs lsp` answers hovers from
+  test.go                  the `test` module: cases, `eq`, the report on Result (§12.18)
   engine/                  Engine, Bool, String, Value (§13.6)
   cmd/mzs/                 CLI (§15)
+  cmd/mzs/lsp/             the language server: JSON-RPC over stdio on encoding/json alone (§15)
   testdata/                §16.3 author files, corpus JSON, golden token/AST dumps, fuzz seeds
   examples/                forty-odd runnable programs, one per feature area (examples/README.md)
 ```

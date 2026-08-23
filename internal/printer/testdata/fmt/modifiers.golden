@@ -1,0 +1,7 @@
+println("hi") if debug
+x -= 1 while x > 0
+export fn helper(a) { a }
+export limit = 10
+export helper
+include json
+include lib from "./lib.mzs"

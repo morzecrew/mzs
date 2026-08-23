@@ -10,6 +10,9 @@ cat data | mzs -n -e '<source>'
 mzs                      # REPL, when stdin is a terminal
 ```
 
+There are three subcommands as well — `mzs fmt`, `mzs test` and `mzs lsp` — and they have a
+page of their own: [tools.md](./tools.md). Everything below is the `mzs` command itself.
+
 ## Flags
 
 | Flag | Meaning |

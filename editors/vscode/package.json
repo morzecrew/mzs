@@ -1,8 +1,8 @@
 {
   "name": "mzs",
   "displayName": "mzs",
-  "description": "Syntax highlighting, completion, hovers and diagnostics for the mzs language",
-  "version": "1.1.0",
+  "description": "Syntax highlighting, completion, hovers, formatting and diagnostics for the mzs language",
+  "version": "1.2.0",
   "publisher": "morze",
   "license": "MIT",
   "icon": "icons/logo-128.png",
@@ -13,6 +13,7 @@
     "Programming Languages",
     "Snippets",
     "Linters",
+    "Formatters",
     "Themes"
   ],
   "keywords": [
@@ -80,6 +81,10 @@
       {
         "command": "mzs.showAst",
         "title": "mzs: Show the AST"
+      },
+      {
+        "command": "mzs.runTests",
+        "title": "mzs: Run the tests"
       }
     ],
     "menus": {
@@ -133,6 +138,11 @@
           "type": "boolean",
           "default": true,
           "description": "Complete methods, built-in functions and keywords."
+        },
+        "mzs.lsp.enable": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Run `mzs lsp` and take diagnostics, hover, completion, go-to-definition and the outline from it instead of from the built-in analysis. Needs a `mzs` binary new enough to have the subcommand."
         }
       }
     }

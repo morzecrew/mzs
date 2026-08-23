@@ -1,0 +1,17 @@
+# a heading comment
+# on two lines
+
+x = 1  # what x is
+
+
+# after two blank lines, which become one
+fn f(a) {
+  # inside the body
+  a + 1
+  # and at the bottom of it
+}
+
+xs = [
+  1,  # one
+  2,
+]

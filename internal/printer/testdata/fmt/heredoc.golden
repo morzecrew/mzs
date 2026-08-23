@@ -1,0 +1,14 @@
+sql = <<~SQL
+  SELECT 1
+    FROM t
+SQL
+
+fn ticket(o) {
+    <<~T
+      line ${o}
+    T
+}
+
+raw = <<~'TPL'
+  $notinterpolated
+TPL

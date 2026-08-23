@@ -92,6 +92,20 @@ type config struct {
 }
 
 func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
+	// The three subcommands (§15). They are words rather than flags because none of them
+	// runs a program: `mzs fmt` reads source and writes source, `mzs test` runs a
+	// directory, `mzs lsp` answers an editor. A file of one's own is never shadowed — a
+	// script is `fmt.mzs`, not `fmt`.
+	if len(argv) > 0 {
+		switch argv[0] {
+		case "fmt":
+			return runFmt(argv[1:], stdout, stderr, stdin)
+		case "test":
+			return runTest(argv[1:], stdout, stderr)
+		case "lsp":
+			return runLSP(argv[1:], stdout, stderr, stdin)
+		}
+	}
 	cfg, showHelp, showVersion, err := parseArgs(argv)
 	switch {
 	case err != nil:
@@ -765,6 +779,11 @@ Usage:
   cat script.mzs | mzs -
   cat data | mzs -n -e '<source>'
   mzs                      # REPL, when stdin is a terminal
+
+Subcommands:
+  mzs fmt [-w|-l] [path...]    format mzs source; see 'mzs fmt --help'
+  mzs test [path...]           run the *_test.mzs files; see 'mzs test --help'
+  mzs lsp                      the language server, for an editor to start
 
 Flags:
   -e, --eval <src>   evaluate <src>; repeatable, joined with newlines

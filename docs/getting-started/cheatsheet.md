@@ -157,8 +157,19 @@ filesystem before any of these names exist.
 A run has one second by default, and a sleep is spent from it: `mzs -t 10 …` is how a longer
 wait is bought.
 
+## Tests
+
+| One-liner | Result |
+|---|---|
+| `include test; test.case("trim") { assert("  да ".trim == "да") }` | prints `ok   trim`, answers `true` |
+| `include test; test.case("sums") { test.eq([1, 2].sum, 4) }` | prints `FAIL sums` and `expected 4, got 3`, answers `false` |
+
+Put them in a `*_test.mzs` file and `mzs test` runs every one of them, each file on its own —
+see [../modules/test.md](../modules/test.md).
+
 ## See also
 
+* [../cli/tools.md](../cli/tools.md) — `mzs fmt`, `mzs test` and the language server
 * [README.md](./README.md) — the three rules these lines rely on
 * [install.md](./install.md) — `--json`, `--bool`, `-n` and the other ways to run
 * [../stdlib/README.md](../stdlib/README.md) — every function by receiver
