@@ -50,6 +50,19 @@ Capabilities that are off unless a flag turns them on: the clock (`--time`), ran
 [../reference/sandbox.md](../reference/sandbox.md). `--net` is gone and says so:
 `mzs: --net is gone: the http module is always available`.
 
+## Environment
+
+| Variable | Meaning |
+|---|---|
+| `MZSPATH` | where `include money from "money"` looks: directories separated by `:` (`;` on Windows). Unset, the search path is `~/.mzs/lib`; set, it replaces that default rather than extending it. A path written with `./` is the file next to the including one and never comes from here. |
+
+```sh
+MZSPATH=/opt/team/mzs:$HOME/.mzs/lib mzs report.mzs
+```
+
+→ [../modules/custom.md](../modules/custom.md) for the two path forms, the two library
+layouts, and what a library is allowed to read.
+
 ## Printing
 
 | Situation | What is printed |
@@ -154,4 +167,5 @@ $ mzs -e 'include time; time.now.year'
 - [./input.md](./input.md) — the pipe, `--in`, and line mode
 - [./diagnostics.md](./diagnostics.md) — error output, fix-its, `--check`
 - [../getting-started/repl.md](../getting-started/repl.md) — the interactive REPL
+- [../modules/custom.md](../modules/custom.md) — `include … from`, `MZSPATH`, and what a module may read
 - [../reference/sandbox.md](../reference/sandbox.md) — capabilities and limits

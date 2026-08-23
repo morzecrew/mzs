@@ -114,6 +114,27 @@ jobs:
           done
           exit $status
 
+      # One version string (SPEC §21.5). The binary, the newest released section of the
+      # changelog and the line README prints as the command's output are three copies of
+      # one fact, and a promise about a version means nothing if they disagree about which
+      # version it is. Work that is not released yet lives under "## Unreleased", which
+      # this check ignores on purpose: the assertion is about the version that shipped.
+      - name: the version is one string
+        run: |
+          printed=$(/tmp/mzs --version)                 # "mzs 0.1.0"
+          number=${printed#mzs }
+          released=$(grep -m1 -E '^## [0-9]' CHANGELOG.md | sed -E 's/^## ([^ ]+).*/\1/')
+          status=0
+          if [ "$number" != "$released" ]; then
+            echo "mzs --version says $number; the newest released CHANGELOG.md section is $released"
+            status=1
+          fi
+          if ! grep -qF "$printed" README.md; then
+            echo "README.md does not print '$printed' as the output of mzs --version"
+            status=1
+          fi
+          exit $status
+
       # The tests written in mzs itself. `mzs test` is the runner and its exit status is
       # the answer, so there is nothing to grep for here.
       - name: mzs test examples

@@ -28,7 +28,7 @@ field grants one capability.
 | `io` module (files) | `FS` | on by default, `--no-io` withholds |
 | `io.stdin` / `io.lines` / `input()` | `Stdin` | the data stream ([input](../cli/input.md)) |
 | `io.env` | `Env` | on with `io` |
-| `include x from "…"` | `ModuleLoader` | rooted at the program's directory |
+| `include x from "…"` | `ModuleLoader` | a `./` path is rooted at the program's directory; a bare name is a library on `$MZSPATH`, rooted where it was found |
 | `time` / `date` modules | `EnableTime` | `--time` |
 | `now()`, `time.now`, `date.today` | `Now` | `--time` |
 | `rand()`, `uuid()`, `sample`, `shuffle` | `Rand` | `--rand [seed]` |
@@ -50,8 +50,9 @@ The last one is not a typo: a name that only a capability installs stays in the 
 table, so the fix-it names the method you wrote and the missing option is the real answer.
 
 `FS` and `ModuleLoader` are interfaces the host implements, so *what a path may name* is
-host policy and never the language's. The CLI's loader refuses to leave the directory of
-the program it ran:
+host policy and never the language's. The CLI's loader refuses to leave the tree the
+including file belongs to — the directory of the program it ran, or, for a library found on
+`$MZSPATH`, the search directory it came from ([custom modules](../modules/custom.md)):
 
 ```sh
 mzs -e 'include lib from "../lib.mzs"'

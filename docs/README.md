@@ -65,7 +65,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/crypto.md](./modules/crypto.md) | Hex, base64 in both alphabets, sha256/sha1/md5, HMAC, and why the signature check is `crypto.equal` |
 | [modules/url.md](./modules/url.md) | The eight keys of a parsed URL, the inverse that builds one, and the two encodings the `+` tells apart |
 | [modules/test.md](./modules/test.md) | `test.case` and `test.eq`, what a case catches, and the report `mzs test` counts |
-| [modules/custom.md](./modules/custom.md) | `include … from`, `export`, and how a path resolves |
+| [modules/custom.md](./modules/custom.md) | `include … from`, `export`, the `MZSPATH` search path, and how a path resolves |
 
 ## Embedding in Go
 
@@ -84,8 +84,10 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [reference/sandbox.md](./reference/sandbox.md) | What is never reachable, what the host grants, the limits every run is bounded by |
 | [reference/limitations.md](./reference/limitations.md) | What the language does not have, and the syntax reserved as a parse error |
 | [reference/verification.md](./reference/verification.md) | The four checks, the acceptance suite, coverage, CI |
+| [reference/compatibility.md](./reference/compatibility.md) | What a version promises, what may change under you, how a renamed name behaves |
 
 ## See also
 
 * [../SPEC.md](../SPEC.md) — the normative specification; where it and these pages disagree, it wins
+* [../CHANGELOG.md](../CHANGELOG.md) — what each version changed, and what `Unreleased` would give you
 * [../examples/README.md](../examples/README.md) — 45 example programs, in order of difficulty
