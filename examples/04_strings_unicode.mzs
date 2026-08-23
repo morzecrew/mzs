@@ -3,9 +3,10 @@
 #   mzs examples/04_strings_unicode.mzs
 #
 # The program cleans up a batch of messy contact records. It is worth reading for one
-# reason: nothing here counts bytes. `len`, `[]`, `index`, `reverse`, `center` and
-# friends all work in runes, so Cyrillic and emoji behave exactly like ASCII — which is
-# the difference between a name that renders and a name that comes out as mojibake.
+# reason: nothing here counts bytes. `len`, `[]`, `index`, `reverse` and friends all work
+# in runes, so Cyrillic and emoji behave exactly like ASCII — which is the difference
+# between a name that renders and a name that comes out as mojibake. Laying text out is
+# the one place a rune is the wrong unit, and `width` is the one that is right.
 
 # --- runes, not bytes ---------------------------------------------------------
 
@@ -86,19 +87,38 @@ println("  redacted: ${"card 4111 1111 1111 1111".replace(/\d{4}(?= )/, "****")}
 println("  first only: ${"a-b-c".replace_first("-", "+")}")
 println("  numbered:  ${"2026-03-05".replace(/(\d+)-(\d+)-(\d+)/, '\3.\2.\1')}")
 
-# --- laying text out: every width below is a rune width ------------------------
+# --- laying text out: a width is a column, not a rune --------------------------
 
 println("")
 println("| ${"item".ljust(20)} | ${"price".rjust(9)} |")
 println("| ${"-" * 20} | ${"-" * 9} |")
-[["haircut", 1500], ["окрашивание 👩‍🎨", 3200], ["borodá", 800]].each { (row) ->
+[["haircut", 1500], ["окрашивание 💇", 3200], ["borodá", 800]].each { (row) ->
   println("| ${row[0].ljust(20)} | ${("%d €" % row[1]).rjust(9)} |")
 }
 println("")
 println(" ${"THE END".center(30, "·")} ")
-# A width here is a count of runes, not of terminal columns: CJK and emoji occupy two
-# columns each, so a table of mixed scripts needs a width table the language does not
-# pretend to have.
+
+# The emoji row above lines up with the others, which is not something a rune count could
+# do: a CJK ideograph and an emoji occupy two terminal columns, a combining mark occupies
+# none, and `ljust`/`rjust`/`center` pad to columns. `width` is that number on its own.
+#
+# The last row is the boundary worth knowing: a width is counted per code point, so an emoji
+# written as a joined sequence — 👩 + ZWJ + 🎨 — is counted as its two emoji. Terminals
+# disagree about whether to draw such a sequence as one glyph or two, and Unicode gives a
+# width to code points rather than to sequences.
+println("")
+['hi', 'привет', '日本語', '💇', '👩‍🎨'].each { (s) ->
+  println("  ${inspect(s).ljust(12)} len ${s.len}  width ${s.width}")
+}
+
+# And when two texts are "the same word" apart from case, `casefold` is the comparison
+# `lower` cannot make: ß folds to ss, and a final ς and a Σ both fold to σ.
+println("")
+[["Straße", "STRASSE"], ["ΟΔΟΣ", "Οδος"], ["Ёлка", "ЁЛКА"]].each { (pair) ->
+  a = pair[0]
+  b = pair[1]
+  println("  ${(a + " ~ " + b).ljust(20)} lower ${a.lower == b.lower}  casefold ${a.casefold == b.casefold}")
+}
 
 # --- the small ones that keep parsers short -----------------------------------
 

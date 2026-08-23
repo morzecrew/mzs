@@ -125,7 +125,7 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 
 | | Example | Docs |
 |---|---|---|
-| **Text and Unicode** | `"  ПРИВЕТ ".lower.trim.capitalize` → `Привет` | [strings](docs/stdlib/strings.md) |
+| **Text and Unicode** | `"  ПРИВЕТ ".lower.trim.capitalize` → `Привет` · `"Straße".casefold`, `"日本".width` | [strings](docs/stdlib/strings.md) |
 | **Multi-line templates** | `<<~SQL` … `SQL` — dedented, interpolated, or raw with `<<~'SQL'` | [strings](docs/language/strings.md) |
 | **Shapes of your own** | `record Money(amount, currency)` — `m.amount`, `type(m)`, `match m { Money -> … }` | [values](docs/language/values.md) |
 | **Regex, two engines** | `"нужна CRM" ~ /\bcrm\b/i` — Unicode `\b`, rune indices, lookahead | [regex](docs/language/regex.md) |
@@ -137,7 +137,7 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | **HTTP client and server** | `http.serve(":8080", {"GET /hi/{name}": { (req) -> req["params"]["name"] }})` | [http](docs/modules/http.md) |
 | **Webhooks that verify** | `crypto.equal(crypto.hmac($SECRET, body), sig)` — HMAC, sha256, base64, hex | [crypto](docs/modules/crypto.md) |
 | **URLs both ways** | `url.parse(u)["query"]["page"]` · `url.build({scheme: "https", host: h, query: q})` | [url](docs/modules/url.md) |
-| **Concurrency** | `urls.map { fetch(it) }.map { it.await }` | [async](docs/language/async.md) |
+| **Concurrency** | `tasks.race(mirrors.map { fetch(it) })` — the first answer, the others cancelled · `sleep(0.2)` | [async](docs/language/async.md) |
 | **Modules of your own** | `include cart from "./cart.mzs"` | [modules](docs/modules/custom.md) |
 | **Shell pipelines** | `cat access.log \| mzs -n -e '$_.split(" ")[0]'` | [line mode](docs/cli/input.md) |
 | **Embedding in Go** | `in.Eval(ctx, "$price.int + 1200", vars)` | [embedding](docs/embedding/README.md) |

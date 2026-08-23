@@ -34,7 +34,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [language/strings.md](./language/strings.md) | The three forms — two quoted and the heredoc — escapes, `$`-interpolation, runes not bytes, the `%` operator |
 | [language/errors.md](./language/errors.md) | `try … else … ensure`, the error dict and its kind, `raise`, `assert`, and what is never catchable |
 | [language/host-variables.md](./language/host-variables.md) | `$name`: a namespace the host owns, where an unbound read is `nil` rather than an error |
-| [language/async.md](./language/async.md) | `async fn`, `await`, `done`, one evaluator at a time, the task and time budgets |
+| [language/async.md](./language/async.md) | `async fn`, `await`, `sleep`, `tasks.all`/`tasks.race`, timeouts and cancellation, one evaluator at a time |
 | [language/regex.md](./language/regex.md) | `/…/` literals, `~` and `!~`, the two engines, flags, the step budget, dynamic regexes |
 
 ## Standard library
@@ -86,4 +86,4 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 ## See also
 
 * [../SPEC.md](../SPEC.md) — the normative specification; where it and these pages disagree, it wins
-* [../examples/README.md](../examples/README.md) — 44 example programs, in order of difficulty
+* [../examples/README.md](../examples/README.md) — 45 example programs, in order of difficulty

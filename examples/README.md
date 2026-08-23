@@ -1,6 +1,6 @@
 # Examples
 
-Forty-four complete programs, in order of difficulty. Each one runs on its own, prints a
+Forty-five complete programs, in order of difficulty. Each one runs on its own, prints a
 readable report, and is written to be read as much as to be executed:
 
 ```sh
@@ -101,6 +101,7 @@ does not have it at all.
 |---|---|---|
 | 27 | `27_modules_main.mzs` | `include`/`export` across three files (`27_lib_money.mzs`, `27_lib_text.mzs`), private names, a diamond include |
 | 28 | `28_async_tasks.mzs` | `async fn`, `await`, `done`, fan-out, errors at the await, shared state without locks |
+| 45 | `45_waiting_tasks.mzs` | the other half of a task: `sleep` that hands the interpreter back, `tasks.all` in the order of the array, `tasks.race` with the losers cancelled, `t.timeout` that gives up waiting but not on the task, and `t.cancel` wherever the task has got to |
 | 29 | `29_time_scheduling.mzs` | **`--time`** · parsing four formats, durations, a slot grid, the first free gap, reminders |
 | 30 | `30_http_service.mzs` | an http client call and a five-route JSON server with validation and shutdown |
 | 31 | `31_api_pipeline.mzs` | **`-t 30`** · fetch a public JSON API, normalise the hits, then group, rank and tabulate them — with a sample to fall back on when the network is down |

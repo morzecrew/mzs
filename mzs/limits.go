@@ -26,9 +26,13 @@ func (rs *runState) step(n int64) error {
 // checkLimits runs the three checks unconditionally. The evaluator calls it directly
 // at loop back-edges so a tight loop cannot outrun the sampling interval.
 func (rs *runState) checkLimits() error {
+	// A task has a context of its own (§8.14), so this is also where `t.cancel` lands:
+	// the task stops at its next step, and the message says the script ended it rather
+	// than blaming the host's context. Either way it is a limit error and uncatchable —
+	// a cancelled task that could `try` its way out of the cancel would not be one.
 	if rs.ctx != nil {
 		if err := rs.ctx.Err(); err != nil {
-			return limitErrorf(ErrCanceled, "canceled")
+			return rs.canceledError()
 		}
 	}
 	if rs.hasDL && time.Now().After(rs.deadline) {

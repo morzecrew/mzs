@@ -243,6 +243,28 @@ ends and `mzs.ExitCode(err)` reports the number, which the host is free to ignor
 line mode the first line that exits ends the whole run, and in the REPL `exit` leaves the
 session (see [the REPL](../getting-started/repl.md#ctrl-c)).
 
+## Waiting
+
+| Name | Signature | Does | Example |
+|---|---|---|---|
+| `sleep` | `sleep(d: number) -> nil` | waits `d` seconds and answers nil | `sleep(0.2)`, `sleep(5.minutes)` |
+
+A duration is a number of **seconds** — `0.25` as readily as `2`, and `5.minutes` is `300`
+under `include time` ([time](../modules/time.md)). A negative one, and `nan`, are argument
+errors rather than a wait nobody can explain.
+
+Two things make `sleep` more than a pause. It hands the interpreter back while it waits, so
+the tasks of [async](../language/async.md) run during it — five tasks sleeping 300 ms cost
+300 ms, not a second and a half — and it is spent from the run's clock rather than added to
+it:
+
+```sh
+$ mzs -e 'sleep(2)'
+-e:1:1: limit: execution timed out after 1s      # exit 3, the default clock is 1s
+$ mzs -t 10 -e 'sleep(2); "awake"'
+awake
+```
+
 ## Host-gated
 
 These three exist only when the host enables them; otherwise the name is undefined.

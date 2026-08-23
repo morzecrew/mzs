@@ -43,6 +43,13 @@ const (
 	ErrKindDecimal  = "decimal"
 	ErrKindHTTP     = "http"
 	ErrKindIO       = "io"
+	// The two ways a wait ends without the value it waited for (§12.12). Both are the
+	// script's own decision — `t.timeout(d)` chose the limit, `t.cancel` ended the task —
+	// so unlike the Run's limits they are ordinary catchable errors: a program that asked
+	// three mirrors and took the first answer is written with `try`, not with a Run that
+	// stops.
+	ErrKindTimeout  = "timeout"
+	ErrKindCanceled = "canceled"
 	ErrKindRaise    = "raise"
 	ErrKindLimit    = "limit"
 	ErrKindExit     = "exit"

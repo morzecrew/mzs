@@ -14,6 +14,8 @@ Every row is a complete program: `mzs -e '<line>'` prints the result shown.
 | `"naïve".bytes.len` | `6` (bytes) |
 | `"hello".chars.reverse.join("")` | `olleh` |
 | `"Ivan".ljust(8, ".")` | `Ivan....` |
+| `"Straße".casefold == "STRASSE".casefold` | `true` |
+| `"日本".width` | `4` (columns, which `ljust` pads by) |
 | `"%.2f" % [3.14159]` | `3.14` |
 | `"".int + 1200` | `1200` |
 | `"12abc".int` | `12` |
@@ -140,6 +142,20 @@ filesystem before any of these names exist.
 | `record Money(amount, currency = "RUB"); Money(1500).amount` | `1500` |
 | `record Money(a, c); type(Money(1, "RUB"))` | `Money` |
 | `record M(a); match M(1) { M -> "shape"; else -> "no" }` | `shape` |
+
+## Tasks and waiting
+
+| One-liner | Result |
+|---|---|
+| `async fn f(n) { n * 2 }; f(21).await` | `42` |
+| `include tasks; async fn f(n) { n }; tasks.all([f(1), f(2)]).json` | `[1,2]` |
+| `include tasks; async fn f(n) { sleep(n); n }; tasks.race([f(5), f(0.05)])` | `0.05`, the loser cancelled |
+| `sleep(0.05); "awake"` | `awake` |
+| `async fn slow() { sleep(5); 1 }; t = slow(); try t.timeout(0.05) else (e) -> e["kind"]` | `timeout` |
+| `async fn slow() { sleep(5); 1 }; t = slow(); t.cancel; try t.await else (e) -> e["kind"]` | `canceled` |
+
+A run has one second by default, and a sleep is spent from it: `mzs -t 10 …` is how a longer
+wait is bought.
 
 ## See also
 

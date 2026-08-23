@@ -1,0 +1,139 @@
+# 45 — waiting: sleep, tasks.all, tasks.race, timeout, cancel.
+#
+#   mzs examples/45_waiting_tasks.mzs
+#
+# `async fn` gave tasks and `await` read one of them (example 28). This file is the rest of
+# the story — everything a program does *while* a task is running:
+#
+#   sleep(d)        a pause that hands the interpreter back
+#   tasks.all(ts)   wait for all of them; the results keep the order of the array
+#   tasks.race(ts)  the first answer wins, and the losers are cancelled
+#   t.timeout(d)    an await with a limit of your own; the task carries on
+#   t.cancel        stop the task, wherever it is
+#
+# Every wait here releases the run's one evaluator, which is the whole point: five tasks
+# sleeping a tenth of a second cost a tenth of a second, not half of one.
+
+include tasks
+
+fn rule(title) {
+  println("")
+  println("=== " + title + " ===")
+  println("")
+}
+
+# --- sleep gives the interpreter back ------------------------------------------
+
+rule("sleep(d) — a pause, not a stall")
+
+log = []
+async fn nap(id, d) {
+  sleep(d)
+  log.push(id)
+  id
+}
+
+running = [1, 2, 3, 4].map { (id) -> nap(id, 0.05) }
+println("  four tasks started, each sleeping 50ms")
+println("  none of them has run yet:      ${running.count { it.done }} finished")
+sleep(0.15)
+println("  the main program slept 150ms:  ${running.count { it.done }} finished")
+println("  they slept alongside it, not after it — the log is ${log.json}")
+
+# --- tasks.all: every answer, in the order of the array ------------------------
+
+rule("tasks.all(ts) — all of them, in order")
+
+async fn slow_square(n) {
+  sleep(n / 100.0)          # the biggest number finishes last…
+  n * n
+}
+
+answers = tasks.all([3, 1, 2].map { slow_square(it) })
+println("  tasks.all([3, 1, 2] squared) = ${answers.json}")
+println("  …and the answers are still 3, 1, 2 — the order of the array, not of the clock")
+
+async fn ok() { "fine" }
+async fn bad() { raise("the second one refuses") }
+println("")
+println("  one failure raises at the call, catchable there:")
+println("    ${try tasks.all([ok(), bad(), ok()]) else (e) -> e["message"]}")
+println("  the siblings count as read, so nothing about them reaches stderr")
+
+# --- tasks.race: the first answer, and a cancel for the rest -------------------
+
+rule("tasks.race(ts) — ask three, keep the first")
+
+async fn mirror(name, d) {
+  sleep(d)
+  "${name} answered"
+}
+
+slow_one = mirror("moscow", 5)
+fast_one = mirror("berlin", 0.02)
+other    = mirror("tokyo", 5)
+
+println("  ${tasks.race([slow_one, fast_one, other])}")
+println("  the two that lost were cancelled where they stood:")
+println("    moscow → ${try slow_one.await else (e) -> e["kind"]}")
+println("    tokyo  → ${try other.await else (e) -> e["kind"]}")
+println("  a request already on the wire is aborted, not waited out")
+
+# --- t.timeout: a limit on the waiting, not on the work ------------------------
+
+rule("t.timeout(d) — give up waiting, not on the task")
+
+async fn late() {
+  sleep(0.1)
+  "here after 100ms"
+}
+
+t = late()
+println("  t.timeout(0.01) → ${try t.timeout(0.01) else (e) -> "${e["kind"]}: ${e["message"]}"}")
+println("  the task never stopped, so the value is still there:")
+println("    t.await → ${t.await}")
+
+# --- t.cancel: stop it -----------------------------------------------------------
+
+rule("t.cancel — stop the task")
+
+async fn poller() {
+  n = 0
+  while true { sleep(0.01); n += 1 }
+  n
+}
+
+spinner = poller()
+sleep(0.02)
+spinner.cancel
+println("  a task that polls forever, cancelled after 20ms:")
+println("    ${try spinner.await else (e) -> "${e["kind"]}: ${e["message"]}"}")
+println("  the cancel lands at the task's next step or its next wait — and a task that has")
+println("  not started at all never runs its body, so a short body cannot outrun it")
+
+async fn quick() { "already done" }
+finished = quick()
+finished.await
+finished.cancel
+println("")
+println("  cancelling a task that has finished changes nothing: ${finished.await}")
+println("  and cancelling twice is cancelling once: ${[finished.cancel, finished.cancel].json}")
+
+# --- what the limits still are ----------------------------------------------------
+#
+# A pause is spent from the run's clock rather than added to it: `mzs -e 'sleep(2)'` ends
+# with `limit: execution timed out after 1s`, and `mzs -t 10 -e 'sleep(2)'` is what buying
+# more time looks like. Inside a task the cancel is a limit too — uncatchable, because a
+# task that could `try` its way out of its own cancel would not be cancelled — while at the
+# await it is an ordinary error of kind "canceled" that a program may handle.
+
+rule("the shape this was all for")
+
+async fn fetch(mirror) {
+  sleep(mirror["ms"] / 1000.0)      # http.get(mirror["url"]) in a real program
+  "${mirror["url"]} in ${mirror["ms"]}ms"
+}
+
+mirrors = [{url: "eu.example", ms: 120}, {url: "us.example", ms: 15}, {url: "ap.example", ms: 90}]
+println("  ${tasks.race(mirrors.map { fetch(it) })}")
+println("  three requests on the wire together, one answer kept, two cancelled.")
