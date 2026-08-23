@@ -197,6 +197,20 @@ func TestCLILibrarySearchOrder(t *testing.T) {
 		}
 	})
 
+	// A directory on the path that is not there is not an error: a search path is a list
+	// of places a library may live, and naming one that does not exist yet is ordinary.
+	t.Run("a search directory that is not there is skipped", func(t *testing.T) {
+		setLibPath(t, filepath.Join(t.TempDir(), "not-created"), second)
+
+		code, out, errOut := exec([]string{"-e", `include o from "only"; o.who()`}, "")
+		if code != exitOK {
+			t.Fatalf("exit = %d (stderr %q)", code, errOut)
+		}
+		if out != "only in the second\n" {
+			t.Errorf("stdout = %q; want the second directory's answer", out)
+		}
+	})
+
 	// A relative entry is resolved against the working directory, which is where the
 	// person typing it means, and is absolute by the time the root check compares it.
 	t.Run("a relative entry resolves against the working directory", func(t *testing.T) {
@@ -284,6 +298,105 @@ func TestCLILibraryRootIsEnforced(t *testing.T) {
 	})
 }
 
+// A path may not leave the tree it belongs to, and a symbolic link is a path: the check
+// is made by the read itself (os.Root), not by the spelling, so a link that is lexically
+// inside the root and leads out of it is refused like any other way out. A link that
+// stays inside is followed, which is what keeps an ordinary alias working.
+func TestCLIIncludeFollowsNoLinkOutOfTheRoot(t *testing.T) {
+	outside := t.TempDir()
+	writeLib(t, filepath.Join(outside, "secret.mzs"), `export fn s() { "leaked" }`+"\n")
+
+	t.Run("a script's link out of its root is refused", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Symlink(filepath.Join(outside, "secret.mzs"), filepath.Join(dir, "link.mzs")); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		main := writeLib(t, filepath.Join(dir, "main.mzs"),
+			"include x from \"./link.mzs\"\nprintln(x.s())\n")
+		setLibPath(t, t.TempDir())
+
+		code, out, errOut := exec([]string{main}, "")
+		if code == exitOK {
+			t.Fatalf("an include followed a link out of its root (stdout %q)", out)
+		}
+		if strings.Contains(out, "leaked") {
+			t.Errorf("stdout = %q; the file outside the root was read", out)
+		}
+		if !strings.Contains(errOut, "outside the root directory") {
+			t.Errorf("stderr = %q; want the root-policy diagnostic", errOut)
+		}
+	})
+
+	t.Run("a link inside the root is followed", func(t *testing.T) {
+		dir := t.TempDir()
+		writeLib(t, filepath.Join(dir, "real.mzs"), `export fn s() { "inside" }`+"\n")
+		if err := os.Symlink("real.mzs", filepath.Join(dir, "alias.mzs")); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		main := writeLib(t, filepath.Join(dir, "main.mzs"),
+			"include x from \"./alias.mzs\"\nprintln(x.s())\n")
+		setLibPath(t, t.TempDir())
+
+		code, out, errOut := exec([]string{main}, "")
+		if code != exitOK {
+			t.Fatalf("exit = %d (stderr %q)", code, errOut)
+		}
+		if !strings.Contains(out, "inside") {
+			t.Errorf("stdout = %q; want the aliased module's answer", out)
+		}
+	})
+
+	// A library that is a link out of its search directory is *reported*, not passed
+	// over: the name was claimed here, and a same-named library further down the path
+	// would answer for a file this one was refused.
+	t.Run("a library that links out of its directory is refused, not skipped", func(t *testing.T) {
+		first, second := t.TempDir(), t.TempDir()
+		if err := os.Symlink(filepath.Join(outside, "secret.mzs"), filepath.Join(first, "secret.mzs")); err != nil {
+			t.Skipf("symlinks are not available here: %v", err)
+		}
+		writeLib(t, filepath.Join(second, "secret.mzs"), `export fn s() { "the second directory" }`+"\n")
+		setLibPath(t, first, second)
+
+		code, out, errOut := exec([]string{"-e", `include s from "secret"; s.s()`}, "")
+		if code == exitOK {
+			t.Fatalf("an escaping library link was followed or skipped (stdout %q)", out)
+		}
+		if strings.Contains(out, "the second directory") {
+			t.Errorf("stdout = %q; the search moved on from a name that was already claimed", out)
+		}
+		if !strings.Contains(errOut, "outside the root directory "+first) {
+			t.Errorf("stderr = %q; want %s named as the root", errOut, first)
+		}
+	})
+}
+
+// A library that is there and cannot be read is an error, not an absence: searching on
+// would answer with a different library under a name this directory already claimed, and
+// the first-directory-wins rule is the whole of the search contract.
+func TestCLILibraryUnreadableIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file whatever its mode; the refusal under test cannot happen")
+	}
+	first, second := t.TempDir(), t.TempDir()
+	unreadable := writeLib(t, filepath.Join(first, "greet.mzs"), `export fn who() { "first" }`+"\n")
+	writeLib(t, filepath.Join(second, "greet.mzs"), `export fn who() { "second" }`+"\n")
+	if err := os.Chmod(unreadable, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	setLibPath(t, first, second)
+
+	code, out, errOut := exec([]string{"-e", `include g from "greet"; g.who()`}, "")
+	if code == exitOK {
+		t.Fatalf("an unreadable library was passed over (stdout %q)", out)
+	}
+	if strings.Contains(out, "second") {
+		t.Errorf("stdout = %q; the search moved on from a name that was already claimed", out)
+	}
+	if !strings.Contains(errOut, "permission denied") || !strings.Contains(errOut, unreadable) {
+		t.Errorf("stderr = %q; want the read failure, naming the file", errOut)
+	}
+}
+
 // Each refusal names the spelling that was meant. A path is one of two things, and every
 // message below says which one the writer was reaching for.
 func TestCLILibraryDiagnostics(t *testing.T) {
@@ -366,5 +479,33 @@ func TestCLILibraryFromTestFiles(t *testing.T) {
 	}
 	if !strings.Contains(out, "0 failed") {
 		t.Errorf("stdout = %q; want a passing report", out)
+	}
+}
+
+// The loader is also reachable without a program around it, and one branch is only
+// reachable that way: a file that belongs to none of the known roots. The CLI never hands
+// it one — a script's root *is* its directory — so this pins the fallback that decides
+// what happens if it ever does, which is that the narrowest root wins and the read is
+// refused.
+func TestFileLoaderRootsAnUnknownFileNarrowly(t *testing.T) {
+	root, lib := t.TempDir(), t.TempDir()
+	writeLib(t, filepath.Join(root, "here.mzs"), "export fn f() { 1 }\n")
+
+	stranger := filepath.Join(t.TempDir(), "stranger.mzs")
+	writeLib(t, stranger, "export fn f() { 2 }\n")
+
+	load := fileLoader(root, []string{lib})
+	if _, _, err := load(stranger, "./neighbour.mzs"); err == nil {
+		t.Fatal("a file under no root reached its own neighbour")
+	} else if !strings.Contains(err.Error(), "outside the root directory "+root) {
+		t.Errorf("err = %v; want the script root named", err)
+	}
+
+	// …and the script's own root still resolves from it, which is what makes the fallback
+	// the narrow answer rather than a refusal of everything.
+	if resolved, src, err := load(filepath.Join(root, "main.mzs"), "./here.mzs"); err != nil {
+		t.Errorf("err = %v; want the neighbour under the root to load", err)
+	} else if src == "" || resolved != filepath.Join(root, "here.mzs") {
+		t.Errorf("resolved = %q, src = %q; want the file under the root", resolved, src)
 	}
 }

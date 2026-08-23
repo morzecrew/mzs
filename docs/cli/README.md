@@ -54,7 +54,7 @@ Capabilities that are off unless a flag turns them on: the clock (`--time`), ran
 
 | Variable | Meaning |
 |---|---|
-| `MZSPATH` | where `include money from "money"` looks: directories separated by `:` (`;` on Windows). Unset, the search path is `~/.mzs/lib`; set, it replaces that default rather than extending it. A path written with `./` is the file next to the including one and never comes from here. |
+| `MZSPATH` | where `include money from "money"` looks: directories separated by `:` (`;` on Windows). Unset, the search path is `~/.mzs/lib`; set, it replaces that default rather than extending it. A path written with `./` or `../` is a file beside the including one and never comes from here. |
 
 ```sh
 MZSPATH=/opt/team/mzs:$HOME/.mzs/lib mzs report.mzs

@@ -5,36 +5,52 @@ inside one MAJOR the syntax, the semantics (D1–D19), the standard-library name
 set, the Go API and the CLI's contract do not move; diagnostic text, `internal/` and
 performance do. A name is never removed — it becomes a diagnostic that says the new one.
 
-Versions are `MAJOR.MINOR.PATCH`. Dates are the day the tag was cut. `Unreleased` is what is
-on `main` and not yet in a version, so a host reading this page can tell what it would get by
-updating today.
+Versions are `MAJOR.MINOR.PATCH`. While the MAJOR is `0` that promise has one exception, and
+only one: a **deliberate** break bumps the MINOR and says here what moved (SPEC §21.4), so
+`0.2.0` may break a program `0.1.0` ran and `0.1.1` may not. A quiet break is allowed at no
+version.
+
+`Unreleased` is what is on `main` and not in a version yet, so a host reading this page can
+tell what updating today would give it. A version section carries the date its tag was cut;
+`0.1.0` has none because no tag has been cut yet — it is the version `mzs --version` prints,
+and the release is still ahead of it.
 
 ## Unreleased
 
 ### Added
 
-- **A search path for libraries.** `include money from "money"` — a path with no `./` — is a
-  *library name*, looked for on `$MZSPATH` (the `~/.mzs/lib` default when it is unset), in
-  either of two layouts: `money.mzs`, or `money/main.mzs` for a library that outgrew one file.
-  A path with `./` keeps meaning exactly what it meant: the file next to the including one.
-  This is what makes a library reusable between projects without every file naming its
-  neighbour by a relative path. CLI only — the core still asks `Options.ModuleLoader`
-  (SPEC §12.8, §15).
+- **A search path for libraries.** `include money from "money"` — a path with neither `./`
+  nor `../` — is a *library name*, looked for on `$MZSPATH` (the `~/.mzs/lib` default when it
+  is unset), in either of two layouts: `money.mzs`, or `money/main.mzs` for a library that
+  outgrew one file. A path with `./` or `../` keeps meaning exactly what it meant: a file
+  beside the including one. This is what makes a library reusable between projects without
+  every file naming its neighbour by a relative path. CLI only — the core still asks
+  `Options.ModuleLoader` (SPEC §12.8, §15).
 - **A root per directory tree.** The confinement that kept a script inside its own directory
   now travels with the file doing the including: a library is rooted in the search directory
   it was found under, so it reaches its own neighbours and nothing above them — a vendored
   library inside a project cannot read the project (SPEC §15).
 - **`CHANGELOG.md` and SPEC §21**, the compatibility promise this file is the log of. CI
-  checks that `mzs --version`, the newest released section here and the line `README.md`
-  prints are one version string.
+  checks that `mzs --version`, the newest version section here and every version README and
+  `docs/` print are one string.
 
 ### Changed
 
+- **An include may not leave its tree through a symbolic link.** The confinement is enforced
+  by the read (`os.Root`) rather than by the spelling of the path, so a link that is
+  lexically inside the root and leads outside it is refused with the same message as a
+  written `../` that leaves; an absolute link is refused with it. A link that stays inside
+  the tree is followed as before. A library kept elsewhere is reached by putting its own
+  directory on `$MZSPATH` (SPEC §15).
+- **A library that is there and cannot be read is an error, not an absence.** The search no
+  longer passes over a candidate whose read failed — a permission, an I/O error, a link out
+  of the tree — because the next directory's answer would be a different library under a name
+  this one already claimed.
 - A refusal to load a module now names the spelling that was meant: a library that is not
   found says where it looked, `"text.mzs"` says to write `"text"` or `"./text.mzs"`, and a
   library name with `..` in it is refused with the `./` form that may climb.
 
-## 0.1.0 — 2026-08-24
+## 0.1.0
 
 The first version: the language as [`SPEC.md`](SPEC.md) describes it, the CLI around it, and
 the Go API to embed it. `go.mod` has no `require` and never will (I1).

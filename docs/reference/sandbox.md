@@ -49,6 +49,12 @@ mzs -e '[1,2,3].shuffle'
 The last one is not a typo: a name that only a capability installs stays in the suggestion
 table, so the fix-it names the method you wrote and the missing option is the real answer.
 
+`--no-io` withholds `FS`, `Env` and `Stdin`. It does not withhold the loader: `include … from`
+is its own capability and not a way to read a file — it reads source, runs it as part of the
+same program, and hands back what that source exported, confined to the tree the including
+file belongs to. A script that may not reach its own second file is a different script. An
+embedder gets neither unless it installs it.
+
 `FS` and `ModuleLoader` are interfaces the host implements, so *what a path may name* is
 host policy and never the language's. The CLI's loader refuses to leave the tree the
 including file belongs to — the directory of the program it ran, or, for a library found on

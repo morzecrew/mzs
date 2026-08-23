@@ -156,8 +156,8 @@ MZSPATH=/opt/team/mzs:$HOME/.mzs/lib mzs report.mzs
 MZSPATH=vendor mzs report.mzs        # a directory inside the project
 ```
 
-The `./` form is unchanged and unrelated: `include cart from "./cart.mzs"` is the file next
-to the one including it, and never comes from the search path. See
+The `./` and `../` forms are unchanged and unrelated: `include cart from "./cart.mzs"` is a
+file beside the one including it, and never comes from the search path. See
 [../modules/custom.md](../modules/custom.md).
 
 ## Checking without running

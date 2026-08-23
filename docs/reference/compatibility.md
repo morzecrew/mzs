@@ -8,7 +8,8 @@ this page is the practical reading of it, and [`CHANGELOG.md`](../../CHANGELOG.m
 
 Inside one MAJOR version, a program that runs keeps running the same way — and if something
 did move, the compiler says so with the fix under the caret, rather than the program quietly
-meaning something else.
+meaning something else. While the MAJOR is `0` there is one exception, and it is deliberate,
+announced and costs a MINOR bump: [what `0.x` means](#what-0x-means-here) below.
 
 ## What is stable
 
@@ -57,9 +58,16 @@ is refuse to compile it.
 ## What `0.x` means here
 
 The version is `0.1.0`. The `0` means *young*, not *anything may happen*: the promise above
-may be broken deliberately, with a MINOR bump and a `CHANGELOG.md` entry saying what moved
-and a diagnostic wherever one can carry the reader across. There is no version at which a
-quiet break is allowed.
+may be broken deliberately, with a MINOR bump and a `CHANGELOG.md` entry saying what moved,
+and a diagnostic wherever one can carry the reader across. In practice:
+
+| Step | May it break a program? |
+|---|---|
+| `0.1.0` → `0.1.1` | no |
+| `0.1.0` → `0.2.0` | only deliberately, and only with the changelog entry saying what moved |
+| `1.0` onwards | no — a break needs a MAJOR bump |
+
+There is no version at which a *quiet* break is allowed.
 
 ## One version string
 
@@ -67,9 +75,9 @@ quiet break is allowed.
 mzs --version      # mzs 0.1.0
 ```
 
-The binary, the newest released section of [`CHANGELOG.md`](../../CHANGELOG.md) and the line
-`README.md` prints as this command's output must agree — CI fails when they do not, because a
-promise about a version means nothing if the version is three different strings.
+The binary, the newest version section of [`CHANGELOG.md`](../../CHANGELOG.md) and every
+version printed in `README.md` and these pages must agree — CI fails when they do not, because
+a promise about a version means nothing if the version is several different strings.
 
 ## See also
 

@@ -765,7 +765,8 @@ Flags:
 Environment:
   MZSPATH            where 'include lib from "lib"' looks: directories separated by ':'
                      (';' on Windows), the default being ~/.mzs/lib. A path written with
-                     './' is the file next to the including one and never comes from here.
+                     './' or '../' is a file beside the including one and never comes
+                     from here.
 
 Exit codes: 0 ok, 1 error (or falsy with --bool), 2 usage, 3 timeout or budget.
 

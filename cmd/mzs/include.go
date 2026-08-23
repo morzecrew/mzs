@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,7 +99,10 @@ func includeRoot(cfg *config) string {
 // or being dropped for library code, which is the one place it is least deserved.
 func fileLoader(root string, libs []string) mzs.ModuleLoader {
 	return func(from, path string) (string, string, error) {
-		if filepath.IsAbs(path) {
+		// A leading `/` is absolute everywhere, but filepath.IsAbs only says so where it
+		// is the platform's own spelling of absolute — on Windows `/lib.mzs` is not. One
+		// answer for one question: an include path is relative, however it is written.
+		if filepath.IsAbs(path) || strings.HasPrefix(filepath.ToSlash(path), "/") {
 			return "", "", fmt.Errorf("an include path must be relative")
 		}
 		if path == "" {
@@ -111,8 +116,12 @@ func fileLoader(root string, libs []string) mzs.ModuleLoader {
 }
 
 // isFileForm reports whether a path names a file next to the including one rather than a
-// library. `./` and `../` are the marks, in either separator so a path written on Windows
-// and a path written anywhere else mean the same thing.
+// library. `./` and `../` are the two marks; `..` alone is the same request spelled
+// shorter. The path is put through filepath.ToSlash first, which is what makes
+// `.\lib.mzs` — the spelling a Windows editor produces — the file form on Windows. On a
+// system whose separator is `/` it converts nothing, and it should not: there a backslash
+// is an ordinary character in a file name, not a separator, so `..\lib.mzs` is one name
+// and reading it as a climb would be the platform's own rule broken.
 func isFileForm(path string) bool {
 	p := filepath.ToSlash(path)
 	return p == "." || p == ".." || strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../")
@@ -133,14 +142,15 @@ func loadNeighbour(from, path, root string, libs []string) (string, string, erro
 	if err != nil {
 		return "", "", err
 	}
-	if !within(owner, resolved) {
+	rel, ok := within(owner, resolved)
+	if !ok {
 		return "", "", fmt.Errorf("outside the root directory %s", owner)
 	}
-	src, err := os.ReadFile(resolved)
+	src, err := readInRoot(owner, rel, resolved)
 	if err != nil {
 		return "", "", err
 	}
-	return resolved, string(src), nil
+	return resolved, src, nil
 }
 
 // loadLibrary resolves `"money"`: the first hit on the search path, trying the file and
@@ -156,19 +166,24 @@ func loadLibrary(name string, libs []string) (string, string, error) {
 	}
 	rel := filepath.FromSlash(name)
 	for _, dir := range libs {
-		for _, candidate := range []string{rel + libExt, filepath.Join(rel, libEntry)} {
-			resolved := filepath.Join(dir, candidate)
-			// A name cannot climb out of a search directory — checkLibName refuses `..`
-			// — but a symlink or a `.` segment can still make the join land elsewhere,
-			// and the root check is cheap enough to make either impossible.
-			if !within(dir, resolved) {
-				continue
-			}
-			src, err := os.ReadFile(resolved)
-			if err != nil {
-				continue
-			}
-			return resolved, string(src), nil
+		// A directory on the search path that is not there is not an error: a path is a
+		// list of places a library may live, and MZSPATH naming one that does not exist
+		// yet is ordinary.
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			continue
+		}
+		src, resolved, err := searchDir(root, dir, rel)
+		root.Close()
+		switch {
+		case err != nil:
+			// Something is there under this name and cannot be read — a permission, an
+			// I/O error, a link out of the tree. Saying so beats searching on: the next
+			// directory's answer would be a different library under the name this one
+			// already claimed, and the search order is the whole contract.
+			return "", "", err
+		case resolved != "":
+			return resolved, src, nil
 		}
 	}
 	if len(libs) == 0 {
@@ -178,18 +193,87 @@ func loadLibrary(name string, libs []string) (string, string, error) {
 		name+libExt, filepath.Join(name, libEntry), strings.Join(libs, ", "))
 }
 
+// searchDir tries one search directory's two layouts. It answers three ways: found (a
+// source and its path), absent (an empty path and no error, so the search moves on), and
+// present-but-unreadable, which is an error rather than a fourth kind of absence.
+//
+// Lstat is what draws that line, and it draws it before the read: a name that is simply
+// not there — or that is a directory, or whose parent is a file — is this layout not
+// being the one, while a name that exists is this directory's answer, and whatever
+// happens next is what the caller is told.
+func searchDir(root *os.Root, dir, rel string) (src, resolved string, err error) {
+	for _, candidate := range []string{rel + libExt, filepath.Join(rel, libEntry)} {
+		info, statErr := root.Lstat(candidate)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		resolved = filepath.Join(dir, candidate)
+		src, err = readInRoot(dir, candidate, resolved)
+		if err != nil {
+			return "", "", err
+		}
+		return src, resolved, nil
+	}
+	return "", "", nil
+}
+
+// readInRoot reads one file through os.Root, which is what makes the confinement real
+// rather than lexical. The check above compares written paths, and a written path inside
+// the root can still *lead* outside it: a symbolic link is a component the writing does
+// not show. os.Root refuses exactly that — it follows a link inside the root and refuses
+// one that leaves it — so the promise "an include may not leave the tree" is kept by the
+// read itself rather than by the spelling of the path.
+//
+// A refusal is reported in the loader's own words. One policy has one message, whether
+// the path climbed out in writing or through a link, and the reader is told the same
+// thing either way.
+func readInRoot(dir, rel, resolved string) (string, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+
+	b, err := root.ReadFile(rel)
+	if err == nil {
+		return string(b), nil
+	}
+	if isLink(root, rel) {
+		return "", fmt.Errorf("outside the root directory %s", dir)
+	}
+	// os.Root names the file relative to the root, and with the operation it performed
+	// (`openat`). The reader wants the path they can look at, and the operation they
+	// asked for, so the one thing kept from it is the reason.
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return "", &fs.PathError{Op: "open", Path: resolved, Err: pe.Err}
+	}
+	return "", err
+}
+
+// isLink reports whether name is a symbolic link, which is the one reason os.Root refuses
+// a read of a path the written form has already been checked against the root: a link is
+// the component the writing does not show. It is asked only after a refusal, and it
+// decides what to *say* rather than what to allow.
+//
+// The two refusals it stands for are "the link leaves the root" and "the link is
+// absolute", and they get one message because the rule is one rule: a path may not leave
+// the tree, and an absolute link is treated as leaving it — the tree cannot see where it
+// goes, which is the same reason an include path may not be absolute either.
+func isLink(root *os.Root, name string) bool {
+	info, err := root.Lstat(name)
+	return err == nil && info.Mode()&fs.ModeSymlink != 0
+}
+
 // checkLibName rejects the spellings that are not library names, each with the spelling
-// that was meant. A library name is a name, not a path: it carries no extension, does not
-// start at the root of the disk and does not climb.
+// that was meant. A library name is a name, not a path: it carries no extension and does
+// not climb. (Absolute is answered one level up, for both forms at once.)
 func checkLibName(name string) error {
 	slashed := filepath.ToSlash(name)
 	if strings.HasSuffix(slashed, libExt) {
 		short := strings.TrimSuffix(slashed, libExt)
 		return fmt.Errorf("a library name carries no %s: write %q, or %q for the file next to this one",
 			libExt, short, "./"+slashed)
-	}
-	if strings.HasPrefix(slashed, "/") {
-		return fmt.Errorf("an include path must be relative")
 	}
 	for _, seg := range strings.Split(slashed, "/") {
 		if seg == ".." {
@@ -218,7 +302,7 @@ func ownerRoot(from, root string, libs []string) (string, error) {
 	}
 	owner := ""
 	for _, dir := range append([]string{absRoot}, libs...) {
-		if within(dir, absFrom) && len(dir) > len(owner) {
+		if _, ok := within(dir, absFrom); ok && len(dir) > len(owner) {
 			owner = dir
 		}
 	}
@@ -231,12 +315,14 @@ func ownerRoot(from, root string, libs []string) (string, error) {
 	return owner, nil
 }
 
-// within reports whether path is dir or something below it. It is the root check both
-// forms end in, written once so the two cannot drift apart.
-func within(dir, path string) bool {
+// within reports whether path is dir or something below it, and hands back the path
+// relative to dir — the form os.Root asks for, computed by the check that had to compute
+// it anyway. It is the root check both forms end in, written once so the two cannot drift
+// apart.
+func within(dir, path string) (string, bool) {
 	rel, err := filepath.Rel(dir, path)
 	if err != nil {
-		return false
+		return "", false
 	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return rel, rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

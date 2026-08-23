@@ -3597,7 +3597,7 @@ file is `fmt.mzs`, not `fmt`.
 | `--version` | print version |
 
 The CLI installs a `ModuleLoader` (§12.8) that reads a path in one of two forms, told apart
-by the leading `./`:
+by the leading `./` or `../`:
 
 | Written | Meaning | Where it is looked for |
 |---|---|---|
@@ -3627,6 +3627,13 @@ subdirectories and nothing above them, a library reaches its own and nothing abo
 vendored library inside a project cannot read the project — and a library included from anywhere
 is confined the same way wherever it was included from. Absolute paths are refused in both forms.
 
+**A symbolic link is a path too**, and the check is made by the read rather than by the spelling:
+a link is followed while it stays inside the tree, and one that leads out of it is refused with
+the same message as a written `../` that leaves. An **absolute** link is refused with it, for the
+reason an include path may not be absolute either — the tree cannot see where it goes. A library
+kept elsewhere is therefore reached by putting its own directory on `$MZSPATH`, not by linking it
+into one that is already there.
+
 It also installs an `FS` and an `Env`, so the `io` module (§12.13) is available with no flag:
 `mzs -e 'include io; io.read("/etc/hostname").trim'` reads the file the shell would have read.
 That policy is deliberately wider than the loader's above, and the reason is who wrote the
@@ -3635,6 +3642,14 @@ being typed by the person running the command. An embedder gets neither unless i
 them itself. `--no-io` withholds all of it for one command — no `FS`, no `Env`, no `Stdin` —
 which is how the person typing runs somebody else's script and sees it the way an embedder
 would: `include io` becomes the compile error of §12.13.
+
+`--no-io` does **not** withhold the module loader, and that is deliberate: `include … from`
+is its own capability (§12.8, the `ModuleLoader` row of §13.2), and it is not a way to read a
+file. It reads *source*, runs it as part of the same program, and hands back the names that
+source exported — the text never becomes a value the way `io.read` returns one — and it is
+confined to the tree the including file belongs to. A script that may not reach its own second
+file is a different script, so the flag that says "no files, no env, no stdin" leaves the
+program's own parts alone. An embedder that wants neither installs neither.
 
 **Stdin is either the program or its data, never both.** A reader has one set of bytes.
 With `-e` or a file the program came from somewhere else, so stdin is free to be data and
@@ -4264,9 +4279,11 @@ the specification that are load-bearing for somebody else's code.
 
 ### 21.1 What is stable
 
-A version is `MAJOR.MINOR.PATCH`. Within one MAJOR — `0` included, where the `0` means
-"young", not "anything may happen" — a program that runs today runs the same way tomorrow,
-and a Go program that compiles against the API today still compiles.
+A version is `MAJOR.MINOR.PATCH`. Within one MAJOR a program that runs today runs the same
+way tomorrow, and a Go program that compiles against the API today still compiles. While
+MAJOR is `0` there is one exception to that, and only one: a break that is **deliberate**,
+bumps the MINOR and is written down (§21.4). So `0` means "young", not "anything may
+happen" — a quiet break is allowed at no version, and `0.1.1` never breaks `0.1.0`.
 
 | Stable | What that means |
 |---|---|
@@ -4309,22 +4326,26 @@ The same shape covers a name that is *withdrawn* rather than renamed: it keeps f
 a message that says what to write instead. What none of this covers is a name that never
 existed — a misspelling is a near-miss suggestion (§17), not a promise.
 
-### 21.4 What `0.x` leaves open
+### 21.4 The one exception, while MAJOR is `0`
 
 The version is `0.1.0`. What a MAJOR of `0` buys is exactly one thing: the promise of §21.1
 may be broken **deliberately** — with a MINOR bump, a `CHANGELOG.md` entry that says what
-moved, and a diagnostic under §21.3 wherever a diagnostic can carry the reader across. It is
-not a licence for a quiet change; there is no such licence at any version. `1.0` is the
-release that gives that up and needs a MAJOR bump instead, and the acceptance corpus of §16
-is what it will be measured against.
+moved, and a diagnostic under §21.3 wherever a diagnostic can carry the reader across. So
+`0.2.0` may break a program `0.1.0` ran, and it has to say so in the changelog; `0.1.1` may
+not. It is not a licence for a quiet change; there is no such licence at any version. `1.0`
+is the release that gives the exception up and needs a MAJOR bump instead, and the acceptance
+corpus of §16 is what it will be measured against.
 
 ### 21.5 One version string
 
 The version lives in one place in the source (`cmd/mzs/main.go`), and CI checks that
-`mzs --version` agrees with the newest released section of `CHANGELOG.md` and with the line
-`README.md` prints as its output. A version that means anything has to be the same version
-everywhere it is written down, and three copies of a string are three chances for it not to
-be — so the check is a build step rather than a habit.
+`mzs --version` agrees with the newest version section of `CHANGELOG.md` and with every
+version `README.md` and `docs/` print. The documentation half is checked in the strict
+direction — no page may print a version that is not the current one — because a page still
+printing the previous release beside one printing this release is exactly the disagreement
+worth catching. A version that means anything has to be the same version everywhere it is
+written down, and each copy of a string is another chance for it not to be, so the check is
+a build step rather than a habit.
 
 ---
 

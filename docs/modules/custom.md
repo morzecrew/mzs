@@ -132,12 +132,13 @@ code 3.
 
 ## Two path forms: a file, or a library
 
-The leading `./` is the whole of the difference, and it is the difference between a file the
-program carries and a library it only names.
+The leading `./` — or `../` — is the whole of the difference, and it is the difference between
+a file the program carries and a library it only names.
 
 ```
-include cart  from "./cart.mzs"     # a file: next to the one doing the including
-include money from "money"          # a library: on the search path
+include cart  from "./cart.mzs"       # a file: beside the one doing the including
+include log   from "../shared/log.mzs" # …still a file: `../` is the file form too
+include money from "money"            # a library: on the search path
 ```
 
 A **file** path is resolved against the file doing the including — `sub/mid.mzs` including
@@ -187,6 +188,18 @@ search directory it was found under. So a vendored library under `vendor/` canno
 project that vendored it, and a library included from anywhere is confined the same way
 wherever it was included from.
 
+**A symbolic link is a path too.** The check is made by the read rather than by the spelling,
+so a link is followed while it stays inside the tree, and one that leads out of it is refused
+exactly like a written `../` that leaves. An absolute link is refused with it — the tree cannot
+see where it goes, which is why an include path may not be absolute either. To use a library
+that lives somewhere else, put *its* directory on `$MZSPATH` rather than linking it into one
+that is already there:
+
+```sh
+ln -s ~/dev/money/money.mzs ~/.mzs/lib/money.mzs   # refused: the link leads out of ~/.mzs/lib
+MZSPATH=~/dev/money:~/.mzs/lib mzs report.mzs      # …this is the way to say it
+```
+
 | Path | Result |
 |---|---|
 | `"./lib.mzs"`, `"./sub/lib.mzs"` | resolved next to the including file |
@@ -194,6 +207,7 @@ wherever it was included from.
 | `"/etc/hostname"` | `cannot include …: an include path must be relative` |
 | `"../mzs"` | `cannot include …: outside the root directory …` |
 | `"./nope.mzs"` | `cannot include …: no such file or directory` |
+| `"./link.mzs"` (a link out of the tree, or an absolute one) | `cannot include …: outside the root directory …` |
 | `"nope"` | `cannot include …: no such library: looked for nope.mzs and nope/main.mzs in …` |
 | `"money.mzs"` | `a library name carries no .mzs: write "money", or "./money.mzs" for the file next to this one` |
 | `"shop/../money"` | `a library name cannot contain '..'; "./shop/../money" is the form that may` |

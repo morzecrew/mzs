@@ -114,11 +114,16 @@ jobs:
           done
           exit $status
 
-      # One version string (SPEC §21.5). The binary, the newest released section of the
-      # changelog and the line README prints as the command's output are three copies of
-      # one fact, and a promise about a version means nothing if they disagree about which
-      # version it is. Work that is not released yet lives under "## Unreleased", which
-      # this check ignores on purpose: the assertion is about the version that shipped.
+      # One version string (SPEC §21.5). The binary, the newest version section of the
+      # changelog and every version the documentation prints are copies of one fact, and a
+      # promise about a version means nothing if they disagree about which version it is.
+      #
+      # The prose check is deliberately the strict direction: every `mzs <x.y.z>` written
+      # anywhere in README or docs must be the current one. Asking only whether the right
+      # string appears *somewhere* would pass a page that still prints the previous
+      # release beside one that prints this one — which is the failure this exists to
+      # catch. Work that is not released yet lives under "## Unreleased", which the
+      # changelog half skips on purpose: the assertion is about the version that shipped.
       - name: the version is one string
         run: |
           printed=$(/tmp/mzs --version)                 # "mzs 0.1.0"
@@ -126,11 +131,18 @@ jobs:
           released=$(grep -m1 -E '^## [0-9]' CHANGELOG.md | sed -E 's/^## ([^ ]+).*/\1/')
           status=0
           if [ "$number" != "$released" ]; then
-            echo "mzs --version says $number; the newest released CHANGELOG.md section is $released"
+            echo "mzs --version says $number; the newest CHANGELOG.md version section is $released"
             status=1
           fi
           if ! grep -qF "$printed" README.md; then
             echo "README.md does not print '$printed' as the output of mzs --version"
+            status=1
+          fi
+          stale=$(grep -rhoE 'mzs [0-9]+\.[0-9]+\.[0-9]+' README.md docs/ | sort -u | grep -vxF "$printed" || true)
+          if [ -n "$stale" ]; then
+            echo "the documentation prints a version that is not '$printed':"
+            echo "$stale"
+            grep -rnE 'mzs [0-9]+\.[0-9]+\.[0-9]+' README.md docs/ | grep -vF "$printed"
             status=1
           fi
           exit $status
