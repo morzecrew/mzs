@@ -2153,7 +2153,7 @@ Conventions used in the tables:
 | `reverse` | `-> string` | rune-wise | |
 | `first` / `last` | `(n: int = 1) -> string` | first/last `n` runes | |
 | `first_and_last` | `-> string` | `first(1) + last(1)` | |
-| `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error | `name.ljust(20)` |
+| `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error | `name.ljust(20)` |
 | `slice` | `(i: int, n: int = 1) -> string` | same as `s[i, n]` | |
 | `ord` | `-> int` | code point of the first rune | |
 | `each_char` | `{ (c) -> … } -> string` | iterates, returns the receiver | |
@@ -2164,6 +2164,8 @@ parameters, following the convention of §7.7: `s.replace(/\d+/) { it.int + 1 }`
 matched text in `it`, and `s.replace(/(\w)(\w)/) { (m, a, b) -> b + a }` gets the match and
 its groups. Passing the array as a single argument instead would make the one-liner form a
 type error, which G1 does not allow.
+
+`center` puts the odd column on the right: `"ab".center(7, "-")` is `--ab---`.
 
 Strings are immutable. There are no in-place string operations under any spelling.
 

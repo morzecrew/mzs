@@ -1145,7 +1145,7 @@
    },
    "center": {
     "sig": "`(width: int, pad: string = \" \") -> string`",
-    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
+    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
     "ex": "`name.ljust(20)`"
    },
    "chars": {
@@ -1240,7 +1240,7 @@
    },
    "ljust": {
     "sig": "`(width: int, pad: string = \" \") -> string`",
-    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
+    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
     "ex": "`name.ljust(20)`"
    },
    "lower": {
@@ -1275,7 +1275,7 @@
    },
    "rjust": {
     "sig": "`(width: int, pad: string = \" \") -> string`",
-    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji; `center` puts the odd column on the right. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
+    "sem": "pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error",
     "ex": "`name.ljust(20)`"
    },
    "slice": {
