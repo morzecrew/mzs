@@ -108,7 +108,8 @@ sleep(0.02)
 spinner.cancel
 println("  a task that polls forever, cancelled after 20ms:")
 println("    ${try spinner.await else (e) -> "${e["kind"]}: ${e["message"]}"}")
-println("  the cancel lands at the task's next step or its next wait")
+println("  the cancel lands at the task's next step or its next wait — and a task that has")
+println("  not started at all never runs its body, so a short body cannot outrun it")
 
 async fn quick() { "already done" }
 finished = quick()

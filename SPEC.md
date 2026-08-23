@@ -2550,7 +2550,7 @@ once. A task answers four names and nothing else.
 | task | `await` | `await(t) -> any` | waits for the task and yields the value of its body; raises here, at the await, whatever the body raised. Awaiting a finished task again is the same answer again. | `t.await` |
 | task | `done` | `done(t) -> bool` | has the task finished — the one question about a task that never waits | `t.done` |
 | task | `timeout` | `timeout(t, d: number) -> any` | `await` with a limit of `d` seconds. What runs out is the **waiting**, not the work: the task carries on and can still be awaited. Expiry is a catchable error of kind `timeout` (§13.5) | `t.timeout(2)` |
-| task | `cancel` | `cancel(t) -> nil` | stop the task. It ends at its next step or its next wait, and the context it was given ends with it, so a request already on the wire is aborted rather than waited out (§12.11). Always nil: cancelling a finished task changes nothing, and cancelling twice is the first cancel | `t.cancel` |
+| task | `cancel` | `cancel(t) -> nil` | stop the task. One that has not yet held the interpreter never runs its body at all; one that is running ends at its next step or its next wait, and the context it was given ends with it, so a request already on the wire is aborted rather than waited out (§12.11). Always nil: cancelling a finished task changes nothing, and cancelling twice is the first cancel | `t.cancel` |
 
 | Member | Signature | Semantics | Example |
 |---|---|---|---|

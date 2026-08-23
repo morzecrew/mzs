@@ -161,9 +161,10 @@ t = slow()
 [try t.timeout(0.1) else (e) -> e["kind"], t.await].json   # ["timeout","value"]
 ```
 
-`t.cancel` ends the task instead. It lands at the task's next step or its next wait, and the
-context the task was given ends with it, so a request on the wire is aborted rather than left
-running:
+`t.cancel` ends the task instead. A task that has not started yet — cancelled in the same
+breath as it was called — never runs its body at all; one that is already running ends at its
+next step or its next wait, and the context the task was given ends with it, so a request on
+the wire is aborted rather than left running:
 
 ```
 async fn slow() { sleep(5); "value" }

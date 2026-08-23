@@ -1330,7 +1330,7 @@
    },
    "width": {
     "sig": "`-> int`",
-    "sem": "display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by",
+    "sem": "display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by. The unit is the **code point**, as in Unicode's own width property: an emoji sequence joined with U+200D counts each of its emoji, because whether a terminal draws such a sequence as one glyph or two is the terminal's decision and not the text's",
     "ex": "`\"日本\".width == 4`"
    }
   },
@@ -1342,7 +1342,7 @@
    },
    "cancel": {
     "sig": "`cancel(t) -> nil`",
-    "sem": "stop the task. It ends at its next step or its next wait, and the context it was given ends with it, so a request already on the wire is aborted rather than waited out (§12.11). Always nil: cancelling a finished task changes nothing, and cancelling twice is the first cancel",
+    "sem": "stop the task. One that has not yet held the interpreter never runs its body at all; one that is running ends at its next step or its next wait, and the context it was given ends with it, so a request already on the wire is aborted rather than waited out (§12.11). Always nil: cancelling a finished task changes nothing, and cancelling twice is the first cancel",
     "ex": "`t.cancel`"
    },
    "done": {

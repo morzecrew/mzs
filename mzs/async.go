@@ -460,6 +460,15 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 			trs.unlock()
 			close(t.done)
 		}()
+		// A task cancelled before it ever held the interpreter has run no steps, so there
+		// is no "next step" for the cancel to land at — it lands here instead. Without
+		// this, a body short enough to finish inside one sampling interval (§14.1) would
+		// hand back a value for a task the script had already stopped, and which of the
+		// two happened would depend on how long the body was.
+		if t.canceled {
+			t.err = trs.canceledError()
+			return
+		}
 		te := ev{rs: trs, cx: newCtx(trs), env: env}
 		t.val, t.err = te.runTaskBody(f, pos)
 	}()

@@ -762,6 +762,13 @@ t.await`, "7"},
 t = f()
 t.cancel
 try t.await else (e) -> t.done`, "true"},
+		// A task cancelled before it ever held the interpreter has run no steps, so the
+		// cancel cannot land at one. Whether the body was long enough to reach a step
+		// check must not decide whether the cancel took: this body is one step long.
+		{"a cancel before the task ever ran still takes", `async fn f() { 1 }
+t = f()
+t.cancel
+try t.await else (e) -> e["kind"]`, "canceled"},
 	}
 
 	o := asyncOpts()
@@ -869,6 +876,11 @@ $t.await`, "cannot race itself"},
 async fn f() { tasks.all([$t]) }
 $t = f()
 $t.await`, "cannot await itself"},
+		{"all raises for tasks the script cancelled before they ran", `include tasks
+async fn f(n) { n }
+ts = (1..3).map { f(it) }
+ts.each { it.cancel }
+tasks.all(ts)`, "was canceled"},
 		{"timeout wants a duration", "async fn f() { 1 }\nf().timeout(\"soon\")", "expects a number"},
 		{"timeout on a value that is not a task", "5.timeout(1)", "undefined method 'timeout' for int"},
 		{"cancel on a value that is not a task", "5.cancel", "undefined method 'cancel' for int"},
