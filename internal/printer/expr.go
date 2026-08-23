@@ -309,10 +309,10 @@ func (p *printer) callish(e ast.Expr, ind int) {
 	case *ast.MethodCall:
 		p.writeExpr(x.Recv, ind)
 		p.w(p.dot(x) + x.Name)
-		p.args(x.Args, x.Named, p.methodParens(x), x.NamePos.Line, x.Stop.Offset, ind)
+		p.args(x.Args, x.Named, p.methodParens(x), x.NamePos.Line, p.bracketSpan(x), ind)
 	case *ast.CallExpr:
 		p.writeExpr(x.Fn, ind)
-		p.args(x.Args, x.Named, p.hasParens(x.Lparen), x.Lparen.Line, x.Stop.Offset, ind)
+		p.args(x.Args, x.Named, p.hasParens(x.Lparen), x.Lparen.Line, p.bracketSpan(x), ind)
 	}
 }
 
@@ -382,7 +382,7 @@ func (p *printer) chain(base ast.Expr, links []*ast.MethodCall, ind int) {
 			p.tab(ind + 1)
 		}
 		p.w(p.dot(m) + m.Name)
-		p.args(m.Args, m.Named, p.methodParens(m), m.NamePos.Line, m.Stop.Offset, ind+1)
+		p.args(m.Args, m.Named, p.methodParens(m), m.NamePos.Line, p.bracketSpan(m), ind+1)
 	}
 }
 
@@ -409,16 +409,26 @@ func (p *printer) methodParens(m *ast.MethodCall) bool {
 
 // args writes an argument list, breaking one argument to a line when the flat form does
 // not fit. A trailing closure is written after the parentheses, where it was written.
-func (p *printer) args(all []ast.Expr, named []ast.NamedArg, parens bool, line, closeOff, ind int) {
+func (p *printer) args(all []ast.Expr, named []ast.NamedArg, parens bool, line int, sp span, ind int) {
 	closure, args := p.trailingClosure(all)
 	if parens || len(args) > 0 || len(named) > 0 {
 		items := callItems(args, named)
-		// The list gets its own chance to fit: this is reached from a chain that broke
-		// by its dots, where each link starts a fresh line and most of them are short.
-		if s, ok := p.flatList("(", ")", items); ok && p.col+utf8.RuneCountInString(s) <= Width {
-			p.w(s)
-		} else if !p.hug(items, ind) {
-			p.list("(", ")", line, closeOff, items, ind)
+		// A comment between the parentheses goes straight to the broken form, which has a
+		// line for every argument and one more before the `)`. Only when there is none may
+		// the list take its own chance to fit — this is reached from a chain that broke by
+		// its dots, where each link starts a fresh line and most of them are short.
+		flat := ""
+		fits := false
+		if !p.hasComment(sp.from, sp.to) {
+			s, ok := p.flatList("(", ")", items)
+			flat, fits = s, ok && p.col+utf8.RuneCountInString(s) <= Width
+		}
+		switch {
+		case fits:
+			p.w(flat)
+		case p.hug(items, ind):
+		default:
+			p.list("(", ")", line, sp.to, items, ind)
 		}
 	}
 	if closure != nil {
@@ -434,6 +444,10 @@ func (p *printer) args(all []ast.Expr, named []ast.NamedArg, parens bool, line, 
 // in to buy nothing.
 func (p *printer) hug(items []item, ind int) bool {
 	if len(items) == 0 {
+		return false
+	}
+	if p.hasComment(items[0].pos.Offset, items[len(items)-1].pos.Offset) {
+		// A comment between two arguments needs the line every argument gets.
 		return false
 	}
 	last := items[len(items)-1]

@@ -283,6 +283,15 @@ func (p *printer) hasParens(pos token.Pos) bool {
 	return pos.IsValid() && p.at(pos.Offset) == '('
 }
 
+// bracketSpan is brackets() for a caller that has already decided the node has some.
+func (p *printer) bracketSpan(e ast.Expr) span {
+	from, to, ok := p.brackets(e)
+	if !ok {
+		return span{}
+	}
+	return span{from, to}
+}
+
 // brackets returns the span between a node's own brackets — the region whose broken form
 // has a slot for every comment in it — and whether the node has any.
 func (p *printer) brackets(e ast.Expr) (from, to int, ok bool) {

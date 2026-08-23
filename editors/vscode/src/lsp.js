@@ -16,12 +16,14 @@ class Client {
    * @param {string[]} args its arguments
    * @param {(method: string, params: any) => void} onNotify called for every server notification
    * @param {(message: string) => void} onError called once when the server cannot be run or dies
+   * @param {(text: string) => void} [onStderr] called for anything the server writes to stderr
    */
-  constructor(command, args, onNotify, onError) {
+  constructor(command, args, onNotify, onError, onStderr) {
     this.command = command;
     this.args = args;
     this.onNotify = onNotify;
     this.onError = onError;
+    this.onStderr = onStderr;
     this.proc = null;
     this.buffer = Buffer.alloc(0);
     this.nextId = 1;
@@ -42,8 +44,13 @@ class Client {
     });
     this.proc.stdout.on('data', chunk => this.receive(chunk));
     // The server writes nothing to stderr in normal operation; when it does, it is worth
-    // seeing rather than swallowing.
-    this.proc.stderr.on('data', chunk => this.fail(String(chunk).trim()));
+    // seeing rather than swallowing — but a line on stderr is not a dead process, and
+    // treating it as one would end the session over a message. `error` and `exit` are the
+    // events that mean the server is gone.
+    this.proc.stderr.on('data', chunk => {
+      const text = String(chunk).trim();
+      if (text && this.onStderr) this.onStderr(text);
+    });
     this.proc.stdin.on('error', () => {});
     return this;
   }

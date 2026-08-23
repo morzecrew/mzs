@@ -15,3 +15,15 @@ xs = [
   1,  # one
   2,
 ]
+
+# A comment inside a condition has no slot in the line it stands on: it is written where
+# the layout allows and never dropped, which is the `leftovers` path.
+while a && # why we keep going
+    b {
+  step()
+}
+
+f(
+  1,
+  # the last word, before the bracket closes
+)

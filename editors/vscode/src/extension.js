@@ -567,6 +567,10 @@ function startServer(context, collection, onFail) {
   }, message => {
     collection.clear();
     onFail(message);
+  }, text => {
+    // Anything the server says on stderr is shown and nothing more: the session is still
+    // running, and the status bar is where a line of diagnostics about the tool belongs.
+    vscode.window.setStatusBarMessage('mzs lsp: ' + text.split('\n')[0], 8000);
   });
 
   client.start();
