@@ -105,13 +105,7 @@ func fmtFile(cfg *fmtConfig, path string, stdout, stderr io.Writer) bool {
 		if same {
 			return true
 		}
-		// The mode is the file's own: formatting a script must not take away the bit
-		// that lets it run.
-		mode := fs.FileMode(0o644)
-		if st, serr := os.Stat(path); serr == nil {
-			mode = st.Mode().Perm()
-		}
-		if err := os.WriteFile(path, []byte(out), mode); err != nil {
+		if err := writeFile(path, out); err != nil {
 			fmt.Fprintf(stderr, "mzs fmt: %v\n", err)
 			return false
 		}
@@ -119,6 +113,37 @@ func fmtFile(cfg *fmtConfig, path string, stdout, stderr io.Writer) bool {
 		fmt.Fprint(stdout, out)
 	}
 	return true
+}
+
+// writeFile replaces a file's contents without ever leaving it half written: the new text
+// goes to a temporary file beside it and is renamed over it, which is one atomic step on
+// every filesystem this runs on. A formatter that truncated a source file and then died
+// would be the worst possible bug in a formatter.
+//
+// The mode is the file's own, because formatting a script must not take away the bit that
+// lets it run.
+func writeFile(path, text string) error {
+	mode := fs.FileMode(0o644)
+	if st, err := os.Stat(path); err == nil {
+		mode = st.Mode().Perm()
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".fmt")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name) // a no-op once the rename below has succeeded
+	if _, err := tmp.WriteString(text); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 // mzsFiles expands the arguments: a file is itself, a directory is every `.mzs` file
@@ -168,7 +193,12 @@ func parseFmtArgs(argv []string) (*fmtConfig, error) {
 	endOfFlags := false
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
-		if endOfFlags || a == "" || a[0] != '-' || a == "-" {
+		if a == "-" && !endOfFlags {
+			// A bare `-` is stdin, exactly as it is for `mzs -`: it names no file, so it
+			// adds no path and the run falls through to the filter form below.
+			continue
+		}
+		if endOfFlags || a == "" || a[0] != '-' {
 			cfg.paths = append(cfg.paths, a)
 			continue
 		}
@@ -196,6 +226,7 @@ var fmtUsage = fmt.Sprintf(`mzs fmt — the one spelling of a program
 Usage:
   mzs fmt [flags] [path...]        format each file, or each .mzs file under each directory
   mzs fmt < a.mzs                  format standard input to standard output
+  cat a.mzs | mzs fmt -            the same, spelled the way the main command spells it
 
 Flags:
   -w, --write   write the result back to each file instead of printing it

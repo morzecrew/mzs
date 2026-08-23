@@ -113,10 +113,16 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (int, i
 		fmt.Fprintln(stdout, "     (no cases)")
 	}
 	if rerr != nil {
-		if _, ok := mzs.ExitCode(rerr); ok {
-			// `exit(n)` inside a test file is the file saying it is done. The cases it
-			// ran up to there still count, and the file is not a broken one.
-			return len(res.Tests), failed, nil
+		if code, ok := mzs.ExitCode(rerr); ok {
+			// `exit(0)` inside a test file is the file saying it is done early: the cases
+			// it ran up to there still count and nothing is wrong. Any other code is the
+			// file reporting a failure of its own, and a runner that answered 0 to it
+			// would be hiding the one thing `exit(n)` exists to say (§12.1).
+			if code == 0 {
+				return len(res.Tests), failed, nil
+			}
+			fmt.Fprintf(stderr, "mzs test: %s: exit(%d)\n", path, code)
+			return len(res.Tests), failed, rerr
 		}
 		reportErr(stderr, path, src, rerr)
 		return len(res.Tests), failed, rerr
@@ -247,6 +253,10 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 		case "--time":
 			cfg.opts.enableTime = true
 		case "--rand":
+			// `--rand [seed]` reads the same here as on the main command line: an
+			// attached seed is required to be one, and a following word is taken only
+			// when it parses as an integer, so `mzs test --rand lib/` still finds its
+			// directory.
 			cfg.opts.randOn = true
 			cfg.opts.randSeed = time.Now().UnixNano()
 			if hasVal {
@@ -255,6 +265,11 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 					return nil, fmt.Errorf("--rand wants an integer seed, got %q", val)
 				}
 				cfg.opts.randSeed = n
+			} else if i+1 < len(argv) {
+				if n, perr := strconv.ParseInt(argv[i+1], 10, 64); perr == nil {
+					cfg.opts.randSeed = n
+					i++
+				}
 			}
 		case "--io":
 			cfg.opts.ioOn = true

@@ -48,6 +48,38 @@ func TestFmtWritesFilesInPlace(t *testing.T) {
 	}
 }
 
+// The file is replaced, not truncated and refilled: a formatter that died mid-write would
+// leave a source file half gone. The mode survives too — formatting a script must not take
+// away the bit that lets it run.
+func TestFmtWriteKeepsTheModeAndLeavesNoLitter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.mzs")
+	if err := os.WriteFile(path, []byte("x=1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := exec([]string{"fmt", "-w", path}, ""); code != exitOK {
+		t.Fatalf("code = %d, stderr = %s", code, errOut)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755", st.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "a.mzs" {
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		t.Errorf("the directory holds %v, want only a.mzs", names)
+	}
+}
+
 func TestFmtListsOnlyWhatDiffers(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "good.mzs")
@@ -86,6 +118,18 @@ func TestFmtWalksADirectory(t *testing.T) {
 	}
 	if out != "x = 1\ny = 2\n" {
 		t.Errorf("stdout = %q, want a.mzs then b.mzs and nothing else", out)
+	}
+}
+
+// `-` is stdin for `mzs -`, and it has to be stdin for `mzs fmt -` too: one token, one
+// meaning, one binary.
+func TestFmtDashIsStdin(t *testing.T) {
+	code, out, errOut := exec([]string{"fmt", "-"}, "x=1\n")
+	if code != exitOK {
+		t.Fatalf("code = %d, stderr = %s", code, errOut)
+	}
+	if out != "x = 1\n" {
+		t.Errorf("stdout = %q, want the formatted text", out)
 	}
 }
 
@@ -207,6 +251,35 @@ func TestTestReportsABrokenFile(t *testing.T) {
 	}
 }
 
+// `exit(0)` is a file saying it is done; any other code is a file reporting a failure, and
+// a runner that answered 0 to it would hide the one thing `exit(n)` exists to say.
+func TestTestHonoursANonZeroExit(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", `include test
+test.case("ran") { assert(true) }
+exit(3)
+`)
+	code, out, _ := exec([]string{"test", dir}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(out, "ok   ran") {
+		t.Errorf("the case that ran before the exit was lost:\n%s", out)
+	}
+}
+
+func TestTestZeroExitIsNotAFailure(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", `include test
+test.case("ran") { assert(true) }
+exit(0)
+`)
+	code, out, errOut := exec([]string{"test", dir}, "")
+	if code != exitOK {
+		t.Errorf("code = %d, stdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+}
+
 func TestTestSaysWhenThereIsNothingToRun(t *testing.T) {
 	dir := t.TempDir()
 	code, _, errOut := exec([]string{"test", dir}, "")
@@ -237,6 +310,88 @@ func TestTestPassesTheTimeoutOn(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "timeout") && !strings.Contains(errOut, "limit") {
 		t.Errorf("stderr = %q, want a limit", errOut)
+	}
+}
+
+// `--rand [seed]` is documented with a space, so a seed written that way has to reach the
+// interpreter rather than the list of paths.
+func TestTestReadsASeedWrittenWithASpace(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", `include test
+test.case("seeded") { assert(rand() >= 0 && rand() < 1) }
+`)
+	for _, argv := range [][]string{
+		{"test", "--rand", "7", dir},
+		{"test", "--rand=7", dir},
+		{"test", "--rand", dir},
+	} {
+		t.Run(strings.Join(argv[1:len(argv)-1], " "), func(t *testing.T) {
+			code, out, errOut := exec(argv, "")
+			if code != exitOK {
+				t.Errorf("code = %d, stdout:\n%s\nstderr:\n%s", code, out, errOut)
+			}
+		})
+	}
+}
+
+// A seed is only ever the next word when it is one: `mzs test --rand lib/` still finds
+// its directory.
+func TestTestRandDoesNotSwallowAPath(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", "include test\ntest.case(\"one\") { assert(true) }\n")
+	code, out, errOut := exec([]string{"test", "--rand", dir}, "")
+	if code != exitOK || !strings.Contains(out, "ok   one") {
+		t.Errorf("code = %d, stdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+}
+
+// Every flag `mzs test` takes, taken. The point is not the flags but that none of them is
+// silently dropped: a budget nobody applied is a test suite with no limit at all.
+func TestTestFlags(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", "include test\ntest.case(\"one\") { assert(true) }\n")
+	for _, tc := range []struct {
+		name string
+		argv []string
+		want int
+	}{
+		{"a timeout", []string{"test", "-t", "5", dir}, exitOK},
+		{"a timeout attached", []string{"test", "--timeout=5s", dir}, exitOK},
+		{"a step budget", []string{"test", "--steps", "1000000", dir}, exitOK},
+		{"no step budget", []string{"test", "--steps", "0", dir}, exitOK},
+		{"a task limit", []string{"test", "--tasks", "8", dir}, exitOK},
+		{"a clock", []string{"test", "--time", dir}, exitOK},
+		{"randomness", []string{"test", "--rand", dir}, exitOK},
+		{"no filesystem", []string{"test", "--no-io", dir}, exitOK},
+		{"a filesystem back", []string{"test", "--io", dir}, exitOK},
+		{"end of flags", []string{"test", "--", dir}, exitOK},
+		{"a bad duration", []string{"test", "-t", "soon", dir}, exitUsage},
+		{"a bad step budget", []string{"test", "--steps", "many", dir}, exitUsage},
+		{"a bad task count", []string{"test", "--tasks", "-1", dir}, exitUsage},
+		{"a bad seed", []string{"test", "--rand=soon", dir}, exitUsage},
+		{"a flag with no value", []string{"test", "-t"}, exitUsage},
+		{"an unknown flag", []string{"test", "--nope", dir}, exitUsage},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out, errOut := exec(tc.argv, "")
+			if code != tc.want {
+				t.Errorf("code = %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.want, out, errOut)
+			}
+		})
+	}
+}
+
+// A step budget small enough to trip is a file that did not finish, and the runner says so
+// rather than reporting a pass.
+func TestTestAppliesTheStepBudget(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", "include test\ntest.case(\"counts\") { (1..100000).map { it * 2 }.sum }\n")
+	code, _, errOut := exec([]string{"test", "--steps", "500", dir}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(errOut, "budget") && !strings.Contains(errOut, "limit") {
+		t.Errorf("stderr = %q, want a budget", errOut)
 	}
 }
 
