@@ -49,10 +49,11 @@ mzs test --time examples/     # 27_lib_money_test.mzs, case by case
 ```
 
 ```sh
+set -e
 for f in examples/*.mzs; do
   mzs fmt "$f" > /tmp/once.mzs
   mzs fmt /tmp/once.mzs > /tmp/twice.mzs
-  cmp -s /tmp/once.mzs /tmp/twice.mzs || echo "mzs fmt is not idempotent on $f"
+  cmp -s /tmp/once.mzs /tmp/twice.mzs || { echo "mzs fmt is not idempotent on $f"; exit 1; }
 done
 ```
 

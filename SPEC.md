@@ -3013,7 +3013,7 @@ half, and `mzs test` (§15) is the command that runs it.
 include test
 
 test.case("нормализация") { assert("  ДА ".lower.trim == "да") }
-test.case("деньги")       { test.eq(decimal("10.00") * 3, decimal("30.00")) }
+test.case("деньги")       { test.eq(decimal.times(decimal.of("10.00"), 3), decimal.of("30.00")) }
 ```
 
 | Member | Signature | Semantics |
@@ -3686,7 +3686,8 @@ What it leaves alone, on purpose:
   code around it and otherwise reproduced as written. The body's lines are the program's
   data, and re-flowing data is not formatting;
 * **parentheses**, which are a node of their own in this grammar (§4) and therefore say
-  what the author meant to say;
+  what the author meant to say — the one spelling *not* kept is the arrow function, since
+  `(a) -> { … }` and `fn(a) { … }` are one node (§4.1) and both come out as the second;
 * **comments**, which keep the line they were written on, or the line above the statement
   they were written above. Nothing is ever re-wrapped.
 

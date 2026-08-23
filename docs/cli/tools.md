@@ -54,6 +54,10 @@ is a formatter you argue about.
   around it and otherwise reproduced as written. The body's lines are the program's data,
   and re-flowing data is not formatting.
 * **Parentheses**, which say what the author meant to say.
+
+The one spelling it does not keep is the arrow function: `(a, b) -> { a + b }` and
+`fn(a, b) { a + b }` are the same node in the tree, so both come out as the second. It is
+the only place where two ways of writing a thing reach the formatter as one.
 * **Comments**, which keep the line they were written on, or the line above the statement
   they were written above. Nothing is ever re-wrapped, and a blank line the author left
   survives as exactly one blank line.

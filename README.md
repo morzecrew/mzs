@@ -143,7 +143,7 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | **URLs both ways** | `url.parse(u)["query"]["page"]` · `url.build({scheme: "https", host: h, query: q})` | [url](docs/modules/url.md) |
 | **Concurrency** | `tasks.race(mirrors.map { fetch(it) })` — the first answer, the others cancelled · `sleep(0.2)` | [async](docs/language/async.md) |
 | **Modules of your own** | `include cart from "./cart.mzs"` | [modules](docs/modules/custom.md) |
-| **Tests of your own** | `test.case("rounding") { test.eq(total(cart), decimal("30.00")) }` — run by `mzs test` | [test](docs/modules/test.md) |
+| **Tests of your own** | `test.case("rounding") { test.eq(total(cart), decimal.of("30.00")) }` — run by `mzs test` | [test](docs/modules/test.md) |
 | **Shell pipelines** | `cat access.log \| mzs -n -e '$_.split(" ")[0]'` | [line mode](docs/cli/input.md) |
 | **Embedding in Go** | `in.Eval(ctx, "$price.int + 1200", vars)` | [embedding](docs/embedding/README.md) |
 
@@ -224,7 +224,7 @@ for f in examples/*.mzs; do mzs --check --time "$f"; done
 mzs test examples/  # the tests written in mzs itself
 ```
 
-The same four commands run on every push ([CI](.github/workflows/ci.yml)), with coverage going to
+The same five commands run on every push ([CI](.github/workflows/ci.yml)), with coverage going to
 [Codecov](https://codecov.io/gh/morzecrew/mzs).
 
 ## License

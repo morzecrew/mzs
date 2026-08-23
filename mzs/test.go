@@ -16,7 +16,7 @@ import (
 //	include test
 //
 //	test.case("нормализация") { assert("  ДА ".lower.trim == "да") }
-//	test.case("деньги") { test.eq(decimal("10.00") * 3, decimal("30.00")) }
+//	test.case("деньги") { test.eq(decimal.times(decimal.of("10.00"), 3), decimal.of("30.00")) }
 //
 // **A case catches, the file keeps going.** `test.case` runs its closure and holds on to
 // whatever it raised, so the second case runs after the first one fails and the report
