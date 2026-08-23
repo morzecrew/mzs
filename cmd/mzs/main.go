@@ -15,7 +15,6 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -78,8 +77,10 @@ type config struct {
 	// line of the data stream, with the line bound to $_.
 	perLine   bool
 	printEach bool
-	// root confines `include … from` to one directory tree: the script's own directory,
-	// or the working directory for -e and stdin.
+	// root confines the file form of `include … from` — a path with `./` — to one
+	// directory tree: the script's own directory, or the working directory for -e and
+	// stdin. A path with no `./` is a library name and is looked for on $MZSPATH
+	// instead, rooted in the directory it was found in (include.go).
 	root     string
 	randOn   bool
 	randSeed int64
@@ -351,22 +352,6 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 // the read fails loudly instead of quietly handing the program half a line.
 const maxLineBytes = 4 << 20
 
-// includeRoot is the directory includes are confined to: where the script lives, or the
-// working directory when the source came from -e or a pipe and has no directory of its
-// own.
-func includeRoot(cfg *config) string {
-	if cfg.file != "" && cfg.file != "-" {
-		if dir := filepath.Dir(cfg.file); dir != "" {
-			return dir
-		}
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return wd
-}
-
 // options builds the interpreter configuration. A user-supplied 0 means "no limit",
 // which mzs.Options spells as a negative value. The last argument is the *data* stream
 // (dataStream above), not the console: what a script reads, never what it was written in.
@@ -400,7 +385,7 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	if cfg.randOn {
 		o.Rand = rand.New(rand.NewSource(cfg.randSeed))
 	}
-	o.ModuleLoader = fileLoader(cfg.root)
+	o.ModuleLoader = fileLoader(cfg.root, libDirs())
 	// The io module (§12.13) is a host capability, and on the command line the host is
 	// the person typing it: a one-liner that cannot read a file is not a shell tool. An
 	// embedder gets none of this unless it installs it, which is the whole point of the
@@ -417,40 +402,6 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 		}
 	}
 	return o
-}
-
-// fileLoader is the CLI's answer to `include lib from "./lib.mzs"`. A path is resolved
-// against the file doing the including — which is what makes a script movable — and then
-// checked against root, the directory of the program the user ran: a script may include
-// its neighbours and its subdirectories, and nothing above them. An embedder gets no
-// loader at all unless it installs one (§14.3).
-func fileLoader(root string) mzs.ModuleLoader {
-	return func(from, path string) (string, string, error) {
-		if filepath.IsAbs(path) {
-			return "", "", fmt.Errorf("an include path must be relative")
-		}
-		base := filepath.Dir(from)
-		if base == "" || base == "." || from == "" || from == "-e" || from == "<stdin>" {
-			base = root
-		}
-		resolved, err := filepath.Abs(filepath.Join(base, path))
-		if err != nil {
-			return "", "", err
-		}
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			return "", "", err
-		}
-		rel, err := filepath.Rel(absRoot, resolved)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return "", "", fmt.Errorf("outside the root directory %s", absRoot)
-		}
-		b, err := os.ReadFile(resolved)
-		if err != nil {
-			return "", "", err
-		}
-		return resolved, string(b), nil
-	}
 }
 
 // printValue writes the program's value and reports whether it could. A value holding a
@@ -810,6 +761,12 @@ Flags:
       --repl         force the interactive REPL
   -h, --help         this text
       --version      print the version
+
+Environment:
+  MZSPATH            where 'include lib from "lib"' looks: directories separated by ':'
+                     (';' on Windows), the default being ~/.mzs/lib. A path written with
+                     './' or '../' is a file beside the including one and never comes
+                     from here.
 
 Exit codes: 0 ok, 1 error (or falsy with --bool), 2 usage, 3 timeout or budget.
 

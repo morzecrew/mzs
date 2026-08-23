@@ -90,12 +90,24 @@ the parser, lexer, printer and language-server suites, and `cmd/mzs/main_test.go
 CLI). Together:
 
 ```sh
-go test ./... -list '.*' | grep -c '^Test'   # 660
+go test ./... -list '.*' | grep -c '^Test'   # 665
 ```
 
 Every example is also exercised somewhere: 29 through the corpus suite, the rest through
 `cmd/mzs/main_test.go` and the parser suite. `examples/27_lib_money.mzs` and
 `examples/27_lib_text.mzs` are libraries, reached through `examples/27_modules_main.mzs`.
+
+## One version string
+
+```sh
+mzs --version      # mzs 0.1.0
+```
+
+The `cli smoke` job also asserts that this string, the newest released section of
+`CHANGELOG.md` and the line `README.md` prints as the command's output are the same version.
+Work that has not been released yet lives under `## Unreleased`, which the check skips on
+purpose: the assertion is about the version that shipped ([compatibility](./compatibility.md),
+[SPEC §21.5](../../SPEC.md#21-stability-and-versioning)).
 
 ## Coverage
 
@@ -118,7 +130,7 @@ jobs:
 | Job | Steps |
 |---|---|
 | `test and coverage` | `gofmt -l`, `go vet`, `go test -race`, the coverage profile, the Codecov upload |
-| `cli smoke` | builds `cmd/mzs`, then `mzs --check --time` on each `examples/*.mzs` |
+| `cli smoke` | builds `cmd/mzs`, then `mzs --check --time` on each `examples/*.mzs`, the version check, `mzs test examples/`, and `mzs fmt` idempotence |
 
 Notes that matter when a run goes red:
 
@@ -132,5 +144,6 @@ Notes that matter when a run goes red:
 ## See also
 
 - [Sandbox and limits](./sandbox.md)
+- [Compatibility and versions](./compatibility.md)
 - [Limitations and reserved syntax](./limitations.md)
 - [Diagnostics and `--check`](../cli/diagnostics.md)

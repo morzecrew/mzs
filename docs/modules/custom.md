@@ -130,19 +130,100 @@ cyc_a.mzs:1:1: name: include cycle: cyc_b.mzs -> cyc_a.mzs -> cyc_b.mzs
 Includes nest at most 64 deep; deeper is `limit: include nesting too deep (64)` and exit
 code 3.
 
-## Where a path resolves (the CLI loader)
+## Two path forms: a file, or a library
 
-A path is resolved against the file doing the including — `sub/mid.mzs` including
-`"./deep.mzs"` finds `sub/deep.mzs` — and then checked against the root: the directory of
-the script that was started, or the working directory when the program came from `-e` or a
-pipe.
+The leading `./` — or `../` — is the whole of the difference, and it is the difference between
+a file the program carries and a library it only names.
+
+```
+include cart  from "./cart.mzs"       # a file: beside the one doing the including
+include log   from "../shared/log.mzs" # …still a file: `../` is the file form too
+include money from "money"            # a library: on the search path
+```
+
+A **file** path is resolved against the file doing the including — `sub/mid.mzs` including
+`"./deep.mzs"` finds `sub/deep.mzs` — and travels with the program, which is what makes a
+two-file script movable.
+
+A **library** name is not resolved against anything the program can see: it is looked for on
+`$MZSPATH`, so the same `include money from "money"` works from every project on the machine.
+That is the thing a relative path cannot express without naming where the other project
+happens to sit today.
+
+## The search path
+
+`$MZSPATH` is a list of directories, `:`-separated (`;` on Windows). Unset, the search path
+is `~/.mzs/lib`:
+
+```sh
+mzs report.mzs                                   # looks in ~/.mzs/lib
+MZSPATH=/opt/team/mzs mzs report.mzs             # …and not in ~/.mzs/lib: MZSPATH replaces it
+MZSPATH=/opt/team/mzs:$HOME/.mzs/lib mzs report.mzs   # both, in that order
+MZSPATH=vendor mzs report.mzs                    # relative to the working directory
+```
+
+The first directory that holds the name wins. Empty entries are dropped rather than read as
+`.` — a trailing `:` does not quietly make the working directory a library directory, and
+`./` is how a script says that.
+
+## Two layouts for a library
+
+In each search directory, two spellings are tried in this order — so a library that outgrew
+one file keeps the name its users already wrote:
+
+```
+~/.mzs/lib/money.mzs               include money from "money"
+~/.mzs/lib/money/main.mzs          …the same include, once money is a directory
+~/.mzs/lib/shop/cart.mzs           include cart from "shop/cart"
+```
+
+Inside `money/main.mzs`, its own helpers are ordinary file includes: `include cents from
+"./cents.mzs"` finds `money/cents.mzs`. A library may also include another library by name.
+
+## Every file is rooted where it was found
+
+A path may not leave the tree the file belongs to. For a script that tree is the directory of
+the program that was run (the working directory for `-e` and a pipe); for a library it is the
+search directory it was found under. So a vendored library under `vendor/` cannot read the
+project that vendored it, and a library included from anywhere is confined the same way
+wherever it was included from.
+
+**A symbolic link is a path too.** The check is made by the read rather than by the spelling,
+so a link is followed while it stays inside the tree, and one that leads out of it is refused
+exactly like a written `../` that leaves. An absolute link is refused with it — the tree cannot
+see where it goes, which is why an include path may not be absolute either. To use a library
+that lives somewhere else, put *its* directory on `$MZSPATH` rather than linking it into one
+that is already there:
+
+```sh
+ln -s ~/dev/money/money.mzs ~/.mzs/lib/money.mzs   # refused: the link leads out of ~/.mzs/lib
+MZSPATH=~/dev/money:~/.mzs/lib mzs report.mzs      # …this is the way to say it
+```
 
 | Path | Result |
 |---|---|
 | `"./lib.mzs"`, `"./sub/lib.mzs"` | resolved next to the including file |
+| `"money"`, `"shop/cart"` | the first hit on `$MZSPATH` |
 | `"/etc/hostname"` | `cannot include …: an include path must be relative` |
 | `"../mzs"` | `cannot include …: outside the root directory …` |
 | `"./nope.mzs"` | `cannot include …: no such file or directory` |
+| `"./link.mzs"` (a link out of the tree, or an absolute one) | `cannot include …: outside the root directory …` |
+| `"nope"` | `cannot include …: no such library: looked for nope.mzs and nope/main.mzs in …` |
+| `"money.mzs"` | `a library name carries no .mzs: write "money", or "./money.mzs" for the file next to this one` |
+| `"shop/../money"` | `a library name cannot contain '..'; "./shop/../money" is the form that may` |
+
+A library that is not found says where it looked, which is the one thing the source line
+cannot say:
+
+```sh
+MZSPATH=/opt/team/mzs mzs -e 'include money from "money"'
+```
+
+```
+-e:1:1: name: cannot include "money": no such library: looked for money.mzs and money/main.mzs in /opt/team/mzs
+  include money from "money"
+  ^
+```
 
 ## A host has to supply a loader
 
@@ -156,4 +237,5 @@ returns the resolved name and the source, and decides what may be read at all.
 - [./README.md](./README.md) — `include`, module values, the built-in table
 - [../embedding/filesystem.md](../embedding/filesystem.md) — writing a `ModuleLoader`
 - [../stdlib/dicts.md](../stdlib/dicts.md) — the dict operations a module value answers to
+- [../cli/README.md](../cli/README.md) — the CLI's flags and the `MZSPATH` environment
 - [`examples/27_modules_main.mzs`](../../examples/27_modules_main.mzs) — a three-file example

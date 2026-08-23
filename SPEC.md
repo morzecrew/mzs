@@ -36,6 +36,7 @@ migration.
 18. Package layout and implementation work-split
 19. Migrating morzebot-backend-v2
 20. Reserved / out of scope
+21. Stability and versioning
 
 ---
 
@@ -2407,6 +2408,13 @@ exported is simply absent — `defined(cart.sep)` is false.
 
 Running a file directly ignores its exports, so one file is both a program and a module.
 
+**The path is the host's to read.** `Options.ModuleLoader` receives the file doing the including
+and the string that was written, and every rule about what that string means is the host's (§14.3).
+The CLI reads two forms — `"./cart.mzs"` is a file next to the including one, a bare `"money"` is a
+library on `$MZSPATH` — and confines each to the tree it was found in; §15 has the table. An
+embedder that installs no loader has neither form: `include x from "…"` is then an error naming
+the host.
+
 **How a script module runs.** It is part of the Run that included it: same globals table,
 same step budget, same deadline (§10, §14.1). Its locals are its own. It runs **once per
 Run** — a diamond loads the shared module a single time — and a second Run runs it again,
@@ -3588,10 +3596,43 @@ file is `fmt.mzs`, not `fmt`.
 | `--repl` | interactive REPL (line-based, persistent env; `.exit`, `:q`, `exit(code)`, Ctrl-D or Ctrl-C twice to quit) |
 | `--version` | print version |
 
-The CLI installs a `ModuleLoader` (§12.8): `include x from "./lib.mzs"` resolves against the
-file doing the including, and against the working directory for `-e` and stdin. Paths must be
-relative and may not leave the directory of the program that was run, so a script may include
-its neighbours and their subdirectories and nothing above them.
+The CLI installs a `ModuleLoader` (§12.8) that reads a path in one of two forms, told apart
+by the leading `./` or `../`:
+
+| Written | Meaning | Where it is looked for |
+|---|---|---|
+| `"./cart.mzs"`, `"../shared/log.mzs"` | a **file** that travels with the program | next to the file doing the including; the working directory for `-e` and stdin |
+| `"money"`, `"shop/cart"` | a **library** the program does not carry | `$MZSPATH`, in order |
+
+`$MZSPATH` is a list of directories separated by `os.PathListSeparator`, and when it is unset
+the search path is `~/.mzs/lib`. It replaces the default rather than extending it — a search
+path that kept a directory the user took out of it is one nobody can predict — so somebody who
+wants both writes both: `MZSPATH=/opt/team/mzs:$HOME/.mzs/lib`. Empty entries are dropped
+rather than read as `.`.
+
+A library name is a name, not a path: it carries no `.mzs` (the loader adds it), does not start
+at the root of the disk and may not contain `..`, and each refusal names the spelling that was
+meant. In each search directory two layouts are tried, in this order, so a library that outgrew
+one file keeps its name:
+
+```
+~/.mzs/lib/money.mzs           # include money from "money"
+~/.mzs/lib/money/main.mzs      # …the same include, once money is a directory
+```
+
+**Every file is rooted where it was found.** A path may not leave the directory tree it belongs
+to: for a script that tree is the directory of the program that was run, and for a library it is
+the search directory it was found under. So a script reaches its neighbours and their
+subdirectories and nothing above them, a library reaches its own and nothing above them — a
+vendored library inside a project cannot read the project — and a library included from anywhere
+is confined the same way wherever it was included from. Absolute paths are refused in both forms.
+
+**A symbolic link is a path too**, and the check is made by the read rather than by the spelling:
+a link is followed while it stays inside the tree, and one that leads out of it is refused with
+the same message as a written `../` that leaves. An **absolute** link is refused with it, for the
+reason an include path may not be absolute either — the tree cannot see where it goes. A library
+kept elsewhere is therefore reached by putting its own directory on `$MZSPATH`, not by linking it
+into one that is already there.
 
 It also installs an `FS` and an `Env`, so the `io` module (§12.13) is available with no flag:
 `mzs -e 'include io; io.read("/etc/hostname").trim'` reads the file the shell would have read.
@@ -3601,6 +3642,14 @@ being typed by the person running the command. An embedder gets neither unless i
 them itself. `--no-io` withholds all of it for one command — no `FS`, no `Env`, no `Stdin` —
 which is how the person typing runs somebody else's script and sees it the way an embedder
 would: `include io` becomes the compile error of §12.13.
+
+`--no-io` does **not** withhold the module loader, and that is deliberate: `include … from`
+is its own capability (§12.8, the `ModuleLoader` row of §13.2), and it is not a way to read a
+file. It reads *source*, runs it as part of the same program, and hands back the names that
+source exported — the text never becomes a value the way `io.read` returns one — and it is
+confined to the tree the including file belongs to. A script that may not reach its own second
+file is a different script, so the flag that says "no files, no env, no stdin" leaves the
+program's own parts alone. An embedder that wants neither installs neither.
 
 **Stdin is either the program or its data, never both.** A reader has one set of bytes.
 With `-e` or a file the program came from somewhere else, so stdin is free to be data and
@@ -4217,6 +4266,86 @@ Filesystem access is not out of scope but is not the language's either: `io` (§
 `include … from` (§12.8) both go through an interface the *host* implements, so the
 capability exists and the policy is never mzs's. Starting a process is the line that does
 not move — there is no `system`, no `exec`, no `spawn`, and no option that would add one.
+
+---
+
+## 21. Stability and versioning
+
+`mzs --version` prints one string, `CHANGELOG.md` says what each version changed, and this
+section says what a version *promises*. That is the question a host has to answer before it
+can update without reading the diff — and the reason it is answered here rather than in a
+release note is that the promise is about this document: what follows names the parts of
+the specification that are load-bearing for somebody else's code.
+
+### 21.1 What is stable
+
+A version is `MAJOR.MINOR.PATCH`. Within one MAJOR a program that runs today runs the same
+way tomorrow, and a Go program that compiles against the API today still compiles. While
+MAJOR is `0` there is one exception to that, and only one: a break that is **deliberate**,
+bumps the MINOR and is written down (§21.4). So `0` means "young", not "anything may
+happen" — a quiet break is allowed at no version, and `0.1.1` never breaks `0.1.0`.
+
+| Stable | What that means |
+|---|---|
+| **Syntax** (§3, §4, §5) | a program that parses keeps parsing, and keeps parsing to the same tree. Reserved syntax (§20) is not a promise in the other direction: it is an error today and may become a feature. |
+| **Semantics** — D1–D19 (§2) and everything §7–§11 derives from them | the value of an expression does not change. `7 / 2` is `3`, `[]` is truthy, a dict iterates in insertion order, one goroutine of a Run evaluates at a time. |
+| **Standard-library names** (§12) | a name that exists keeps existing, keeps its arity and its meaning, and keeps working in both spellings UFCS gives it (D18). Removal is not a thing that happens — §21.3 is what happens instead. |
+| **Module names and their members** (§12.8) | including which host capability each one is gated behind: a module that needs no `Options` field today will not start needing one. |
+| **The Go API** (§13) | `Value`, `Options`, `Interp`, `Program`, `Result`, `Error`, `FileSystem`, `ModuleLoader`, the sentinels, and every exported method of theirs. New `Options` fields are additive and keep the zero value meaning what it means now: the safe answer (D15). |
+| **The CLI** (§15) | the flags and subcommands that exist keep their spelling and meaning, `$ARGV` keeps its shape, and the exit codes keep theirs — `0`, `1`, `2`, `3` are what a supervisor already branches on. |
+
+### 21.2 What may change in any release
+
+| Not stable | Why |
+|---|---|
+| The **text** of a diagnostic (§17) | the message, its wording, its fix-it and its position may improve. What is stable is *that* a program is refused, and the error kind (§13.5) it is refused with — which is the half a program can branch on, and the reason `try` matches on `kind` rather than on prose. |
+| Everything under `internal/` (§18) | it is not importable, and the split between those packages is an implementation detail. `mzs/` and `engine/` are the API. |
+| **Performance** and allocation counts (§14.4) | the targets are targets. A run that got faster is not a break. |
+| **Additions** | a new function, module, flag or `Options` field is not a break. The only thing a new name can collide with is a local variable of the same spelling, and locals shadow the library, so the collision resolves in the program's favour (§8.7). |
+| Anything this document does not fix | the exact text of `#<fn f>`, the order two tasks resume in after a wait, the wall-clock cost of a step. Where this document is silent, do not depend on what the implementation happens to do — ask for the guarantee instead, and it lands here. |
+
+### 21.3 Deprecation: a name becomes a diagnostic
+
+**A name is never removed.** When an operation is renamed, the old spelling stops being a
+name and becomes a compile-time diagnostic that says the new one:
+
+```
+-e:1:10: syntax: undefined method 'downcase'; did you mean 'lower'?
+  "ПРИВЕТ".downcase
+           ^
+```
+
+That is the `renameTable` of §19.2 — the same table the codemod is driven by, and the same
+mechanism §17 uses. The rule it enforces is D17's: "one name per operation" is paid for with
+a diagnostic, never with a silent removal, and a rename that does not land in that table in
+the same change is an incomplete rename. So the worst a rename can do to a
+program is refuse to compile it, with the fix printed under the caret; it can never change
+what the program means.
+
+The same shape covers a name that is *withdrawn* rather than renamed: it keeps failing with
+a message that says what to write instead. What none of this covers is a name that never
+existed — a misspelling is a near-miss suggestion (§17), not a promise.
+
+### 21.4 The one exception, while MAJOR is `0`
+
+The version is `0.1.0`. What a MAJOR of `0` buys is exactly one thing: the promise of §21.1
+may be broken **deliberately** — with a MINOR bump, a `CHANGELOG.md` entry that says what
+moved, and a diagnostic under §21.3 wherever a diagnostic can carry the reader across. So
+`0.2.0` may break a program `0.1.0` ran, and it has to say so in the changelog; `0.1.1` may
+not. It is not a licence for a quiet change; there is no such licence at any version. `1.0`
+is the release that gives the exception up and needs a MAJOR bump instead, and the acceptance
+corpus of §16 is what it will be measured against.
+
+### 21.5 One version string
+
+The version lives in one place in the source (`cmd/mzs/main.go`), and CI checks that
+`mzs --version` agrees with the newest version section of `CHANGELOG.md` and with every
+version `README.md` and `docs/` print. The documentation half is checked in the strict
+direction — no page may print a version that is not the current one — because a page still
+printing the previous release beside one printing this release is exactly the disagreement
+worth catching. A version that means anything has to be the same version everywhere it is
+written down, and each copy of a string is another chance for it not to be, so the check is
+a build step rather than a habit.
 
 ---
 

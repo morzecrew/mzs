@@ -133,6 +133,33 @@ mzs> 6 * 7
 The REPL starts by itself when stdin is a terminal and no program was given; `--repl`
 forces it. See [repl.md](./repl.md).
 
+## Install a library of your own
+
+A library is a file of mzs that other programs `include` by name. Put it under `~/.mzs/lib`
+and every project on the machine can reach it, with nothing to configure:
+
+```sh
+mkdir -p ~/.mzs/lib
+cp money.mzs ~/.mzs/lib/            # or: ~/.mzs/lib/money/main.mzs, once it is several files
+```
+
+```sh
+$ mzs -e 'include money from "money"; money.format(money.from_units(15))'
+15.00 EUR
+```
+
+`MZSPATH` names other directories to look in — `:`-separated, `;` on Windows — and replaces
+the default rather than adding to it, so write both when you want both:
+
+```sh
+MZSPATH=/opt/team/mzs:$HOME/.mzs/lib mzs report.mzs
+MZSPATH=vendor mzs report.mzs        # a directory inside the project
+```
+
+The `./` and `../` forms are unchanged and unrelated: `include cart from "./cart.mzs"` is a
+file beside the one including it, and never comes from the search path. See
+[../modules/custom.md](../modules/custom.md).
+
 ## Checking without running
 
 ```sh
@@ -149,3 +176,4 @@ argument, `3` a timeout or an exhausted step budget.
 * [cheatsheet.md](./cheatsheet.md) — one-liners to paste after `-e`
 * [../cli/README.md](../cli/README.md) — every flag, and the printing rules in full
 * [../cli/input.md](../cli/input.md) — pipe versus data, `--in`, `-n` and `-l`
+* [../modules/custom.md](../modules/custom.md) — writing a module, and where `include` looks for one

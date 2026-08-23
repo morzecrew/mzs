@@ -142,7 +142,7 @@ raise("not allowed")     assert(x > 0, "x > 0")     exit(1)   # …and the way o
 | **Webhooks that verify** | `crypto.equal(crypto.hmac($SECRET, body), sig)` — HMAC, sha256, base64, hex | [crypto](docs/modules/crypto.md) |
 | **URLs both ways** | `url.parse(u)["query"]["page"]` · `url.build({scheme: "https", host: h, query: q})` | [url](docs/modules/url.md) |
 | **Concurrency** | `tasks.race(mirrors.map { fetch(it) })` — the first answer, the others cancelled · `sleep(0.2)` | [async](docs/language/async.md) |
-| **Modules of your own** | `include cart from "./cart.mzs"` | [modules](docs/modules/custom.md) |
+| **Modules of your own** | `include cart from "./cart.mzs"` · `include money from "money"` — a library on `$MZSPATH` | [modules](docs/modules/custom.md) |
 | **Tests of your own** | `test.case("rounding") { test.eq(total(cart), decimal.of("30.00")) }` — run by `mzs test` | [test](docs/modules/test.md) |
 | **Shell pipelines** | `cat access.log \| mzs -n -e '$_.split(" ")[0]'` | [line mode](docs/cli/input.md) |
 | **Embedding in Go** | `in.Eval(ctx, "$price.int + 1200", vars)` | [embedding](docs/embedding/README.md) |
@@ -208,7 +208,7 @@ boundary: a script cannot bring its host down.
 | [Standard library](docs/stdlib/README.md) | every built-in function, by kind |
 | [Modules](docs/modules/README.md) | `json`, `math`, `time`, `io`, `http`, `test`, and your own |
 | [Embedding in Go](docs/embedding/README.md) | the host API: values, functions, capabilities, errors |
-| Reference | [sandbox and limits](docs/reference/sandbox.md) · [limitations](docs/reference/limitations.md) · [verification](docs/reference/verification.md) |
+| Reference | [sandbox and limits](docs/reference/sandbox.md) · [limitations](docs/reference/limitations.md) · [verification](docs/reference/verification.md) · [compatibility](docs/reference/compatibility.md) |
 
 The normative description is [`SPEC.md`](SPEC.md); the runnable one is
 [`examples/`](examples/README.md) — 40 programs, from the value model to a maze solver, an HTTP
