@@ -2133,7 +2133,7 @@ Conventions used in the tables:
 | `chop` | `-> string` | drops the last rune | |
 | `squeeze` | `(set: string = "") -> string` | collapses runs of repeated runes | |
 | `len` | `-> int` | rune count | `s.len` |
-| `width` | `-> int` | display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by | `"日本".width == 4` |
+| `width` | `-> int` | display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by. The unit is the **code point**, as in Unicode's own width property: an emoji sequence joined with U+200D counts each of its emoji, because whether a terminal draws such a sequence as one glyph or two is the terminal's decision and not the text's | `"日本".width == 4` |
 | `empty` | `-> bool` | `len == 0` | |
 | `blank` | `-> bool` | empty after `trim` | |
 | `has` | `(sub: string) -> bool` | substring test | `"hello".has("lo")` |

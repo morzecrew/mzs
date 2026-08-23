@@ -159,6 +159,12 @@ rather than overrunning the width that was asked for (`"a".ljust(4, "日")` is `
 padding of no width at all — `""`, or a lone combining mark — is an argument error rather
 than a loop that never ends.
 
+The unit is the code point, which is the unit Unicode gives a width to. An emoji sequence
+joined with U+200D is therefore counted emoji by emoji — `"👩‍🎨".width` is `4` — because
+whether a terminal composes such a sequence into one glyph or draws two is the terminal's
+decision; the same table moves the REPL's own cursor, where guessing wrong costs two columns
+per emoji.
+
 ## Iteration
 
 `each_char { (c) -> … } -> string` runs the closure per rune and returns the receiver:

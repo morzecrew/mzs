@@ -76,6 +76,39 @@ func TestCasefoldIsBounded(t *testing.T) {
 	}
 }
 
+// TestFoldLenMatchesFoldString is the join between the two halves of that bound: the size
+// is checked before the string exists, so the count and the build have to agree on every
+// shape of input — including bytes that are not UTF-8 at all, which `crypto.unbase64` and a
+// binary `io.read` hand back (§12.16).
+func TestFoldLenMatchesFoldString(t *testing.T) {
+	inputs := []string{
+		"", "hello", "HeLLo", "ПРИВЕТ Ёж", "Straße", "STRAẞE", "ΟΔΟΣ", "Οδός",
+		"K", "ſ", "µ", "ﬃ", "ꭰ", "Ꭰ", "İ", "ı", "\u0390\u0390\u0390",
+		"a\xffb", "\xff\xfe", "ß\xffß", "e\u0301", "\U0001f642 ok",
+		strings.Repeat("ß", 100), strings.Repeat("a", 100),
+	}
+	for _, in := range inputs {
+		folded := foldString(in)
+		if got, want := foldLen(in), len(folded); got != want {
+			t.Errorf("foldLen(%q) = %d; foldString produced %d bytes (%q)", in, got, want, folded)
+		}
+	}
+}
+
+// TestCasefoldKeepsBytesItCannotDecode pins the other half of that: text that is not valid
+// UTF-8 is a key like any other, and folding it does not quietly replace what it could not
+// read with U+FFFD.
+func TestCasefoldKeepsBytesItCannotDecode(t *testing.T) {
+	c := stdCtx(DefaultOptions())
+	got, err := stdCall(t, c, Str("A\xffB"), "casefold")
+	if err != nil {
+		t.Fatalf("casefold: %v", err)
+	}
+	if got.Str() != "a\xffb" {
+		t.Errorf("casefold = %q; want the invalid byte kept", got.Str())
+	}
+}
+
 // TestStringWidth is what a terminal, a Markdown table and a fixed-width report all count,
 // and what `len` — a rune count — is not.
 func TestStringWidth(t *testing.T) {
@@ -93,6 +126,11 @@ func TestStringWidth(t *testing.T) {
 		{"and the precomposed spelling takes one", "é", 1},
 		{"a control character takes none", "a\u0001b", 2},
 		{"a zero width joiner takes none", "\u200d", 0},
+		// A joined emoji sequence is counted rune by rune, so it is 2 + 0 + 2. Whether a
+		// terminal draws it as one glyph or two is the terminal's decision — Unicode gives
+		// a width to code points, not to grapheme clusters — and this is the same table the
+		// REPL moves its cursor by, where guessing wrong costs two columns per emoji.
+		{"a joined emoji sequence counts its emoji", "\U0001f469\u200d\U0001f3a8", 4},
 	}
 
 	c := stdCtx(DefaultOptions())

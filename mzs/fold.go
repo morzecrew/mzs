@@ -3,6 +3,7 @@ package mzs
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Case folding — what `casefold` is and why `lower` is not it (§12.2).
@@ -85,24 +86,61 @@ func foldSimple(r rune) rune {
 
 // foldString is `casefold` of a whole string. Text that is already folded — which is most
 // text, and all of ASCII lowercase — is returned as it came, without allocating.
+//
+// A rune that folds to itself is copied as the *bytes* it arrived as rather than re-encoded.
+// That matters for input that is not valid UTF-8 — what `crypto.unbase64` and a binary
+// `io.read` hand back (§12.16) — which passes through unchanged instead of becoming a row of
+// U+FFFD, and it is what lets foldLen below count the answer exactly.
 func foldString(s string) string {
-	for i, r := range s {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
 		if _, multi := foldFull[r]; !multi && foldSimple(r) == r {
+			i += size
 			continue
 		}
 		var b strings.Builder
 		b.Grow(len(s) + 8)
 		b.WriteString(s[:i])
-		for _, r := range s[i:] {
-			if f, multi := foldFull[r]; multi {
+		for j := i; j < len(s); {
+			r, size := utf8.DecodeRuneInString(s[j:])
+			switch f, multi := foldFull[r]; {
+			case multi:
 				b.WriteString(f)
-				continue
+			case foldSimple(r) == r:
+				b.WriteString(s[j : j+size])
+			default:
+				b.WriteRune(foldSimple(r))
 			}
-			b.WriteRune(foldSimple(r))
+			j += size
 		}
 		return b.String()
 	}
 	return s
+}
+
+// foldLen is how many bytes foldString would produce, without producing them. `casefold` is
+// the one string row that can answer longer than it was asked — ß folds to "ss", and
+// U+0390 to three runes — so the size is checked against MaxStringBytes *before* the bytes
+// exist rather than after (§14.1); an 8 MB string of expansions would otherwise allocate its
+// whole tripled self only to be refused.
+//
+// It walks by the same three cases as foldString above, and TestFoldLenMatchesFoldString
+// pins that the two never drift apart.
+func foldLen(s string) int {
+	n := 0
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		switch f, multi := foldFull[r]; {
+		case multi:
+			n += len(f)
+		case foldSimple(r) == r:
+			n += size
+		default:
+			n += utf8.RuneLen(foldSimple(r))
+		}
+		i += size
+	}
+	return n
 }
 
 // foldFull is Unicode's full case folding where it is longer than one rune. Every entry is

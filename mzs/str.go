@@ -384,16 +384,16 @@ func init() {
 			}, s)), nil
 		}),
 		// casefold is the comparison key of fold.go, not a rendering: it may be longer
-		// than what it folded, so it is charged as a string that was built (§14.1).
+		// than what it folded, so it is charged as a string that was built and its size is
+		// checked before it is built (§14.1).
 		sm("casefold", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			if err := c.Step(int64(len(s))/64 + 1); err != nil {
 				return Nil(), err
 			}
-			folded := foldString(s)
-			if err := c.CheckString(len(folded)); err != nil {
+			if err := c.CheckString(foldLen(s)); err != nil {
 				return Nil(), err
 			}
-			return Str(folded), nil
+			return Str(foldString(s)), nil
 		}),
 		sm("trim", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			return Str(strings.TrimFunc(s, isTrimSpace)), nil
@@ -446,7 +446,12 @@ func init() {
 		sm("len", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			return Int(int64(utf8.RuneCountInString(s))), nil
 		}),
+		// width walks the string and asks the Unicode tables about every rune, which is
+		// more than `len`'s rune count does; it is charged at the rate a scan is (§14.1).
 		sm("width", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
+			if err := c.Step(int64(len(s))/64 + 1); err != nil {
+				return Nil(), err
+			}
 			return Int(int64(width.String(s))), nil
 		}),
 		sm("empty", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
