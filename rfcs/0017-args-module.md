@@ -41,9 +41,14 @@ A script that needs a literal leading `--` writes it twice, or puts a `--` befor
 script path. With `-e` there is no script path, so the
 first non-flag argument starts `$ARGV`. That is new too: today `mzs -e '…' foo` reads `foo`
 as a script file and stops with `-e and a script file are mutually exclusive`. One `-e`
-line does work today and keeps its meaning: a lone `-` right after the flags is dropped
-(`mzs -e '$ARGV.json' - foo` prints `["foo"]`), so it is still dropped there, exactly like
-the `--` after a script path. A script that wants a literal leading `-` writes it twice.
+form does work today and keeps its meaning: a lone `-` after the flags is the script path
+`-` (stdin) to the parser, and with `-e` it is accepted and dropped
+(`mzs -e '$ARGV.json' - foo` prints `["foo"]`). Under this RFC it **is** the script path, so
+it gets the same rules: it ends mzs's flags, and a `--` immediately after it is dropped, so
+`mzs -e '$ARGV.json' - -- --width 800` keeps giving `["--width", "800"]`. What changes is
+the same break as for a script file: today mzs still parses its own flags after the `-`
+(`mzs -e '…' - --json foo` turns on `--json`); under this RFC `--json` reaches `$ARGV`. A
+script that wants a literal leading `-` writes it twice.
 
 This is a break for `mzs script.mzs --json` (interpreter flag written after the script).
 It is the convention of every interpreter (`python x.py --help` is x's help), it is

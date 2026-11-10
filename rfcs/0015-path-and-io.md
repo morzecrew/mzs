@@ -95,11 +95,15 @@ the member is **absent**, and the compile-time diagnostic names what is missing,
 `walk` needs to tell a link from a directory without following it, and `Stat` follows
 links. So it requires one more optional interface, `LinkStater` —
 `Lstat(name string) (exists bool, size int64, dir, link bool, err error)` — and is absent
-without it. The root is cleaned first (`path.clean`, which strips a trailing `/` and keeps `/`
-itself): `Lstat("link/")` resolves through the link, because a trailing slash asks for the
-directory, so `walk("link/")` would otherwise list a linked directory on a stable tree. A
-link is yielded as a name and never descended into, so a walk of a tree that
-does not change while it runs cannot enter a linked directory or a cycle. The guarantee is
+without it. Trailing `/`s are stripped from the root first, and nothing
+else about it changes (`/` stays `/`; `..` is not resolved, since `missing/../x` must fail
+on the host exactly as it would anywhere else): `Lstat("link/")` resolves through the link,
+because a trailing slash asks for the directory, so `walk("link/")` would otherwise list a
+linked directory on a stable tree. A link met **during the walk** is yielded as a name and
+never descended into, so a walk of a tree that does not change while it runs cannot enter a
+linked directory or a cycle below its root. The root itself is the path the script named,
+and its *parent* components resolve as any path handed to the host does: `walk("link/sub")`
+walks the directory `link/sub` names, links in `link` included, as `ls link/sub` would. The guarantee is
 stated for that case only: a directory replaced by a link between `Lstat` and `List` can
 be entered if the host's `List` follows links. A host that must hold the guarantee against
 concurrent changes needs a `List` that follows no link in **any** component of the path,
