@@ -1,6 +1,6 @@
 # RFC 0011 — An aggregate memory budget
 
-**Status:** Landed (#PR), except `mzs.Opaque` · **Area:** embedding, sandbox · **Depends on:** — · **Audit:** §3.1
+**Status:** Landed (#19), except `mzs.Opaque` · **Area:** embedding, sandbox · **Depends on:** — · **Audit:** §3.1
 
 ## Summary
 

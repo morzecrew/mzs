@@ -74,7 +74,7 @@ four places:
 
 ### 3.1 There is no aggregate memory limit — P1
 
-**Fixed (#PR)** by RFC 0011: `Options.MaxMemory`, default 64 MiB; the program below now ends
+**Fixed (#19)** by RFC 0011: `Options.MaxMemory`, default 64 MiB; the program below now ends
 with `limit: memory budget exceeded` in about 60 ms.
 
 `MaxCollection` and `MaxStringBytes` bound **one operation** (SPEC §14.2). Nothing bounds
