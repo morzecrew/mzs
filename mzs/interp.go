@@ -74,6 +74,7 @@ func (in *Interp) Compile(name, src string) (p *Program, err error) {
 func (in *Interp) compilePass(name string, file *ast.Program) ([]Warning, error) {
 	c := &compiler{in: in, file: name}
 	c.collectFields(file)
+	c.collectBound(file)
 	c.push()
 	// Top-level `fn`s and `record`s are hoisted, so a call may appear above its
 	// declaration (§8.2, §7.8).
@@ -135,6 +136,10 @@ type compiler struct {
 	// collected before the walk, because a field may be read above the declaration that
 	// names it — inside a function, or simply further up the file.
 	fields map[string]bool
+	// bound is every name the unit binds anywhere: an assignment, a `fn`, a parameter, a
+	// loop or `try` variable. It is what lets a method call compiled before the binding
+	// still try it at run time (§8.7), the way a prefix call reaches it by name.
+	bound map[string]bool
 }
 
 // collectFields gathers the record field names of the whole unit. Scope does not come
@@ -154,6 +159,47 @@ func (c *compiler) collectFields(file *ast.Program) {
 		}
 		return true
 	})
+}
+
+// collectBound fills c.bound. A function body is compiled before a top-level binding
+// that follows its declaration, but it runs after, so "in scope now" is not the question
+// a method call needs answered: `fn g(x) { x.upper }; upper = { … }; g("a")` reaches the
+// closure as `upper(x)` would. The set over-approximates on purpose — a name bound
+// anywhere is looked up at run time, and only a value that is a function there wins.
+func (c *compiler) collectBound(file *ast.Program) {
+	c.bound = map[string]bool{}
+	params := func(ps []ast.Param) {
+		for _, p := range ps {
+			c.bound[p.Name] = true
+		}
+	}
+	ast.Walk(file, func(n ast.Node) bool {
+		switch d := n.(type) {
+		case *ast.Ident:
+			c.bound[d.Name] = true
+		case *ast.FnDecl:
+			c.bound[d.Name] = true
+			params(d.Params)
+		case *ast.FuncLit:
+			params(d.Params)
+		case *ast.ForExpr:
+			c.bound[d.KeyVar] = true
+			c.bound[d.ValVar] = true
+		case *ast.TryExpr:
+			c.bound[d.Var] = true
+		}
+		return true
+	})
+}
+
+// localCandidate reports whether a method call spelled name must try a binding of that
+// name at run time before the stdlib table (§8.7): one is in scope, or one is made
+// anywhere in the unit. A name an `include` introduced is the module, never a candidate.
+func (c *compiler) localCandidate(name string) bool {
+	if c.knownModule(name) {
+		return false
+	}
+	return c.known(name) || c.bound[name]
 }
 
 // recordField reports whether name is a field of some record declared in this unit.
@@ -861,7 +907,7 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 		// A binding of the same name in scope is recorded here, and tried before the
 		// stdlib table at run time (§8.7): whether it holds a function is the value's to
 		// say, so the decision cannot be made now.
-		if !module && c.known(n.Name) && !c.knownModule(n.Name) {
+		if !module && c.localCandidate(n.Name) {
 			n.Local = true
 			c.markUsed(n.Name)
 		}
@@ -870,7 +916,12 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 	if (c.known(n.Name) && !c.knownModule(n.Name)) || c.hasFunc(n.Name) {
 		if n.Safe {
 			// `?.` must not evaluate anything when the receiver is nil (§4.3), which a
-			// plain call cannot express; the evaluator's UFCS fallback handles it.
+			// plain call cannot express; the evaluator's UFCS fallback handles it — and
+			// it must see the script's binding before a host function of the same name.
+			if !module && c.localCandidate(n.Name) {
+				n.Local = true
+				c.markUsed(n.Name)
+			}
 			return n
 		}
 		fn := &ast.Ident{Name: n.Name, Slot: -1, Start: n.NamePos, Stop: n.NamePos}

@@ -44,7 +44,9 @@ and the release is still ahead of it.
   collide with a local and the local wins, holds for method calls as well. What can
   change: a program with a function or parameter spelled like a stdlib row and called in
   method form — `fn pick(xs, filter) { xs.filter(filter) }` now calls the parameter, and
-  `fn sort(xs) { xs.sort }` now recurses. Rename the function or the parameter. A
+  `fn sort(xs) { xs.sort }` now recurses. A host that registered a function spelled like a
+  row now answers that row in method form as well (`Register("upper", …)` takes
+  `"x".upper`). Rename the function, the parameter or the host function. A
   binding holding no function (`count = 0`) leaves the row alone, a record's own field
   still comes first, and `x in c` still asks the `has` row (SPEC §4.3, §8.7; audit B9).
 - **A gated name says which option it needs.** `now()`, `rand()`, `uuid()`,

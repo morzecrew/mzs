@@ -587,6 +587,9 @@ func TestCalls(t *testing.T) {
 		{"a binding holding no function leaves the row alone", `count = 0; [1, 2, 3].count { it > 1 }`, "2"},
 		{"a parameter is a binding like any other", `fn pick(xs, filter) { xs.filter(filter) }; pick([1, 2], { (a, f) -> "param" })`, "param"},
 		{"a shadowing function is seen from a nested scope", `fn upper(s) { "mine" }; fn g(s) { s.upper }; g("x")`, "mine"},
+		// A body is compiled before a top-level binding that follows its `fn`, and runs
+		// after it: the method form must reach that binding, as `upper(s)` does.
+		{"a binding made after the body is compiled", `fn g(s) { s.upper }; upper = { (s) -> "mine" }; [g("x"), upper("x")].json`, `["mine","mine"]`},
 		{"a shadowing function keeps the safe-navigation rule", `fn upper(s) { "mine" }; [nil?.upper, "x"?.upper].json`, `[null,"mine"]`},
 		{"a record field still wins over a shadowing function", `record P(len); fn len(x) { "fn" }; [P(7).len, [1].len].json`, `[7,"fn"]`},
 		{"the in operator is not a method call", `fn has(c, x) { false }; 2 in [1, 2]`, "true"},
@@ -1681,6 +1684,8 @@ func TestHostFunctions(t *testing.T) {
 		{name: "a host function may call back into a closure", src: `apply({ it + 1 }, 1)`, want: "2"},
 		{name: "a host function shadows a stdlib method", src: `"x".upper + upper("x")`, want: "hosthost"},
 		{name: "a script function shadows a host function", src: `fn upper(s) { "mine" }; "x".upper`, want: "mine"},
+		// `?.` is left to the evaluator, which must still try the script's binding first.
+		{name: "a script function shadows a host function through ?.", src: `fn twice(x) { 99 }; 21?.twice`, want: "99"},
 		{name: "a module member", src: "include cfg\ncfg.name", want: "acme"},
 		{name: "a host module still needs its include", src: `cfg.name`, err: "include cfg"},
 	}

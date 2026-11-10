@@ -235,6 +235,11 @@ declared, a closure in a variable, a function the host registered — first, the
 stdlib method table for `x`'s kind. A function you write is a method the moment it
 exists — of any kind:
 
+Two cases are not interchangeable. A record's own field answers `m.f` and has no prefix
+spelling, and a variable that holds something other than a function is skipped by `x.f`
+but not by `f(x)`: after `count = 0`, `[1, 2, 3].count { it > 1 }` is `2` while
+`count([1, 2, 3], { it > 1 })` is `not a function: int`.
+
 ```
 fn shout(s) { s.upper + "!" }
 "yes".shout                                # YES!

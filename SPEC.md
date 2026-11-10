@@ -1208,8 +1208,9 @@ concept in the language (§4.1).
 2. resolves UFCS: every `MethodCall` whose name is not in the receiver-kind method table is
    rewritten to a `CallExpr` on the named function, or reported as `undefined method` with a
    did-you-mean suggestion drawn from the rename table of §19.2. One whose name *is* in the
-   table but also has a binding of that spelling in scope is marked, so that the evaluator
-   tries the binding first when it holds a function (§4.3) and pays nothing otherwise;
+   table but is also bound somewhere in the unit — in scope, or by a binding that follows
+   a `fn` whose body calls it — is marked, so that the evaluator tries the binding first
+   when it holds a function (§4.3) and pays nothing otherwise;
 3. resolves local variable slots per scope (a `map[string]int` per scope, so the evaluator
    uses slice indices, not map lookups, in the hot path);
 4. marks each `Ident` as one of `LocalRef` / `GlobalRef` / `FuncRef`, and reports anything
