@@ -36,7 +36,11 @@ text      https://codeload.github.com/acme/mzs-text/tar.gz/v0.3.1       51ab…0
 
 * **name** — what `include x from "name"` asks for. Lowercase, as module names are (§12.8).
 * **source** — an `https://` URL of a `.tar.gz` or `.zip` archive, or a `./relative/path`
-  to a directory inside the project (a vendored library; no hash needed, written `-`).
+  to a directory inside the project (a vendored library; no hash, written `-`). A vendored
+  library is **not copied**: `mzs get` only checks that the directory exists and holds one
+  of the two layouts, and resolution reads it where it is, rooted in that directory. It is
+  therefore unaffected by `--offline` and by `.mzs/lib`, and it is versioned by the
+  project's own history rather than by a hash.
 * **sha256** — of the archive bytes. It is the identity: a URL that starts serving
   different bytes is an error, not an update.
 
@@ -56,7 +60,16 @@ Unpacking: a single top-level directory in the archive is stripped (what GitHub 
 release archives produce). The result must contain `main.mzs` or `<name>.mzs`, the two
 layouts §15 already defines. Entries that would escape the destination (`..`, absolute
 paths, symlinks pointing out) abort the unpack — the same rule the include confinement
-enforces at read time. Size is capped (64 MiB per archive, overridable).
+enforces at read time. Size is capped twice, because a small archive can expand without
+bound: 64 MiB of archive bytes, and — counted while streaming, before anything is
+written past it — 256 MiB and 10,000 entries unpacked. Exceeding either aborts and
+removes the partial directory. All three caps are overridable by flag.
+
+Downloads are HTTPS end to end: a `source` that is not `https://` is refused, and so is a
+redirect to anything that is not `https://`. Go's default client follows redirects
+silently, including to `http://`, and the hash does not cover the first fetch of
+`mzs get <name> <url>` — it is computed from whatever arrived — so the redirect rule is
+what keeps that first fetch honest.
 
 Downloading uses `net/http`, `archive/tar`, `archive/zip`, `compress/gzip`,
 `crypto/sha256`: all standard library. No `git`, no subprocess.
@@ -68,8 +81,12 @@ first**, before `$MZSPATH`. Each library found there is rooted in its own direct
 exactly as a library found on `$MZSPATH` is, so a fetched library cannot read the project
 that fetched it.
 
-When a project has an `mzs.lock` and a name it lists is missing from `./.mzs/lib`, the
-include error says so — `library 'money' is listed in mzs.lock but not fetched; run 'mzs
+Each install writes the archive's hash beside the files (`./.mzs/lib/<name>/.mzs-hash`).
+Before an include loads a library listed in `mzs.lock`, it compares that file with the lock
+line, so an installation left behind by an older lock is refused —
+`library 'money' in .mzs/lib does not match mzs.lock; run 'mzs get'` — instead of running
+the old code. When a project has an `mzs.lock` and a name it lists is missing from
+`./.mzs/lib`, the include error says so — `library 'money' is listed in mzs.lock but not fetched; run 'mzs
 get'` — instead of silently falling through to a different `money` on `$MZSPATH`. That is
 the existing principle "a library that is there and cannot be read is an error, not an
 absence" applied one step earlier.

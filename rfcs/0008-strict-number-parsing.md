@@ -52,7 +52,7 @@ surrounding whitespace. `"inf"`, `"nan"`, hex floats and trailing text are `nil`
 
 ```
 n = s.parse_int ?? 0                       # explicit default
-port = $PORT.parse_int ?? raise("PORT must be a number")
+port = $PORT?.parse_int ?? raise("PORT must be a number")   # ?. — an unset $PORT is nil
 rows.filter { it[2].parse_float != nil }
 ```
 

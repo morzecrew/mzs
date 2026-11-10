@@ -34,7 +34,9 @@ that any function in the file can reassign it by accident.
 
 ```ebnf
 BareStmt   = … | ConstStmt ;
-ConstStmt  = "const" ( IDENT | TargetPattern | Target { "," Target } ) "=" Expr ;
+ConstStmt  = "const" ConstTarget { "," ConstTarget } "=" Expr ;
+ConstTarget= IDENT | "[" [ ConstTarget { "," ConstTarget } ] "]"
+           | "{" … "}" ;                 (* RFC 0002's dict target, with IDENT leaves only *)
 ExportStmt = "export" ( FnDecl | RecordDecl | Assignment | ConstStmt | IDENT ) ;
 ```
 
@@ -46,9 +48,17 @@ as the first token of a statement followed by a name or a pattern, so a variable
 
 * `const x = e` evaluates `e` and creates `x` in the current scope, as `:=` does (it
   shadows, never assigns outward).
-* Any later `=`, compound assignment, or destructuring that would write to that binding is
-  a **compile error**. Scoping is lexical, so this is always decidable:
-  `syntax: cannot assign to const 'rate' (declared at 1:7); use ':=' for a new local`.
+* Any `=`, compound assignment, or destructuring that would write to that binding is a
+  **compile error** — wherever it stands in the binding's scope, **before or after** the
+  `const` line. That includes function bodies: in `fn set() { rate = 2 }; const rate = 1`
+  the hoisted `set` is declared first, and its `=` still reaches `rate` once it is called,
+  so it is refused. The check runs after the whole scope is parsed, over every nested body
+  whose `=` would resolve to the const (no parameter, `:=` or `const` of the same name in
+  between): `syntax: cannot assign to const 'rate' (declared at 1:28); use ':=' for a new
+  local`.
+* The binding also carries the flag at run time, and an assignment that reaches it raises
+  the same message. The compile check is meant to make that unreachable; the guard is what
+  keeps the guarantee if a future feature resolves a name the compile pass cannot see.
 * `:=` in an inner scope may still shadow it. That is the explicit spelling, and the
   message above recommends it.
 * `const` is about the **binding**, not the value: `const xs = []; xs.push(1)` is legal.
@@ -72,8 +82,14 @@ bindings nobody thought to mark.
 ## Compatibility
 
 `const X = 1` is `syntax: unexpected 'X' after statement` today, so the statement is
-additive. The declaration rule is a deliberate break, staged as above. The warning is a
-diagnostic and changes nothing a program means (§21.2).
+additive. The declaration rule is a deliberate break, staged as above.
+
+Both new warnings change nothing a program means (§21.2) — **except under
+`Options.StrictWarnings`**, which promotes every warning to a compile error, so a host
+running strict would see programs stop compiling in the very release meant to be the
+gentle step. So the warnings land with the warning codes of RFC 0019, and for one MINOR
+`StrictWarnings` does not promote these two codes; the release after promotes them like
+any other. Both steps are named in `CHANGELOG.md`.
 
 ## Alternatives
 

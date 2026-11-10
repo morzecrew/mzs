@@ -33,7 +33,8 @@ DictTargetEntry= IDENT                               (* {name}  ≡ {name: name}
                | ( IDENT | String ) ":" Target       (* key: where it goes *)
                | "**" IDENT ;                        (* the remaining entries, RFC 0001 *)
 
-MatchPattern   = ArrayMatch | DictMatch | IDENT DictMatch ;   (* the last: a record shape *)
+MatchPattern   = ArrayMatch | DictMatch | RecordName DictMatch ;   (* the last: a record shape *)
+RecordName     = IDENT [ "." IDENT ] ;   (* a record of this unit, or one an included module exports (RFC 0003) *)
 DictMatch      = "{" [ DictMatchEntry { "," DictMatchEntry } [ "," ] ] "}" ;
 DictMatchEntry = IDENT                               (* binds the value under that key *)
                | ( IDENT | String ) ":" MatchElem    (* IDENT binds, a pattern nests, an Expr compares *)
@@ -82,11 +83,26 @@ two-variable form is unchanged; it is now simply two `ForTarget`s.
 It is the obvious spelling, and it is already legal: an arm pattern is an `Expr`, so
 `Money(a, b) -> …` today *calls the constructor* and compares the subject with the result.
 Reading the same text as a binder would change the meaning of a program that parses —
-§21.1 forbids that, and D16 forbids the guess. `Money {…}` in arm position is nearly free:
-`Money {a, b}` and `Money {a: x}` are syntax errors today. The one overlap is
-`Money {amount}` — today a constructor call with a trailing closure, whose result is then
-compared with the subject. That arm can only match a dict holding that very closure, so no
-working program contains it; the reading still changes, and is declared under §21.4.
+§21.1 forbids that, and D16 forbids the guess.
+
+`Name {…}` in arm position is nearly free — `Money {a, b}` and `Money {a: x}` are syntax
+errors today — but not entirely. `f {it}` is a call with a trailing closure, and when `f`
+is an ordinary function that call can match today:
+
+```
+fn choose(f) { 1 }
+match 1 { choose {it} -> 7; else -> 0 }    # 7
+```
+
+So the record reading is decided by **what the name is**, which the compile pass knows
+because `record` declarations hoist (§8.2) and an include's exports are known (RFC 0003):
+`Name {…}` is a record pattern only when `Name` (or `mod.Name`) resolves to a `record`
+declaration. Every other name keeps today's meaning, so `choose {it}` above still answers
+7. The only program whose meaning changes is one that passes a trailing closure to a
+*record constructor* inside an arm and compares the subject with the resulting dict — a
+dict holding that very closure, which no subject can equal — and that change is still
+listed under §21.4. A local variable that shadows a record name is not a record name, so
+the reading follows the binding, never the spelling.
 
 ### Diagnostics
 

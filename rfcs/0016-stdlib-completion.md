@@ -129,8 +129,11 @@ A new name shadows nothing a program defined: locals win over the library (§8.7
   pair. The latter is a break; the former is a name.
 * Does `div` earn a place beside `/`, or should `%` have been truncating? `%` is stable
   and used by `even`/wraparound code; adding the partner is the non-breaking fix.
-* `time.mono` under a fixed test clock (`--now`, RFC 0014): proposed to advance by the
-  Run's own elapsed time.
+* `time.mono` under a fixed test clock (`--now`, RFC 0014). Real elapsed time would make a
+  test's answers vary between runs, which is what the fixed clock exists to stop. Proposed:
+  the clock is injectable (`Options.Mono func() time.Duration`), and the fixed test clock
+  is a *virtual* one — it starts at `0.0` and advances by exactly the durations the Run
+  `sleep`s, so a test that sleeps 0.2 and measures sees 0.2 every time.
 
 ## Implementation
 

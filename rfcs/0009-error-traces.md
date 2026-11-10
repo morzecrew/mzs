@@ -61,8 +61,10 @@ Extra keys a script adds to `e` are ignored by `raise`.
 
 ### 2. The CLI
 
-After the caret block, an uncaught error prints its frames, outermost last, skipping the
-innermost (already shown):
+After the caret block, an uncaught error prints its frames, innermost first. None is
+skipped: a frame is a **call site** — where the function was called from — and the caret
+already shows where it failed, so no frame repeats it. In `fn f() { 1 / 0 }; f()` the one
+frame is the `f()` on the last line, which is the location a reader needs:
 
 ```
 st.mzs:3:10: raise: boom
@@ -80,15 +82,21 @@ tools that parse the first line. `mzs test` appends the same block under a faile
 
 ### 3. Go API
 
-`Error.Stack` exists. `Frame` gains `File string` (additive, §21.1) so that frames in an
-included module are attributable; `Frame.String()` includes it when it differs from the
-error's file.
+`Error.Stack` exists. `Frame` gains `File string` so that frames in an included module are
+attributable. That is **not** purely additive: a positional literal `mzs.Frame{"f", 1, 2}`
+stops compiling, and §21.1 promises that a Go program that compiles keeps compiling. It is
+listed as a deliberate §21.4 change (keyed literals, which is what the package itself
+writes, are unaffected). `Frame.String()` does not change; whether a frame's file is
+printed is decided by the renderer in `cmd/mzs/diag.go`, which holds both the error and the
+frame.
 
 ## Compatibility
 
-* New keys in `e` are additive. A script that does `e.json` or iterates `e` sees more
-  entries; §8.11 specified the dict by listing keys, not by forbidding others, but this is
-  the one observable change and goes in the changelog.
+* New keys in `e` are **a deliberate §21.4 break**, not an addition: the dict is a value a
+  program can observe, and `try raise("bad") else (e) { e.len }` goes from 3 to 6, as do
+  `e.json`, `e.keys` and iteration. It lands with a MINOR bump and a changelog entry. The
+  alternative — keeping the dict as it is and adding `trace(e)` — was weighed under
+  *Alternatives* and rejected.
 * CLI output gains lines **after** the existing three. The first line — the one editors
   and CI regexes match — is untouched. Diagnostic text is not stable anyway (§21.2).
 

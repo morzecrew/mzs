@@ -51,6 +51,10 @@ four places:
 
 ### Noted, not proposed
 
+* **`is` and `type` disagree about tasks.** `type(t)` is `"task"`, yet `t.is("task")` is
+  `argument: is: unknown type name "task"`. RFC 0010 fixes it, since contracts read the
+  same table.
+
 * **Capturing the subject in a scalar arm** — `match n { x if x > 3 -> … }` is
   `undefined variable 'x'`, because a bare identifier in an arm is an expression. The
   subject is almost always already a name, and `match { if n > 3 -> … }` covers it. Left
@@ -98,8 +102,8 @@ host's OOM killer does not return an `error` at the `Run` boundary. → [0011](0
 |---|---|---|---|
 | S1 | No stderr | `eprintln` / `warn` are undefined; `Options.Stderr` exists but only warnings reach it. A filter in a pipeline cannot report without corrupting its output | [0012](0012-stderr.md) |
 | S2 | No CSV | `include csv` → unknown module. `examples/12_csv_report.mzs` splits on `,` by hand, which is wrong for any quoted field | [0013](0013-csv-module.md) |
-| S3 | `test` has two members | `test.keys` → `["case","eq"]`; `test.raises` is undefined, so an error path cannot be asserted without a hand-written `try` | [0014](0014-test-module.md) |
-| S4 | No path handling; `io` cannot remove, create a directory or stat | `io.keys` → `stdin lines read write append exists ls env`; SPEC §12.13 says so on purpose | [0015](0015-path-and-io.md) |
+| S3 | `test` has two members | `include test; test.keys` → `["case","eq"]`; `test.raises` is undefined, so an error path cannot be asserted without a hand-written `try` | [0014](0014-test-module.md) |
+| S4 | No path handling; `io` cannot remove, create a directory or stat | `include io; io.keys` → `stdin lines read write append exists ls env`; SPEC §12.13 says so on purpose | [0015](0015-path-and-io.md) |
 | S5 | Uneven collection rows | dict has no `reduce`/`count`/`group_by`; array has no `mean`/`product`/`transpose`; seq has no `zip`/`uniq`/`each_slice`; `trim` takes no cutset | [0016](0016-stdlib-completion.md) |
 | S6 | `math` stops at `atan` | no `asin acos sinh cosh tanh`, no `gcd`, no NaN/Inf test | [0016](0016-stdlib-completion.md) |
 | S7 | `time` has no sub-second, no monotonic clock | `strftime("%s %f")` prints `%s %f` unchanged; nothing measures an interval | [0016](0016-stdlib-completion.md) |
@@ -132,7 +136,7 @@ These need a fix, not an RFC.
 | B3 | SPEC §4 still gives dicts square brackets | `Collection = "[" ( ArrayBody \| DictBody \| ":" ) "]"`, while D3 and the implementation say `{a: 1}` and `{}` (`[a: 1]` → `a dict is written {a: 1}`) |
 | B4 | "Reserved" words are not reserved | SPEC §20 lists `class`, `module`, `yield`, `defer` as reserved syntax; `class = 1; yield = 2; defer = 3; module = 4; class + yield + defer + module` → `10`, and `defer { 1 }` → `undefined function 'defer'`. Either reserve them in the lexer or drop them from §20 — as written, adding any of them later breaks programs §21.1 promises to keep |
 | B5 | The specified call stack is not shown | see L15; §8.11 promises it, nothing prints it |
-| B6 | An unknown `strftime` directive is echoed | `time.parse("2026-01-01").strftime("%s %f %G")` → `%s %f %G`. By D16 it should be an `argument` error naming the directive |
+| B6 | An unknown `strftime` directive is echoed | `mzs --time -e 'include time; time.parse("2026-01-01").strftime("%s %f %G")'` → `%s %f %G`. By D16 it should be an `argument` error naming the directive |
 | B7 | Range indexing is unspecified, and a negative end is inconsistent | SPEC §8.8 lists `x[i]` and `x[i, n]` only; `x[a..b]` works but is not in the table. `[1,2,3][-2..-1]` → `[2,3]`, yet `[1,2,3][0..-1]` → `[]` and `"hello"[1..-1]` → `""` — the range is materialised before the bounds are resolved. RFC 0006 specifies the rule |
 | B8 | A script cannot receive a flag without `--` | `mzs a.mzs --x 1` → `mzs: unknown flag --x`; only `mzs a.mzs -- --x 1` reaches `$ARGV`. Arguments after the script name should belong to the script (RFC 0017) |
 

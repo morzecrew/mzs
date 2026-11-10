@@ -52,7 +52,7 @@ Every heap-backed value is charged when it is created or grown, to a counter on 
 
 | Value | Charge |
 |---|---|
-| string | its byte length, when built by an operation (not for literals, which belong to the `*Program`) |
+| string | its byte length, when built by an operation (not for literals, which belong to the `*Program`). A substring shares its source's storage in Go, so charging its length would undercount a small slice that keeps a large source alive. The operations that cut a string (`split`, `slice`, `[a..b]`, `lines`, `matches`, `captures`, `trim*`, `first`/`last`) therefore **copy** a result shorter than a quarter of a source larger than 4 KiB, so what is charged is what is held; below that the sharing is at most 4× of a small string and is charged at the source's size |
 | array | capacity × word size of a `Value`, on allocation and on each growth |
 | dict | entries × (key + value + bucket overhead), on growth |
 | closure / env | a fixed size per frame that outlives its call |
@@ -69,9 +69,16 @@ needs release:
   roots (globals table, live environments, task stacks, pending values) summing the real
   sizes, and replaces the counter with that sum. If the walk's result still exceeds the
   budget, the Run ends.
-* So the counter is an upper bound that is corrected lazily. A program that stays under
-  the budget never walks. One that churns walks at most once per `MaxMemory` bytes
-  allocated, so the amortised cost is O(1) per allocated byte.
+* So the counter is an upper bound that is corrected lazily, and a program that stays
+  under the budget never walks. The naive version of this has a bad case: with live data
+  just under the budget, every small allocation would trigger a full walk. So the budget
+  is enforced with **slack**: after a walk that finds `L` live bytes, the next walk happens
+  only once another `max(MaxMemory − L, MaxMemory / 8)` bytes have been charged. The live
+  set may therefore overshoot `MaxMemory` by up to an eighth before the walk that ends the
+  Run, which the documentation states, and in exchange a walk (whose cost is bounded by the
+  live set, itself ≤ `MaxMemory × 9/8`) is paid for by at least `MaxMemory / 8` allocated
+  bytes — at most about nine units of walking per allocated byte, whatever the program
+  does.
 * The walk is deterministic (it depends on the script's values, not on the Go GC), so a
   Run that fails the budget fails it at the same step every time (D15).
 

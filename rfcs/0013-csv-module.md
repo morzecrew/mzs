@@ -48,7 +48,7 @@ out   = csv.str(users)                           # header line from the first di
 | Key | Default | Meaning |
 |---|---|---|
 | `sep` | `","` | one rune. `"\t"` for TSV, `";"` for the Excel of half of Europe |
-| `header` | `false` | reading: the first record names the fields and every later record is a dict in that order (D11). Writing: `true` forces a header, `false` suppresses it, default is "when rows are dicts" |
+| `header` | `false` | reading: the first record names the fields and every later record is a dict in that order (D11). A header that names a field twice (`id,id`) or has an empty name is a `csv` error before any record is read: two fields cannot share one key, and silently dropping one is data loss. Writing: `true` forces a header, `false` suppresses it, default is "when rows are dicts" |
 | `strict` | `true` | reading: a record with a different field count than the first is an error. `false` pads with `nil` / keeps extras under their index |
 | `trim` | `false` | strip spaces around unquoted fields |
 | `comment` | `nil` | a rune; lines starting with it are skipped |
@@ -58,8 +58,11 @@ out   = csv.str(users)                           # header line from the first di
 0008's `parse_int` when the column must be numeric. An empty field is `""`, not `nil`.
 
 **Writing.** A field is quoted when it contains the separator, a quote, `\r` or `\n`, or
-has leading/trailing space; quotes double. Non-string values go through `str` (so a
-Decimal prints as its number, `nil` as an empty field). Dict rows are written in the key
+has leading/trailing space; quotes double. Non-string values go through `str`, except
+two: `nil` is an empty field, and a `Decimal` is written as `decimal.str` writes it
+(`12.5`). `str` of a Decimal is the JSON of its dict (`{"units":125,"scale":1}`, since a
+record is a dict, §7.8), which no spreadsheet reads as money; any other dict or array in a
+field is an `argument` error naming the column. Dict rows are written in the key
 order of the **first** row; a later row missing a key is an error under `strict`.
 
 **Errors.** A new kind `csv` joins the closed list (§13.5), as `json` and `decimal` did:

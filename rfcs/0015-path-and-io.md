@@ -84,12 +84,22 @@ type FileMover   interface { Rename(from, to string) error }
 | `mkdir` | `(path) -> nil` | `DirMaker` | creates the directory and its parents; existing is fine |
 | `mv` | `(from, to) -> nil` | `FileMover` | rename within the filesystem; replaces a file at `to` |
 
-When the host's `FS` lacks the interface the member is **absent**, and the compile-time
-diagnostic names the reason, as `include io` does today:
-`name: io.rm needs the host's filesystem to allow removal (FileRemover)`.
+A member is installed only when **both** hold: the host's `FS` implements the interface,
+**and** the host opted in with a new field, `Options.FSMutations bool`. Go interfaces are
+satisfied implicitly, so an existing `FileSystem` that happens to have a `Remove` method
+must not hand scripts `io.rm` on upgrade; the field is the deliberate act. Without either,
+the member is **absent**, and the compile-time diagnostic names what is missing, as
+`include io` does today: `name: io.rm needs the host to allow structural changes
+(Options.FSMutations, FileRemover)`.
+
+`walk` needs to tell a link from a directory without following it, and `Stat` follows
+links. So it requires one more optional interface, `LinkStater` —
+`Lstat(name string) (exists, size int64, dir, link bool, err error)` — and is absent
+without it. A link is yielded as a name and never descended into, so a walk cannot enter a
+linked directory or a cycle. `walk` reads and needs no `FSMutations`.
 
 `FileSystem` itself is untouched, so every existing implementation compiles (§21.1).
-The CLI's filesystem implements all three: "the person typing `mzs -e` already owns the
+The CLI's filesystem implements all four and sets `FSMutations`: "the person typing `mzs -e` already owns the
 machine". `--no-io` withholds everything, as now; a new `--read-only` withholds `write`,
 `append`, `rm`, `mkdir` and `mv`.
 

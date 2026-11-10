@@ -66,10 +66,12 @@ Keys must be strings naming parameters; an unknown key is the existing
 `has no parameter named '…'` error. A parameter bound twice — positionally and through
 `**`, or by two splats — is an `argument` error, never last-wins.
 
-**Spread in literals.** `[*a, x, *b]` concatenates; `{**d, k: v, **e}` merges in written
-order, later entries winning, preserving first-insertion position (D11) — exactly
-`d + {k: v} + e`. A record label does **not** survive a `{**m}` literal: a literal builds a
-plain dict (use `m + {…}` or `dup` for the with-update, §7.8).
+**Spread in literals.** `[*a, x, *b]` concatenates. `{**d, k: v, **e}` builds a **new
+plain dict**: entries in written order, a later entry overwriting an earlier one's value
+while keeping the earlier one's position (D11). It is not `d + {k: v} + e`, and the
+difference is deliberate: a literal never carries a record label, so it neither keeps one
+(`m + {…}` and `dup` do, §7.8) nor refuses two labelled operands (`a + b` between two
+records is an error, §7.8; `{**a, **b}` is a plain dict of their entries).
 
 **Not included:** `**kwargs` as a *parameter* (collecting unknown named arguments). It
 turns every misspelled argument name from a diagnostic into a silent entry, which is the

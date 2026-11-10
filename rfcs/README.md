@@ -49,7 +49,10 @@ to say so in its first paragraph. In practice every proposal here was written ag
 * **D18 — UFCS, one flat namespace.** A new row is callable both ways; a new module is
   reached with `include` and nothing is ambient.
 * **D15 / G4 — the zero `Options` is the safe one.** Anything that reaches outside the
-  process is gated by a field the host sets.
+  process is gated by a field the host sets — with the one documented exception SPEC §12.11
+  makes on purpose: `http` is installed with no option asked for, so a host that runs
+  untrusted scripts removes it with `Unregister("http")`. No RFC here adds a second
+  exception.
 * **I1 — the Go standard library only.** No RFC adds a dependency.
 * **SPEC §20's permanent list** — no classes, no operator overloading, no `eval`, no
   process spawning, no shared-memory parallelism. No RFC here reopens one.

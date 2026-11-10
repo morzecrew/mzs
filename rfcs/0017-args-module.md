@@ -33,7 +33,9 @@ scripts stop being pleasant.
 **Everything after the first positional argument (the script path) is passed to the
 script untouched.** `mzs [mzs flags] script.mzs [anything]`. A `--` before the script is
 still accepted and means "no more mzs flags". With `-e` there is no script path, so the
-first non-flag argument starts `$ARGV`, as it effectively does now.
+first non-flag argument starts `$ARGV`. That is new too: today `mzs -e '…' foo` reads `foo`
+as a script file and stops with `-e and a script file are mutually exclusive`, so no
+working command line changes meaning.
 
 This is a break for `mzs script.mzs --json` (interpreter flag written after the script).
 It is the convention of every interpreter (`python x.py --help` is x's help), it is

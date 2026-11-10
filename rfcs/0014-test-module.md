@@ -76,7 +76,7 @@ FAIL totals › with discount
 |---|---|
 | `--filter <regex>` | run only cases whose full name (`group › case`) matches. A non-matching case's block is **not executed** and it is not counted. File-level code still runs — it is how cases get declared |
 | `--fail-fast` | stop after the first failed case; exit 1 |
-| `--json` | one JSON object per line on stdout: `{"file","name","group","status","message","line","col","ms"}`, then a summary object. Human lines are suppressed |
+| `--json` | one JSON object per line on stdout, with the keys `file`, `name`, `group`, `status`, `message`, `line`, `col`, `ms` — e.g. `{"file":"money_test.mzs","name":"half up","group":["rounding"],"status":"pass","message":null,"line":4,"col":1,"ms":0}` — then a summary object. Human lines are suppressed |
 | `--now <rfc3339>` | implies `--time` with a **fixed** clock, so date logic is testable deterministically (D15) |
 | `-v` | also print each case's captured stdout under it (today it is interleaved) |
 

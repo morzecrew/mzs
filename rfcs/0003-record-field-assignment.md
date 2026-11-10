@@ -62,21 +62,36 @@ m.amount                    # works
 match m { money.Money {amount} -> … }   # with RFC 0002
 ```
 
-the including unit's compile step knows the fields of every record the module exports.
-`include … from` takes a string literal by grammar (§4), so the dependency is known when
-the includer compiles; the compile step asks `Options.ModuleLoader` for the module then
-rather than at the first run, and caches the compiled module on the `*Program` (the module
-still *runs* once per Run, §12.8 — compiling is not running).
+the including unit's compile step knows the **field names** of every record the module
+exports. `include … from` takes a string literal by grammar (§4), so the dependency is
+known when the includer compiles. Three rules keep this from changing what an include
+does today:
+
+* **Only an include at the top level of a file is read at compile time.** One inside a
+  block (`if debug { include trace from "trace" }`) stays exactly as lazy as it is now:
+  never loaded unless it runs, and its records are read with `m["k"]`.
+* **A read that fails at compile time is not a compile error.** The include fails when it
+  runs, as today, and is still catchable by `try` wherever it is today. What fails at
+  compile time is only a `.field` that nothing else could resolve, and its message names
+  the cause: `'.amount' is not a field of a record known here; module 'money' could not be
+  read at compile time: …`.
+* **Nothing compiled is cached across Runs.** The compile step keeps a *table of field
+  names*, not the module's program. Each Run calls the loader and runs the module exactly
+  as it does now (§12.8), and the dispatch of `.field` happens at run time anyway (§7.8),
+  so a module whose source changed between Runs is the module that runs. A stale table can
+  only make the compile step accept a name the new module no longer has, and that read is
+  then the run-time `key` error it would be for any dict.
 
 Built-in modules export no records today; if one ever does (`decimal`'s `Decimal`), the
 same rule applies.
 
 ## Compatibility
 
-Additive: `x.name = …` is a syntax error today for every `name`. Moving module compilation
-from first-run to compile time changes *when* a missing library is reported (at `Compile`
-rather than at `Run`) but not whether — and `--check` starts catching it, which is the
-behaviour one would have guessed.
+Additive: `x.name = …` is a syntax error today for every `name`. Reading a top-level
+include at compile time changes nothing a program does: a module that cannot be read still
+fails where and how it fails today (above), and a conditional include is still not read.
+What is new is that `Compile` calls the host's loader, so a loader with side effects sees
+one more call per top-level include — stated in §13.2 next to `ModuleLoader`.
 
 ## Alternatives
 

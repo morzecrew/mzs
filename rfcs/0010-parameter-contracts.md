@@ -45,10 +45,21 @@ TypeName   = IDENT ;        (* a kind name of §7.2, or a record / enum name in 
 serves `fn`, arrow functions and closure parameter lists.
 
 **Contract names** are exactly what `is(x, name)` accepts (§12.1): `int`, `float`,
-`string`, `bool`, `array`, `dict`, `regex`, `fn`, `range`, `seq`, `time`, `task`, a record
-name, or (RFC 0005) an enum name. One addition: `number`, meaning int or float — the
-single union every numeric function needs. `is` learns it too, so the contract and the
-function never disagree. A trailing `?` also admits `nil`.
+`string`, `bool`, `array`, `dict`, `regex`, `function`, `range`, `seq`, `time`, a record
+name, or (RFC 0005) an enum name. They are the `type()` spellings, which is why it is
+`function` and not `fn` — `fn` is a keyword and could not be an `IDENT` here anyway. A
+trailing `?` also admits `nil`.
+
+Two additions, each made to `is` as well so the contract and the function never disagree:
+
+* `task`. `type(t)` is already `"task"`, yet `t.is("task")` is an argument error today;
+  that becomes `true`. Additive: an error becomes an answer.
+* `number`, meaning int or float — the single union every numeric function needs. One
+  program can already observe the name: `record number(x); number(7).is("number")` is
+  `true`. To keep it so, a record name declared in the Run answers first, as it does today,
+  and `number` means int-or-float only when no record of that name exists. Declaring a
+  record named like a kind (`number`, `int`, …) gains a warning, because the contract
+  `x: number` would then mean the record.
 
 **When it is checked.** After argument binding and default evaluation (§8.7), before the
 body runs, in parameter order. A default value is checked like any other. On `*rest: int`
