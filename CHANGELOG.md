@@ -36,6 +36,17 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **A function you can see wins in method position too** — a deliberate break (SPEC §21.4).
+  `x.f(y)` now tries a binding named `f` that holds a function (a `fn`, a closure, a
+  parameter), then a host function installed with `Register`, and only then the stdlib
+  table — the order `f(x, y)` always used. So `fn sum(xs) { 99 }; [1, 2].sum` is `99`
+  where it was `3`, and the promise of §21.2, that a name the library adds can only
+  collide with a local and the local wins, holds for method calls as well. What can
+  change: a program with a function or parameter spelled like a stdlib row and called in
+  method form — `fn pick(xs, filter) { xs.filter(filter) }` now calls the parameter, and
+  `fn sort(xs) { xs.sort }` now recurses. Rename the function or the parameter. A
+  binding holding no function (`count = 0`) leaves the row alone, a record's own field
+  still comes first, and `x in c` still asks the `has` row (SPEC §4.3, §8.7; audit B9).
 - **A gated name says which option it needs.** `now()`, `rand()`, `uuid()`,
   `xs.shuffle` and `xs.sample` without the capability used to answer with a suggestion of
   the very name that failed (`undefined function 'now' (did you mean 'now'?)`). They now
@@ -57,17 +68,6 @@ and the release is still ahead of it.
   longer passes over a candidate whose read failed — a permission, an I/O error, a link out
   of the tree — because the next directory's answer would be a different library under a name
   this one already claimed.
-- **A function you can see wins in method position too** — a deliberate break (SPEC §21.4).
-  `x.f(y)` now tries a binding named `f` that holds a function (a `fn`, a closure, a
-  parameter), then a host function installed with `Register`, and only then the stdlib
-  table — the order `f(x, y)` always used. So `fn sum(xs) { 99 }; [1, 2].sum` is `99`
-  where it was `3`, and the promise of §21.2, that a name the library adds can only
-  collide with a local and the local wins, holds for method calls as well. What can
-  change: a program with a function or parameter spelled like a stdlib row and called in
-  method form — `fn pick(xs, filter) { xs.filter(filter) }` now calls the parameter, and
-  `fn sort(xs) { xs.sort }` now recurses. Rename the function or the parameter. A
-  binding holding no function (`count = 0`) leaves the row alone, a record's own field
-  still comes first, and `x in c` still asks the `has` row (SPEC §4.3, §8.7; audit B9).
 - A refusal to load a module now names the spelling that was meant: a library that is not
   found says where it looked, `"text.mzs"` says to write `"text"` or `"./text.mzs"`, and a
   library name with `..` in it is refused with the `./` form that may climb.
