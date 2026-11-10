@@ -346,6 +346,9 @@ func (e ev) evalCallExpr(n *ast.CallExpr) (Value, error) {
 		// even when `f` also names a module (§12.8).
 		v, ok, err := e.callNamed(id.Name, args, named, id.Start, id.Ref == ast.RefFunc)
 		if !ok {
+			if gap := capabilityGap(e.rs.in, id.Name); gap != "" {
+				return Nil(), e.at(nameErrorf("undefined function '%s': %s", id.Name, gap), id.Start)
+			}
 			return Nil(), e.at(undefinedFunctionError(id.Name, e.scriptFuncNames()), id.Start)
 		}
 		return v, err
@@ -626,6 +629,9 @@ func (e ev) dispatch(recv Value, name string, args []Value, named namedArgs, pos
 	ufcs = append(append(ufcs, recv), args...)
 	if v, ok, err := e.callNamed(name, ufcs, named, pos, true); ok {
 		return v, err
+	}
+	if gap := capabilityGap(e.rs.in, name, recv.Kind(), KAny); gap != "" {
+		return Nil(), nameErrorf("undefined method '%s' for %s: %s", name, recv.Kind(), gap)
 	}
 	if rt := recv.recordType(); rt != nil {
 		return Nil(), undefinedRecordMethodError(rt, name)

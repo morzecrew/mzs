@@ -131,9 +131,9 @@ These need a fix, not an RFC.
 
 | # | Defect | Reproduce |
 |---|---|---|
-| B1 | A did-you-mean suggests the name that was just refused | `mzs -e 'now()'` → `undefined function 'now' (did you mean 'now'?)`. The gated builtin is in the suggestion table; the message should name the gate, as `include time` does (`needs a clock: … mzs --time`). Same for `rand`/`uuid` |
-| B2 | `mzs test --help` prints an example that does not compile | it shows `test.eq(decimal("10.00") * 3, decimal("30.00"))`; `decimal` is a module, not a function, and `*` on a Decimal is an error. SPEC §12.18 has the right line (`decimal.times(decimal.of("10.00"), 3)`) |
-| B3 | SPEC §4 still gives dicts square brackets | `Collection = "[" ( ArrayBody \| DictBody \| ":" ) "]"`, while D3 and the implementation say `{a: 1}` and `{}` (`[a: 1]` → `a dict is written {a: 1}`) |
+| B1 | **Fixed (#17).** A did-you-mean suggests the name that was just refused | `mzs -e 'now()'` → `undefined function 'now' (did you mean 'now'?)`. The gated builtin is in the suggestion table; the message should name the gate, as `include time` does (`needs a clock: … mzs --time`). Same for `rand`/`uuid` |
+| B2 | **Fixed (#17).** `mzs test --help` prints an example that does not compile | it shows `test.eq(decimal("10.00") * 3, decimal("30.00"))`; `decimal` is a module, not a function, and `*` on a Decimal is an error. SPEC §12.18 has the right line (`decimal.times(decimal.of("10.00"), 3)`) |
+| B3 | **Fixed (#17).** SPEC §4 still gives dicts square brackets | `Collection = "[" ( ArrayBody \| DictBody \| ":" ) "]"`, while D3 and the implementation say `{a: 1}` and `{}` (`[a: 1]` → `a dict is written {a: 1}`) |
 | B4 | "Reserved" words are not reserved | SPEC §20 lists `class`, `module`, `yield`, `defer` as reserved syntax; `class = 1; yield = 2; defer = 3; module = 4; class + yield + defer + module` → `10`, and `defer { 1 }` → `undefined function 'defer'`. Either reserve them in the lexer or drop them from §20 — as written, adding any of them later breaks programs §21.1 promises to keep |
 | B5 | The specified call stack is not shown | see L15; §8.11 promises it, nothing prints it |
 | B6 | An unknown `strftime` directive is echoed | `mzs --time -e 'include time; time.parse("2026-01-01").strftime("%s %f %G")'` → `%s %f %G`. By D16 it should be an `argument` error naming the directive |

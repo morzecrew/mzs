@@ -1,9 +1,12 @@
 package mzs
 
 import (
+	"context"
 	"errors"
+	"math/rand"
 	"strings"
 	"testing"
+	"time"
 )
 
 // §17: every name error carries a suggestion, drawn from a Levenshtein-1 search over the
@@ -27,6 +30,10 @@ func TestSuggest(t *testing.T) {
 		{"one edit from a renamed spelling", "lenght", methods, "len"},
 		{"nothing close", "штука", methods, ""},
 		{"empty name", "", methods, ""},
+		{"never the name itself", "now", []string{"now", "nod"}, "nod"},
+		{"the name itself and nothing else", "now", []string{"now"}, ""},
+		// A different case is a typo, not the name: `NOW()` is fixed by `now`.
+		{"the name in another case is still suggested", "NOW", []string{"now", "pow"}, "now"},
 	}
 
 	for _, tt := range tests {
@@ -255,4 +262,98 @@ func TestControlSignals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A name the library has but this interpreter cannot reach is gated on a host capability
+// (D15), and its diagnostic says which one instead of suggesting the name itself.
+func TestCapabilityGapNamesTheOption(t *testing.T) {
+	tests := []struct {
+		name, src, want string
+	}{
+		{"a clock, called", "now()", "undefined function 'now': it needs a clock, and the host did not install Options.Now (mzs --time)"},
+		{"randomness, called", "rand()", "undefined function 'rand': it needs randomness, and the host did not install Options.Rand (mzs --rand)"},
+		{"randomness, uuid", "uuid()", "undefined function 'uuid': it needs randomness"},
+		{"a gated method", "[1, 2].shuffle", "undefined method 'shuffle' for array: it needs randomness"},
+		{"a gated name as a value", "x = now", "undefined variable 'now': it needs a clock"},
+		// No row of any kind is spelled `now`, so the compile pass refuses the method
+		// itself (undefinedMethod) rather than leaving it to dispatch.
+		{"a gated builtin in method position", "5.now", "undefined method 'now': it needs a clock"},
+	}
+
+	// A row of some other kind is not this receiver's to enable: with randomness
+	// installed `"x".shuffle` would still be undefined, so naming the option would send
+	// the reader to switch on something that cannot help.
+	for _, src := range []string{`"x".shuffle`, `1.shuffle`} {
+		t.Run("no row for this kind: "+src, func(t *testing.T) {
+			_, err := New(Options{}).Eval(context.Background(), src, nil)
+			if err == nil || strings.Contains(err.Error(), "Options.Rand") || !strings.Contains(err.Error(), "undefined method 'shuffle'") {
+				t.Errorf("%s = %v; want undefined method without naming Options.Rand", src, err)
+			}
+		})
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := New(Options{}).Eval(context.Background(), tt.src, nil)
+			if err == nil {
+				t.Fatalf("%s ran; want a name error", tt.src)
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, tt.want) {
+				t.Errorf("error = %q; want it to contain %q", msg, tt.want)
+			}
+			if strings.Contains(msg, "did you mean") {
+				t.Errorf("error = %q; a gated name needs no suggestion", msg)
+			}
+			var me *Error
+			if !errors.As(err, &me) || me.Kind != ErrKindName {
+				t.Errorf("error = %#v; want kind %q", err, ErrKindName)
+			}
+		})
+	}
+
+	// A *Program compiled where the option was installed can be run by an Interp where it
+	// is not. The compile pass saw a builtin and let it through, so the refusal happens at
+	// run time — and must name the option there too, for a call and for a method alike.
+	t.Run("compiled with the option, run without it", func(t *testing.T) {
+		withAll := New(Options{
+			Now:  func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) },
+			Rand: rand.New(rand.NewSource(1)),
+		})
+		for _, c := range []struct{ src, want string }{
+			{"now()", "undefined function 'now': it needs a clock"},
+			{"[1, 2].shuffle", "undefined method 'shuffle' for array: it needs randomness"},
+		} {
+			p, err := withAll.Compile("t.mzs", c.src)
+			if err != nil {
+				t.Fatalf("Compile(%s): %v", c.src, err)
+			}
+			_, err = New(Options{}).Run(context.Background(), p, nil)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("Run(%s) without the option = %v; want an error containing %q", c.src, err, c.want)
+			}
+		}
+	})
+
+	t.Run("installed, it works", func(t *testing.T) {
+		o := Options{Now: func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) }}
+		v, err := New(o).Eval(context.Background(), "now().year", nil)
+		if err != nil || v.Str() != "2026" {
+			t.Fatalf("now().year = %v, %v; want 2026", v, err)
+		}
+	})
+
+	// A name the host took away on purpose is not one it forgot to enable: the message
+	// must not point at the option that would bring it back.
+	t.Run("removed with Unregister, no option is named", func(t *testing.T) {
+		in := New(Options{})
+		in.Unregister("now")
+		_, err := in.Eval(context.Background(), "now()", nil)
+		if err == nil {
+			t.Fatal("now() ran after Unregister")
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "Options.Now") || strings.Contains(msg, "did you mean 'now'") {
+			t.Errorf("error = %q; want neither the option nor the name itself", msg)
+		}
+	})
 }

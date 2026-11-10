@@ -429,7 +429,7 @@ func suggest(name string, candidates []string) string {
 	if name == "" {
 		return ""
 	}
-	if to, ok := renameTable[name]; ok {
+	if to, ok := renameTable[name]; ok && to != name {
 		return to
 	}
 	if s := nearest(name, candidates); s != "" {
@@ -454,6 +454,13 @@ func nearest(name string, candidates []string) string {
 	}
 	sort.Strings(pool)
 	for _, c := range pool {
+		// The name itself is never a suggestion: when it is in the pool it exists and is
+		// merely out of reach (a gated row, a name the host took away), and "did you mean
+		// 'now'?" under a failed `now()` sends the reader looking for a typo there is not.
+		// Only the exact spelling is skipped: `NOW()` is a typo, and `now` is its fix.
+		if c == name {
+			continue
+		}
 		if editDistance(lower, strings.ToLower(c)) <= 1 {
 			return c
 		}
@@ -501,6 +508,44 @@ func undefinedRecordMethodError(rt *RecordType, name string) *Error {
 		return nameErrorf("undefined method '%s' for %s (did you mean '%s'?)", name, rt.Name, s)
 	}
 	return nameErrorf("undefined method '%s' for %s", name, rt.Name)
+}
+
+// capabilityGap says why a name the standard library does have is out of reach here: it
+// is gated on a host capability this interpreter was not given (D15), and the fix is an
+// option, not a spelling. It answers "" when the name is not gated, when the capability
+// is installed, and when the host removed the name with Unregister — a name taken away
+// on purpose is not one the host forgot to enable, and saying otherwise would invite the
+// reader to switch on what the host meant to withhold.
+//
+// With no kinds it asks every method table, for a call whose receiver is not known (a
+// prefix call, or a method the compile pass refuses). With kinds it asks only those: a
+// receiver of that kind could reach the row, so `"x".shuffle` is not blamed on missing
+// randomness when no string has a `shuffle` to enable (§12). A builtin counts either way,
+// since UFCS reaches it from any receiver.
+func capabilityGap(in *Interp, name string, kinds ...Kind) string {
+	if in == nil || in.isRemoved(name) {
+		return ""
+	}
+	needsNow, needsRand := false, false
+	if b, ok := LookupBuiltin(name); ok {
+		needsNow, needsRand = b.NeedsNow, b.NeedsRand
+	}
+	if len(kinds) == 0 {
+		kinds = dispatchKinds[:]
+	}
+	for _, k := range kinds {
+		if m, ok := methodTables[k][name]; ok {
+			needsNow = needsNow || m.NeedsNow
+			needsRand = needsRand || m.NeedsRand
+		}
+	}
+	switch {
+	case needsNow && in.opts.Now == nil:
+		return "it needs a clock, and the host did not install Options.Now (mzs --time)"
+	case needsRand && in.opts.Rand == nil:
+		return "it needs randomness, and the host did not install Options.Rand (mzs --rand)"
+	}
+	return ""
 }
 
 // undefinedFunctionError is the same idea for a call whose name is not a method of any
@@ -639,6 +684,9 @@ func undefinedNameMessage(in *Interp, name string, visible []string) string {
 		// A module that exists but is gated off: the fix is a host option, not a line
 		// at the top of the file.
 		return unknownModuleMessage(in, name)
+	}
+	if gap := capabilityGap(in, name); gap != "" {
+		return fmt.Sprintf("undefined variable '%s': %s", name, gap)
 	}
 	return undefinedVariableError(name, visible).Msg
 }

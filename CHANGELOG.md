@@ -36,6 +36,17 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **A gated name says which option it needs.** `now()`, `rand()`, `uuid()`,
+  `xs.shuffle` and `xs.sample` without the capability used to answer with a suggestion of
+  the very name that failed (`undefined function 'now' (did you mean 'now'?)`). They now
+  name the option — `it needs a clock, and the host did not install Options.Now (mzs
+  --time)` — the way `include time` already did, and no suggestion is ever the name
+  itself. A name removed with `Unregister` is not reported as gated (SPEC §17).
+- **The example in `mzs test --help` runs.** It multiplied a `decimal(…)` call, and a
+  module is never callable; it is SPEC §12.18's `decimal.times(decimal.of("10.00"), 3)`
+  now, and a test runs the help text's example so it cannot drift again.
+- **SPEC §4's grammar spells a dict with braces.** `Collection` still showed the earlier
+  draft's `[a: 1]` form, which D3 and the parser have refused since 0.1.0.
 - **An include may not leave its tree through a symbolic link.** The confinement is enforced
   by the read (`os.Root`) rather than by the spelling of the path, so a link that is
   lexically inside the root and leads outside it is refused with the same message as a

@@ -713,8 +713,10 @@ Primary        = INT | FLOAT | String | Regex | "true" | "false" | "nil"
 ArrowFn        = "(" ParamList ")" "->" Closure ;  (* an anonymous FnDecl, §4.1 *)
 
 GroupExpr      = "(" StmtList ")" ;                (* value = last statement *)
-Collection     = "[" ( ArrayBody | DictBody | ":" ) "]" ;
+Collection     = ArrayLit | DictLit ;
+ArrayLit       = "[" ArrayBody "]" ;                (* "[" is always an array, D3 *)
 ArrayBody      = [ Expr { "," Expr } [ "," ] ] ;
+DictLit        = "{" [ DictBody ] "}" ;             (* operand position only; §3.12 decides it from a Closure *)
 DictBody       = DictEntry { "," DictEntry } [ "," ] ;
 DictEntry      = ( IDENT | String ) ( ":" | "->" ) Expr   (* a string key *)
                | "(" Expr ")" ":" Expr                    (* computed; never "->", §3.12 *)
@@ -4036,6 +4038,13 @@ Rules:
   There is one so far: `say` became `println`, so that which of the pair adds the newline
   is legible from the name — `say("hi")` answers
   `undefined function 'say' (did you mean 'println'?)`.
+* A suggestion is never the name that failed. A name that exists but is **gated** on a host
+  capability (D15) — `now`, `rand`, `uuid`, `sample`, `shuffle` — is out of reach, not
+  misspelled, so its diagnostic names the option instead of a near miss:
+  `undefined function 'now': it needs a clock, and the host did not install Options.Now
+  (mzs --time)`. A name the host removed with `Unregister` is not called gated: the host
+  withheld it on purpose, and the message does not point at the option that would bring it
+  back.
 * Every row of §5.6 is a diagnostic with a fixed message, produced by the lexer or parser
   before any other error can cascade from it.
 * Warnings never fail a compile unless `StrictWarnings`. Current warnings:
