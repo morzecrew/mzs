@@ -209,6 +209,7 @@ boundary: a script cannot bring its host down.
 | [Modules](docs/modules/README.md) | `json`, `math`, `time`, `io`, `http`, `test`, and your own |
 | [Embedding in Go](docs/embedding/README.md) | the host API: values, functions, capabilities, errors |
 | Reference | [sandbox and limits](docs/reference/sandbox.md) · [limitations](docs/reference/limitations.md) · [verification](docs/reference/verification.md) · [compatibility](docs/reference/compatibility.md) |
+| [RFCs](rfcs/README.md) | what the language does not have yet: [the audit](rfcs/0000-audit.md) and twenty draft proposals |
 
 The normative description is [`SPEC.md`](SPEC.md); the runnable one is
 [`examples/`](examples/README.md) — 40 programs, from the value model to a maze solver, an HTTP
