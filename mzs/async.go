@@ -98,6 +98,22 @@ type runShared struct {
 	// consecutive lines, and a cursor on the shared half of the Run is what a seq of its
 	// own cannot be.
 	stdinAt int
+
+	// The memory budget (§14.2, RFC 0011). mem is the live total of the last walk plus
+	// what has been charged since, memNext the total at which the next walk runs,
+	// memPeak the most any walk has found live, memBase what the host's globals weigh
+	// (which is not the script's), and memSteps the step count the allowance was last
+	// charged at.
+	// states is every runState that can hold values — the main program and each live
+	// task — because a value only a task can reach is still live.
+	mem, memNext, memPeak, memBase, memSteps int64
+	memBaseDone                              bool
+	// main is the main program's state and states the live tasks'; hostVars is the map
+	// the host passed to Run, which with Interp.globals is the baseline.
+	main     *runState
+	states   []*runState
+	hostVars map[string]Value
+	rootBox  *rootStacks // the pooled stacks behind main's roots, returned at the end
 	// stdinLineBad records that a line overran MaxStringBytes. The reader is then no
 	// longer positioned at the start of a line, and the rest of the one that overran would
 	// come back as a line of its own — a fragment presented as data — so every later pull
@@ -352,6 +368,7 @@ func (rs *runState) fork(t *task) *runState {
 	trs.tick = 0
 	trs.exports = nil
 	trs.loading = append([]string(nil), rs.loading...)
+	trs.roots, trs.held = nil, nil
 	return &trs
 }
 
@@ -446,6 +463,7 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 	t := &task{name: f.Name, done: make(chan struct{}), stop: stop}
 	trs := rs.fork(t)
 	trs.ctx = tctx
+	untrack := rs.sh.trackState(trs)
 	rs.sh.live++
 	rs.sh.all = append(rs.sh.all, t)
 	rs.sh.wg.Add(1)
@@ -462,6 +480,7 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 			}
 			t.fin = true
 			trs.sh.live--
+			untrack()
 			trs.unlock()
 			close(t.done)
 		}()

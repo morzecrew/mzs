@@ -110,6 +110,10 @@ type Result struct {
 	// they ran (§12.18). It is empty for a program that never included the module, which
 	// is every program but a test file.
 	Tests []TestCase
+	// PeakMemory is the most the memory walk found live at once, in bytes (§14.2). It is
+	// what a host reads to size Options.MaxMemory: 0 when the Run never walked, because
+	// it never came near the budget, or when the budget is disabled.
+	PeakMemory int64
 }
 
 // Func is a callable: a script `fn`, a `{ … }` closure literal, or a Go function
@@ -262,6 +266,13 @@ type runState struct {
 	// http.stop() is called from inside a handler and has to find the server it is
 	// nested in, and because one Run serves at most one listener (§12.9).
 	srv *httpServer
+
+	// roots is what this state is holding right now, for the memory walk (§14.2): the
+	// scopes that are executing, the arguments of the calls in progress, and the values
+	// the evaluator and the stdlib hold in Go variables while they call back into the
+	// script. It is pushed and popped like the call stack, and a task starts with none.
+	roots []memRoot
+	held  []Value
 }
 
 // newRunState builds the per-Run state with the budget already armed.

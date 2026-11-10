@@ -240,6 +240,16 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 				return nil, fmt.Errorf("--steps wants an integer, got %q", v)
 			}
 			cfg.opts.steps, cfg.opts.stepsSet = n, true
+		case "--mem":
+			v, err := need()
+			if err != nil {
+				return nil, err
+			}
+			n, perr := parseSize(v)
+			if perr != nil {
+				return nil, perr
+			}
+			cfg.opts.mem, cfg.opts.memSet = n, true
 		case "--tasks":
 			v, err := need()
 			if err != nil {
@@ -300,6 +310,7 @@ A test file includes the module and names its cases:
 Flags:
   -t, --timeout <d>  wall clock per file (default 1s; 0 disables)
       --steps <n>    step budget per file (default 5000000; 0 disables)
+      --mem <size>   live memory budget per file, e.g. 64m (default 64m; 0 disables)
       --tasks <n>    tasks running at once, for async fn (default 64; 0 forbids them)
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility

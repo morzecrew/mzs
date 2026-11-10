@@ -100,12 +100,13 @@ when `serve` returns.
 | `MaxTasks` | `64` | tasks live at once | `--tasks`, `--tasks 0` forbids |
 | `MaxCollection` | `1000000` | elements one operation materialises | — |
 | `MaxStringBytes` | `8388608` | bytes of one produced string | — |
+| `MaxMemory` | `67108864` | bytes held live in script values at once | `--mem 64m`, `--mem 0` disables |
 | `RegexSteps` | `200000` | backtracking steps per match attempt | — |
 | `RegexCacheSize` | `256` | runtime regex compile cache, per `Interp` | — |
 | `ProgramCache` | `512` | compiled-source cache used by `Eval` | — |
 | — | `64` | `include` nesting depth; not an `Options` field | — |
 
-Six of them in one line each, verbatim, exit code `3` — the seventh, `include nesting too
+Seven of them in one line each, verbatim, exit code `3` — the eighth, `include nesting too
 deep (64)`, needs a chain of files ([modules/custom.md](../modules/custom.md)):
 
 ```sh
@@ -121,7 +122,41 @@ mzs -e '"a" * 100000000'
 # -e:1:5: limit: string too large: 100000000 bytes exceeds the limit of 8388608
 mzs --tasks 2 -e 'async fn f(n) { n }; 5.times.map { f(it) }'
 # -e:1:36: limit: too many tasks: 2 already running (MaxTasks)
+mzs -e 'xs = []; s = "x" * 1000000; i = 0; while true { xs.push(s + i.str); i += 1 }'
+# -e:1:59: limit: memory budget exceeded (64.85 MiB live, the limit is 64 MiB)
 ```
+
+## The memory budget
+
+`MaxCollection` and `MaxStringBytes` bound **one** operation before it allocates. `MaxMemory`
+bounds how much a Run holds **at once**: the array of a thousand 1 MB strings above breaks
+neither per-operation cap and ends on this one. It is a budget on *live* bytes, not on what
+was ever allocated — a loop that builds a string and drops it, an `io.lines.each` over a log
+far bigger than the budget, an `http.serve` that runs for a week all stay under it:
+
+```sh
+mzs --mem 4m --stats -e 's = "x" * 500000; n = 0; for i in 0..200 { n += (s + i.str).len }; n'
+# mzs: 2021 steps in 79ms, peak 0.95 MiB live     (stderr)
+# 100500493
+```
+
+How it works (SPEC §14.2): allocations are charged as they happen, pessimistically, and when
+the total crosses a threshold the Run walks what it can still reach — globals, modules, every
+executing scope and every value a call in progress holds, in every task — and replaces the
+total with that. The walk is over the script's own values, not a question to the Go runtime,
+so a program that fails the budget fails it at the same step every time. It may overshoot by
+up to an eighth of the budget before the walk that stops it, and one allocation bigger than
+what is left is refused before it is made.
+
+What the host bound is not charged: a 100 MB `$catalog` passed to `Run` costs the script
+nothing, and only what the script builds on top of it counts. `Result.PeakMemory` reports the
+most a walk found live (0 when none ran), and is the number to size the budget with. The
+sizes are estimates — a `Value` slot is 48 bytes, a string its bytes — and leave out Go's
+allocator overhead and garbage the Go collector has not reclaimed yet, so the process can be
+a small multiple of the budget; what matters is that it is bounded.
+
+A value a registered Go function *keeps* after it returns is invisible to the walk: the host
+owns what it retains.
 
 The check lives inside the node loop (every 1024 steps, plus every loop back-edge), which is
 why `while true { }` — a loop with nothing between statements — is still interrupted, and why

@@ -1115,6 +1115,7 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 
 	rs := newRunState(in, ctx, p.name, globals)
 	rs.sh.cancel = cancel
+	rs.startMemory(vars)
 	start := time.Now()
 	res = Result{Value: Nil(), Globals: globals}
 
@@ -1129,8 +1130,10 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	defer func() {
 		r := recover()
 		rs.joinTasks()
+		rs.stopMemory()
 		rs.unlock()
 		res.Steps, res.Elapsed, res.Tests = rs.sh.steps, time.Since(start), rs.sh.tests
+		res.PeakMemory = rs.sh.memPeak
 		if r != nil {
 			res.Value = Nil()
 			err = internalError(p.name, r, in.opts.StrictWarnings)

@@ -266,9 +266,9 @@ func literalSplit(s, sep string, limit int) []string {
 		return out
 	}
 	if limit > 0 {
-		return strings.SplitN(s, sep, limit)
+		return ownStrs(strings.SplitN(s, sep, limit), s)
 	}
-	return strings.Split(s, sep)
+	return ownStrs(strings.Split(s, sep), s)
 }
 
 func awkSplit(s string, limit int) []string {
@@ -323,7 +323,7 @@ func substitute(c *Ctx, s string, all bool, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	if err := c.CheckString(len(out)); err != nil {
+	if err := c.allocString(len(out)); err != nil {
 		return Nil(), err
 	}
 	return Str(out), nil
@@ -396,36 +396,37 @@ func init() {
 			return Str(foldString(s)), nil
 		}),
 		sm("trim", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
-			return Str(strings.TrimFunc(s, isTrimSpace)), nil
+			return Str(ownStr(strings.TrimFunc(s, isTrimSpace), s)), nil
 		}),
 		sm("trim_start", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
-			return Str(strings.TrimLeftFunc(s, isTrimSpace)), nil
+			return Str(ownStr(strings.TrimLeftFunc(s, isTrimSpace), s)), nil
 		}),
 		sm("trim_end", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
-			return Str(strings.TrimRightFunc(s, isTrimSpace)), nil
+			return Str(ownStr(strings.TrimRightFunc(s, isTrimSpace), s)), nil
 		}),
 		sm("chomp", 0, 1, func(c *Ctx, s string, args []Value) (Value, error) {
 			if len(args) == 0 {
-				return Str(chompNewline(s)), nil
+				return Str(ownStr(chompNewline(s), s)), nil
 			}
 			suf, err := argStr(c, args[0])
 			if err != nil {
 				return Nil(), err
 			}
 			if suf == "" {
+				src := s
 				for {
 					t := chompNewline(s)
 					if t == s {
-						return Str(s), nil
+						return Str(ownStr(s, src)), nil
 					}
 					s = t
 				}
 			}
-			return Str(strings.TrimSuffix(s, suf)), nil
+			return Str(ownStr(strings.TrimSuffix(s, suf), s)), nil
 		}),
 		sm("chop", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
 			if strings.HasSuffix(s, "\r\n") {
-				return Str(s[:len(s)-2]), nil
+				return Str(ownStr(s[:len(s)-2], s)), nil
 			}
 			rs := []rune(s)
 			if len(rs) == 0 {
@@ -701,7 +702,7 @@ func textLines(s string) []string {
 		parts = parts[:len(parts)-1]
 	}
 	for i, p := range parts {
-		parts[i] = strings.TrimSuffix(p, "\r")
+		parts[i] = ownStr(strings.TrimSuffix(p, "\r"), s)
 	}
 	return parts
 }
@@ -811,7 +812,7 @@ func justify(c *Ctx, s string, args []Value, mode byte) (Value, error) {
 	if total < bound/int64(len(pad)) {
 		est = int64(len(s)) + total*int64(len(pad))
 	}
-	if err := c.CheckString(int(est)); err != nil {
+	if err := c.allocString(int(est)); err != nil {
 		return Nil(), err
 	}
 	switch mode {

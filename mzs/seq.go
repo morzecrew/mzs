@@ -87,6 +87,11 @@ type seqIter func(c *Ctx) (Value, bool, error)
 // description that costs nothing until something pulls it.
 type Seq struct {
 	open func() seqIter
+	// refs are the values the cursors read from — the array a view walks, the generator,
+	// the sequence a row is layered over, the row's closure. The sequence does nothing
+	// with them; they are what the memory walk follows (RFC 0011), since a Go closure
+	// cannot be looked inside.
+	refs []Value
 }
 
 // seqSource builds a sequence from a cursor factory and is the only place a source is
@@ -105,11 +110,17 @@ func seqSource(open func() func(c *Ctx) (Value, bool, error)) *Seq {
 	}}
 }
 
+// with records a value the sequence's cursors read from, for the memory walk.
+func (s *Seq) with(v Value) *Seq {
+	s.refs = append(s.refs, v)
+	return s
+}
+
 // seqStage layers one lazy row over a sequence. wrap runs once per traversal, so the
 // state a row needs — how many are left to take, whether the `drop_while` is over — is
 // per-cursor and a second run of the same chain starts with it fresh.
 func seqStage(s *Seq, wrap func(seqIter) seqIter) *Seq {
-	return &Seq{open: func() seqIter { return wrap(s.open()) }}
+	return &Seq{open: func() seqIter { return wrap(s.open()) }, refs: []Value{seqOf(s)}}
 }
 
 // toSeq is the `seq` conversion (§12.1): an array or a range becomes a lazy view of
@@ -143,7 +154,7 @@ func seqOfArray(v Value) *Seq {
 			i++
 			return x, true, nil
 		}
-	})
+	}).with(v)
 }
 
 // seqOfRange counts rather than materialises, so `(1..1e18).seq` is a value like any
@@ -201,7 +212,7 @@ func seqOfFunc(fn Value) *Seq {
 			}
 			return v, true, nil
 		}
-	})
+	}).with(fn)
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +272,7 @@ func seqLazy(c *Ctx, recv Value, args []Value, wrap func(s *Seq, fn Value) *Seq)
 	if err != nil {
 		return Nil(), err
 	}
-	return seqOf(wrap(s, fn)), nil
+	return seqOf(wrap(s, fn).with(fn)), nil
 }
 
 // seqTerm is the shape every terminal row shares.
@@ -512,9 +523,12 @@ func seqvEachWithIndex(c *Ctx, recv Value, args []Value) (Value, error) {
 func seqvArray(c *Ctx, recv Value, args []Value) (Value, error) {
 	return seqTerm(c, recv, func(s *Seq) (Value, error) {
 		out := []Value{}
+		m := c.rootMark()
+		defer c.release(m)
+		c.holdGrowing(&out)
 		err := seqRun(c, s, func(v Value) (bool, error) {
 			out = append(out, v)
-			return true, c.CheckCollection(len(out))
+			return true, c.allocCollection(len(out), 1)
 		})
 		if err != nil {
 			return Nil(), err
@@ -708,9 +722,16 @@ func seqvReduce(c *Ctx, recv Value, args []Value) (Value, error) {
 		if seeded {
 			acc = pos[0]
 		}
+		// The accumulator is held in a one-element slot the walk can see while the
+		// source is pulled (§14.2).
+		slot := []Value{acc}
+		m := c.rootMark()
+		defer c.release(m)
+		c.holdVals(slot)
 		err := seqRun(c, s, func(v Value) (bool, error) {
 			if !seeded {
 				acc, seeded = v, true
+				slot[0] = acc
 				return true, nil
 			}
 			r, err := c.CallClosure(acc, v)
@@ -718,6 +739,7 @@ func seqvReduce(c *Ctx, recv Value, args []Value) (Value, error) {
 				return false, err
 			}
 			acc = r
+			slot[0] = acc
 			return true, nil
 		})
 		return acc, err

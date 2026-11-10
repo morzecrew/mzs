@@ -10,7 +10,7 @@ import (
 	"mzs/internal/token"
 )
 
-// Sentinel errors (§13.5). ErrTimeout, ErrBudget, ErrDepth and ErrCanceled are the
+// Sentinel errors (§13.5). ErrTimeout, ErrBudget, ErrMemory, ErrDepth and ErrCanceled are the
 // unrecoverable limits: `try … else …` never catches them, they always reach the host
 // (§8.11, §14.1). ErrFatal is what a host function wraps to make its own error
 // uncatchable too. ErrExit is the `exit` builtin (§12.1): not a failure at all, but it
@@ -19,6 +19,7 @@ var (
 	ErrTimeout  = errors.New("mzs: execution timed out")
 	ErrBudget   = errors.New("mzs: step budget exceeded")
 	ErrDepth    = errors.New("mzs: max call depth exceeded")
+	ErrMemory   = errors.New("mzs: memory budget exceeded")
 	ErrCanceled = errors.New("mzs: canceled")
 	ErrFatal    = errors.New("mzs: fatal")
 	ErrExit     = errors.New("mzs: exit")
@@ -182,6 +183,7 @@ func (e *Error) Catchable() bool {
 		errors.Is(e.wrapped, ErrFatal),
 		errors.Is(e.wrapped, ErrTimeout),
 		errors.Is(e.wrapped, ErrBudget),
+		errors.Is(e.wrapped, ErrMemory),
 		errors.Is(e.wrapped, ErrDepth),
 		errors.Is(e.wrapped, ErrCanceled):
 		return false
@@ -357,7 +359,7 @@ func asError(err error) *Error {
 	}
 	kind := ErrKindRaise
 	switch {
-	case errors.Is(err, ErrTimeout), errors.Is(err, ErrBudget),
+	case errors.Is(err, ErrTimeout), errors.Is(err, ErrBudget), errors.Is(err, ErrMemory),
 		errors.Is(err, ErrDepth), errors.Is(err, ErrCanceled):
 		kind = ErrKindLimit
 	case errors.Is(err, ErrExit):

@@ -284,6 +284,12 @@ func TestCLI(t *testing.T) {
 			errHas:   []string{"limit", "step budget"},
 		},
 		{
+			name:     "a growing live set hits the memory budget and exits 3",
+			argv:     []string{"--mem", "2m", "-e", `keep = []; while true { keep.push("x" * 100000) }`},
+			wantCode: 3,
+			errHas:   []string{"limit", "memory budget exceeded", "the limit is 2 MiB"},
+		},
+		{
 			name:     "runaway loop hits the timeout and exits 3",
 			argv:     []string{"-t", "0.05", "--steps", "0", "-e", "x = 0; while true { x += 1 }"},
 			wantCode: 3,
@@ -1182,6 +1188,9 @@ func TestCLIArgumentErrors(t *testing.T) {
 		{"-t with no value", []string{"-t"}, "needs a value"},
 		{"-t with a bad duration", []string{"-t", "вчера", "-e", "1"}, "вчера"},
 		{"--steps with a non-number", []string{"--steps", "много", "-e", "1"}, "--steps"},
+		{"--mem with a bad size", []string{"--mem", "много", "-e", "1"}, "--mem"},
+		{"--mem with a negative size", []string{"--mem", "-5m", "-e", "1"}, "--mem"},
+		{"--mem with no value", []string{"--mem"}, "needs a value"},
 		{"--tasks with a non-number", []string{"--tasks", "много", "-e", "1"}, "--tasks"},
 		{"--tasks with a negative count", []string{"--tasks", "-1", "-e", "1"}, "--tasks"},
 		{"--rand with a bad seed", []string{"--rand=завтра", "-e", "1"}, "seed"},
@@ -1248,6 +1257,19 @@ func TestCLIRunOptions(t *testing.T) {
 			name:     "--steps 0 removes the budget",
 			argv:     []string{"--steps", "0", "-e", "(1..1000).sum"},
 			outHas:   []string{"500500"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "--mem 0 removes the memory budget",
+			argv:     []string{"--mem", "0", "-e", `keep = []; for i in 0..30 { keep.push("x" * 100000) }; keep.len`},
+			outHas:   []string{"31"},
+			wantCode: exitOK,
+		},
+		{
+			name:     "--stats reports the peak live memory once a walk ran",
+			argv:     []string{"--stats", "--mem", "1m", "-e", `n = 0; for i in 0..100 { n += ("x" * 50000).len }; n`},
+			outHas:   []string{"5050000"},
+			errHas:   []string{"steps", "peak", "MiB live"},
 			wantCode: exitOK,
 		},
 		{
@@ -1428,4 +1450,21 @@ func TestCLIIncludeRootIsEnforced(t *testing.T) {
 			t.Errorf("stderr = %q; want the root-policy diagnostic", errOut)
 		}
 	})
+}
+
+func TestParseSize(t *testing.T) {
+	for in, want := range map[string]int64{
+		"0": 0, "1024": 1024, "64m": 64 << 20, "64M": 64 << 20, "64MiB": 64 << 20,
+		"64mb": 64 << 20, "512k": 512 << 10, "1g": 1 << 30, "2GiB": 2 << 30,
+	} {
+		got, err := parseSize(in)
+		if err != nil || got != want {
+			t.Errorf("parseSize(%q) = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "m", "-1", "1.5g", "64x", "9999999999999g"} {
+		if _, err := parseSize(in); err == nil {
+			t.Errorf("parseSize(%q) succeeded, want an error", in)
+		}
+	}
 }

@@ -1,6 +1,10 @@
 package mzs
 
-import "mzs/internal/rx"
+import (
+	"strings"
+
+	"mzs/internal/rx"
+)
 
 // Regex-value methods (SPEC §12.6) and the match helpers str.go shares with them. Every
 // index here is a rune index: `"привет".index(/вет/)` is 3 (§11.3).
@@ -26,7 +30,7 @@ func matchArray(gs []rx.Group) Value {
 			names[g.Name] = i
 		}
 		if g.Ok {
-			out[i] = Str(g.Text)
+			out[i] = Str(strings.Clone(g.Text))
 			continue
 		}
 		out[i] = Nil()
@@ -63,13 +67,13 @@ func regexAllMatches(c *Ctx, re *rx.Regexp, s string) (Value, error) {
 			return Nil(), err
 		}
 		if len(g) <= 1 {
-			out = append(out, Str(g[0].Text))
+			out = append(out, Str(strings.Clone(g[0].Text)))
 			continue
 		}
 		groups := make([]Value, len(g)-1)
 		for i := 1; i < len(g); i++ {
 			if g[i].Ok {
-				groups[i-1] = Str(g[i].Text)
+				groups[i-1] = Str(strings.Clone(g[i].Text))
 				continue
 			}
 			groups[i-1] = Nil()

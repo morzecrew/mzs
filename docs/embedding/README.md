@@ -86,6 +86,7 @@ not allow network access calls `Unregister("http")`, see
 | `MaxTasks` | `64` | unfinished tasks per Run; `-1` forbids `async fn` |
 | `MaxCollection` | `1000000` | elements one operation may materialise; cannot be disabled |
 | `MaxStringBytes` | `8388608` | bytes of one produced string; cannot be disabled |
+| `MaxMemory` | `67108864` | bytes held live in script values at once (SPEC §14.2); `-1` disables |
 | `RegexSteps` | `200000` | backtracking budget per match; cannot be disabled |
 | `RegexCacheSize` | `256` | runtime regex compile cache, per `*Interp` |
 | `ProgramCache` | `512` | compiled-source LRU; `-1` disables |
@@ -104,7 +105,7 @@ not allow network access calls `Unregister("http")`, see
 normalised set the interpreter actually runs with. `http` is the one module installed
 unconditionally — take it away with `in.Unregister("http")`.
 
-The CLI spells the off switches as `0`, not `-1`: `-t 0`, `--steps 0` and `--tasks 0`
+The CLI spells the off switches as `0`, not `-1`: `-t 0`, `--steps 0`, `--mem 0` and `--tasks 0`
 translate to the negative field values above ([../cli/README.md](../cli/README.md)).
 
 ## A complete program

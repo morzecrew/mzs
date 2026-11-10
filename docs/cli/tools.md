@@ -116,6 +116,7 @@ FAIL суммы
 |---|---|
 | `-t, --timeout <d>` | wall clock per file (default `1s`; `0` disables) |
 | `--steps <n>` | step budget per file |
+| `--mem <size>` | live memory budget per file (`64m`; `0` disables) |
 | `--tasks <n>` | tasks running at once, for `async fn` |
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()` |

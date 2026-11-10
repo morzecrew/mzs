@@ -41,7 +41,7 @@ func (rs *runState) checkLimits() error {
 	if rs.limit >= 0 && rs.sh.steps > rs.limit {
 		return limitErrorf(ErrBudget, "step budget exceeded (%d steps)", rs.limit)
 	}
-	return nil
+	return rs.stepCharge()
 }
 
 // enter charges one level of call depth. Recursion is bounded so the Go stack can

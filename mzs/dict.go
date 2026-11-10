@@ -246,6 +246,9 @@ func dictvMap(c *Ctx, recv Value, args []Value) (Value, error) {
 	}
 	keys, vals := d.Keys(), d.Values()
 	out := make([]Value, len(keys))
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdVals(out)
 	for i, k := range keys {
 		r, err := c.CallClosure(k, vals[i])
 		if err != nil {
