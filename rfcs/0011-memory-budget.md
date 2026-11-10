@@ -73,11 +73,16 @@ needs release:
   under the budget never walks. The naive version of this has a bad case: with live data
   just under the budget, every small allocation would trigger a full walk. So the budget
   is enforced with **slack**: after a walk that finds `L` live bytes, the next walk happens
-  only once another `max(MaxMemory − L, MaxMemory / 8)` bytes have been charged —
-  counting the charge that crosses that threshold. The threshold is measured from `L`, not
-  from `MaxMemory`: with `MaxMemory = 800` and `L = 749` it is `749 + max(51, 100) = 849`,
-  so a loop that allocates and drops 51 bytes walks on every second allocation, after 102
-  bytes, and the walk then finds `749 + 51 ≤ 800` and lets the allocation through. The live
+  only once another `max(MaxMemory − L, MaxMemory / 8)` bytes have been charged. When a
+  walk runs *before* a charge `c` that would cross the threshold and lets it through, the
+  next threshold is measured from `L + c` — the live set including the allocation just
+  allowed — so the triggering charge is counted in the interval that ends, never in the
+  one that starts. Worked through with `MaxMemory = 800`, `L = 749` and a loop that
+  allocates and drops 51 bytes: the threshold is `749 + max(51, 100) = 849`; the second
+  allocation would reach 851, so it walks, finds `749 + 51 = 800 ≤ 800`, allows it, and
+  sets the next threshold to `800 + max(0, 100) = 900`. The following walk is therefore
+  at least `MaxMemory / 8 = 100` charged bytes later, and every interval between walks is
+  at least that long. The live
   set may therefore overshoot `MaxMemory` by up to an eighth before the walk that ends the
   Run, which the documentation states, and in exchange a walk (whose cost is bounded by the
   live set, itself ≤ `MaxMemory × 9/8`) is paid for by at least `MaxMemory / 8` allocated
