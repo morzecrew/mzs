@@ -79,7 +79,7 @@ type FileMover   interface { Rename(from, to string) error }
 | Member | Signature | Needs | Semantics |
 |---|---|---|---|
 | `stat` | `(path) -> dict \| nil` | nothing new | `{size: int, dir: bool}`, or `nil` when absent. Uses the existing `FileSystem.Stat` |
-| `walk` | `(dir = ".") -> seq` | nothing new | every path under `dir`, depth-first, sorted per directory (§8.13), lazily (§12.14). Directories are yielded with a trailing `/`. Built on `List` + `Stat` |
+| `walk` | `(dir = ".") -> seq` | `LinkStater` | every path under `dir`, depth-first, sorted per directory (§8.13), lazily (§12.14). Directories are yielded with a trailing `/`, links as names and never descended. Built on `List` + `Lstat`; absent without `LinkStater` (below) |
 | `rm` | `(path) -> bool` | `FileRemover` | removes a file or an empty directory; `false` when it was not there. **Not recursive** — a tree is removed by walking it, where the script has to say so |
 | `mkdir` | `(path) -> nil` | `DirMaker` | creates the directory and its parents; existing is fine |
 | `mv` | `(from, to) -> nil` | `FileMover` | rename within the filesystem; replaces a file at `to` |
@@ -94,7 +94,7 @@ the member is **absent**, and the compile-time diagnostic names what is missing,
 
 `walk` needs to tell a link from a directory without following it, and `Stat` follows
 links. So it requires one more optional interface, `LinkStater` —
-`Lstat(name string) (exists, size int64, dir, link bool, err error)` — and is absent
+`Lstat(name string) (exists bool, size int64, dir, link bool, err error)` — and is absent
 without it. A link is yielded as a name and never descended into, so a walk cannot enter a
 linked directory or a cycle. `walk` reads and needs no `FSMutations`.
 

@@ -53,7 +53,8 @@ to say so in its first paragraph. In practice every proposal here was written ag
   makes on purpose: `http` is installed with no option asked for, so a host that runs
   untrusted scripts removes it with `Unregister("http")`. No RFC here adds a second
   exception.
-* **I1 — the Go standard library only.** No RFC adds a dependency.
+* **G4 — the Go standard library only** (the repository's code and `CHANGELOG.md` call it
+  I1; G4 is where SPEC §1.1 states it). No RFC adds a dependency.
 * **SPEC §20's permanent list** — no classes, no operator overloading, no `eval`, no
   process spawning, no shared-memory parallelism. No RFC here reopens one.
 * **SPEC §21 — compatibility.** Each RFC has a *Compatibility* section saying whether it is

@@ -38,6 +38,7 @@ RecordName     = IDENT [ "." IDENT ] ;   (* a record of this unit, or one an inc
 DictMatch      = "{" [ DictMatchEntry { "," DictMatchEntry } [ "," ] ] "}" ;
 DictMatchEntry = IDENT                               (* binds the value under that key *)
                | ( IDENT | String ) ":" MatchElem    (* IDENT binds, a pattern nests, an Expr compares *)
+               | ( IDENT | String ) ":" "in" Expr    (* membership, as an `in` arm pattern (§5.3) *)
                | "**" [ IDENT ] ;
 
 ForExpr        = "for" ForTarget [ "," ForTarget ] "in" Expr Closure ;
@@ -55,7 +56,9 @@ objects grow. `**rest` binds a new dict of the entries not named.
 **`match` arms.** A dict arm matches when the subject is a dict, every named key is
 present, and every value position that is not a binder matches — by the rule array
 patterns already use (§8.15): an identifier binds, a nested pattern recurses, any other
-expression is compared as an arm pattern (so a regex matches, a range needs `in`).
+expression is compared as an arm pattern (so a regex matches). Membership has its own
+entry form, `{age: in 18..65}`, which matches exactly when `subject["age"] in 18..65`
+(§8.4) — `{age: 18..65}` compares for equality with a range and is never true of an int.
 
 ```
 match ev {
