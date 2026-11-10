@@ -789,31 +789,45 @@ try t.await else (e) -> e["kind"]`, "canceled"},
 	}
 }
 
-// TestTaskCancelStopsAComputation pins that a cancel reaches a task that is not waiting
-// for anything: it lands at the task's next step, which is where every other limit of
-// §14.1 lands too.
+// TestTaskCancelStopsAComputation pins that a cancel reaches a task that is busy
+// computing, not parked in a wait: it lands at the task's next step, which is where every
+// other limit of §14.1 lands too.
+//
+// The task hands the interpreter back now and then, because nothing is preemptive
+// (§8.14): a task that only computes holds the lock until it ends, so the script that
+// would cancel it never runs. The step budget is off for the same reason — with it on,
+// a loop that ignored the cancel would still end, on the budget, and the test would
+// measure how fast 5,000,000 steps are rather than whether the cancel landed.
 func TestTaskCancelStopsAComputation(t *testing.T) {
 	t.Parallel()
 
 	var errOut strings.Builder
 	o := asyncOpts()
 	o.Timeout = 10 * time.Second
+	o.StepBudget = -1
 	o.Stderr = &errOut
 	start := time.Now()
-	v, err := New(o).Eval(context.Background(), `async fn spin() { i = 0; while true { i += 1 }; i }
+	v, err := New(o).Eval(context.Background(), `async fn spin() {
+  i = 0
+  while true {
+    i += 1
+    sleep(0) if i % 1000 == 0
+  }
+  i
+}
 t = spin()
 sleep(0.05)
 t.cancel
-"ok"`, nil)
+try t.await else (e) -> e["kind"]`, nil)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
-	if v.Str() != "ok" {
-		t.Fatalf("= %q; want ok", v.Str())
+	if v.Str() != "canceled" {
+		t.Fatalf("= %q; want canceled", v.Str())
 	}
 	if elapsed > 3*time.Second {
-		t.Fatalf("the Run took %s; the endless task did not stop when it was cancelled", elapsed)
+		t.Fatalf("the Run took %s; the busy task did not stop when it was cancelled", elapsed)
 	}
 	// A task the script cancelled did what it was told: that is not a failure to report.
 	if got := errOut.String(); got != "" {
