@@ -97,6 +97,9 @@ from changing what an include does today:
   rewrite is kept: the imported table only lets `.name` compile where it would otherwise
   be `undefined method`, and never replaces a rewrite to a visible function — the compile
   pass warns instead (`'amount' is also a field of money.Money; this calls the function`).
+  The warning exists only with `CompileIncludes` set, and `StrictWarnings` promotes it like
+  any other warning: a host that turns both on is choosing to be told, and no host has
+  this warning before it opts in.
   The same rule covers a field the module *adds* after the includer compiled: where a
   visible function claimed the name, the call stays the call it compiled to; where none
   did, `.amount` was never rewritten and reaches the field through run-time dispatch,

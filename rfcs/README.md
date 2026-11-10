@@ -61,7 +61,8 @@ to say so in its first paragraph. In practice every proposal here was written ag
   purely additive or a deliberate break under §21.4. A new stdlib row is **not**
   automatically additive: in method position it currently wins over a program's own
   function of the same name (audit B9), so an RFC that adds a row either lands after the
-  dispatch fix proposed in RFC 0016 or lists the row as a break.
+  dispatch fix proposed in RFC 0016 — which puts program functions *and* host functions
+  registered with `Register` ahead of the stdlib table — or lists the row as a break.
 
 ## Format
 

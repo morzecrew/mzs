@@ -69,7 +69,8 @@ free, since a call with a trailing closure cannot be assigned to.
   There is still no frozen value (§7.8, I4).
 * `const` may only bind identifiers — `const $x = 1` and `const d["k"] = 1` are syntax
   errors. Host globals are the host's.
-* `const a, b = pair` and `const [x, {y}] = v` make every name they bind constant.
+* `const a, b = pair` and `const {x, y} = d` make every name they bind constant. (An
+  array pattern is not a `ConstTarget`, above.)
 
 **Declarations.** A name bound by a named `fn` or by `record` becomes const as well. Since
 that refuses programs that run today, it lands in two steps (§21.4): a **warning** in the

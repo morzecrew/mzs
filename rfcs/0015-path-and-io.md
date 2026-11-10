@@ -95,8 +95,13 @@ the member is **absent**, and the compile-time diagnostic names what is missing,
 `walk` needs to tell a link from a directory without following it, and `Stat` follows
 links. So it requires one more optional interface, `LinkStater` —
 `Lstat(name string) (exists bool, size int64, dir, link bool, err error)` — and is absent
-without it. A link is yielded as a name and never descended into, so a walk cannot enter a
-linked directory or a cycle. `walk` reads and needs no `FSMutations`.
+without it. A link is yielded as a name and never descended into, so a walk of a tree that
+does not change while it runs cannot enter a linked directory or a cycle. The guarantee is
+stated for that case only: a directory replaced by a link between `Lstat` and `List` can
+be entered if the host's `List` follows links. A host that must hold the guarantee against
+concurrent changes implements `List` without following a final link (for example by
+opening with `O_NOFOLLOW`, or through an `os.Root`), and the documentation of `LinkStater`
+says so. `walk` reads and needs no `FSMutations`.
 
 `FileSystem` itself is untouched, so every existing implementation compiles (§21.1).
 The CLI's filesystem implements all four and sets `FSMutations`: "the person typing `mzs -e` already owns the

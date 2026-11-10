@@ -63,9 +63,9 @@ two: `nil` is an empty field, and a `Decimal` is written as `decimal.str` writes
 (`12.5`). `str` of a Decimal is the JSON of its dict (`{"units":125,"scale":1}`, since a
 record is a dict, §7.8), which no spreadsheet reads as money; any other dict or array in a
 field is an `argument` error naming the column. Dict rows are written in the key
-order of the **first** row (or of `header`, when it is given as an array). A later row with
-a key that order does not have is **always** an error naming the row and the key, since
-writing it would drop data. A later row *missing* a key is an error under `strict`, and an
+order of the **first** row (or of `header`, when it is given as an array). Any row with a
+key that order does not have — the first row too, when `header` set the order — is
+**always** an error naming the row and the key, since writing it would drop data. A later row *missing* a key is an error under `strict`, and an
 empty field without it.
 
 **Errors.** A new kind `csv` joins the closed list (§13.5), as `json` and `decimal` did:

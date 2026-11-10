@@ -121,8 +121,11 @@ lexical function (§8.7, `dispatch` in `mzs/call.go`), so today `fn sum(xs) { 99
 [1, 2].sum` answers `3`. Every row this RFC adds would, the same way, take `xs.mean` away
 from a program's own `fn mean` (audit B9). Two ways out, and this RFC takes the first:
 
-1. **Lexical functions win in method position too** — dispatch checks a function visible
-   in scope before the stdlib table. That makes §21.2 true as written and every addition
+1. **Program and host functions win in method position too** — dispatch checks a
+   function visible in scope, and then a host function installed with `Register`, before
+   the stdlib table. Today a registered `mean` answers `[1, 2].mean` because no row has
+   that name; once a row does, the host's function must keep answering, or adding the row
+   is a break for every host that registered one. That makes §21.2 true as written and every addition
    safe, and it is itself a change for a program that relies on today's order; it lands
    first, on its own, with a `--check` warning wherever a program defines a function that
    a stdlib row of the same name would otherwise answer.

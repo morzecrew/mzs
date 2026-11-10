@@ -110,8 +110,9 @@ A library may ship its own `mzs.lock`. `mzs get` reads it and fetches those into
 transitive entry with its hash — to `./.mzs/lib/.resolved`. The include checks above read
 that file rather than only the project's `mzs.lock`, so a transitive library that is
 missing or stale is refused the same way, instead of falling through to another library
-of the same name on `$MZSPATH`. Two lines for one name with different hashes are an
-error that names both requesters; the project resolves it by listing that name itself,
+of the same name on `$MZSPATH`. Two lines for one name that disagree are an error
+that names both requesters — a different hash, or, for vendored entries whose hash is
+`-`, a different source path; the project resolves it by listing that name itself,
 which wins. No semver, no solver: with content hashes there is nothing to solve, only
 conflicts to show.
 

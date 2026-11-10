@@ -35,7 +35,10 @@ script untouched.** `mzs [mzs flags] script.mzs [anything]`. A `--` before the s
 still accepted and means "no more mzs flags". One exception keeps today's command lines
 working: a `--` **immediately** after the script path is still dropped, as it is today
 (`mzs s.mzs -- --width 800` gives `["--width", "800"]`), because that is how every script
-that takes flags is invoked now. A script that needs a literal `--` first writes it twice. With `-e` there is no script path, so the
+that takes flags is invoked now — but only when no `--` before the script already ended
+mzs's flags. `mzs -- s.mzs -- --width` keeps giving `["--", "--width"]`, as it does today.
+A script that needs a literal leading `--` writes it twice, or puts a `--` before the
+script path. With `-e` there is no script path, so the
 first non-flag argument starts `$ARGV`. That is new too: today `mzs -e '…' foo` reads `foo`
 as a script file and stops with `-e and a script file are mutually exclusive`, so no
 working command line changes meaning.

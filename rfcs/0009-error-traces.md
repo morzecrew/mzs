@@ -83,13 +83,17 @@ tools that parse the first line. `mzs test` appends the same block under a faile
 ### 3. Go API
 
 `Error.Stack` exists, but it is not filled for every error. A script error is stamped
-with the frames on its way out of the evaluator (`at` in `mzs/eval.go`); a **limit**
-error — step budget, timeout, depth, cancel — is returned straight from `checkLimits`
-and reaches `RunResult` after every frame has unwound, so today its stack is empty
-(measured: `fn a() { b() }; fn b() { while true { } }; a()` under a step budget ends
-with `Stack == []`, while the same shape with `raise` has `[b, a]`). This RFC has
-`checkLimits` capture `rs.frames()` into the error it creates, so the trace of §2 exists
-for limits too — the case where it is most useful. `Frame` gains `File string` so that frames in an included module are
+with the frames on its way out of the evaluator (`at` in `mzs/eval.go`). Most **limit**
+errors skip that path: the step budget, the timeout and a cancel are returned straight
+from `checkLimits`, and the collection and string caps straight from `checkCollection` /
+`checkString`, so they reach `RunResult` after every frame has unwound with an empty stack
+(measured: under a step budget `fn a() { b() }; fn b() { while true { } }; a()` ends with
+`Stack == []`, and an oversized array literal inside a function also has none, while the
+same shape with `raise` has `[b, a]`). The depth limit is the exception: `enter` raises
+it inside the call, `at` stamps it, and it already carries its frames (measured: 5 under
+`MaxDepth = 5`). This RFC has all three helpers capture `rs.frames()` into the error they
+create, and `at` keeps a stack that is already set, so no error gets two and none gets
+none. `Frame` gains `File string` so that frames in an included module are
 attributable. That is **not** purely additive: a positional literal `mzs.Frame{"f", 1, 2}`
 stops compiling, and §21.1 promises that a Go program that compiles keeps compiling. It is
 listed as a deliberate §21.4 change (keyed literals, which is what the package itself
