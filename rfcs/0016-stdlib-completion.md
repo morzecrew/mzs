@@ -126,9 +126,13 @@ from a program's own `fn mean` (audit B9). Two ways out, and this RFC takes the 
    the stdlib table. Today a registered `mean` answers `[1, 2].mean` because no row has
    that name; once a row does, the host's function must keep answering, or adding the row
    is a break for every host that registered one. That makes §21.2 true as written and every addition
-   safe, and it is itself a change for a program that relies on today's order; it lands
-   first, on its own, with a `--check` warning wherever a program defines a function that
-   a stdlib row of the same name would otherwise answer.
+   safe, and it is itself a change for a program — or a host — that relies on today's
+   order. It lands first, on its own, as a §21.4 break whose changelog entry names both
+   cases: a program function or parameter spelled like a row and called in method form,
+   and a host function registered under a row's name (`Register("len", …)` now answers
+   `"abc".len`). There is no warning for either: a deliberate shadow would warn on every
+   compile for as long as it exists, and under `StrictWarnings` it would stop compiling,
+   which is a worse break than the one being announced.
 2. Treat every new row as a §21.4 break and list it in the changelog.
 
 ## Alternatives

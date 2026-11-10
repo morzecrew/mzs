@@ -40,8 +40,10 @@ mzs's flags. `mzs -- s.mzs -- --width` keeps giving `["--", "--width"]`, as it d
 A script that needs a literal leading `--` writes it twice, or puts a `--` before the
 script path. With `-e` there is no script path, so the
 first non-flag argument starts `$ARGV`. That is new too: today `mzs -e '…' foo` reads `foo`
-as a script file and stops with `-e and a script file are mutually exclusive`, so no
-working command line changes meaning.
+as a script file and stops with `-e and a script file are mutually exclusive`. One `-e`
+line does work today and keeps its meaning: a lone `-` right after the flags is dropped
+(`mzs -e '$ARGV.json' - foo` prints `["foo"]`), so it is still dropped there, exactly like
+the `--` after a script path. A script that wants a literal leading `-` writes it twice.
 
 This is a break for `mzs script.mzs --json` (interpreter flag written after the script).
 It is the convention of every interpreter (`python x.py --help` is x's help), it is

@@ -93,8 +93,17 @@ same shape with `raise` has `[b, a]`). The depth limit is the exception: `enter`
 it inside the call, `at` stamps it, and it already carries its frames (measured: 5 under
 `MaxDepth = 5`). This RFC has all three helpers capture `rs.frames()` into the error they
 create, and `at` keeps a stack that is already set, so no error gets two and none gets
-none. `Frame` gains `File string` so that frames in an included module are
-attributable. That is **not** purely additive: a positional literal `mzs.Frame{"f", 1, 2}`
+none. The helpers' callers also pass the error through `at` at the expression that
+failed, so its *position* is the oversized literal or the loop that ran out of steps, not
+the program start that `RunResult` stamps on a position-less error (measured: with
+`MaxCollection = 2`, a `[1, 2, 3]` on line 2 of `f`'s body, called from line 4, is
+reported at `1:1`). `Frame` gains `File string` so that frames in an included module are
+attributable. A field alone would record the wrong file: `include` restores `rs.file`
+when the module has loaded (`mzs/module.go`), and an exported function's body later runs
+with the *importing* file current, so a module line would be paired with the caller's
+file. So a function value also records the file it was compiled in; a call pushes its
+frame with the caller's file and position, then makes the callee's file current for the
+body and restores it on return — the same save-and-restore `include` already does. That is **not** purely additive: a positional literal `mzs.Frame{"f", 1, 2}`
 stops compiling, and §21.1 promises that a Go program that compiles keeps compiling. It is
 listed as a deliberate §21.4 change (keyed literals, which is what the package itself
 writes, are unaffected). `Frame.String()` does not change; whether a frame's file is
