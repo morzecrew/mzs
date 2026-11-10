@@ -99,16 +99,22 @@ without it. A link is yielded as a name and never descended into, so a walk of a
 does not change while it runs cannot enter a linked directory or a cycle. The guarantee is
 stated for that case only: a directory replaced by a link between `Lstat` and `List` can
 be entered if the host's `List` follows links. A host that must hold the guarantee against
-concurrent changes implements `List` without following a final link (for example by
-opening with `O_NOFOLLOW`, or through an `os.Root`), and the documentation of `LinkStater`
-says so. `walk` reads and needs no `FSMutations`.
+concurrent changes needs a `List` that follows no link in **any** component of the path,
+not only the last: `O_NOFOLLOW` covers the final component alone, and an `os.Root` confines
+a walk to its tree but still follows links that stay inside it. On Linux that means
+opening each component in turn with `openat(…, O_NOFOLLOW | O_DIRECTORY)` from the
+previous one, or `openat2` with `RESOLVE_NO_SYMLINKS`; the documentation of `LinkStater`
+says so, and says that `os.Root` alone is not enough. `walk` reads and needs no
+`FSMutations`.
 
 `FileSystem` itself is untouched, so every existing implementation compiles (§21.1).
 The CLI's filesystem implements all four and sets `FSMutations`: "the person typing `mzs -e` already owns the
 machine". `--no-io` withholds everything, as now; a new `--read-only` withholds `write`,
 `append`, `rm`, `mkdir` and `mv`.
 
-`walk` does not follow symbolic links, and the CLI's confinement rules for `include`
+`walk` does not descend into a symbolic link it has seen as one — on a tree that does not
+change while it runs, that means it follows none; under concurrent changes, only as far as
+the host's `List` holds the rule above. The CLI's confinement rules for `include`
 (§15) are unaffected: `io` has always been unconfined on the CLI by design.
 
 ## Compatibility
