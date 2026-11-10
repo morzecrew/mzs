@@ -54,12 +54,15 @@ Two additions, each made to `is` as well so the contract and the function never 
 
 * `task`. `type(t)` is already `"task"`, yet `t.is("task")` is an argument error today;
   that becomes `true`. Additive: an error becomes an answer.
-* `number`, meaning int or float — the single union every numeric function needs. One
-  program can already observe the name: `record number(x); number(7).is("number")` is
-  `true`. To keep it so, a record name declared in the Run answers first, as it does today,
-  and `number` means int-or-float only when no record of that name exists. Declaring a
-  record named like a kind (`number`, `int`, …) gains a warning, because the contract
-  `x: number` would then mean the record.
+* `number`, meaning int or float — the single union every numeric function needs.
+
+The precedence `is` has today stays as it is: **the existing kind names answer first**,
+so `record int(x); is(1, "int")` is still `true` and `int(3).is("int")` still `false`.
+The two *new* names are the only ones a program can already have claimed for a record —
+`record number(x); number(7).is("number")` is `true` today — so for `number` and `task`
+alone, a record of that name declared in the Run answers first, and the kind meaning
+applies only when no such record exists. A contract reads the same table, so `x: number`
+means that record in such a Run. Declaring a record named like any kind gains a warning.
 
 **When it is checked.** After argument binding and default evaluation (§8.7), before the
 body runs, in parameter order. A default value is checked like any other. On `*rest: int`

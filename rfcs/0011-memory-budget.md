@@ -52,7 +52,7 @@ Every heap-backed value is charged when it is created or grown, to a counter on 
 
 | Value | Charge |
 |---|---|
-| string | its byte length, when built by an operation (not for literals, which belong to the `*Program`). A substring shares its source's storage in Go, so charging its length would undercount a small slice that keeps a large source alive. The operations that cut a string (`split`, `slice`, `[a..b]`, `lines`, `matches`, `captures`, `trim*`, `first`/`last`) therefore **copy** a result shorter than a quarter of a source larger than 4 KiB, so what is charged is what is held; below that the sharing is at most 4× of a small string and is charged at the source's size |
+| string | its byte length, when built by an operation (not for literals, which belong to the `*Program`). A substring shares its source's storage in Go, so charging its length would undercount a one-byte slice that keeps a large source alive. The operations that cut a string (`split`, `slice`, `[a..b]`, `lines`, `matches`, `captures`, `trim*`, `first`/`last`) therefore **always copy** their result unless it is the whole source. A copy costs exactly the bytes the result is charged for, so what is charged is what is held, with no threshold to game |
 | array | capacity × word size of a `Value`, on allocation and on each growth |
 | dict | entries × (key + value + bucket overhead), on growth |
 | closure / env | a fixed size per frame that outlives its call |
@@ -79,6 +79,16 @@ needs release:
   live set, itself ≤ `MaxMemory × 9/8`) is paid for by at least `MaxMemory / 8` allocated
   bytes — at most about nine units of walking per allocated byte, whatever the program
   does.
+* **A single charge larger than the remaining slack** is not allowed to slip past: a
+  charge is checked *before* the allocation it pays for, and one that would cross the
+  threshold walks first. If the walk's live bytes plus the charge exceed `MaxMemory`, the
+  Run ends without allocating, so the overshoot bound holds for one large allocation too.
+* **Host values** (bound with `Run`, or retained by registered functions) are reached by
+  the walk but not charged. Traversing them is real work, so the walk-cost bound is stated
+  with them included: a walk costs at most the script's live bytes plus the host-bound
+  graph `H`, and `H` is fixed for the Run, so the amortised cost per allocated byte is
+  `9 + 8H / MaxMemory`. A host binding a graph far larger than the budget can skip it:
+  values the host marks with a new `mzs.Opaque` wrapper are treated as leaves.
 * The walk is deterministic (it depends on the script's values, not on the Go GC), so a
   Run that fails the budget fails it at the same step every time (D15).
 

@@ -79,8 +79,12 @@ does today:
   names*, not the module's program. Each Run calls the loader and runs the module exactly
   as it does now (§12.8), and the dispatch of `.field` happens at run time anyway (§7.8),
   so a module whose source changed between Runs is the module that runs. A stale table can
-  only make the compile step accept a name the new module no longer has, and that read is
-  then the run-time `key` error it would be for any dict.
+  only make the compile step accept a name the new module no longer has. At run time that
+  read is dispatched exactly as it is today for a record that lacks the field (§8.7,
+  `dispatch` in `mzs/call.go`): the receiver's stdlib row of that name if there is one
+  (`m.len` counts entries), then a function of that name by UFCS, then `undefined method`.
+  So a removed field behaves like a field that was never declared — it is **not** a `key`
+  error, and this RFC does not change that order.
 
 Built-in modules export no records today; if one ever does (`decimal`'s `Decimal`), the
 same rule applies.
