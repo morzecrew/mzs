@@ -520,11 +520,15 @@ type CallExpr struct {
 // method cache of §14.4 and must not be mutated after Compile — a *Program is shared by
 // concurrent Runs.
 type MethodCall struct {
-	Recv    Expr
-	Name    string
-	Args    []Expr
-	Named   []NamedArg
-	Safe    bool
+	Recv  Expr
+	Name  string
+	Args  []Expr
+	Named []NamedArg
+	Safe  bool
+	// Local is set by the compile pass when a binding spelled Name is in lexical scope at
+	// this call. Only then does the evaluator look the name up before the stdlib table
+	// (§8.7), so a call with no such binding pays nothing for the rule.
+	Local   bool
 	Cache   any
 	NamePos token.Pos
 	Stop    token.Pos

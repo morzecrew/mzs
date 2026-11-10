@@ -119,7 +119,8 @@ with a local and that locals win. That holds for a call (`mean(xs)` calls the pr
 `fn mean`) and not for a method: dispatch tries the receiver's stdlib table before a
 lexical function (§8.7, `dispatch` in `mzs/call.go`), so today `fn sum(xs) { 99 };
 [1, 2].sum` answers `3`. Every row this RFC adds would, the same way, take `xs.mean` away
-from a program's own `fn mean` (audit B9). Two ways out, and this RFC takes the first:
+from a program's own `fn mean` (audit B9). Two ways out, and this RFC takes the first —
+which has since landed on its own, in #18:
 
 1. **Program and host functions win in method position too** — dispatch checks a
    function visible in scope, and then a host function installed with `Register`, before

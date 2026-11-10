@@ -139,7 +139,7 @@ These need a fix, not an RFC.
 | B6 | An unknown `strftime` directive is echoed | `mzs --time -e 'include time; time.parse("2026-01-01").strftime("%s %f %G")'` → `%s %f %G`. By D16 it should be an `argument` error naming the directive |
 | B7 | Range indexing is unspecified, and a negative end is inconsistent | SPEC §8.8 lists `x[i]` and `x[i, n]` only; `x[a..b]` works but is not in the table. `[1,2,3][-2..-1]` → `[2,3]`, yet `[1,2,3][0..-1]` → `[]` and `"hello"[1..-1]` → `""` — the range is materialised before the bounds are resolved. RFC 0006 specifies the rule |
 | B8 | A script cannot receive a flag without `--` | `mzs a.mzs --x 1` → `mzs: unknown flag --x`; only `mzs a.mzs -- --x 1` reaches `$ARGV`. Arguments after the script name should belong to the script (RFC 0017) |
-| B9 | A local function does not shadow a stdlib row in method position | `fn sum(xs) { 99 }; [1, 2].sum` → `3`, while `sum([1, 2])` → `99`: dispatch tries the stdlib table before a lexical function (§8.7). So SPEC §21.2's "a new name can only collide with a local, and locals shadow the library" is false for method calls, and every new stdlib row can change a working program. RFC 0016 proposes the fix; until it lands, every RFC that adds a row carries this break |
+| B9 | **Fixed (#18).** A local function does not shadow a stdlib row in method position | `fn sum(xs) { 99 }; [1, 2].sum` → `3`, while `sum([1, 2])` → `99`: dispatch tries the stdlib table before a lexical function (§8.7). So SPEC §21.2's "a new name can only collide with a local, and locals shadow the library" is false for method calls, and every new stdlib row can change a working program. RFC 0016 proposes the fix; until it lands, every RFC that adds a row carries this break |
 
 ## 7. Suggested order
 

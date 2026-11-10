@@ -230,9 +230,15 @@ c = make_counter(100, 5); c["tick"].call(); c["tick"].call(); c["peek"].call()  
 
 ## UFCS
 
-`x.f(y)` resolves to the stdlib method table for `x`'s kind first, then to a function named
-`f` visible in scope, called as `f(x, y)`. A function you write is a method the moment it
+`x.f(y)` is `f(x, y)`. It resolves to a function named `f` that you can see — one you
+declared, a closure in a variable, a function the host registered — first, then to the
+stdlib method table for `x`'s kind. A function you write is a method the moment it
 exists — of any kind:
+
+Two cases are not interchangeable. A record's own field answers `m.f` and has no prefix
+spelling, and a variable that holds something other than a function is skipped by `x.f`
+but not by `f(x)`: after `count = 0`, `[1, 2, 3].count { it > 1 }` is `2` while
+`count([1, 2, 3], { it > 1 })` is `not a function: int`.
 
 ```
 fn shout(s) { s.upper + "!" }
@@ -240,12 +246,18 @@ fn shout(s) { s.upper + "!" }
 fn f(s) { s }; 5.f                         # 5
 ```
 
-The stdlib row wins for method syntax, so a user function with a stdlib name shadows only the
-plain-call spelling:
+Your function wins in both spellings, so a function with a stdlib name replaces that row
+wherever the function is visible — and a row the library adds later cannot take a method
+away from a program that already defines one:
 
 ```
-fn len(x) { 999 }; ["ab".len, len("ab")]   # [2,999]
+fn len(x) { 999 }; ["ab".len, len("ab")]   # [999,999]
+count = 0; [1, 2, 3].count { it > 1 }      # 2 — `count` holds no function, so the row answers
 ```
+
+A record's own field still comes first on its shape (`m.total` reads the field), and a
+parameter is a binding like any other: `fn pick(xs, filter) { xs.filter(filter) }` calls
+the parameter. Name it `keep` and `xs.filter(keep)` reaches the row.
 
 An unknown method is a compile-time error with a suggestion: `"x".nope` reports
 `name: undefined method 'nope'; did you mean 'none'?`.

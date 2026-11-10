@@ -16,13 +16,21 @@ json([1, 2])         # [1,2]
 
 `x.f(y)` resolves in this order:
 
-1. the method table for `x`'s kind (the rows of these pages, grouped by first argument);
-2. a function named `f` visible in scope, called as `f(x, y)`;
-3. otherwise `name: undefined method 'f'`, with a did-you-mean suggestion when a near name
+1. on a record, its own field named `f` (`m.total` reads the field);
+2. a function named `f` visible in scope — yours, or one the host registered — called as
+   `f(x, y)`;
+3. the method table for `x`'s kind (the rows of these pages, grouped by first argument);
+4. a builtin of that name (`5.println` prints `5`);
+5. otherwise `name: undefined method 'f'`, with a did-you-mean suggestion when a near name
    exists, or the receiver's kind when the name is a method of some other kind
    (`5.await` → `name: undefined method 'await' for int`).
 
-Step 2 means your own functions are methods immediately:
+This is the order for a value. A module is not one: `math.sqrt(4)` reads the module's own
+member `sqrt` whatever a program calls its functions, and UFCS does not apply to it
+(§12.8).
+
+Step 2 means your own functions are methods immediately, and that a row these pages gain
+later cannot take one away from you:
 
 ```
 fn shout(s) { s.upper + "!" }

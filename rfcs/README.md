@@ -58,11 +58,12 @@ to say so in its first paragraph. In practice every proposal here was written ag
 * **SPEC §20's permanent list** — no classes, no operator overloading, no `eval`, no
   process spawning, no shared-memory parallelism. No RFC here reopens one.
 * **SPEC §21 — compatibility.** Each RFC has a *Compatibility* section saying whether it is
-  purely additive or a deliberate break under §21.4. A new stdlib row is **not**
-  automatically additive: in method position it currently wins over a program's own
-  function of the same name (audit B9), so an RFC that adds a row either lands after the
-  dispatch fix proposed in RFC 0016 — which puts program functions *and* host functions
-  registered with `Register` ahead of the stdlib table — or lists the row as a break.
+  purely additive or a deliberate break under §21.4. A new stdlib row used to be **not**
+  automatically additive: in method position it won over a program's own function of the
+  same name (audit B9). The dispatch fix RFC 0016 proposed — program functions *and* host
+  functions registered with `Register` ahead of the stdlib table — landed on its own in
+  #18, so a row added after it is additive (§21.2), and no RFC needs to list one as a
+  break.
 
 ## Format
 
