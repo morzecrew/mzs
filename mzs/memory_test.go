@@ -200,6 +200,49 @@ n = 0; for i in 0..200 { n += ("x" * 20000 + i.str).len }; n`, nil)
 	}
 }
 
+// Every kind of value is weighed, and none is free: a loop that keeps a few thousand of
+// one kind alive ends on the budget, whatever the kind.
+func TestMemoryBudgetWeighsEveryKind(t *testing.T) {
+	for _, tt := range []struct{ name, make string }{
+		{"a named match", `"ab".captures(/(?<x>a)(?<y>b)/)`},
+		{"a regex", `regex("a" * 50 + i.str)`},
+		{"a range", `0..i`},
+		{"a closure", `{ i }`},
+		{"a seq", `[i].seq`},
+		{"a dict", `{k: i}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := memRun(t, memInterp(256<<10), `keep = []; i = 0
+while true { keep.push(`+tt.make+`); i += 1 }`, nil)
+			wantMemoryError(t, err)
+		})
+	}
+}
+
+// What the host installed with SetGlobal is the baseline too, and what a loaded module
+// holds is live.
+func TestMemoryBudgetBaselineAndModules(t *testing.T) {
+	in := memInterp(1 << 20)
+	in.SetGlobal("catalog", Str(strings.Repeat("c", 4<<20)))
+	res, err := memRun(t, in, `n = 0; for i in 0..300 { n += $catalog.len + ("y" * 10000 + i.str).len }; n`, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.PeakMemory == 0 {
+		t.Errorf("PeakMemory = 0, want the loop to have walked")
+	}
+
+	o := DefaultOptions()
+	o.MaxMemory = 1 << 20
+	o.ModuleLoader = func(from, path string) (string, string, error) {
+		return path, `export big = "m" * 700000`, nil
+	}
+	in = New(o)
+	_, err = memRun(t, in, `include lib from "./lib.mzs"
+keep = []; for i in 0..20 { keep.push("x" * 30000 + i.str) }`, nil)
+	wantMemoryError(t, err)
+}
+
 func TestByteSize(t *testing.T) {
 	for n, want := range map[int64]string{
 		0: "0 B", 512: "512 B", 1536: "1.50 KiB", 64 << 20: "64 MiB",
