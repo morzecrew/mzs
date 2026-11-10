@@ -101,9 +101,14 @@ on the host exactly as it would anywhere else): `Lstat("link/")` resolves throug
 because a trailing slash asks for the directory, so `walk("link/")` would otherwise list a
 linked directory on a stable tree. A link met **during the walk** is yielded as a name and
 never descended into, so a walk of a tree that does not change while it runs cannot enter a
-linked directory or a cycle below its root. The root itself is the path the script named,
+linked directory or a cycle made of links below its root. Other cycles — a bind mount
+of an ancestor — are not links and are not detected; `Lstat` reports no directory
+identity, and a walk that needs one is the host's to bound. The root itself is the path the script named,
 and its *parent* components resolve as any path handed to the host does: `walk("link/sub")`
-walks the directory `link/sub` names, links in `link` included, as `ls link/sub` would. The guarantee is
+walks the directory `link/sub` names, links in `link` included, as `ls link/sub` would —
+on a host whose `List` follows links in a path. A host with the race-safe `List` below
+refuses that root instead, with the `io` error its `List` returns; which of the two a host
+is, is its own policy, like every other path decision (§12.13). The guarantee is
 stated for that case only: a directory replaced by a link between `Lstat` and `List` can
 be entered if the host's `List` follows links. A host that must hold the guarantee against
 concurrent changes needs a `List` that follows no link in **any** component of the path,

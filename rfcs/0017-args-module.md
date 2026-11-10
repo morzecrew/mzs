@@ -47,7 +47,13 @@ form does work today and keeps its meaning: a lone `-` after the flags is the sc
 it gets the same rules: it ends mzs's flags, and a `--` immediately after it is dropped, so
 `mzs -e '$ARGV.json' - -- --width 800` keeps giving `["--width", "800"]`. What changes is
 the same break as for a script file: today mzs still parses its own flags after the `-`
-(`mzs -e '…' - --json foo` turns on `--json`); under this RFC `--json` reaches `$ARGV`. A
+(`mzs -e '…' - --json foo` turns on `--json`); under this RFC `--json` reaches `$ARGV`.
+The same holds for a `--` further along: today mzs takes it as its own end of flags and
+drops it (`mzs s.mzs foo -- bar` gives `["foo", "bar"]`); under this RFC only a `--`
+*immediately* after the script path is dropped, and that one reaches the script as
+`["foo", "--", "bar"]`. That is what `args.parse` needs, since `--` ends the script's
+flags. A script that relied on the drop has to treat a `--` in `$ARGV` as a separator,
+which `args.parse` already does. A
 script that wants a literal leading `-` writes it twice.
 
 This is a break for `mzs script.mzs --json` (interpreter flag written after the script).
