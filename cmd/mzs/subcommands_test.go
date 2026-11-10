@@ -437,3 +437,30 @@ func TestASubcommandDoesNotShadowAFile(t *testing.T) {
 		t.Errorf("code = %d, stdout = %q, stderr = %q", code, out, errOut)
 	}
 }
+
+// The example `mzs test --help` prints is a program, so it is run: a usage text that
+// shows code which does not compile teaches the reader the wrong language.
+func TestTestHelpExampleRuns(t *testing.T) {
+	const head, tail = "A test file includes the module and names its cases:\n", "\nFlags:"
+	start := strings.Index(testUsage, head)
+	end := strings.Index(testUsage, tail)
+	if start < 0 || end < start {
+		t.Fatal("the usage text no longer has its example block")
+	}
+	var src strings.Builder
+	for _, line := range strings.Split(testUsage[start+len(head):end], "\n") {
+		src.WriteString(strings.TrimPrefix(line, "  ") + "\n")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "help_test.mzs")
+	if err := os.WriteFile(path, []byte(src.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := exec([]string{"test", path}, "")
+	if code != exitOK {
+		t.Fatalf("the --help example fails: code = %d\nstdout:\n%s\nstderr:\n%s\nsource:\n%s", code, out, errOut, src.String())
+	}
+	if !strings.Contains(out, "2 cases, 0 failed") {
+		t.Errorf("stdout = %q; want both cases to run and pass", out)
+	}
+}

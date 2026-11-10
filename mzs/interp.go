@@ -813,8 +813,11 @@ func (c *compiler) call(n *ast.CallExpr) ast.Expr {
 		id.Ref = ast.RefBuiltin
 	default:
 		if len(c.errs) < maxCompileErrors {
-			c.errs = append(c.errs, undefinedFunctionError(id.Name, c.visible()).
-				At(c.file, id.Start.Line, id.Start.Col))
+			err := undefinedFunctionError(id.Name, c.visible())
+			if gap := capabilityGap(c.in, id.Name); gap != "" {
+				err = nameErrorf("undefined function '%s': %s", id.Name, gap)
+			}
+			c.errs = append(c.errs, err.At(c.file, id.Start.Line, id.Start.Col))
 		}
 	}
 	return n
@@ -882,6 +885,10 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 // method table and every function name — the receiver's kind is not known statically,
 // so the whole namespace is the candidate pool.
 func (c *compiler) undefinedMethod(name string, pos token.Pos) {
+	if gap := capabilityGap(c.in, name); gap != "" {
+		c.errorf(pos, "undefined method '%s': %s", name, gap)
+		return
+	}
 	if c.pool == nil {
 		for _, k := range dispatchKinds {
 			c.pool = append(c.pool, MethodNames(k)...)

@@ -293,8 +293,9 @@ Usage:
 A test file includes the module and names its cases:
 
   include test
+  include decimal
   test.case("нормализация") { assert("  ДА ".lower.trim == "да") }
-  test.case("деньги")       { test.eq(decimal("10.00") * 3, decimal("30.00")) }
+  test.case("деньги")       { test.eq(decimal.times(decimal.of("10.00"), 3), decimal.of("30.00")) }
 
 Flags:
   -t, --timeout <d>  wall clock per file (default 1s; 0 disables)
