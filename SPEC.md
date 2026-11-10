@@ -834,7 +834,10 @@ g.call(1)                # 1 — a closure takes what it is given (§7.7)
    taking `xs.mean` away from a program's own `fn mean` (§21.2). A binding of that name
    holding something other than a function — a module above all — is not a candidate and
    does not hide the row: `count = 0` leaves `xs.count { … }` to the stdlib, and
-   `nil.json` encodes under `include json` as it does without it;
+   `nil.json` encodes under `include json` as it does without it. A name an `include`
+   introduced is the module for its whole scope (§12.8), assignment included, so it is
+   never a candidate here either: `x.json` stays the one spelling of the `json` function
+   under `include json`, as `json(x)` is refused there;
 2. the stdlib method table for `x`'s kind (§12) — an exact name match;
 3. a builtin of that name (§12.1) → `f(x, y)`;
 4. otherwise `undefined method 'f' for string`.
