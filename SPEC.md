@@ -3185,6 +3185,7 @@ type Options struct {
     MaxTasks        int           // tasks of one Run unfinished at once (§8.14). Default 64. -1 forbids them.
     MaxCollection   int           // max elements materialised by one operation. Default 1_000_000.
     MaxStringBytes  int           // max size of a single produced string. Default 8 << 20.
+    MaxMemory       int64         // bytes held live in script values at once (§14.2). Default 64 << 20; <0 disables.
     RegexSteps      int           // backtracking budget per match. Default 200_000.
     RegexCacheSize  int           // Default 256.
     ProgramCache    int           // compiled-source LRU for Eval(). Default 512. 0 disables.
@@ -3264,6 +3265,7 @@ type Result struct {
     Steps   int64
     Elapsed time.Duration
     Tests   []TestCase       // one per `test.case`, in the order they ran (§12.18); empty otherwise
+    PeakMemory int64         // the most any memory walk found live, in bytes (§14.2); 0 when none ran
 }
 
 type TestCase struct {

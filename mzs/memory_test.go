@@ -3,6 +3,7 @@ package mzs
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -240,6 +241,35 @@ func TestMemoryBudgetBaselineAndModules(t *testing.T) {
 	in = New(o)
 	_, err = memRun(t, in, `include lib from "./lib.mzs"
 keep = []; for i in 0..20 { keep.push("x" * 30000 + i.str) }`, nil)
+	wantMemoryError(t, err)
+}
+
+// The walk does not recurse: a chain as deep as a raised budget allows is measured, not
+// a stack overflow that takes the host down with it.
+func TestMemoryBudgetWalksDeepChains(t *testing.T) {
+	// 16 MB of stack is far more than the interpreter needs for this program and far less
+	// than a recursive walk of a 400,000-deep chain would take.
+	defer debug.SetMaxStack(debug.SetMaxStack(16 << 20))
+	in := memInterp(512 << 20)
+	res, err := memRun(t, in, `a = []; for i in 0..400000 { a = [a] }
+d = {}; for i in 0..200000 { d = {link: d} }
+f = { 0 }; for i in 0..200000 { g = f; f = { g() } }
+n = 0; for i in 0..3000 { n += ("x" * 100000).len }; n`, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.PeakMemory < 20<<20 {
+		t.Errorf("PeakMemory = %d, want the chains counted", res.PeakMemory)
+	}
+}
+
+// A task that has not started yet still holds its arguments: its frame is a root from
+// the moment it is spawned, not from when its body first runs.
+func TestMemoryBudgetSeesUnstartedTasks(t *testing.T) {
+	in := memInterp(4 << 20)
+	_, err := memRun(t, in, `async fn hold(s) { s.len }
+ts = []
+for i in 0..40 { ts.push(hold("x" * 200000 + i.str)) }`, nil)
 	wantMemoryError(t, err)
 }
 

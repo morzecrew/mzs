@@ -463,6 +463,9 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 	t := &task{name: f.Name, done: make(chan struct{}), stop: stop}
 	trs := rs.fork(t)
 	trs.ctx = tctx
+	// The frame holds the task's arguments from here until its body runs and roots it
+	// itself: a task that has not started yet still holds them (§14.2).
+	trs.pushEnv(env)
 	untrack := rs.sh.trackState(trs)
 	rs.sh.live++
 	rs.sh.all = append(rs.sh.all, t)

@@ -329,6 +329,13 @@ type memWalker struct {
 	seen  map[unsafe.Pointer]struct{}
 	strs  map[*byte]int
 	total int64
+
+	// The walk is iterative: a visit only pushes what it found onto these two stacks, and
+	// drain takes it from there. A chain built with `a = [a]` in a loop is as deep as the
+	// budget allows, and a recursive walk over it would take the Go stack — and with it
+	// the host — down before the budget could answer.
+	slices [][]Value
+	envs   []*Env
 }
 
 func newMemWalker() *memWalker {
@@ -350,20 +357,51 @@ func (w *memWalker) state(s *runState) {
 	for _, r := range s.roots {
 		switch p := r.ref.(type) {
 		case *Env:
-			w.env(p)
+			w.envs = append(w.envs, p)
 		case *[]Value:
 			w.total += int64(cap(*p)) * valueBytes
-			w.values(*p)
+			w.push(*p)
 		default:
-			w.values(r.vals)
+			w.push(r.vals)
 		}
 	}
-	w.values(s.held)
+	w.push(s.held)
+	w.drain()
 }
 
+// values weighs a slice of values and everything they reach.
 func (w *memWalker) values(vs []Value) {
-	for _, v := range vs {
-		w.value(v)
+	w.push(vs)
+	w.drain()
+}
+
+// value weighs one value and everything it reaches.
+func (w *memWalker) value(v Value) {
+	w.visit(v)
+	w.drain()
+}
+
+func (w *memWalker) push(vs []Value) {
+	if len(vs) > 0 {
+		w.slices = append(w.slices, vs)
+	}
+}
+
+// drain works the two stacks until both are empty.
+func (w *memWalker) drain() {
+	for len(w.slices) > 0 || len(w.envs) > 0 {
+		if n := len(w.envs); n > 0 {
+			e := w.envs[n-1]
+			w.envs = w.envs[:n-1]
+			w.env(e)
+			continue
+		}
+		n := len(w.slices)
+		vs := w.slices[n-1]
+		w.slices = w.slices[:n-1]
+		for _, v := range vs {
+			w.visit(v)
+		}
 	}
 }
 
@@ -381,17 +419,20 @@ func (w *memWalker) str(s string) {
 	w.total += int64(len(s))
 }
 
+// env weighs a scope and its parents, which is a loop, and pushes their slots.
 func (w *memWalker) env(e *Env) {
 	for ; e != nil; e = e.parent {
 		if !w.first(unsafe.Pointer(e)) {
 			return
 		}
 		w.total += envHeader + int64(cap(e.slots))*valueBytes + int64(cap(e.names))*stringBytes
-		w.values(e.slots)
+		w.push(e.slots)
 	}
 }
 
-func (w *memWalker) value(v Value) {
+// visit weighs one value's own payload and pushes what it references. It never calls
+// itself, so its depth is constant whatever the shape of the data.
+func (w *memWalker) visit(v Value) {
 	switch v.k {
 	case KNil, KBool, KInt, KFloat:
 		return
@@ -402,34 +443,38 @@ func (w *memWalker) value(v Value) {
 		case *[]Value:
 			if w.first(unsafe.Pointer(p)) {
 				w.total += sliceHeader + int64(cap(*p))*valueBytes
-				w.values(*p)
+				w.push(*p)
 			}
 		case *namedArray:
 			if w.first(unsafe.Pointer(p)) {
 				w.total += sliceHeader + int64(cap(p.elems))*valueBytes + int64(len(p.names))*(stringBytes+dictEntry)
-				w.values(p.elems)
+				w.push(p.elems)
 			}
 		}
 	case KDict:
 		if d := v.odict(); d != nil && w.first(unsafe.Pointer(d)) {
 			w.total += dictHeader + int64(cap(d.keys)+cap(d.vals))*valueBytes + int64(len(d.idx))*dictEntry
-			w.values(d.keys)
-			w.values(d.vals)
+			w.push(d.keys)
+			w.push(d.vals)
 		}
 	case KFunc:
 		if f := v.fn(); f != nil && w.first(unsafe.Pointer(f)) {
 			w.total += funcBytes
-			w.env(f.Env)
+			if f.Env != nil {
+				w.envs = append(w.envs, f.Env)
+			}
 		}
 	case KTask:
 		if t, ok := v.p.(*task); ok && w.first(unsafe.Pointer(t)) {
 			w.total += taskBytes
-			w.value(t.val)
+			if heapBacked(t.val) {
+				w.push([]Value{t.val})
+			}
 		}
 	case KSeq:
 		if s, ok := v.p.(*Seq); ok && w.first(unsafe.Pointer(s)) {
 			w.total += seqBytes
-			w.values(s.refs)
+			w.push(s.refs)
 		}
 	case KRegex:
 		if r, ok := v.p.(*rx.Regexp); ok && w.first(unsafe.Pointer(r)) {
