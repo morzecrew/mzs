@@ -580,7 +580,16 @@ func TestCalls(t *testing.T) {
 		{"a declared function", `fn add(a, b) { a + b }; add(1, 2)`, "3"},
 		{"ufcs on a user function", `fn shout(s) { s.upper + "!" }; "да".shout`, "ДА!"},
 		{"ufcs passes the receiver first", `fn pair(a, b) { a + "/" + b }; "l".pair("r")`, "l/r"},
-		{"a stdlib method wins over a user function", `fn len(x) { "mine" }; "abc".len`, "3"},
+		// §4.3 step 1, audit B9: the program's own function answers both spellings, so a
+		// stdlib row added later cannot take a method away from it (§21.2).
+		{"a user function shadows a stdlib method", `fn len(x) { "mine" }; ["abc".len, len("abc")].json`, `["mine","mine"]`},
+		{"a closure in a variable shadows a stdlib method", `sum = { (xs) -> 99 }; [1, 2].sum`, "99"},
+		{"a binding holding no function leaves the row alone", `count = 0; [1, 2, 3].count { it > 1 }`, "2"},
+		{"a parameter is a binding like any other", `fn pick(xs, filter) { xs.filter(filter) }; pick([1, 2], { (a, f) -> "param" })`, "param"},
+		{"a shadowing function is seen from a nested scope", `fn upper(s) { "mine" }; fn g(s) { s.upper }; g("x")`, "mine"},
+		{"a shadowing function keeps the safe-navigation rule", `fn upper(s) { "mine" }; [nil?.upper, "x"?.upper].json`, `[null,"mine"]`},
+		{"a record field still wins over a shadowing function", `record P(len); fn len(x) { "fn" }; [P(7).len, [1].len].json`, `[7,"fn"]`},
+		{"the in operator is not a method call", `fn has(c, x) { false }; 2 in [1, 2]`, "true"},
 		{"rest parameters", `fn f(a, *rest) { rest.json }; f(1, 2, 3)`, "[2,3]"},
 		{"default parameters", `fn f(a, b = 2) { a + b }; f(1)`, "3"},
 		{"a named argument binds its parameter", `fn f(a, b = 2, c = 3) { "${a}${b}${c}" }; f(1, c = 5)`, "125"},
@@ -1650,6 +1659,11 @@ func TestHostFunctions(t *testing.T) {
 	in.Register("apply", 2, func(c *Ctx, args []Value) (Value, error) {
 		return c.Call(args[0], args[1])
 	})
+	// A host function spelled like a stdlib row answers both spellings, as it answers a
+	// name no row has (§4.3 step 1): otherwise adding the row would take it from the host.
+	in.Register("upper", 1, func(c *Ctx, args []Value) (Value, error) {
+		return Str("host"), nil
+	})
 	in.RegisterModule("cfg", map[string]Value{"name": Str("acme")})
 
 	tests := []struct {
@@ -1665,6 +1679,8 @@ func TestHostFunctions(t *testing.T) {
 		{name: "a fatal host error is not catchable", src: `try fatal() else "ok"`, err: "unrecoverable"},
 		{name: "arity is checked", src: `twice(1, 2)`, err: "argument"},
 		{name: "a host function may call back into a closure", src: `apply({ it + 1 }, 1)`, want: "2"},
+		{name: "a host function shadows a stdlib method", src: `"x".upper + upper("x")`, want: "hosthost"},
+		{name: "a script function shadows a host function", src: `fn upper(s) { "mine" }; "x".upper`, want: "mine"},
 		{name: "a module member", src: "include cfg\ncfg.name", want: "acme"},
 		{name: "a host module still needs its include", src: `cfg.name`, err: "include cfg"},
 	}

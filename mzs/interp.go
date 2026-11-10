@@ -857,6 +857,14 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 		// field and a function share a name, `m.total` must reach the field and `x.total`
 		// on anything else must still reach the function, and only the value can say
 		// which (§7.8).
+		//
+		// A binding of the same name in scope is recorded here, and tried before the
+		// stdlib table at run time (§8.7): whether it holds a function is the value's to
+		// say, so the decision cannot be made now.
+		if !module && c.known(n.Name) && !c.knownModule(n.Name) {
+			n.Local = true
+			c.markUsed(n.Name)
+		}
 		return n
 	}
 	if (c.known(n.Name) && !c.knownModule(n.Name)) || c.hasFunc(n.Name) {

@@ -827,12 +827,21 @@ g.call(1)                # 1 — a closure takes what it is given (§7.7)
 
 `x.f(y)` resolves in this order (D18):
 
-1. the stdlib method table for `x`'s kind (§12) — an exact name match;
-2. a function named `f` visible in lexical scope (a user `fn` or a builtin) → `f(x, y)`.
-   A binding of that name holding something other than a function — a module above all —
-   is not a candidate and does not hide the row: `nil.json` encodes under `include json`
-   as it does without it;
-3. otherwise `undefined method 'f' for string`.
+1. a function the program can see under that name → `f(x, y)`: a binding in lexical scope
+   that holds a function (a `fn`, a closure, a parameter), or else a host function
+   installed with `Register` (§13.2). This is the order `f(x, y)` already uses, which is
+   what makes the two spellings one call — and what keeps a stdlib row added later from
+   taking `xs.mean` away from a program's own `fn mean` (§21.2). A binding of that name
+   holding something other than a function — a module above all — is not a candidate and
+   does not hide the row: `count = 0` leaves `xs.count { … }` to the stdlib, and
+   `nil.json` encodes under `include json` as it does without it;
+2. the stdlib method table for `x`'s kind (§12) — an exact name match;
+3. a builtin of that name (§12.1) → `f(x, y)`;
+4. otherwise `undefined method 'f' for string`.
+
+A record's own field comes before all of these on its shape (§7.8). The `in` operator is
+not a method call: `x in c` asks the `has` row of `c`'s kind, and a program's own `fn has`
+does not change what the operator means.
 
 Consequences: `len(s)` and `s.len` are the same function; `json(x)` and `x.json` are the same
 function (and where an `include` has made `json` the module, `x.json` is the only spelling
@@ -1195,7 +1204,9 @@ concept in the language (§4.1).
 1. compiles every `RegexLit` (errors surface at compile time, not at eval time);
 2. resolves UFCS: every `MethodCall` whose name is not in the receiver-kind method table is
    rewritten to a `CallExpr` on the named function, or reported as `undefined method` with a
-   did-you-mean suggestion drawn from the rename table of §19.2;
+   did-you-mean suggestion drawn from the rename table of §19.2. One whose name *is* in the
+   table but also has a binding of that spelling in scope is marked, so that the evaluator
+   tries the binding first when it holds a function (§4.3) and pays nothing otherwise;
 3. resolves local variable slots per scope (a `map[string]int` per scope, so the evaluator
    uses slice indices, not map lookups, in the hot path);
 4. marks each `Ident` as one of `LocalRef` / `GlobalRef` / `FuncRef`, and reports anything
@@ -1626,11 +1637,19 @@ retry(times = 3, body = { … })  # every argument by name
 retry(times = 3) { … }          # ERROR: a trailing closure cannot follow a named argument
 ```
 
-Dispatch for `recv.name(args)` is UFCS (§4.3), resolved at compile time (§6.3):
+Dispatch for `recv.name(args)` is UFCS (§4.3), resolved at compile time (§6.3) where the
+answer is static and at run time where it depends on a value:
 
-1. the stdlib method table for `recv`'s kind (§12) — an exact name match;
-2. a function named `name` visible in lexical scope → `name(recv, args…)`;
-3. otherwise `undefined method 'name' for string`, with a did-you-mean suggestion.
+1. a field of that name, when `recv` is a record that has one (§7.8);
+2. a function the program can see under that name — a binding in lexical scope holding a
+   function, or else a host function — → `name(recv, args…)`;
+3. the stdlib method table for `recv`'s kind (§12) — an exact name match;
+4. a builtin of that name (§12.1) → `name(recv, args…)`;
+5. otherwise `undefined method 'name' for string`, with a did-you-mean suggestion.
+
+So a program that writes `fn len(x) { … }` has replaced `len` in both spellings, and the
+stdlib row is not reachable under that name from where the function is visible — the
+ordinary consequence of shadowing, and the reason to choose another name.
 
 A Dict never dispatches `.` to its own keys: dict values are read with `[]`, `.get` or
 `.dig`, never with `.`. This keeps UFCS unambiguous.

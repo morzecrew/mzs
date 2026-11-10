@@ -571,8 +571,42 @@ func (e ev) evalMethodCall(n *ast.MethodCall) (Value, error) {
 		v, err := e.moduleCall(recv, id.Name, n.Name, args, named, n.NamePos)
 		return v, e.at(err, n.NamePos)
 	}
+	if v, ok, err := e.shadowingFunc(n, recv, args, named); ok {
+		return v, e.at(err, n.NamePos)
+	}
 	v, err := e.dispatch(recv, n.Name, args, named, n.NamePos)
 	return v, e.at(err, n.NamePos)
+}
+
+// shadowingFunc is the first step of §8.7 for an ordinary receiver: a function the
+// program can see under the method's name, or one the host registered, answers `x.f(y)`
+// before the stdlib table does, exactly as it answers `f(x, y)`. Without it a new stdlib
+// row would take `xs.mean` away from a program's own `fn mean` (and from a host's
+// `Register("mean", …)`), which is the collision §21.2 promises cannot happen. A
+// record's own field still comes first (§7.8): that is what the shape is for, and
+// dispatch handles it.
+func (e ev) shadowingFunc(n *ast.MethodCall, recv Value, args []Value, named namedArgs) (Value, bool, error) {
+	if rt := recv.recordType(); rt.Has(n.Name) {
+		return Nil(), false, nil
+	}
+	fv, ok := Nil(), false
+	if n.Local {
+		// A binding that does not hold a function is not a candidate: `count = 0` must
+		// leave `xs.count { … }` to the stdlib, as it always has.
+		if v, found := e.env.Lookup(n.Name); found && v.Kind() == KFunc {
+			fv, ok = v, true
+		}
+	}
+	if !ok && !e.rs.in.isRemoved(n.Name) {
+		fv, ok = e.rs.in.hostFunc(n.Name)
+	}
+	if !ok {
+		return Nil(), false, nil
+	}
+	ufcs := make([]Value, 0, len(args)+1)
+	ufcs = append(append(ufcs, recv), args...)
+	v, err := e.call(fv, ufcs, named, n.NamePos)
+	return v, true, err
 }
 
 // moduleCall resolves `math.sqrt(4)`: the module's own members first, then the Dict rows
@@ -592,9 +626,11 @@ func (e ev) moduleCall(mod Value, modName, name string, args []Value, named name
 	return Nil(), undefinedMemberError(modName, name, mod.Keys())
 }
 
-// dispatch is §8.7's lookup order: the receiver kind's stdlib table (falling back to
-// the universal table), then a function of that name in lexical scope taking the
-// receiver as its first argument, then `undefined method` with a suggestion.
+// dispatch is the rest of §8.7's lookup order, after shadowingFunc: the record's field,
+// the receiver kind's stdlib table (falling back to the universal table), then any other
+// function of that name taking the receiver as its first argument, then `undefined
+// method` with a suggestion. The `in` operator calls it directly for `has`, so a
+// program's own `fn has` does not change what an operator means.
 func (e ev) dispatch(recv Value, name string, args []Value, named namedArgs, pos token.Pos) (Value, error) {
 	// A record's own fields come first (§7.8). The label exists so that `m.amount` reads
 	// the field, and a field sharing a name with a stdlib row would otherwise be the one

@@ -16,13 +16,15 @@ json([1, 2])         # [1,2]
 
 `x.f(y)` resolves in this order:
 
-1. the method table for `x`'s kind (the rows of these pages, grouped by first argument);
-2. a function named `f` visible in scope, called as `f(x, y)`;
+1. a function named `f` visible in scope — yours, or one the host registered — called as
+   `f(x, y)`;
+2. the method table for `x`'s kind (the rows of these pages, grouped by first argument);
 3. otherwise `name: undefined method 'f'`, with a did-you-mean suggestion when a near name
    exists, or the receiver's kind when the name is a method of some other kind
    (`5.await` → `name: undefined method 'await' for int`).
 
-Step 2 means your own functions are methods immediately:
+Step 1 means your own functions are methods immediately, and that a row these pages gain
+later cannot take one away from you:
 
 ```
 fn shout(s) { s.upper + "!" }
