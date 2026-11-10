@@ -32,6 +32,8 @@ func TestSuggest(t *testing.T) {
 		{"empty name", "", methods, ""},
 		{"never the name itself", "now", []string{"now", "nod"}, "nod"},
 		{"the name itself and nothing else", "now", []string{"now"}, ""},
+		// A different case is a typo, not the name: `NOW()` is fixed by `now`.
+		{"the name in another case is still suggested", "NOW", []string{"now", "pow"}, "now"},
 	}
 
 	for _, tt := range tests {
@@ -276,6 +278,18 @@ func TestCapabilityGapNamesTheOption(t *testing.T) {
 		// No row of any kind is spelled `now`, so the compile pass refuses the method
 		// itself (undefinedMethod) rather than leaving it to dispatch.
 		{"a gated builtin in method position", "5.now", "undefined method 'now': it needs a clock"},
+	}
+
+	// A row of some other kind is not this receiver's to enable: with randomness
+	// installed `"x".shuffle` would still be undefined, so naming the option would send
+	// the reader to switch on something that cannot help.
+	for _, src := range []string{`"x".shuffle`, `1.shuffle`} {
+		t.Run("no row for this kind: "+src, func(t *testing.T) {
+			_, err := New(Options{}).Eval(context.Background(), src, nil)
+			if err == nil || strings.Contains(err.Error(), "Options.Rand") || !strings.Contains(err.Error(), "undefined method 'shuffle'") {
+				t.Errorf("%s = %v; want undefined method without naming Options.Rand", src, err)
+			}
+		})
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

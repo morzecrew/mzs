@@ -630,7 +630,7 @@ func (e ev) dispatch(recv Value, name string, args []Value, named namedArgs, pos
 	if v, ok, err := e.callNamed(name, ufcs, named, pos, true); ok {
 		return v, err
 	}
-	if gap := capabilityGap(e.rs.in, name); gap != "" {
+	if gap := capabilityGap(e.rs.in, name, recv.Kind(), KAny); gap != "" {
 		return Nil(), nameErrorf("undefined method '%s' for %s: %s", name, recv.Kind(), gap)
 	}
 	if rt := recv.recordType(); rt != nil {

@@ -457,7 +457,8 @@ func nearest(name string, candidates []string) string {
 		// The name itself is never a suggestion: when it is in the pool it exists and is
 		// merely out of reach (a gated row, a name the host took away), and "did you mean
 		// 'now'?" under a failed `now()` sends the reader looking for a typo there is not.
-		if strings.EqualFold(c, name) {
+		// Only the exact spelling is skipped: `NOW()` is a typo, and `now` is its fix.
+		if c == name {
 			continue
 		}
 		if editDistance(lower, strings.ToLower(c)) <= 1 {
@@ -515,7 +516,13 @@ func undefinedRecordMethodError(rt *RecordType, name string) *Error {
 // is installed, and when the host removed the name with Unregister — a name taken away
 // on purpose is not one the host forgot to enable, and saying otherwise would invite the
 // reader to switch on what the host meant to withhold.
-func capabilityGap(in *Interp, name string) string {
+//
+// With no kinds it asks every method table, for a call whose receiver is not known (a
+// prefix call, or a method the compile pass refuses). With kinds it asks only those: a
+// receiver of that kind could reach the row, so `"x".shuffle` is not blamed on missing
+// randomness when no string has a `shuffle` to enable (§12). A builtin counts either way,
+// since UFCS reaches it from any receiver.
+func capabilityGap(in *Interp, name string, kinds ...Kind) string {
 	if in == nil || in.isRemoved(name) {
 		return ""
 	}
@@ -523,7 +530,10 @@ func capabilityGap(in *Interp, name string) string {
 	if b, ok := LookupBuiltin(name); ok {
 		needsNow, needsRand = b.NeedsNow, b.NeedsRand
 	}
-	for _, k := range dispatchKinds {
+	if len(kinds) == 0 {
+		kinds = dispatchKinds[:]
+	}
+	for _, k := range kinds {
 		if m, ok := methodTables[k][name]; ok {
 			needsNow = needsNow || m.NeedsNow
 			needsRand = needsRand || m.NeedsRand
