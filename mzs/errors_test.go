@@ -3,6 +3,7 @@ package mzs
 import (
 	"context"
 	"errors"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -272,6 +273,9 @@ func TestCapabilityGapNamesTheOption(t *testing.T) {
 		{"randomness, uuid", "uuid()", "undefined function 'uuid': it needs randomness"},
 		{"a gated method", "[1, 2].shuffle", "undefined method 'shuffle' for array: it needs randomness"},
 		{"a gated name as a value", "x = now", "undefined variable 'now': it needs a clock"},
+		// No row of any kind is spelled `now`, so the compile pass refuses the method
+		// itself (undefinedMethod) rather than leaving it to dispatch.
+		{"a gated builtin in method position", "5.now", "undefined method 'now': it needs a clock"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -292,6 +296,29 @@ func TestCapabilityGapNamesTheOption(t *testing.T) {
 			}
 		})
 	}
+
+	// A *Program compiled where the option was installed can be run by an Interp where it
+	// is not. The compile pass saw a builtin and let it through, so the refusal happens at
+	// run time — and must name the option there too, for a call and for a method alike.
+	t.Run("compiled with the option, run without it", func(t *testing.T) {
+		withAll := New(Options{
+			Now:  func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) },
+			Rand: rand.New(rand.NewSource(1)),
+		})
+		for _, c := range []struct{ src, want string }{
+			{"now()", "undefined function 'now': it needs a clock"},
+			{"[1, 2].shuffle", "undefined method 'shuffle' for array: it needs randomness"},
+		} {
+			p, err := withAll.Compile("t.mzs", c.src)
+			if err != nil {
+				t.Fatalf("Compile(%s): %v", c.src, err)
+			}
+			_, err = New(Options{}).Run(context.Background(), p, nil)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("Run(%s) without the option = %v; want an error containing %q", c.src, err, c.want)
+			}
+		}
+	})
 
 	t.Run("installed, it works", func(t *testing.T) {
 		o := Options{Now: func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) }}
