@@ -114,7 +114,19 @@ Additive throughout (§21.2), with two points to state:
 * The `strftime` change turns silent output into an error — a §21.4 break, minor and
   deliberate.
 
-A new name shadows nothing a program defined: locals win over the library (§8.7).
+**A new row is not free in method position.** SPEC §21.2 says a new name can only collide
+with a local and that locals win. That holds for a call (`mean(xs)` calls the program's
+`fn mean`) and not for a method: dispatch tries the receiver's stdlib table before a
+lexical function (§8.7, `dispatch` in `mzs/call.go`), so today `fn sum(xs) { 99 };
+[1, 2].sum` answers `3`. Every row this RFC adds would, the same way, take `xs.mean` away
+from a program's own `fn mean` (audit B9). Two ways out, and this RFC takes the first:
+
+1. **Lexical functions win in method position too** — dispatch checks a function visible
+   in scope before the stdlib table. That makes §21.2 true as written and every addition
+   safe, and it is itself a change for a program that relies on today's order; it lands
+   first, on its own, with a `--check` warning wherever a program defines a function that
+   a stdlib row of the same name would otherwise answer.
+2. Treat every new row as a §21.4 break and list it in the changelog.
 
 ## Alternatives
 

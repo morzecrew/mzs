@@ -57,8 +57,11 @@ Comments are `#`.
 | `mzs get --offline` | never touch the network; fail if anything is missing |
 
 Unpacking: a single top-level directory in the archive is stripped (what GitHub and most
-release archives produce). The result must contain `main.mzs` or `<name>.mzs`, the two
-layouts §15 already defines. Entries that would escape the destination (`..`, absolute
+release archives produce). The result must contain `main.mzs` or `<name>.mzs`. Both are
+installed as the directory `./.mzs/lib/<name>/`, and the project-library search (below)
+accepts `<name>/main.mzs` and `<name>/<name>.mzs` there — the second being the archive
+form of §15's single-file layout, which on `$MZSPATH` is `<name>.mzs` beside its
+neighbours. Entries that would escape the destination (`..`, absolute
 paths, symlinks pointing out) abort the unpack — the same rule the include confinement
 enforces at read time. Size is capped twice, because a small archive can expand without
 bound: 64 MiB of archive bytes, and — counted while streaming, before anything is
@@ -78,12 +81,21 @@ Downloading uses `net/http`, `archive/tar`, `archive/zip`, `compress/gzip`,
 
 One rule added to the search of §15: **`./.mzs/lib` of the project root is searched
 first**, before `$MZSPATH`. Each library found there is rooted in its own directory,
-exactly as a library found on `$MZSPATH` is, so a fetched library cannot read the project
-that fetched it.
+exactly as a library found on `$MZSPATH` is, so a fetched library cannot **include** files
+of the project that fetched it. That is a statement about include resolution only: the
+library runs in the including Run, and on the CLI that Run has `io`, whose filesystem is
+deliberately unconfined (§12.13). A library can `io.read` anything the script could. A
+project that does not trust a library's code must not run it, or must run with `--no-io`.
 
-Each install writes the archive's hash beside the files (`./.mzs/lib/<name>/.mzs-hash`).
-Before an include loads a library listed in `mzs.lock`, it compares that file with the lock
-line, so an installation left behind by an older lock is refused —
+Each install writes two hashes beside the files, in `./.mzs/lib/<name>/.mzs-hash`: the
+archive's, which must equal the lock line, and a **tree hash** of what was unpacked
+(SHA-256 over every file's path and contents, in sorted order). Before an include loads an
+*archive* entry, it compares the first with the lock line. `mzs get` and `mzs get
+--check` recompute the tree hash, so a file edited or corrupted after install is
+reported, not trusted; the per-include check is the cheap one, and `--check` is the CI
+one. Vendored entries (hash `-`) have no install and no marker: they are resolved from
+their project path as described above, and only the existence and layout checks apply.
+An installation left behind by an older lock is refused —
 `library 'money' in .mzs/lib does not match mzs.lock; run 'mzs get'` — instead of running
 the old code. When a project has an `mzs.lock` and a name it lists is missing from
 `./.mzs/lib`, the include error says so — `library 'money' is listed in mzs.lock but not fetched; run 'mzs
@@ -94,7 +106,11 @@ absence" applied one step earlier.
 ### Transitive libraries
 
 A library may ship its own `mzs.lock`. `mzs get` reads it and fetches those into the
-**project's** `./.mzs/lib` (flat). Two lines for one name with different hashes are an
+**project's** `./.mzs/lib` (flat), and writes the whole resolved graph — every direct and
+transitive entry with its hash — to `./.mzs/lib/.resolved`. The include checks above read
+that file rather than only the project's `mzs.lock`, so a transitive library that is
+missing or stale is refused the same way, instead of falling through to another library
+of the same name on `$MZSPATH`. Two lines for one name with different hashes are an
 error that names both requesters; the project resolves it by listing that name itself,
 which wins. No semver, no solver: with content hashes there is nothing to solve, only
 conflicts to show.

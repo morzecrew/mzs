@@ -35,14 +35,18 @@ that any function in the file can reassign it by accident.
 ```ebnf
 BareStmt   = … | ConstStmt ;
 ConstStmt  = "const" ConstTarget { "," ConstTarget } "=" Expr ;
-ConstTarget= IDENT | "[" [ ConstTarget { "," ConstTarget } ] "]"
+ConstTarget= IDENT
            | "{" … "}" ;                 (* RFC 0002's dict target, with IDENT leaves only *)
 ExportStmt = "export" ( FnDecl | RecordDecl | Assignment | ConstStmt | IDENT ) ;
 ```
 
 `const` is a **positional** keyword, like `record` and `async` (§3.5): it is a keyword only
-as the first token of a statement followed by a name or a pattern, so a variable called
-`const` keeps working.
+as the first token of a statement followed by an identifier or `{`, so a variable called
+`const` keeps working. An array pattern is deliberately not a `ConstTarget`: `const [i] =
+[7]` is already a valid program — an index assignment into a variable named `const` —
+and it keeps that meaning. Positions are bound with the comma form, which is unambiguous
+because `const a,` can only start a statement: `const head, tail = pair`. `const {a}` is
+free, since a call with a trailing closure cannot be assigned to.
 
 **Semantics.**
 

@@ -64,8 +64,15 @@ match m { money.Money {amount} -> … }   # with RFC 0002
 
 the including unit's compile step knows the **field names** of every record the module
 exports. `include … from` takes a string literal by grammar (§4), so the dependency is
-known when the includer compiles. Three rules keep this from changing what an include
-does today:
+known when the includer compiles.
+
+**It is opt-in.** `Options.ModuleLoader` has never promised that a second read of the same
+path answers the same way — a loader may hand out a one-time token, count reads, or fetch
+from somewhere that changes — so reading at compile time is enabled only by a new
+`Options.CompileIncludes bool`. With it false, the zero value, nothing about includes or
+`.field` changes from today: a field of another module's record is read with `m["k"]`.
+The CLI sets it, because its loader is a file read. Four rules keep the opted-in reading
+from changing what an include does today:
 
 * **Only an include at the top level of a file is read at compile time.** One inside a
   block (`if debug { include trace from "trace" }`) stays exactly as lazy as it is now:
@@ -85,17 +92,28 @@ does today:
   (`m.len` counts entries), then a function of that name by UFCS, then `undefined method`.
   So a removed field behaves like a field that was never declared — it is **not** a `key`
   error, and this RFC does not change that order.
+* **A function the including unit can see keeps its meaning.** Today `m.amount`, with
+  `fn amount(x) { … }` in scope, is rewritten by the compile pass to `amount(m)`. That
+  rewrite is kept: the imported table only lets `.name` compile where it would otherwise
+  be `undefined method`, and never replaces a rewrite to a visible function — the compile
+  pass warns instead (`'amount' is also a field of money.Money; this calls the function`).
+  The same rule covers a field the module *adds* after the includer compiled: where a
+  visible function claimed the name, the call stays the call it compiled to; where none
+  did, `.amount` was never rewritten and reaches the field through run-time dispatch,
+  which looks at the receiver's own shape first (§7.8).
 
 Built-in modules export no records today; if one ever does (`decimal`'s `Decimal`), the
 same rule applies.
 
 ## Compatibility
 
-Additive: `x.name = …` is a syntax error today for every `name`. Reading a top-level
-include at compile time changes nothing a program does: a module that cannot be read still
-fails where and how it fails today (above), and a conditional include is still not read.
-What is new is that `Compile` calls the host's loader, so a loader with side effects sees
-one more call per top-level include — stated in §13.2 next to `ModuleLoader`.
+Additive: `x.name = …` is a syntax error today for every `name`. The cross-module half
+changes nothing unless the host sets `Options.CompileIncludes`, a new field whose zero
+value is today's behaviour (§21.1). With it set, a module that cannot be read still fails
+where and how it fails today, a conditional include is still not read, and a call that
+compiled to a visible function still does. The one new observable is that `Compile`
+calls the loader once more per top-level include, which is why the field exists: a host
+sets it only for a loader whose reads repeat.
 
 ## Alternatives
 

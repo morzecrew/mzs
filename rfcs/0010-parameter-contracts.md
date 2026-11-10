@@ -64,8 +64,11 @@ alone, a record of that name declared in the Run answers first, and the kind mea
 applies only when no such record exists. A contract reads the same table, so `x: number`
 means that record in such a Run. Declaring a record named like any kind gains a warning.
 
-**When it is checked.** After argument binding and default evaluation (§8.7), before the
-body runs, in parameter order. A default value is checked like any other. On `*rest: int`
+**When it is checked.** Parameter by parameter, in order, as each one is bound (§8.7):
+a parameter's contract is checked right after it receives its argument or its default,
+and before the next parameter's default is evaluated. So in `fn f(x: int, y = x + 1)`,
+`f("a")` fails with `'x' expects int, got string` rather than with the `type` error the
+default for `y` would raise. A default value is checked like any other. On `*rest: int`
 every collected element is checked. A record constructor checks its fields the same way —
 it binds by the same rules. There is no check on later mutation (`m["amount"] = "x"`); a
 contract guards the door, not the room.

@@ -32,7 +32,10 @@ scripts stop being pleasant.
 
 **Everything after the first positional argument (the script path) is passed to the
 script untouched.** `mzs [mzs flags] script.mzs [anything]`. A `--` before the script is
-still accepted and means "no more mzs flags". With `-e` there is no script path, so the
+still accepted and means "no more mzs flags". One exception keeps today's command lines
+working: a `--` **immediately** after the script path is still dropped, as it is today
+(`mzs s.mzs -- --width 800` gives `["--width", "800"]`), because that is how every script
+that takes flags is invoked now. A script that needs a literal `--` first writes it twice. With `-e` there is no script path, so the
 first non-flag argument starts `$ARGV`. That is new too: today `mzs -e '…' foo` reads `foo`
 as a script file and stops with `-e and a script file are mutually exclusive`, so no
 working command line changes meaning.

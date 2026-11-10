@@ -55,8 +55,9 @@ Every heap-backed value is charged when it is created or grown, to a counter on 
 | string | its byte length, when built by an operation (not for literals, which belong to the `*Program`). A substring shares its source's storage in Go, so charging its length would undercount a one-byte slice that keeps a large source alive. The operations that cut a string (`split`, `slice`, `[a..b]`, `lines`, `matches`, `captures`, `trim*`, `first`/`last`) therefore **always copy** their result unless it is the whole source. A copy costs exactly the bytes the result is charged for, so what is charged is what is held, with no threshold to game |
 | array | capacity × word size of a `Value`, on allocation and on each growth |
 | dict | entries × (key + value + bucket overhead), on growth |
-| closure / env | a fixed size per frame that outlives its call |
-| seq, task, time, regex | fixed |
+| frame / env | every live frame, not only the ones a closure keeps: a header plus one word per local slot, charged on entry and released on return. Deep recursion holds every caller's frame, and `MaxDepth` bounds only how many there are, not how large each is |
+| regex | an estimate of the compiled program, `64 × len(pattern)` bytes, charged when `regex(…)` builds one. Literal regexes belong to the `*Program`, like literal strings. The estimate is stated as one, since Go does not report a compiled regexp's size |
+| seq, task, time | fixed |
 | host values (`map[string]Value` passed to `Run`) | not charged: the host allocated them |
 
 Charging is the easy half. A budget on *cumulative* allocation would be simple and
