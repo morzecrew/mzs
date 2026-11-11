@@ -676,6 +676,10 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 				bad = e.at(typeErrorf("'**' passes a dict's keys as parameter names, and %s is not a string", k.Inspect()), a.NamePos)
 				return false
 			}
+			// The value is reachable through the dict only until a later argument
+			// replaces the entry; held, it stays a root for as long as the list is
+			// being built (§14.2).
+			e.rs.hold(val)
 			bad = add(k.Str(), val, a.NamePos)
 			return bad == nil
 		})
