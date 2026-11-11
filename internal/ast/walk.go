@@ -48,6 +48,8 @@ func Walk(n Node, f func(Node) bool) {
 		Walk(x.Cond, f)
 		Walk(x.Body, f)
 	case *ForExpr:
+		Walk(x.KeyPat, f)
+		Walk(x.ValPat, f)
 		Walk(x.Iter, f)
 		Walk(x.Body, f)
 	case *MatchExpr:
@@ -98,6 +100,13 @@ func Walk(n Node, f func(Node) bool) {
 		Walk(x.Value, f)
 	case *ArrayPattern:
 		walkExprs(x.Elems, f)
+	case *DictPattern:
+		for _, en := range x.Entries {
+			Walk(en.Value, f)
+		}
+		if x.Rest != nil {
+			Walk(x.Rest, f)
+		}
 	case *DestructureAssign:
 		Walk(x.Pattern, f)
 		Walk(x.Value, f)
@@ -221,6 +230,8 @@ func isNilNode(n Node) bool {
 		return x == nil
 	case *ArrayPattern:
 		return x == nil
+	case *DictPattern:
+		return x == nil
 	case *DestructureAssign:
 		return x == nil
 	case *IndexExpr:
@@ -341,11 +352,17 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		labeled("cond:", x.Cond)
 		labeled("body:", x.Body)
 	case *ForExpr:
-		name := x.KeyVar
-		if x.ValVar != "" {
-			name += ", " + x.ValVar
+		// A loop variable that is a pattern has no name; its tree follows under key: or
+		// val:, so the header names only the plain ones.
+		var names []string
+		for _, n := range []string{x.KeyVar, x.ValVar} {
+			if n != "" {
+				names = append(names, n)
+			}
 		}
-		line("For " + name)
+		line(strings.TrimSpace("For " + strings.Join(names, ", ")))
+		labeled("key:", x.KeyPat)
+		labeled("val:", x.ValPat)
 		labeled("iter:", x.Iter)
 		labeled("body:", x.Body)
 	case *MatchExpr:
@@ -452,6 +469,21 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		line("Pattern")
 		for _, e := range x.Elems {
 			child(e)
+		}
+	case *DictPattern:
+		line("DictPattern")
+		for _, en := range x.Entries {
+			label := "key " + strconv.Quote(en.Key)
+			if en.In {
+				label += " in"
+			}
+			labeled(label+":", en.Value)
+		}
+		if x.HasRest {
+			sb.WriteString(ind + "  **\n")
+			if x.Rest != nil {
+				dump(sb, x.Rest, depth+2)
+			}
 		}
 	case *DestructureAssign:
 		line("Destructure " + x.Op.String())

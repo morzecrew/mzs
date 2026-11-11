@@ -19,6 +19,16 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Dict patterns.** `{name, age: a} = user` takes a dict apart by key, `{"content-type": ct}`
+  names a key that is not a word, `{data: {reason}}` and `[id, {name}]` nest, and `**rest`
+  binds the entries no key names as a new plain dict. Every key named must be present —
+  a missing one is the `key` error `fetch` raises — and keys not named are ignored. In a
+  `match` arm `{kind: "paid", total: t} ->` fires on any dict with those keys whose values
+  fit, a missing key being the next arm; `{age: in 18..65}` asks membership and `**`
+  skips the rest. A `for` variable may be a pattern: `for [id, row] in pairs`,
+  `for {name} in users`, `for k, {total} in by_user`. The LSP outline lists every name a
+  top-level destructuring binds. The record-shape arm `Money {amount} ->` is not in this
+  change (SPEC §4, §5.3, §8.15; RFC 0002).
 - **Rest elements and spread.** `head, *tail = xs`, `*init, last = xs` and `a, *mid, z = xs`
   bind the positions no other target takes as a new array; in a `match` arm
   `["GET", *path] ->` binds them and `[first, *] ->` skips them. At a call `f(*xs)` passes
@@ -74,6 +84,22 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **A dict literal written as a `match` arm is a dict pattern** — a deliberate break (SPEC
+  §21.4). `{a: 1} ->` used to fire only on a subject *equal* to `{a: 1}`; it now fires on
+  any dict whose `"a"` is `1`, whatever else it holds, and `{} ->` fires on any dict rather
+  than only the empty one. A name in value position binds instead of being read, so
+  `{k: limit} ->` binds `limit` where it used to compare with it. The same holds for a
+  dict literal that is an element of an array arm, `[{a: 1}] ->`. To keep the old meaning,
+  parenthesise: `({a: 1}) ->` compares with the dict, `{k: (limit)} ->` with the variable.
+  An arm that spreads, `{**defaults} ->`, binds the subject's entries instead of comparing
+  with a copy, and `{**defaults, a: 1} ->` no longer compiles — a pattern's rest comes
+  last; parenthesise both to compare. A brace that is not the whole pattern —
+  `{a: 1}.len ->`, `{a: 1} in xs ->` — is the operand it always was (SPEC §5.3, §8.15;
+  RFC 0002).
+- **A destructuring that does not fit writes nothing.** `a, [b, c] = [1, 2]` used to
+  write `a` before failing on the nested pattern; every value is now read before any
+  target is written, at every depth, so a nested container a target writes into is read
+  as it was and an error leaves every target as it stood (SPEC §8.15).
 - **The error dict has `file`, `col` and `stack`** — a deliberate break (SPEC §21.4). `else
   (e)` binds `message, kind, file, line, col, stack` (and `data`), so `e.len` is 6 where it
   was 3 and `e.json` and `e.keys` grow to match. `stack` is `[{fn, file, line, col}]`, one

@@ -34,9 +34,9 @@ four places:
 | L1 | **Landed (#23).** Rest element in destructuring | `a, *rest = [1,2,3]` → `syntax: unexpected '*'`; and `a, b = [1,2,3]` → `index: destructuring expects 2 values, got 3`, so there is no way to take a head | [0001](0001-rest-and-spread.md) |
 | L2 | **Landed (#23).** Splat at a call site | `f(*xs)` → `syntax: unexpected '*'` | [0001](0001-rest-and-spread.md) |
 | L3 | **Landed (#23).** Spread in literals | `{**d, b: 2}` → `syntax: unexpected '**'` | [0001](0001-rest-and-spread.md) |
-| L4 | Dict destructuring | `{a, b} = {a: 1, b: 2}` → `syntax: unexpected ','` | [0002](0002-dict-and-record-patterns.md) |
-| L5 | Dict / record patterns in `match` | `match d { {a: x} -> x }` → `expected '->' in match arm, found ':'`; a record arm can test the shape but not bind its fields | [0002](0002-dict-and-record-patterns.md) |
-| L6 | Patterns in a `for` header | `for [a, b] in pairs` → `expected a loop variable, found '['` | [0002](0002-dict-and-record-patterns.md) |
+| L4 | **Landed (#24).** Dict destructuring | `{a, b} = {a: 1, b: 2}` → `syntax: unexpected ','` | [0002](0002-dict-and-record-patterns.md) |
+| L5 | **Dict half landed (#24); the record shape remains.** Dict / record patterns in `match` | `match d { {a: x} -> x }` → `expected '->' in match arm, found ':'`; a record arm can test the shape but not bind its fields | [0002](0002-dict-and-record-patterns.md) |
+| L6 | **Landed (#24).** Patterns in a `for` header | `for [a, b] in pairs` → `expected a loop variable, found '['` | [0002](0002-dict-and-record-patterns.md) |
 | L7 | Record field write | `p.x = 5` → `syntax: cannot assign to this expression` (reading `p.x` works) | [0003](0003-record-field-assignment.md) |
 | L8 | Record `.field` across modules | by SPEC §7.8 a shape from another module is read with `m["amount"]` | [0003](0003-record-field-assignment.md) |
 | L9 | Constants | `const X = 1` → `syntax: unexpected 'X' after statement`. `=` writes through to any enclosing scope, and `fn f() { 1 }; f = 2` rebinds a function silently | [0004](0004-const-bindings.md) |

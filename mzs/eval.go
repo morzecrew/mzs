@@ -690,7 +690,7 @@ func (e ev) evalFor(n *ast.ForExpr) (Value, error) {
 // is then what the `break` carried; a `next` ends the iteration and nothing more.
 func (e ev) forItem(n *ast.ForExpr, size int, item Value) (Value, bool, error) {
 	k, v := item, Nil()
-	if n.ValVar != "" {
+	if n.ValVar != "" || n.ValPat != nil {
 		// Two loop variables destructure the item, under the same rule `k, v = item`
 		// follows (§8.15): a dict yields pairs, and anything that is not a pair is
 		// an error rather than a silent nil.
@@ -701,9 +701,20 @@ func (e ev) forItem(n *ast.ForExpr, size int, item Value) (Value, bool, error) {
 		k, v = pair[0], pair[1]
 	}
 	env := newEnv(e.env, size)
-	env.Define(n.KeyVar, k)
-	if n.ValVar != "" {
-		env.Define(n.ValVar, v)
+	if n.KeyPat != nil || n.ValPat != nil {
+		// A loop pattern's rest is new, and a second pattern may allocate while the
+		// first one's names are bound but the body has not rooted the scope yet.
+		m := e.rs.rootMark()
+		defer e.rs.rootReset(m)
+		e.rs.pushEnv(env)
+	}
+	if err := e.in(env).loopVar(n.KeyVar, n.KeyPat, k); err != nil {
+		return Nil(), true, err
+	}
+	if n.ValVar != "" || n.ValPat != nil {
+		if err := e.in(env).loopVar(n.ValVar, n.ValPat, v); err != nil {
+			return Nil(), true, err
+		}
 	}
 	if _, err := e.in(env).execStmts(n.Body.Stmts); err != nil {
 		c, ok := ctrlOf(err)
@@ -719,6 +730,20 @@ func (e ev) forItem(n *ast.ForExpr, size int, item Value) (Value, bool, error) {
 		return Nil(), true, err
 	}
 	return Nil(), false, nil
+}
+
+// loopVar binds one loop variable for one item: a name, or a pattern that takes the
+// item apart under the rules `:=` follows (RFC 0002). An item of the wrong shape is an
+// error at the pattern, exactly as it would be at `[id, row] := item`.
+func (e ev) loopVar(name string, pat ast.Expr, v Value) error {
+	if pat == nil {
+		e.env.Define(name, v)
+		return nil
+	}
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.hold(v)
+	return e.destructureAny(pat, v, token.DECLARE)
 }
 
 // forSeq is the same loop driven by a pull instead of a slice (§12.14). The value of the
@@ -794,11 +819,13 @@ func (e ev) evalMatch(n *ast.MatchExpr) (Value, error) {
 	e.rs.hold(subject)
 	for i := range n.Arms {
 		arm := &n.Arms[i]
+		am := e.rs.rootMark()
 		env, ok, err := e.armFires(arm, subject, n.Subject != nil)
 		if err != nil {
 			return Nil(), e.at(err, arm.Pos)
 		}
 		if !ok {
+			e.rs.rootReset(am)
 			continue
 		}
 		// An array pattern binds into the scope its body runs in, so the guard sees the
@@ -813,6 +840,7 @@ func (e ev) evalMatch(n *ast.MatchExpr) (Value, error) {
 				return Nil(), err
 			}
 			if !g.Truthy() {
+				e.rs.rootReset(am)
 				continue
 			}
 		}
@@ -833,12 +861,8 @@ func (e ev) armFires(arm *ast.MatchArm, subject Value, hasSubject bool) (*Env, b
 	switch arm.Kind {
 	case ast.ArmElse:
 		return nil, true, nil
-	case ast.ArmArray:
+	case ast.ArmArray, ast.ArmDict:
 		if len(arm.Pats) == 0 {
-			return nil, false, nil
-		}
-		pat, ok := arm.Pats[0].(*ast.ArrayPattern)
-		if !ok {
 			return nil, false, nil
 		}
 		size := 0
@@ -846,7 +870,11 @@ func (e ev) armFires(arm *ast.MatchArm, subject Value, hasSubject bool) (*Env, b
 			size = arm.Body.FrameSize
 		}
 		env := newEnv(e.env, size)
-		fired, err := e.matchPattern(pat, subject, env)
+		// What the pattern binds is new — a rest is a fresh collection — and the guard
+		// runs before the body roots the scope, so the scope is a root from the first
+		// binding on (§14.2). evalMatch releases it with the arm.
+		e.rs.pushEnv(env)
+		fired, err := e.matchAny(arm.Pats[0], subject, env)
 		if err != nil || !fired {
 			return nil, false, err
 		}
@@ -901,6 +929,73 @@ func (e ev) patternFires(pat, v Value) (bool, error) {
 	return v.Equal(pat), nil
 }
 
+// matchAny tests v against an array or a dict pattern, binding into env.
+func (e ev) matchAny(pat ast.Expr, v Value, env *Env) (bool, error) {
+	switch t := pat.(type) {
+	case *ast.ArrayPattern:
+		return e.matchPattern(t, v, env)
+	case *ast.DictPattern:
+		return e.matchDict(t, v, env)
+	}
+	return false, nil
+}
+
+// matchDict tests v against a dict pattern (RFC 0002). It fires when v is a dict, every
+// key the pattern names is there, and every value position fires by the rule array
+// patterns use: a name binds, a nested pattern recurses, `in` asks membership and any
+// other expression compares as an arm pattern does (§5.3). A missing key is no match, not
+// an error: an arm is a question.
+func (e ev) matchDict(pat *ast.DictPattern, v Value, env *Env) (bool, error) {
+	if v.Kind() != KDict {
+		return false, nil
+	}
+	d := v.odict()
+	for _, en := range pat.Entries {
+		val, ok := d.Get(Str(en.Key))
+		if !ok {
+			return false, nil
+		}
+		if en.In {
+			// `{age: in 18..65}` is exactly `subject["age"] in 18..65` (§8.4).
+			p, err := e.in(env).eval(en.Value)
+			if err != nil {
+				return false, err
+			}
+			has, err := e.evalIn(val, p, en.KeyPos)
+			if err != nil || !has.Truthy() {
+				return false, err
+			}
+			continue
+		}
+		switch t := en.Value.(type) {
+		case *ast.Ident:
+			env.Define(t.Name, val)
+		case *ast.ArrayPattern, *ast.DictPattern:
+			ok, err := e.matchAny(t, val, env)
+			if err != nil || !ok {
+				return false, err
+			}
+		default:
+			p, err := e.in(env).eval(t)
+			if err != nil {
+				return false, err
+			}
+			ok, err := e.patternFires(p, val)
+			if err != nil || !ok {
+				return false, err
+			}
+		}
+	}
+	if pat.Rest != nil {
+		rest, err := e.dictRest(pat, d)
+		if err != nil {
+			return false, err
+		}
+		env.Define(pat.Rest.Name, rest)
+	}
+	return true, nil
+}
+
 // matchPattern tests v against an array pattern and binds into env what the pattern
 // takes apart (§8.15). A value of the wrong kind or the wrong length is not an error
 // here — it is an arm that does not fire, which is the whole point of writing the shape
@@ -930,8 +1025,8 @@ func (e ev) matchPattern(pat *ast.ArrayPattern, v Value, env *Env) (bool, error)
 		}
 		i := patternPos(j, rest, len(elems), len(pat.Elems))
 		switch t := el.(type) {
-		case *ast.ArrayPattern:
-			ok, err := e.matchPattern(t, elems[i], env)
+		case *ast.ArrayPattern, *ast.DictPattern:
+			ok, err := e.matchAny(t, elems[i], env)
 			if err != nil || !ok {
 				return false, err
 			}
@@ -1306,13 +1401,60 @@ func (e ev) evalDestructure(n *ast.DestructureAssign) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	if err := e.destructure(n.Pattern, v, n.Op); err != nil {
+	// A rest allocates, and the walk an allocation may start has to see the value being
+	// taken apart: it may be the only thing holding it (§14.2).
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.hold(v)
+	if err := e.destructureAny(n.Pattern, v, n.Op); err != nil {
 		return Nil(), e.at(err, n.OpPos)
 	}
 	return v, nil
 }
 
-func (e ev) destructure(pat *ast.ArrayPattern, v Value, op token.Kind) error {
+// destructureAny takes v apart with an array or a dict pattern, in two passes: every
+// value the pattern reaches is read first, at every depth, and only then is any target
+// written. A target may write into the very value being taken apart — `xs[1], xs[0] =
+// xs`, `{a: d["b"], b: x} = d`, or a nested container read further right — and the right
+// side is read once, as it stood (§8.15). A shape that does not fit therefore writes
+// nothing at all.
+func (e ev) destructureAny(pat ast.Expr, v Value, op token.Kind) error {
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	var out []binding
+	if err := e.plan(pat, v, &out); err != nil {
+		return err
+	}
+	for _, b := range out {
+		if err := e.write(b, op); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// binding is one write a destructuring makes: a target and the value it receives.
+type binding struct {
+	target ast.Expr
+	val    Value
+}
+
+// plan reads what pat takes from v into out, in source order, writing nothing. A value
+// is held as it is read: a later write may replace the only other reference to it before
+// it is bound, and a rest is a new collection nothing else holds (§14.2).
+func (e ev) plan(pat ast.Expr, v Value, out *[]binding) error {
+	switch t := pat.(type) {
+	case *ast.ArrayPattern:
+		return e.planArray(t, v, out)
+	case *ast.DictPattern:
+		return e.planDict(t, v, out)
+	}
+	e.rs.hold(v)
+	*out = append(*out, binding{pat, v})
+	return nil
+}
+
+func (e ev) planArray(pat *ast.ArrayPattern, v Value, out *[]binding) error {
 	elems, ok, err := e.spread(v)
 	if err != nil {
 		return err
@@ -1327,42 +1469,106 @@ func (e ev) destructure(pat *ast.ArrayPattern, v Value, op token.Kind) error {
 		}
 		return e.at(indexErrorf("destructuring expects %d values, got %d", len(pat.Elems), len(elems)), pat.Start)
 	}
-	if writesIndex(pat) {
-		// A target may write into the very array being taken apart — `xs[1], xs[0] = xs`
-		// — and Elems hands back the live backing slice, so filling position 0 would
-		// change what position 1 reads. The right side is evaluated once and read once:
-		// snapshot it before the first write. Only an index target can alias this way; a
-		// name writes a binding, never the array.
-		elems = append(make([]Value, 0, len(elems)), elems...)
-	}
 	for j, target := range pat.Elems {
 		if s, ok := target.(*ast.Splat); ok {
 			tail, err := e.restOf(elems, j, len(pat.Elems))
 			if err != nil {
 				return err
 			}
-			e.bindTarget(s.X.(*ast.Ident), tail, op)
+			e.rs.hold(tail)
+			*out = append(*out, binding{s.X, tail})
 			continue
 		}
-		i := patternPos(j, rest, len(elems), len(pat.Elems))
-		switch t := target.(type) {
-		case *ast.ArrayPattern:
-			if err := e.destructure(t, elems[i], op); err != nil {
-				return err
-			}
-		case *ast.Ident:
-			e.bindTarget(t, elems[i], op)
-		case *ast.GlobalVar:
-			e.rs.globals[globalName(t.Name)] = elems[i]
-		case *ast.IndexExpr:
-			if err := e.storeIndex(t, elems[i]); err != nil {
-				return err
-			}
-		default:
-			return e.at(typeErrorf("cannot assign to %T", target), pat.Start)
+		if err := e.plan(target, elems[patternPos(j, rest, len(elems), len(pat.Elems))], out); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// planDict reads a dict pattern (RFC 0002). The right side must be a dict — a record is
+// one — and every key the pattern names must be there: the array form is strict about
+// length, the dict form about presence, and a missing key is the same `key` error
+// `fetch` raises. Keys the pattern does not name are ignored unless a rest collects
+// them, because a JSON object grows.
+func (e ev) planDict(pat *ast.DictPattern, v Value, out *[]binding) error {
+	if v.Kind() != KDict {
+		return e.at(typeErrorf("cannot destructure %s with a dict pattern", v.Kind()), pat.Lbrace)
+	}
+	d := v.odict()
+	for _, en := range pat.Entries {
+		val, ok := d.Get(Str(en.Key))
+		if !ok {
+			return e.at(newError(ErrKindKey, "destructuring: key not found: %s", Str(en.Key).Inspect()), en.KeyPos)
+		}
+		if err := e.plan(en.Value, val, out); err != nil {
+			return err
+		}
+	}
+	if pat.Rest != nil {
+		rest, err := e.dictRest(pat, d)
+		if err != nil {
+			return err
+		}
+		e.rs.hold(rest)
+		*out = append(*out, binding{pat.Rest, rest})
+	}
+	return nil
+}
+
+// write makes one planned write: a name binds as `=` or `:=` say (§8.2), a $var inserts
+// into the globals, an index stores.
+func (e ev) write(b binding, op token.Kind) error {
+	switch t := b.target.(type) {
+	case *ast.Ident:
+		e.bindTarget(t, b.val, op)
+	case *ast.GlobalVar:
+		e.rs.globals[globalName(t.Name)] = b.val
+	case *ast.IndexExpr:
+		return e.storeIndex(t, b.val)
+	default:
+		return e.at(typeErrorf("cannot assign to %T", b.target), b.target.Pos())
+	}
+	return nil
+}
+
+// dictRest is what `**rest` binds: a new dict of the entries the pattern does not name,
+// in the order the dict holds them. It is a plain dict even when the source is a record,
+// as `{**p}` is (§8.16): a record is a shape the constructor promised, and a dict with
+// some fields taken out is no longer that shape.
+func (e ev) dictRest(pat *ast.DictPattern, d *OrderedDict) (Value, error) {
+	// Every entry is read twice, to size the rest and to fill it, and a step is a
+	// read: a large dict pays for its rest before anything is built, as `**d` does.
+	if err := e.rs.step(int64(d.Len())); err != nil {
+		return Nil(), err
+	}
+	named := make(map[string]bool, len(pat.Entries))
+	for _, en := range pat.Entries {
+		named[en.Key] = true
+	}
+	n := 0
+	d.Each(func(k, _ Value) bool {
+		if k.Kind() != KString || !named[k.Str()] {
+			n++
+		}
+		return true
+	})
+	if err := e.rs.allocCollection(n, n); err != nil {
+		return Nil(), err
+	}
+	out := NewOrderedDictCap(n)
+	var err error
+	d.Each(func(k, val Value) bool {
+		if k.Kind() == KString && named[k.Str()] {
+			return true
+		}
+		err = out.Set(k, val)
+		return err == nil
+	})
+	if err != nil {
+		return Nil(), err
+	}
+	return dictOf(out), nil
 }
 
 // bindTarget writes one name a destructuring binds: `:=` defines it in this scope, `=`
@@ -1373,24 +1579,6 @@ func (e ev) bindTarget(t *ast.Ident, v Value, op token.Kind) {
 	} else {
 		e.env.Set(t.Name, v)
 	}
-}
-
-// writesIndex reports whether any position of pat writes through a subscript, which is
-// the only way an assignment can reach back into the array it is taking apart. A nested
-// pattern counts: it runs after the positions to its left have been read but before the
-// ones to its right.
-func writesIndex(pat *ast.ArrayPattern) bool {
-	for _, el := range pat.Elems {
-		switch t := el.(type) {
-		case *ast.IndexExpr:
-			return true
-		case *ast.ArrayPattern:
-			if writesIndex(t) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // spread is the shape rule every destructuring form shares: only an Array or a Range has

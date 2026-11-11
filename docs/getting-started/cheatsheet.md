@@ -133,6 +133,8 @@ filesystem before any of these names exist.
 | `x = 5; x > 3 ? "yes" : "no"` | `yes` |
 | `n = 0; n += 1 while n < 5; n` | `5` |
 | `a, b = [1, 2]; a + b` | `3` |
+| `{name, age: a} = {name: "Ann", age: 41}; "${name} ${a}"` | `Ann 41` |
+| `d = {kind: "paid", total: 5}; match d { {kind: "paid", total: t} -> t; else -> 0 }` | `5` |
 | `nil ?? "fallback"` | `fallback` |
 | `try raise("nope") else "caught"` | `caught` |
 | `try { raise("nope") } else (e) { e["kind"] }` | `raise` |

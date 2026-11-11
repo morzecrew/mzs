@@ -63,6 +63,8 @@ kind = match label {
   else -> nil
 }
 for key, qty in order { println(key) }
+{name, **rest} = order
+for {qty: q} in [order] { println(q) }
 hit = n in span
 total(mapped, rate = 0.1)
 mapped.total(rate = 0.1)
@@ -104,7 +106,7 @@ func TestWalkVisitsEveryNodeKind(t *testing.T) {
 		"NilLit", "BoolLit", "IntLit", "FloatLit", "StrLit", "RegexLit",
 		"ArrayLit", "DictLit", "Ident", "GlobalVar",
 		"UnaryExpr", "BinaryExpr", "LogicalExpr", "TernaryExpr", "RangeExpr",
-		"AssignExpr", "ArrayPattern", "DestructureAssign",
+		"AssignExpr", "ArrayPattern", "DictPattern", "DestructureAssign",
 		"IndexExpr", "CallExpr", "MethodCall", "FuncLit", "GroupExpr",
 	}
 	for _, name := range want {

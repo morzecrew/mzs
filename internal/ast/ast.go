@@ -105,6 +105,7 @@ const (
 	ArmGuard                // `if expr`
 	ArmElse                 // `else`
 	ArmArray                // `[x, y]` — an array pattern, which binds (§8.15)
+	ArmDict                 // `{kind: k}` — a dict pattern, which binds (RFC 0002)
 )
 
 func (k ArmKind) String() string {
@@ -117,6 +118,8 @@ func (k ArmKind) String() string {
 		return "else"
 	case ArmArray:
 		return "array"
+	case ArmDict:
+		return "dict"
 	}
 	return "value"
 }
@@ -288,9 +291,16 @@ type WhileExpr struct {
 }
 
 // ForExpr is `for k[, v] in iter { … }`. ValVar is "" for the one-variable form.
+//
+// A loop variable may be a pattern instead of a name (RFC 0002): `for [id, row] in
+// pairs` and `for k, {total} in by_user`. KeyPat or ValPat is then the *ArrayPattern or
+// *DictPattern, and KeyVar or ValVar is "" in its place. A pattern binds fresh names per
+// iteration, as a name does, so it holds names and nested patterns only.
 type ForExpr struct {
 	KeyVar string
 	ValVar string
+	KeyPat Expr
+	ValPat Expr
 	Iter   Expr
 	Body   *BlockStmt
 	Kw     token.Pos
@@ -490,12 +500,43 @@ type ArrayPattern struct {
 	Stop     token.Pos
 }
 
-// DestructureAssign is `a, b = xs`, `[a, [b, c]] = xs` and their `:=` forms (§8.15).
-// The value of the expression is the right side, exactly as it is for `a = 1`. A right
-// side that is not an array, or is one of the wrong length, is a run-time error rather
-// than a silent nil.
+// DictPattern is `{name, age: a, **rest}`: the left side of a destructuring assignment,
+// an element of another pattern, a `for` loop variable, or a `match` arm (RFC 0002).
+//
+// Each entry names a key and says where its value goes. On the left of `=` the value is
+// a target, as an ArrayPattern element is. In a `match` arm a bare *Ident binds, a nested
+// pattern recurses, In marks `key: in expr` (membership), and any other expression is
+// compared exactly as an arm pattern is (§5.3). A pattern is open: keys it does not name
+// are ignored, unless Rest collects them.
+//
+// HasRest is a written `**`; Rest is its name, or nil for the anonymous `**` a `match`
+// arm may use. Like ArrayPattern, a DictPattern is never evaluated on its own.
+type DictPattern struct {
+	Entries []DictPatternEntry
+	HasRest bool
+	Rest    *Ident
+	Lbrace  token.Pos
+	Rbrace  token.Pos
+	Stop    token.Pos
+}
+
+// DictPatternEntry is one `key: value` of a DictPattern. Short is the `{name}` form,
+// whose Value is the *Ident spelled like the key.
+type DictPatternEntry struct {
+	Key    string
+	KeyPos token.Pos
+	KeyEnd token.Pos
+	Value  Expr
+	In     bool
+	Short  bool
+}
+
+// DestructureAssign is `a, b = xs`, `[a, [b, c]] = xs`, `{name, age} = user` and their
+// `:=` forms (§8.15). Pattern is an *ArrayPattern or a *DictPattern. The value of the
+// expression is the right side, exactly as it is for `a = 1`. A right side of the wrong
+// shape is a run-time error rather than a silent nil.
 type DestructureAssign struct {
-	Pattern *ArrayPattern
+	Pattern Expr
 	Op      token.Kind // ASSIGN or DECLARE
 	Value   Expr
 	OpPos   token.Pos
@@ -615,6 +656,7 @@ func (*TernaryExpr) node()       {}
 func (*RangeExpr) node()         {}
 func (*AssignExpr) node()        {}
 func (*ArrayPattern) node()      {}
+func (*DictPattern) node()       {}
 func (*DestructureAssign) node() {}
 func (*IndexExpr) node()         {}
 func (*CallExpr) node()          {}
@@ -662,6 +704,7 @@ func (*TernaryExpr) expr()       {}
 func (*RangeExpr) expr()         {}
 func (*AssignExpr) expr()        {}
 func (*ArrayPattern) expr()      {}
+func (*DictPattern) expr()       {}
 func (*DestructureAssign) expr() {}
 func (*IndexExpr) expr()         {}
 func (*CallExpr) expr()          {}
@@ -772,6 +815,9 @@ func (n *AssignExpr) End() token.Pos { return nodeEnd(n.Value) }
 
 func (n *ArrayPattern) Pos() token.Pos { return n.Start }
 func (n *ArrayPattern) End() token.Pos { return n.Stop }
+
+func (n *DictPattern) Pos() token.Pos { return n.Lbrace }
+func (n *DictPattern) End() token.Pos { return n.Stop }
 
 func (n *DestructureAssign) Pos() token.Pos { return nodePos(n.Pattern) }
 func (n *DestructureAssign) End() token.Pos { return nodeEnd(n.Value) }

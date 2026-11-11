@@ -511,6 +511,12 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 	case *ast.DictLit:
 		c.dict(n)
 		return n
+	case *ast.DictPattern:
+		// Every place a dict pattern may stand converted it already, so one reached as a
+		// value is a `{ … }` the parser read in pattern position and something then used
+		// as an operand: `{a} + x -> …` (RFC 0002).
+		c.syntaxErrorf(n.Lbrace, "a dict pattern stands alone: on the left of '=', as a match arm, as a for variable, or as an element of another pattern")
+		return n
 	case *ast.Splat:
 		// Reached as an element of a literal or an argument list. The anonymous `*` of
 		// a match pattern never gets here — the arm turned it into a pattern — so here
@@ -584,6 +590,10 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		c.push()
 		c.declare(n.KeyVar)
 		c.declare(n.ValVar)
+		// A pattern in the header binds fresh names for each item, which is `:=` (RFC
+		// 0002): the loop scope is new, so nothing outside it is written.
+		c.targets(n.KeyPat, token.DECLARE)
+		c.targets(n.ValPat, token.DECLARE)
 		if n.Body != nil {
 			c.stmts(n.Body.Stmts)
 			n.Body.FrameSize = c.scope.size
@@ -594,7 +604,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		n.Subject = c.expr(n.Subject)
 		for i := range n.Arms {
 			arm := &n.Arms[i]
-			if arm.Kind == ast.ArmArray {
+			if arm.Kind == ast.ArmArray || arm.Kind == ast.ArmDict {
 				c.armPattern(arm)
 				continue
 			}
@@ -762,13 +772,32 @@ func (c *compiler) assign(n *ast.AssignExpr) {
 
 // targets resolves the left side of a destructuring assignment: the rule a single `=`
 // follows (§8.2), applied once per position (§8.15).
-func (c *compiler) targets(pat *ast.ArrayPattern, op token.Kind) {
-	if pat == nil {
-		return
+func (c *compiler) targets(x ast.Expr, op token.Kind) {
+	switch pat := x.(type) {
+	case *ast.ArrayPattern:
+		c.arrayTargets(pat, op)
+	case *ast.DictPattern:
+		for i := range pat.Entries {
+			en := &pat.Entries[i]
+			switch t := en.Value.(type) {
+			case *ast.Ident:
+				c.target(t, op)
+			case *ast.IndexExpr:
+				en.Value = c.expr(t)
+			case *ast.ArrayPattern, *ast.DictPattern:
+				c.targets(t, op)
+			}
+		}
+		if pat.Rest != nil {
+			c.target(pat.Rest, op)
+		}
 	}
+}
+
+func (c *compiler) arrayTargets(pat *ast.ArrayPattern, op token.Kind) {
 	for i, el := range pat.Elems {
 		switch t := el.(type) {
-		case *ast.ArrayPattern:
+		case *ast.ArrayPattern, *ast.DictPattern:
 			c.targets(t, op)
 		case *ast.Ident:
 			c.target(t, op)
@@ -799,9 +828,7 @@ func (c *compiler) target(t *ast.Ident, op token.Kind) {
 func (c *compiler) armPattern(arm *ast.MatchArm) {
 	c.push()
 	for _, pat := range arm.Pats {
-		if p, ok := pat.(*ast.ArrayPattern); ok {
-			c.bindings(p)
-		}
+		c.bindings(pat)
 	}
 	arm.Guard = c.expr(arm.Guard)
 	if arm.Body != nil {
@@ -813,10 +840,40 @@ func (c *compiler) armPattern(arm *ast.MatchArm) {
 
 // bindings declares the names an array pattern binds and compiles the elements that are
 // comparisons rather than bindings.
-func (c *compiler) bindings(pat *ast.ArrayPattern) {
+func (c *compiler) bindings(x ast.Expr) {
+	switch pat := x.(type) {
+	case *ast.ArrayPattern:
+		c.arrayBindings(pat)
+	case *ast.DictPattern:
+		// Left to right, as an array's positions are: a comparison may name what an
+		// earlier key bound.
+		for i := range pat.Entries {
+			en := &pat.Entries[i]
+			switch t := en.Value.(type) {
+			case *ast.Ident:
+				if en.In {
+					en.Value = c.expr(t)
+					continue
+				}
+				t.Slot, t.Ref = -1, ast.RefLocal
+				c.declare(t.Name)
+			case *ast.ArrayPattern, *ast.DictPattern:
+				c.bindings(t)
+			default:
+				en.Value = c.expr(t)
+			}
+		}
+		if pat.Rest != nil {
+			pat.Rest.Slot, pat.Rest.Ref = -1, ast.RefLocal
+			c.declare(pat.Rest.Name)
+		}
+	}
+}
+
+func (c *compiler) arrayBindings(pat *ast.ArrayPattern) {
 	for i, el := range pat.Elems {
 		switch t := el.(type) {
-		case *ast.ArrayPattern:
+		case *ast.ArrayPattern, *ast.DictPattern:
 			c.bindings(t)
 		case *ast.Ident:
 			t.Slot, t.Ref = -1, ast.RefLocal

@@ -1,0 +1,105 @@
+# 49 — dict patterns: take JSON apart by key.
+#
+#   mzs examples/49_dict_patterns.mzs
+#
+# The data a program handles is dicts inside arrays inside dicts. A dict pattern names the
+# keys it wants and says where each value goes, in the three places a pattern stands:
+#
+#   {name, age: a} = user        assignment: every key named must be there
+#   {kind: "paid", total: t} ->  a match arm: a missing key is the next arm
+#   for {name} in users          a loop variable, taken apart once per item
+#
+# A pattern is open — keys it does not name are ignored — and `**rest` collects them.
+
+fn show(label, v) { println("${label.ljust(44)}→ ${v.inspect}") }
+
+println("=== taking a user apart ===")
+println("")
+
+user = {name: "Ann", age: 41, city: "Riga", tags: ["admin", "ops"]}
+{name, age: years} = user
+show("{name, age: years} = user", [name, years])
+{city, **others} = user
+show("{city, **others} = user", others)
+{tags: [first_tag, *more_tags]} = user
+show("{tags: [first_tag, *more_tags]} = user", [first_tag, more_tags])
+show("try {email} = user", try ({email} = user) else (e) { "${e["kind"]}: ${e["message"]}" })
+
+headers = {"content-type": "text/csv", "content-length": "42"}
+{"content-type": mime} = headers
+show("a key that is not a word is a string", mime)
+
+# --- events, one arm per shape --------------------------------------------------------
+
+println("")
+println("=== a webhook handler ===")
+println("")
+
+fn handle(ev) {
+  match ev {
+    {kind: "paid", total: t, currency: "EUR"} if t > 0 -> "credit €${t}"
+    {kind: "paid", total: t} if t > 0                 -> "credit ${t} (convert first)"
+    {kind: "paid"}                                    -> "nothing to credit"
+    {kind: "refund", data: {reason}}                  -> "refund: ${reason}"
+    {kind: /^test\./}                                 -> "ignored test event"
+    {kind}                                            -> "unknown kind ${kind.inspect}"
+    else                                              -> "not an event"
+  }
+}
+
+events = [
+  {kind: "paid", total: 30, currency: "EUR", id: 1},
+  {kind: "paid", total: 12, currency: "USD", id: 2},
+  {kind: "paid", total: 0, currency: "EUR", id: 3},
+  {kind: "refund", data: {reason: "late", by: "ops"}, id: 4},
+  {kind: "test.ping", id: 5},
+  {id: 6},
+]
+events.each { (ev) -> show("event ${ev["id"]}", handle(ev)) }
+
+# --- membership, and error dicts --------------------------------------------------------
+
+println("")
+println("=== asking more than equality ===")
+println("")
+
+fn bracket(person) {
+  match person {
+    {age: in 0..<18}  -> "minor"
+    {age: in 18..65}  -> "adult"
+    {age}             -> "retired at ${age}"
+    else              -> "no age"
+  }
+}
+[{age: 9}, {age: 30}, {age: 70}, {name: "x"}].each { show("bracket(${it.inspect})", bracket(it)) }
+
+# The error a `try` binds is a dict, so a pattern takes it apart too.
+fn safe_div(a, b) {
+  try a / b else (e) {
+    match e {
+      {kind: "zero-division", message} -> "refused: ${message}"
+      {kind}                           -> "other ${kind}"
+    }
+  }
+}
+show("safe_div(1, 0)", safe_div(1, 0))
+
+# --- loops ------------------------------------------------------------------------------
+
+println("")
+println("=== loop variables as patterns ===")
+println("")
+
+orders = [
+  {id: 1, customer: {name: "Ann"}, lines: [{sku: "A", qty: 2}, {sku: "B", qty: 1}]},
+  {id: 2, customer: {name: "Bob"}, lines: [{sku: "A", qty: 5}]},
+]
+for {id, customer: {name: who}, lines} in orders {
+  qty = 0
+  for {qty: q} in lines { qty += q }
+  show("order ${id} for ${who}", "${qty} items")
+}
+
+totals = {ann: {total: 3}, bob: {total: 5}}
+for k, {total} in totals { show("totals[${k.inspect}]", total) }
+for [sku, count] in {A: 7, B: 1} { show("stock ${sku}", count) }

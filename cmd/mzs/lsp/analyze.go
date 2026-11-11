@@ -304,22 +304,58 @@ func (d *document) declare(stmt ast.Stmt, add func(decl)) {
 			modPath:   x.Path,
 		})
 	case *ast.ExprStmt:
-		assign, ok := x.X.(*ast.AssignExpr)
-		if !ok {
-			return
+		switch assign := x.X.(type) {
+		case *ast.AssignExpr:
+			if id, ok := assign.Target.(*ast.Ident); ok {
+				d.variable(id, add)
+			}
+		case *ast.DestructureAssign:
+			// `head, *tail = xs` and `{name, age: a} = user` declare every name the
+			// pattern binds (RFC 0001, RFC 0002).
+			for _, id := range patternNames(assign.Pattern) {
+				d.variable(id, add)
+			}
 		}
-		id, ok := assign.Target.(*ast.Ident)
-		if !ok {
-			return
-		}
-		add(decl{
-			name:      id.Name,
-			detail:    id.Name,
-			kind:      symbolVariable,
-			full:      d.nodeRange(id),
-			nameRange: d.nodeRange(id),
-		})
 	}
+}
+
+func (d *document) variable(id *ast.Ident, add func(decl)) {
+	add(decl{
+		name:      id.Name,
+		detail:    id.Name,
+		kind:      symbolVariable,
+		full:      d.nodeRange(id),
+		nameRange: d.nodeRange(id),
+	})
+}
+
+// patternNames lists the names a destructuring target binds, in source order: the bare
+// names, the `*rest` of an array and the `**rest` of a dict, at every depth. An index or
+// a $var is written, not declared, so it is not one.
+func patternNames(pat ast.Expr) []*ast.Ident {
+	var out []*ast.Ident
+	var walk func(ast.Expr)
+	walk = func(x ast.Expr) {
+		switch t := x.(type) {
+		case *ast.Ident:
+			out = append(out, t)
+		case *ast.Splat:
+			walk(t.X)
+		case *ast.ArrayPattern:
+			for _, el := range t.Elems {
+				walk(el)
+			}
+		case *ast.DictPattern:
+			for _, en := range t.Entries {
+				walk(en.Value)
+			}
+			if t.Rest != nil {
+				out = append(out, t.Rest)
+			}
+		}
+	}
+	walk(pat)
+	return out
 }
 
 func (d *document) nodeRange(n ast.Node) rng {

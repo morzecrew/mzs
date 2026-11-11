@@ -152,9 +152,13 @@ func (p *printer) whileExpr(x *ast.WhileExpr, ind int) {
 }
 
 func (p *printer) forExpr(x *ast.ForExpr, ind int) {
-	p.w("for " + x.KeyVar)
-	if x.ValVar != "" {
-		p.w(", " + x.ValVar)
+	vars, _ := p.loopVars(x)
+	p.w("for " + vars)
+	// A pattern written from its source text carries its comments with it.
+	for _, pat := range []ast.Expr{x.KeyPat, x.ValPat} {
+		if pat != nil {
+			p.skip(pat.Pos().Offset, pat.End().Offset)
+		}
 	}
 	p.w(" in ")
 	p.writeExpr(x.Iter, ind)

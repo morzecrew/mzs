@@ -37,7 +37,8 @@ n = 0; while n < 5 { n += 1; break "stop" if n == 3 } # stop
 
 `for x in xs` over an array, a range, a string (rune by rune), a dict (as `[key, value]`
 pairs) or a [seq](../stdlib/sequences.md) (pulled, never materialised); `for k, v in xs`
-destructures each item, which is the form a dict is read with.
+destructures each item, which is the form a dict is read with. Either variable may be a
+[pattern](./destructuring.md#in-a-for-header) — `for {name} in users`, `for k, {total} in d`.
 
 ```
 for x in 1..3 { println(x) }              # prints 1, 2, 3
@@ -104,6 +105,7 @@ top to bottom, the first hit wins, and the value of the `match` is the value of 
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring |
 | `if expr` | `expr` is truthy; the subject is not consulted |
 | `[p, …]` | the subject is an array or range of that length; bare names bind |
+| `{k: p, …}` | the subject is a dict with those keys and each value fits; bare names bind ([dict patterns](./destructuring.md#dict-patterns)) |
 | `else` | always; last arm only |
 
 ```
