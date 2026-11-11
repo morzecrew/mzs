@@ -676,9 +676,12 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 				bad = e.at(typeErrorf("'**' passes a dict's keys as parameter names, and %s is not a string", k.Inspect()), a.NamePos)
 				return false
 			}
-			// The value is reachable through the dict only until a later argument
-			// replaces the entry; held, it stays a root for as long as the list is
-			// being built (§14.2).
+			// The key and the value are reachable through the dict only until a later
+			// argument replaces or deletes the entry; held, they stay roots for as long
+			// as the list is being built (§14.2). Past it, checkNamed matches every name
+			// against the callee's parameters before any of its code runs, so the names
+			// that live on are parameter names, which the source already bounds.
+			e.rs.hold(k)
 			e.rs.hold(val)
 			bad = add(k.Str(), val, a.NamePos)
 			return bad == nil
