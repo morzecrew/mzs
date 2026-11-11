@@ -701,6 +701,13 @@ func (e ev) forItem(n *ast.ForExpr, size int, item Value) (Value, bool, error) {
 		k, v = pair[0], pair[1]
 	}
 	env := newEnv(e.env, size)
+	if n.KeyPat != nil || n.ValPat != nil {
+		// A loop pattern's rest is new, and a second pattern may allocate while the
+		// first one's names are bound but the body has not rooted the scope yet.
+		m := e.rs.rootMark()
+		defer e.rs.rootReset(m)
+		e.rs.pushEnv(env)
+	}
 	if err := e.in(env).loopVar(n.KeyVar, n.KeyPat, k); err != nil {
 		return Nil(), true, err
 	}
@@ -812,11 +819,13 @@ func (e ev) evalMatch(n *ast.MatchExpr) (Value, error) {
 	e.rs.hold(subject)
 	for i := range n.Arms {
 		arm := &n.Arms[i]
+		am := e.rs.rootMark()
 		env, ok, err := e.armFires(arm, subject, n.Subject != nil)
 		if err != nil {
 			return Nil(), e.at(err, arm.Pos)
 		}
 		if !ok {
+			e.rs.rootReset(am)
 			continue
 		}
 		// An array pattern binds into the scope its body runs in, so the guard sees the
@@ -831,6 +840,7 @@ func (e ev) evalMatch(n *ast.MatchExpr) (Value, error) {
 				return Nil(), err
 			}
 			if !g.Truthy() {
+				e.rs.rootReset(am)
 				continue
 			}
 		}
@@ -860,6 +870,10 @@ func (e ev) armFires(arm *ast.MatchArm, subject Value, hasSubject bool) (*Env, b
 			size = arm.Body.FrameSize
 		}
 		env := newEnv(e.env, size)
+		// What the pattern binds is new — a rest is a fresh collection — and the guard
+		// runs before the body roots the scope, so the scope is a root from the first
+		// binding on (§14.2). evalMatch releases it with the arm.
+		e.rs.pushEnv(env)
 		fired, err := e.matchAny(arm.Pats[0], subject, env)
 		if err != nil || !fired {
 			return nil, false, err
@@ -1494,6 +1508,9 @@ func (e ev) destructureDict(pat *ast.DictPattern, v Value, op token.Kind) error 
 		if err != nil {
 			return err
 		}
+		// A nested pattern below may allocate before the rest is bound, and the walk
+		// that allocation can start has to see it (§14.2). The caller's mark releases it.
+		e.rs.hold(r)
 		rest = r
 	}
 	for i, en := range pat.Entries {
@@ -1529,6 +1546,11 @@ func (e ev) destructureDict(pat *ast.DictPattern, v Value, op token.Kind) error 
 // as `{**p}` is (§8.16): a record is a shape the constructor promised, and a dict with
 // some fields taken out is no longer that shape.
 func (e ev) dictRest(pat *ast.DictPattern, d *OrderedDict) (Value, error) {
+	// Every entry is read twice, to size the rest and to fill it, and a step is a
+	// read: a large dict pays for its rest before anything is built, as `**d` does.
+	if err := e.rs.step(int64(d.Len())); err != nil {
+		return Nil(), err
+	}
 	named := make(map[string]bool, len(pat.Entries))
 	for _, en := range pat.Entries {
 		named[en.Key] = true

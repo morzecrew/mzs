@@ -1,6 +1,7 @@
 package mzs
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -177,5 +178,44 @@ func TestDictRestIsCharged(t *testing.T) {
 	_, err := spreadEval(t, o, build+`keep = []; 20.times { {**r} = d; keep.push(r) }`)
 	if !errors.Is(err, ErrMemory) {
 		t.Errorf("twenty live rests under a 1 MiB budget: err = %v, want ErrMemory", err)
+	}
+}
+
+// A rest reads every entry of its source, so it pays a step for each before anything is
+// built, as `**d` does.
+func TestDictRestChargesSteps(t *testing.T) {
+	steps := func(src string) int64 {
+		t.Helper()
+		in := New(DefaultOptions())
+		p, err := in.Compile("t.mzs", src)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		r, err := in.RunResult(context.Background(), p, nil)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return r.Steps
+	}
+	const setup = "d = {}\n(1..1000).each { d[\"k${it}\"] = it }\n"
+	plain := steps(setup + "{k1} = d")
+	rest := steps(setup + "{k1, **r} = d")
+	if rest-plain < 1000 {
+		t.Errorf("a rest of 1000 entries cost %d more steps, want at least 1000", rest-plain)
+	}
+}
+
+// What an arm binds is a root while its guard runs: a guard that allocates sees the rest
+// the pattern built, so the budget counts it. The control binds no rest and fits.
+func TestArmBindingsAreRooted(t *testing.T) {
+	o := DefaultOptions()
+	o.MaxMemory = 1600 << 10
+	const setup = "d = {}\n(1..3000).each { d[it.str] = it }\n"
+	guard := ` if ("x" * 950000).len > 0 -> "fired"; else -> "no" }`
+	if _, err := spreadEval(t, o, setup+`match d { {**}`+guard); err != nil {
+		t.Fatalf("the control, with no rest bound: %v", err)
+	}
+	if _, err := spreadEval(t, o, setup+`match d { {**r}`+guard); !errors.Is(err, ErrMemory) {
+		t.Errorf("a guard allocating beside a bound rest: err = %v, want ErrMemory", err)
 	}
 }
