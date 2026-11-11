@@ -162,6 +162,10 @@ left open or that the implementation had to make.
   `async fn`'s own frame at the site it was started, which is the same information.
 * **The module's file.** A function records the file it was compiled in, and a call makes
   that file current for the body, its defaults included, and restores it on return.
+* **The caret of a module's error** is drawn from the source the CLI's loader read, kept
+  per resolved name, and never from a second read of the disk: that read would bypass the
+  include confinement the first one went through, and could show a line the program never
+  compiled.
 * **`mzs test`** prints the frames inside the case: the failure's stack minus the block's
   own frame, `test.case` and everything outside it.
 * **`mzs.FormatTrace`** is exported so the CLI and the `test` module share one renderer.

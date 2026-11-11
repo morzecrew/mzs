@@ -124,7 +124,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (int, i
 			fmt.Fprintf(stderr, "mzs test: %s: exit(%d)\n", path, code)
 			return len(res.Tests), failed, rerr
 		}
-		reportErr(stderr, path, src, rerr)
+		reportErrTrace(stderr, path, src, rerr, true, opts.loaded)
 		return len(res.Tests), failed, rerr
 	}
 	return len(res.Tests), failed, nil

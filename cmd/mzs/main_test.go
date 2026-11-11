@@ -1518,3 +1518,20 @@ func TestTraceCaretFromTheModule(t *testing.T) {
 		t.Errorf("stderr =\n%s", errOut)
 	}
 }
+
+// The caret of a module's error is the text that was compiled, kept by the loader. A
+// file changed on disk after the include — here by the program itself — does not change
+// what the diagnostic shows, and the CLI never reads a module a second time.
+func TestTraceCaretIsTheCompiledModule(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "lib.mzs", "export fn boom() {\n  raise(\"from lib\")\n}\n")
+	main := writeTestFile(t, dir, "main.mzs", `include io
+include lib from "./lib.mzs"
+io.write("`+filepath.Join(dir, "lib.mzs")+`", "export fn boom() {\n  CHANGED ON DISK\n}\n")
+lib.boom()
+`)
+	_, _, errOut := exec([]string{main}, "")
+	if !strings.Contains(errOut, "\n    raise(\"from lib\")\n") || strings.Contains(errOut, "CHANGED") {
+		t.Errorf("stderr =\n%s", errOut)
+	}
+}
