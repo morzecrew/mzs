@@ -350,9 +350,9 @@ func (rs *runState) waitAny(chs []<-chan struct{}) (int, error) {
 // the Run's context ending under it (§14.1).
 func (rs *runState) canceledError() error {
 	if rs.task != nil && rs.task.canceled {
-		return limitErrorf(ErrCanceled, "%s was canceled", rs.task.label())
+		return rs.limitErr(ErrCanceled, "%s was canceled", rs.task.label())
 	}
-	return limitErrorf(ErrCanceled, "canceled")
+	return rs.limitErr(ErrCanceled, "canceled")
 }
 
 // fork is the per-task copy of the Run's state. What it shares is deliberate: the
@@ -514,6 +514,9 @@ func (e ev) runTaskBody(f *Func, pos token.Pos) (Value, error) {
 	defer e.rs.leave()
 	if f.Body == nil {
 		return Nil(), nil
+	}
+	if f.file != "" {
+		e.rs.file = f.file
 	}
 	v, err := e.execStmts(f.Body.Stmts)
 	if err == nil {

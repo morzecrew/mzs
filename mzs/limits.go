@@ -36,10 +36,10 @@ func (rs *runState) checkLimits() error {
 		}
 	}
 	if rs.hasDL && time.Now().After(rs.deadline) {
-		return limitErrorf(ErrTimeout, "execution timed out after %s", rs.opts.Timeout)
+		return rs.limitErr(ErrTimeout, "execution timed out after %s", rs.opts.Timeout)
 	}
 	if rs.limit >= 0 && rs.sh.steps > rs.limit {
-		return limitErrorf(ErrBudget, "step budget exceeded (%d steps)", rs.limit)
+		return rs.limitErr(ErrBudget, "step budget exceeded (%d steps)", rs.limit)
 	}
 	return rs.stepCharge()
 }
@@ -52,7 +52,10 @@ func (rs *runState) enter(fn string, line, col int) error {
 		rs.depth--
 		return limitErrorf(ErrDepth, "max call depth exceeded (%d)", rs.maxDepth)
 	}
-	rs.stack = append(rs.stack, Frame{Fn: fn, Line: line, Col: col})
+	if fn == "" {
+		fn = "{}"
+	}
+	rs.stack = append(rs.stack, Frame{Fn: fn, File: rs.file, Line: line, Col: col})
 	return nil
 }
 
@@ -64,6 +67,16 @@ func (rs *runState) leave() {
 	if n := len(rs.stack); n > 0 {
 		rs.stack = rs.stack[:n-1]
 	}
+}
+
+// limitErr builds a limit error with the call stack it was raised under. The helpers that
+// raise these are called from deep inside a statement and their errors travel up
+// through frames that are already unwinding, so the stack has to be taken here, at the
+// point of failure, or it is empty by the time anything positions the error (§8.11).
+func (rs *runState) limitErr(sentinel error, format string, a ...any) *Error {
+	e := limitErrorf(sentinel, format, a...)
+	e.Stack = rs.frames()
+	return e
 }
 
 // frames returns the current call stack innermost first, for *Error.Stack.
@@ -80,7 +93,7 @@ func (rs *runState) frames() []Frame {
 // is not catchable.
 func (rs *runState) checkCollection(n int) error {
 	if n > rs.opts.MaxCollection {
-		return limitErrorf(ErrBudget, "collection too large: %d elements exceeds the limit of %d",
+		return rs.limitErr(ErrBudget, "collection too large: %d elements exceeds the limit of %d",
 			n, rs.opts.MaxCollection)
 	}
 	return nil
@@ -89,7 +102,7 @@ func (rs *runState) checkCollection(n int) error {
 // checkString bounds string construction — `*`, `+`, join, replace, interpolation.
 func (rs *runState) checkString(n int) error {
 	if n > rs.opts.MaxStringBytes {
-		return limitErrorf(ErrBudget, "string too large: %d bytes exceeds the limit of %d",
+		return rs.limitErr(ErrBudget, "string too large: %d bytes exceeds the limit of %d",
 			n, rs.opts.MaxStringBytes)
 	}
 	return nil

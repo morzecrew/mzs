@@ -1709,11 +1709,33 @@ xs.map(double)              # where double = { (x) -> x * 2 }
 * Runtime errors (undefined method, type error, division by zero, index type errors, budget
   exhaustion) and a `raise` are the same kind of value.
 * `try X else Y` evaluates `Y` if `X` raises. `try X else (e) -> Y` additionally binds `e` to
-  a Dict `{message: …, kind: …, line: …}` while `Y` is evaluated; `data` is there too when
-  the error carries a payload.
+  a Dict while `Y` is evaluated, with these keys in this order: `message`, `kind`, `file`
+  (the program or module the error was raised in: `"-e"`, `"cart.mzs"`), `line`, `col` (in
+  runes, as diagnostics count), `stack`, and `data` when the error carries a payload.
 * `try` catches **script errors only**. It does **not** catch timeout, step-budget,
   depth-limit, context cancellation or `exit` (§12.1); those propagate to the host.
 * Errors carry the script name, line, column and a short call stack.
+
+**The stack.** `e["stack"]` is an array of `{fn, file, line, col}`, innermost first, and
+`[]` for an error raised at the top level. Each entry is a **call site**: function `fn` was
+called from `file:line:col`. The error's own position is where it failed, so no entry
+repeats it — in `fn f() { 1 / 0 }; f()` the one entry is the `f()` on the last line, and the
+`raise` (or `xs.fetch`, or the call with the wrong arity) whose call *is* the failure is not
+an entry of its own. A closure literal is `"{}"`; a stdlib row that called back into the
+script (`map`, `each`) is an entry under its own name, because the path went through it. A
+function exported by a module records the module as its file wherever it is called from:
+its errors are positioned in the module, and the entry for the call names the caller's
+file. The stack is the one the Go API reports (§13.5), and how long it may grow is
+`MaxDepth`'s business, not a promise of this one (§21.2). Limit errors carry a stack too,
+and are positioned at the statement that ran out — the loop, the literal — rather than at
+the program's start.
+
+```
+fn inner() { raise("boom") }
+fn outer() { inner() }
+try outer() else (e) { e["stack"].map { "${it["fn"]} ${it["line"]}:${it["col"]}" } }
+# => ["inner 2:14", "outer 3:5"]
+```
 
 **The braced form.** `try` and `else` take either an expression or a block; `ensure`
 takes a block and nothing else, since its value is discarded either way:
@@ -3357,7 +3379,9 @@ func (e *Error) Unwrap() error
 // here first; one that does not treats an exit as the end of the Run and nothing more.
 func ExitCode(err error) (code int, ok bool)
 
-type Frame struct { Fn string; Line int; Col int }
+type Frame struct { Fn, File string; Line, Col int } // a call site: Fn was called from File:Line:Col (§8.11)
+
+func FormatTrace(stack []Frame) []string // the CLI's rendering of a stack (§15); diagnostic text, not a format
 
 type Warning struct { Msg string; Line, Col int }
 ```
@@ -3657,9 +3681,12 @@ file is `fmt.mzs`, not `fmt`.
 | `--vars-file <path>` | same, from a file |
 | `-t <dur>` | timeout (default `1s`; `0` disables) |
 | `--steps <n>` | step budget |
+| `--mem <size>` | live memory budget, `64m`, `1g` (§14.2); `0` disables |
 | `--tasks <n>` | tasks running at once, for `async fn` (§8.14); `0` forbids them |
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable rand/uuid; with a seed for reproducibility |
+| `--stats` | print steps, elapsed time and peak live memory to stderr |
+| `--no-trace` | print a runtime error's three lines without the stack under them |
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
 | `--check` | parse + compile only; print errors and warnings; exit 1 on error |
@@ -3762,7 +3789,25 @@ mzs -n --in access.log --bool -e '$_ ~ /ERROR/' && notify
 that calls `exit(n)` (§12.1) sets the status itself: the CLI prints nothing for it, and in
 `-n` mode the lines after it are never read.
 Errors print to stderr as `file:line:col: kind: message` followed by the source line and a
-caret.
+caret — the line of the file the error was raised in, which for an error inside an included
+module is the module's. A runtime error with a stack (§8.11) then prints its call sites,
+innermost first, one per line:
+
+```
+st.mzs:3:10: raise: boom
+  fn c() { raise("boom") }
+           ^
+  in c, called from st.mzs:2:10
+  in b, called from st.mzs:1:10
+  in a, called from st.mzs:5:1
+```
+
+An error at the top level has no stack and prints the three lines alone. A run of identical
+entries — a recursion — is one line with a count, `in fact, called from x.mzs:1:30 (×197)`,
+and after eight lines the rest is `… N more`. Limit errors print one as well: under
+`max call depth exceeded` it is the most useful line there is. `--no-trace` keeps the output
+to the three lines, for a tool that parses them; the first line is the same either way. In
+`-n` mode the input line is named on the line before (`mzs: input line 3:`).
 
 Reference one-liners (all must work):
 
@@ -3846,9 +3891,14 @@ money_test.mzs
 ok   sums stay exact
 FAIL rounding
      expected 30.00, got 29.99 (money_test.mzs:7:5)
+       in round_to, called from money_test.mzs:12:3
 
 1 file, 2 cases, 1 failed  (3ms)
 ```
+
+Under a failed case come the call sites inside it that led to the failure (§8.11), rendered as
+the CLI renders a stack; the case's own block and the runner that called it are not shown,
+so a failure written directly in the block has no lines under it.
 
 A file that raises **outside** a case did not finish, and that is counted apart from a case
 that failed: the fixes are different. Exit codes: `0` every case passed, `1` a case failed

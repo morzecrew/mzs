@@ -1,6 +1,6 @@
 # RFC 0009 — Error traces
 
-**Status:** Draft · **Area:** language, CLI · **Depends on:** — · **Audit:** L15, B5
+**Status:** Landed (#PR) · **Area:** language, CLI · **Depends on:** — · **Audit:** L15, B5
 
 ## Summary
 
@@ -140,3 +140,30 @@ frame.
 `mzs/errors.go` (`Frame.File`, dict construction in the `else` binder), `mzs/limits.go`
 (`frames()` records the file), `cmd/mzs/diag.go` (rendering), `cmd/mzs/test.go`,
 `docs/language/errors.md`, `docs/cli/diagnostics.md`, SPEC §8.11/§13.5/§15.
+
+## As landed
+
+SPEC §8.11, §13.5, §15 and §15.2 are the normative text; this records the decisions the RFC
+left open or that the implementation had to make.
+
+* **Open question 1 — limit errors print a trace: yes**, as proposed. They also carry the
+  stack in the Go API now: the helpers that raise them capture it (`limitErr`), and
+  `execStmts` positions any error that is still unpositioned at the statement that failed.
+* **Open question 2 — the input line under `-n`:** nothing new. The CLI already prints
+  `mzs: input line N:` before the diagnostic, and the trace follows the caret as usual.
+* **No frame repeats the caret.** Builtins and stdlib rows push frames too, so the innermost
+  frame of a `raise` is the `raise` call itself, at the error's own position. That frame is
+  dropped, once per error. A **limit** error keeps all of its frames: it is raised between
+  steps rather than by a call, and under `MaxDepth` its innermost frame is the previous
+  level of a recursion written at the same site, which is not a repetition.
+* **Frame names.** A closure literal is `"{}"`. A stdlib row that called back into the
+  script (`map`, `each`, `test.case`) is a frame under its own name, which is the path the
+  call really took. There is no extra `"task"` frame: a task's stack already ends with the
+  `async fn`'s own frame at the site it was started, which is the same information.
+* **The module's file.** A function records the file it was compiled in, and a call makes
+  that file current for the body, its defaults included, and restores it on return.
+* **`mzs test`** prints the frames inside the case: the failure's stack minus the block's
+  own frame, `test.case` and everything outside it.
+* **`mzs.FormatTrace`** is exported so the CLI and the `test` module share one renderer.
+  Its text is diagnostic output (§21.2).
+

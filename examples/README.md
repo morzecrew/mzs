@@ -69,6 +69,7 @@ does not have it at all.
 | 42 | `42_input_dialogue.mzs` | `input` — the console's other direction: a prompt with no newline, an answer that is a string until you say otherwise, a yes/no `match`, and the `while` loop `nil` ends. Runs the same in a terminal, in a pipe and under `< /dev/null` |
 | 43 | `43_crypto_webhook.mzs` | `crypto` — the webhook check `http` could not make: HMAC and the digests, hex and both base64 alphabets, one decoder for all four spellings, and `crypto.equal` instead of the `==` that leaks |
 | 44 | `44_urls.mzs` | `url` — the eight keys of a parsed URL and the inverse that builds one, the two encodings the `+` tells apart, a query written from an array, and a callback link that carries its own signature |
+| 46 | `46_error_traces.mzs` | where a failure came from: `e["file"]`, `e["col"]` and `e["stack"]`, the path through a helper called from many places, a one-line report a handler can log, and the trace the CLI prints under an uncaught error |
 
 ## Text, patterns and data
 

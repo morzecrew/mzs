@@ -18,7 +18,49 @@ one.mzs:2:6: syntax: unexpected '!' after '='; did you mean '!='?
 
 `-e` sources are named `-e`, a piped program is named `<stdin>`, a file is named as you
 typed it. Some blocks below quote only the first line of a diagnostic; the source line and
-the caret always follow it.
+the caret always follow it. An error raised inside an included module names the module and
+shows the module's line.
+
+## The trace
+
+A runtime error raised inside a function prints, after the caret, how the program got
+there: one line per call site, innermost first.
+
+```sh
+$ cat st.mzs
+fn a() { b() }
+fn b() { c() }
+fn c() { raise("boom") }
+a()
+$ mzs st.mzs
+st.mzs:3:10: raise: boom
+  fn c() { raise("boom") }
+           ^
+  in c, called from st.mzs:2:10
+  in b, called from st.mzs:1:10
+  in a, called from st.mzs:4:1
+```
+
+The caret is where it failed and each `called from` is a place that led there, so nothing
+is printed twice: `fn f() { 1 / 0 }; f()` has the one line `in f, called from -e:1:19`. An
+error at the top level has no trace and looks the way it always did. A recursion is one
+line with a count, and after eight lines the rest is `… N more`:
+
+```sh
+$ mzs -e 'fn f(n) { f(n + 1) }
+f(0)'
+-e:1:11: limit: max call depth exceeded (200)
+  fn f(n) { f(n + 1) }
+            ^
+  in f, called from -e:1:11 (×199)
+  in f, called from -e:2:1
+```
+
+Limits have a trace like any other error, and are positioned where they struck — the loop
+that ran out of steps, the literal over `MaxCollection` — not at the start of the program.
+`--no-trace` prints the three lines alone, for a tool that parses them; the first line is the
+same either way. A script that catches the error reads the same stack from `e["stack"]`
+([../language/errors.md](../language/errors.md#the-stack)).
 
 ## Error kinds
 

@@ -60,6 +60,7 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if !c.HasClosure() {
 		return Nil(), c.ArgErrorf("test.case needs a block: test.case(%q) { … }", name)
 	}
+	depth := len(c.rs.stack)
 	start := time.Now()
 	_, rerr := c.CallClosure()
 	elapsed := time.Since(start)
@@ -74,6 +75,9 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if rerr != nil {
 		writeLine(c, "FAIL "+name)
 		writeLine(c, "     "+errorLine(rerr))
+		for _, line := range FormatTrace(caseFrames(rerr, depth)) {
+			writeLine(c, "       "+line)
+		}
 		return Bool(false), nil
 	}
 	writeLine(c, "ok   "+name)
@@ -89,6 +93,21 @@ func testEq(c *Ctx, args []Value) (Value, error) {
 	}
 	return Nil(), c.position(raiseError(
 		"expected "+args[1].Inspect()+", got "+args[0].Inspect(), Nil()))
+}
+
+// caseFrames is the part of a failure's stack that is inside the case: the frames the
+// case's own block called, without the block itself, `test.case` and whatever called the
+// file. depth is how deep the stack was when test.case started, its own frame included,
+// and the block adds one more (§12.18).
+func caseFrames(err error, depth int) []Frame {
+	e := asError(err)
+	if e == nil {
+		return nil
+	}
+	if n := len(e.Stack) - (depth + 1); n > 0 {
+		return e.Stack[:n]
+	}
+	return nil
 }
 
 // errorLine is what a failure says on one line: the message with the position it was

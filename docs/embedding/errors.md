@@ -15,7 +15,7 @@ type Error struct {
 	File  string   // the name given to Compile
 	Line  int
 	Col   int
-	Stack []Frame  // innermost first; Frame{Fn string; Line, Col int}
+	Stack []Frame  // innermost first; Frame{Fn, File string; Line, Col int}
 	Data  Value    // payload of raise(dict)
 }
 
@@ -23,7 +23,16 @@ func (e *Error) Error() string      // "script.mzs:3:12: type: cannot add string
 func (e *Error) Unwrap() error      // the sentinel, when there is one
 func (e *Error) Catchable() bool    // whether `try … else …` may swallow it
 func (e *Error) ErrorValue() Value  // the dict a `try X else (e) -> …` arm binds
+
+func FormatTrace(stack []Frame) []string // the CLI's lines for a stack; diagnostic text
 ```
+
+A `Frame` is a call site: `Fn` was called from `File:Line:Col`, innermost first. The error's
+own position is the failure, so the frame of the call that *is* the failure (a `raise`, a
+`fetch`) is not in the stack, and an error at the top level has none. Limit errors carry
+the stack they were raised under. `File` matters once a program includes modules: a
+function a module exports runs with the module as its file, so `Error.File` names the
+module while the frame of the call names the caller.
 
 ## Kinds
 

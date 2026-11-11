@@ -117,6 +117,10 @@ FAIL суммы
 | `-t, --timeout <d>` | wall clock per file (default `1s`; `0` disables) |
 | `--steps <n>` | step budget per file |
 | `--mem <size>` | live memory budget per file (`64m`; `0` disables) |
+
+A failed case prints, under its message, the calls inside the case that led to the failure —
+`in must, called from money_test.mzs:4:11` — and nothing of the case's own block or the
+runner.
 | `--tasks <n>` | tasks running at once, for `async fn` |
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()` |

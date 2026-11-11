@@ -273,6 +273,7 @@ func (c *Ctx) position(e *Error) *Error {
 	if e.Stack == nil {
 		e.Stack = c.rs.frames()
 	}
+	e.trimStack()
 	return e
 }
 

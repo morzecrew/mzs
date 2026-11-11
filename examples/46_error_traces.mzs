@@ -1,0 +1,64 @@
+# 46 — error traces: where a failure came from, for a person and for a script.
+#
+#   mzs examples/46_error_traces.mzs
+#
+# An error knows more than the line it was raised on. It carries the file and the column,
+# and the call sites that led there, innermost first:
+#
+#   e["file"], e["line"], e["col"]     where it failed
+#   e["stack"]                         [{fn, file, line, col}, …]: who called whom, from where
+#
+# A helper called from twenty places fails at the same line every time; the stack is what
+# says which of the twenty it was. An error nothing catches prints the same stack under the
+# caret — `mzs -e '…; total(cart)'` with the definitions below ends with:
+#
+#   -e:1:31: raise: missing price of cake
+#     …
+#     in must, called from -e:2:18
+#     in price, called from -e:3:31
+#     in {}, called from -e:3:25
+#     in map, called from -e:3:25
+#     in total, called from -e:6:1
+#
+# `{}` is the closure handed to `map`, and `map` is a frame of its own because the path
+# went through it. `--no-trace` prints the first three lines alone.
+
+println("=== the stack of a caught error ===")
+println("")
+
+fn must(x, what) { x == nil ? raise("missing ${what}") : x }
+fn price(item) { must(item["price"], "price of ${item["name"]}") }
+fn total(items) { items.map { price(it) }.sum }
+
+cart = [{name: "tea", price: 3}, {name: "cake"}, {name: "jam", price: 2}]
+
+fn where(e) { e["stack"].map { "${it["fn"]} ← line ${it["line"]}" }.join(", ") }
+
+try total(cart) else (e) {
+  println("  ${e["message"]} at line ${e["line"]}, column ${e["col"]}")
+  println("  called through: ${where(e)}")
+}
+println("")
+
+println("=== a log line a handler can write ===")
+println("")
+
+# A long-running handler must catch, and a message plus a bare number is not a report.
+# One line with the position and the path is: `must` failed, `price` called it, the
+# closure inside `map` called that.
+fn report(e) {
+  path = e["stack"].map { "${it["fn"]}@${it["line"]}:${it["col"]}" }.join(" < ")
+  "${e["kind"]}: ${e["message"]} (${e["file"]}:${e["line"]}; ${path})"
+}
+
+for order in [[{name: "tea", price: 3}], [{name: "cake"}]] {
+  result = try total(order) else (e) { report(e) }
+  println("  ${result}")
+}
+println("")
+
+println("=== the top level has no stack ===")
+println("")
+
+try raise("at the top") else (e) { println("  stack: ${e["stack"].json}") }
+println("")

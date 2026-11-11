@@ -93,6 +93,9 @@ type config struct {
 	check  bool
 	repl   bool
 	stats  bool
+	// noTrace is --no-trace: a runtime error prints its three lines and not the call
+	// stack under them (§15).
+	noTrace bool
 }
 
 func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
@@ -192,7 +195,7 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return code
 	}
 	if err != nil {
-		reportErr(stderr, name, src, err)
+		reportErrTrace(stderr, name, src, err, !cfg.noTrace)
 		return codeFor(err)
 	}
 	if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
@@ -323,7 +326,7 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 			// Which line of the input broke is the one thing the diagnostic below cannot
 			// say: its position is a position in the program, and the program is fine.
 			fmt.Fprintf(stderr, "mzs: input line %d:\n", lines)
-			reportErr(stderr, name, src, err)
+			reportErrTrace(stderr, name, src, err, !cfg.noTrace)
 			return codeFor(err)
 		}
 		for k, v := range res.Globals {
@@ -619,6 +622,8 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			cfg.enableTime = true
 		case "--stats":
 			cfg.stats = true
+		case "--no-trace":
+			cfg.noTrace = true
 		case "--rand":
 			cfg.randOn = true
 			cfg.randSeed = time.Now().UnixNano()
@@ -814,6 +819,7 @@ Flags:
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility
       --stats        print steps, elapsed time and peak live memory to stderr
+      --no-trace     print an error's three lines without the call stack under them
       --tokens       dump the token stream and exit
       --ast          dump the AST and exit
       --check        compile only; report errors and warnings

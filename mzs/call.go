@@ -84,6 +84,7 @@ func (e ev) makeFunc(name string, params []ast.Param, body *ast.BlockStmt, lambd
 		Lambda: lambda,
 		Async:  async,
 		Frame:  frame,
+		file:   e.rs.file,
 	})
 }
 
@@ -140,6 +141,13 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		return e.spawnTask(f, args, named, pos)
 	}
 
+	// The frame above was pushed with the caller's file; the body — its defaults
+	// included — is the callee's code and runs with the callee's file current.
+	if f.file != "" && f.file != e.rs.file {
+		prev := e.rs.file
+		e.rs.file = f.file
+		defer func() { e.rs.file = prev }()
+	}
 	env, err := e.bindParams(f, args, named)
 	if err != nil {
 		return Nil(), e.at(err, pos)

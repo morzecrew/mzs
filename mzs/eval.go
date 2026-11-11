@@ -38,6 +38,7 @@ func (e ev) at(err error, p token.Pos) error {
 	if x.Stack == nil {
 		x.Stack = e.rs.frames()
 	}
+	x.trimStack()
 	return x
 }
 
@@ -91,7 +92,11 @@ func (e ev) execStmts(stmts []ast.Stmt) (Value, error) {
 		v, err := e.execStmt(s)
 		if err != nil {
 			e.rs.rootReset(m)
-			return Nil(), err
+			// An error nothing positioned yet — a limit raised deep inside the statement,
+			// a cap checked before an allocation — is positioned at the statement that
+			// failed rather than at the start of the program (§8.11). at keeps a position
+			// and a stack that are already set.
+			return Nil(), e.at(err, s.Pos())
 		}
 		last = v
 	}
