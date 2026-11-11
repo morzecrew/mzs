@@ -353,73 +353,57 @@ func hasSplat(xs []ast.Expr) bool {
 	return false
 }
 
-// evalSpreadArray is an array literal with `*` elements (RFC 0001): every element is
-// evaluated left to right first, and only then is the result laid out, so the size the
-// limit checks is the real one. The operands stay roots while later ones are evaluated.
+// evalSpreadArray is an array literal with `*` elements (RFC 0001). The result is laid
+// out as each position is reached, left to right, so a spread is a snapshot of its operand
+// at that moment — `[*a, (a[0] = 9)]` keeps a's old first element — and the slice being
+// built is a root the whole time, followed through every reallocation.
 func (e ev) evalSpreadArray(n *ast.ArrayLit) (Value, error) {
-	parts := make([]Value, len(n.Elems))
-	spread := make([][]Value, len(n.Elems))
+	out := make([]Value, 0, len(n.Elems))
 	m := e.rs.rootMark()
-	e.rs.pushVals(parts)
+	e.rs.holdGrowing(&out)
 	defer e.rs.rootReset(m)
-	total := 0
-	for i, el := range n.Elems {
+	for _, el := range n.Elems {
 		s, isSplat := el.(*ast.Splat)
 		if !isSplat {
 			v, err := e.eval(el)
 			if err != nil {
 				return Nil(), err
 			}
-			parts[i] = v
-			total++
+			if err := e.rs.allocCollection(len(out)+1, 1); err != nil {
+				return Nil(), err
+			}
+			out = append(out, v)
 			continue
 		}
 		v, err := e.eval(s.X)
 		if err != nil {
 			return Nil(), err
 		}
-		parts[i] = v
-		xs, err := e.splatElems(v, s.Star)
-		if err != nil {
+		if out, err = e.appendSplat(out, v, s.Star); err != nil {
 			return Nil(), err
-		}
-		spread[i] = xs
-		total += len(xs)
-		if err := e.rs.checkCollection(total); err != nil {
-			return Nil(), err
-		}
-	}
-	if err := e.rs.allocCollection(total, total); err != nil {
-		return Nil(), err
-	}
-	out := make([]Value, 0, total)
-	for i, el := range n.Elems {
-		if _, ok := el.(*ast.Splat); ok {
-			out = append(out, spread[i]...)
-		} else {
-			out = append(out, parts[i])
 		}
 	}
 	return arrayOf(out), nil
 }
 
-// splatElems is the operand rule of `*` (RFC 0001): an Array's elements, or a Range's,
-// materialised under the collection limit. A seq is refused rather than drained: it may
-// be endless, and the limit that would stop it cannot be caught, so the one spelling that
-// says how many is the one asked for.
-func (e ev) splatElems(v Value, pos token.Pos) ([]Value, error) {
+// appendSplat appends the elements `*v` stands for to out (RFC 0001): an Array's, or a
+// Range's, materialised only after the size the result will have has been checked and
+// charged. A seq is refused rather than drained: it may be endless, and the limit that
+// would stop it cannot be caught, so the one spelling that says how many is the one
+// asked for.
+func (e ev) appendSplat(out []Value, v Value, pos token.Pos) ([]Value, error) {
 	switch v.Kind() {
-	case KArray:
-		return v.Elems(), nil
-	case KRange:
-		if err := e.rs.checkCollection(v.Len()); err != nil {
-			return nil, err
-		}
-		return v.Elems(), nil
+	case KArray, KRange:
 	case KSeq:
-		return nil, e.at(typeErrorf("cannot splat seq: it may be endless; write *s.take(n).array, or *s.array for one you know ends"), pos)
+		return out, e.at(typeErrorf("cannot splat seq: it may be endless; write *s.take(n).array, or *s.array for one you know ends"), pos)
+	default:
+		return out, e.at(typeErrorf("cannot splat %s; '*' takes an array or a range", v.Kind()), pos)
 	}
-	return nil, e.at(typeErrorf("cannot splat %s; '*' takes an array or a range", v.Kind()), pos)
+	n := v.Len()
+	if err := e.rs.allocCollection(len(out)+n, n); err != nil {
+		return out, err
+	}
+	return append(out, v.Elems()...), nil
 }
 
 // evalDict builds a dict in source order, which is the order it iterates and
@@ -434,11 +418,13 @@ func (e ev) evalDict(n *ast.DictLit) (Value, error) {
 	m := e.rs.rootMark()
 	e.rs.hold(dictOf(d))
 	defer e.rs.rootReset(m)
+	spread := false
 	for i := range n.Keys {
 		if s, ok := n.Keys[i].(*ast.Splat); ok {
 			if err := e.spreadDict(d, s); err != nil {
 				return Nil(), err
 			}
+			spread = true
 			continue
 		}
 		k, err := e.eval(n.Keys[i])
@@ -448,6 +434,14 @@ func (e ev) evalDict(n *ast.DictLit) (Value, error) {
 		v, err := e.eval(n.Vals[i])
 		if err != nil {
 			return Nil(), err
+		}
+		// Once a spread has made the dict as large as its operand, a written key that
+		// is new is one more entry, and the limit is on the dict the literal produces.
+		// Without a spread a literal is no larger than its source, as it always was.
+		if spread && !d.Has(k) {
+			if err := e.rs.allocCollection(d.Len()+1, 1); err != nil {
+				return Nil(), err
+			}
 		}
 		if err := d.Set(k, v); err != nil {
 			return Nil(), e.at(err, n.Lbrack)
@@ -469,7 +463,16 @@ func (e ev) spreadDict(d *OrderedDict, s *ast.Splat) error {
 	if err := e.rs.step(int64(src.Len())); err != nil {
 		return err
 	}
-	if err := e.rs.allocCollection(d.Len()+src.Len(), src.Len()); err != nil {
+	// Only the keys d does not have yet make it larger: a spread that overlaps what is
+	// already there overwrites in place (D11) and costs no room.
+	added := 0
+	src.Each(func(k, _ Value) bool {
+		if !d.Has(k) {
+			added++
+		}
+		return true
+	})
+	if err := e.rs.allocCollection(d.Len()+added, added); err != nil {
 		return err
 	}
 	src.Each(func(k, val Value) bool {

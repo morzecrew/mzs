@@ -600,7 +600,11 @@ func hasSpread(named []ast.NamedArg) bool {
 func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs, error) {
 	m := e.rs.rootMark()
 	defer e.rs.rootReset(m)
-	var args []Value
+	// Laid out as each argument is reached, so a splat is a snapshot of its operand at
+	// that moment, and the list is a root throughout. Every position counts toward the
+	// limit, written or spread: it is on the list the callee receives.
+	args := make([]Value, 0, len(exprs))
+	e.rs.holdGrowing(&args)
 	for _, a := range exprs {
 		s, isSplat := a.(*ast.Splat)
 		if !isSplat {
@@ -608,7 +612,9 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 			if err != nil {
 				return nil, nil, err
 			}
-			e.rs.hold(v)
+			if err := e.rs.checkCollection(len(args) + 1); err != nil {
+				return nil, nil, err
+			}
 			args = append(args, v)
 			continue
 		}
@@ -616,20 +622,9 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 		if err != nil {
 			return nil, nil, err
 		}
-		e.rs.hold(v)
-		xs, err := e.splatElems(v, s.Star)
-		if err != nil {
+		if args, err = e.appendSplat(args, v, s.Star); err != nil {
 			return nil, nil, err
 		}
-		if err := e.rs.allocCollection(len(args)+len(xs), len(xs)); err != nil {
-			return nil, nil, err
-		}
-		args = append(args, xs...)
-	}
-	// The positions written after a splat count too: the limit is on the list the
-	// callee receives.
-	if err := e.rs.checkCollection(len(args)); err != nil {
-		return nil, nil, err
 	}
 	if len(named) == 0 {
 		return args, nil, nil

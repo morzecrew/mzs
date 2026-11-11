@@ -145,8 +145,13 @@ text.
   names a parameter a position already filled is the existing `got two values for parameter`.
 * **A bare `*`** outside a match pattern — `[1, *]`, `f(*)` — is a compile error, not a parse
   error, because the parser reads arrays before it knows they are patterns.
+* **A spread is a snapshot.** Its elements are copied when its position is reached, so a
+  later element that changes the operand — `[*a, (a[0] = 9)]` — does not reach back into
+  the result.
 * **Limits.** A spread array literal and a splatting call check `MaxCollection` on the
   laid-out size — positions written after a splat included — and charge what they build to
-  `MaxMemory`. A `**`, in a dict literal or at a call, charges one step per entry, as
+  `MaxMemory` before a range is materialised. In a dict literal only keys that are new
+  count, so overlapping spreads are not refused, and a written key after a spread counts
+  too. A `**`, in a dict literal or at a call, charges one step per entry, as
   `merge` does, and the duplicate-name check at a call is a set, so a large dict costs time
   linear in its size.

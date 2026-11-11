@@ -2044,7 +2044,9 @@ names the kind and the operator: `cannot splat int; '*' takes an array or a rang
 dict; '**' takes a dict`.
 
 **Order.** Left to right, as every argument list and every literal is (§8.7): an operand is
-evaluated once, when its position is reached.
+evaluated once, when its position is reached, and its elements are taken **then** — a later
+position that changes the array does not reach back into the spread, so
+`a = [1, 2]; [*a, (a[0] = 9)]` is `[1, 2, 9]`.
 
 `**name` as a *parameter* — collecting the named arguments a function did not declare —
 does not exist and stays reserved (§20): it would turn every misspelled argument name from a

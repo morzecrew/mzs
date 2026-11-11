@@ -147,6 +147,10 @@ func TestSpreadInArrays(t *testing.T) {
 		{`[*[]]`, `[]`},
 		{`a = [[1]]; b = [*a]; b.push(2); [a, b]`, `[[[1]],[[1],2]]`},
 		{`a = [1]; "${[*a, 2]}"`, `"[1,2]"`},
+		// A spread is a snapshot of its operand when its position is reached.
+		{`a = [1, 2]; [*a, (a[0] = 9)]`, `[1,2,9]`},
+		{`a = [1, 2]; [(a[0] = 9), *a]`, `[9,9,2]`},
+		{`a = [1, 2]; fn f(*n) { n }; f(*a, (a[0] = 9))`, `[1,2,9]`},
 	})
 	spreadErrors(t, [][3]string{
 		{`[*5]`, ErrKindType, "cannot splat int"},
@@ -227,9 +231,22 @@ func TestSpreadOperandErrors(t *testing.T) {
 		`fn f(*n) { n }; f(*[1, 2, 3], 4)`,
 		// So do the entries a `**` spreads into named arguments.
 		`fn f(a = 0) { a }; f(**{a: 1, b: 2, c: 3, d: 4})`,
+		// And a written key that a spread has left no room for.
+		`{**{a: 1, b: 2, c: 3}, d: 4}`,
 	} {
 		if _, err := spreadEval(t, o, src); !errors.Is(err, ErrBudget) {
 			t.Errorf("%s under MaxCollection 3 = %v, want ErrBudget", src, err)
+		}
+	}
+	// What overlaps costs no room: the limit is on the result, not on the operands.
+	for _, src := range []string{
+		`d = {a: 1, b: 2, c: 3}; {**d, **d}`,
+		`d = {a: 1, b: 2, c: 3}; {**d, a: 9, **d}`,
+		`{a: 0, **{a: 1, b: 2, c: 3}}`,
+	} {
+		v, err := spreadEval(t, o, src)
+		if err != nil || v.Len() != 3 {
+			t.Errorf("%s under MaxCollection 3 = %s, %v; want three entries", src, v.Inspect(), err)
 		}
 	}
 }
@@ -254,5 +271,16 @@ func TestNamedSpreadChargesSteps(t *testing.T) {
 	spread := steps(setup + "try f(**d) else nil")
 	if spread-plain < 1000 {
 		t.Errorf("f(**d) over 1000 entries cost %d more steps, want at least 1000", spread-plain)
+	}
+}
+
+// A range spread is paid for before it is materialised, so MaxMemory stops it.
+func TestRangeSpreadIsCharged(t *testing.T) {
+	o := DefaultOptions()
+	o.MaxMemory = 1 << 20
+	for _, src := range []string{`[*(1..500000)]`, `fn f(*n) { n.len }; f(*(1..500000))`} {
+		if _, err := spreadEval(t, o, src); !errors.Is(err, ErrMemory) {
+			t.Errorf("%s under a 1 MiB budget = %v, want ErrMemory", src, err)
+		}
 	}
 }
