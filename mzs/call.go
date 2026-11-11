@@ -25,6 +25,10 @@ const definedName = "defined"
 type namedArg struct {
 	Name string
 	Val  Value
+	// Key is the dict key a `**` spread took Name from (RFC 0001), and nil for a name
+	// written at the call. It is kept so the key stays a root for the whole call: until
+	// checkNamed has matched it to a parameter, it may be any string the script built.
+	Key Value
 }
 
 // namedArgs is the named half of one call site's argument list. It is nil for every call
@@ -105,6 +109,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 	e.rs.hold(fn)
 	e.rs.pushVals(args)
 	for _, a := range named {
+		e.rs.hold(a.Key)
 		e.rs.hold(a.Val)
 	}
 	if err := e.rs.step(1); err != nil {
@@ -500,7 +505,10 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 // not an expression to evaluate, which is why an unbound `$price` is legal here and
 // nowhere else.
 func (e ev) evalDefined(n *ast.CallExpr) (Value, error) {
-	if len(n.Named) > 0 {
+	if len(n.Named) > 0 || hasSplat(n.Args) {
+		if len(n.Named) == 0 || n.Named[0].Spread {
+			return Nil(), e.at(argErrorf("%s takes a name to test, not a spread", definedName), n.Stop)
+		}
 		// `defined` takes a name to test for boundness, so `defined(x = 1)` reads as an
 		// argument named after the very thing being asked about. Say which one it is
 		// rather than counting to zero at it.
@@ -541,6 +549,9 @@ func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs
 	if len(exprs) == 0 && len(named) == 0 {
 		return nil, nil, nil
 	}
+	if hasSplat(exprs) || hasSpread(named) {
+		return e.evalSpreadArgs(exprs, named)
+	}
 	// The arguments already evaluated are roots while the rest are (§14.2): the slice
 	// is filled in place, so the one root sees each value as it lands.
 	args := make([]Value, len(exprs))
@@ -570,6 +581,118 @@ func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs
 		}
 		e.rs.hold(v)
 		out = append(out, namedArg{Name: a.Name, Val: v})
+	}
+	return args, out, nil
+}
+
+func hasSpread(named []ast.NamedArg) bool {
+	for _, a := range named {
+		if a.Spread {
+			return true
+		}
+	}
+	return false
+}
+
+// evalSpreadArgs is evalArgs for a call that splats (RFC 0001): `f(1, *xs)` passes xs's
+// elements as positions and `f(**opts)` passes opts's entries as names. Evaluation is
+// still strictly left to right, positions before names, and the arity is checked on the
+// expanded list by the callee exactly as for any other call.
+//
+// A parameter given a value twice is an error, never last-wins: by two spreads, or by a
+// spread and a written `name = …`. The parser can only see the written names, so this
+// is where the rule is kept for the others.
+func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs, error) {
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	// Laid out as each argument is reached, so a splat is a snapshot of its operand at
+	// that moment, and the list is a root throughout. Every position counts toward the
+	// limit, written or spread: it is on the list the callee receives.
+	args := make([]Value, 0, len(exprs))
+	e.rs.holdGrowing(&args)
+	for _, a := range exprs {
+		s, isSplat := a.(*ast.Splat)
+		if !isSplat {
+			v, err := e.eval(a)
+			if err != nil {
+				return nil, nil, err
+			}
+			if err := e.rs.checkCollection(len(args) + 1); err != nil {
+				return nil, nil, err
+			}
+			args = append(args, v)
+			continue
+		}
+		v, err := e.eval(s.X)
+		if err != nil {
+			return nil, nil, err
+		}
+		if args, err = e.appendSplat(args, v, s.Star); err != nil {
+			return nil, nil, err
+		}
+	}
+	if len(named) == 0 {
+		return args, nil, nil
+	}
+	out := make(namedArgs, 0, len(named))
+	// A set rather than a scan of out, so a spread of a large dict stays linear in its
+	// size — the arity error it is heading for is reached in time proportional to the
+	// dict, not to its square.
+	seen := make(map[string]struct{}, len(named))
+	add := func(name string, key, v Value, pos token.Pos) error {
+		if _, dup := seen[name]; dup {
+			return e.at(argErrorf("argument '%s' is given twice, once through '**'; a spread never overrides", name), pos)
+		}
+		// A name written after a spread is one more entry in the list the callee gets.
+		if err := e.rs.checkCollection(len(out) + 1); err != nil {
+			return err
+		}
+		seen[name] = struct{}{}
+		out = append(out, namedArg{Name: name, Val: v, Key: key})
+		return nil
+	}
+	for _, a := range named {
+		v, err := e.eval(a.Value)
+		if err != nil {
+			return nil, nil, err
+		}
+		e.rs.hold(v)
+		if !a.Spread {
+			if err := add(a.Name, Nil(), v, a.NamePos); err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
+		src := v.odict()
+		if v.Kind() != KDict || src == nil {
+			return nil, nil, e.at(typeErrorf("cannot splat %s as named arguments; '**' takes a dict", v.Kind()), a.NamePos)
+		}
+		// One step per entry, as `merge` charges, and the list it builds is bounded and
+		// paid for like any other.
+		if err := e.rs.step(int64(src.Len())); err != nil {
+			return nil, nil, err
+		}
+		if err := e.rs.allocCollection(len(out)+src.Len(), src.Len()); err != nil {
+			return nil, nil, err
+		}
+		var bad error
+		src.Each(func(k, val Value) bool {
+			if k.Kind() != KString {
+				bad = e.at(typeErrorf("'**' passes a dict's keys as parameter names, and %s is not a string", k.Inspect()), a.NamePos)
+				return false
+			}
+			// The key and the value are reachable through the dict only until a later
+			// argument replaces or deletes the entry; held, they stay roots for as long
+			// as the list is being built (§14.2), and invoke holds both again for the
+			// whole call, through checkNamed and any default it runs.
+			e.rs.hold(k)
+			e.rs.hold(val)
+			bad = add(k.Str(), k, val, a.NamePos)
+			return bad == nil
+		})
+		if bad != nil {
+			return nil, nil, bad
+		}
 	}
 	return args, out, nil
 }

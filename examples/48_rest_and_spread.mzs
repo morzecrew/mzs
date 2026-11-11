@@ -1,0 +1,101 @@
+# 48 — rest and spread: `*` and `**` take a value apart where a list is written.
+#
+#   mzs examples/48_rest_and_spread.mzs
+#
+# Four places, one idea:
+#
+#   head, *tail = xs           a rest element: the positions no other target takes
+#   ["GET", *path] -> …        the same in a match arm, where it asks instead of asserts
+#   f(*args, **opts)           an array's elements as positions, a dict's entries as names
+#   [*a, x]  {**d, k: v}       the same inside a literal
+#
+# `*` takes an array or a range, `**` takes a dict, and both are prefixes only at the start
+# of an element, so `a * b` and `a ** b` keep meaning what they always meant.
+
+fn show(label, v) { println("${label.ljust(44)}→ ${v.inspect}") }
+
+println("=== the rest of an array ===")
+println("")
+
+head, *tail = [1, 2, 3, 4]
+show("head, *tail = [1, 2, 3, 4]", [head, tail])
+*init, last = [1, 2, 3, 4]
+show("*init, last = [1, 2, 3, 4]", [init, last])
+first, *mid, final = 1..6
+show("first, *mid, final = 1..6", [first, mid, final])
+only, *none = ["x"]
+show("only, *none = [\"x\"]   (may be empty)", none)
+
+# The rest is a new array: changing it leaves the original alone.
+xs = [1, 2, 3]
+h, *t = xs
+t.push(99)
+show("xs after pushing to its tail", xs)
+show("try a, *b, c = [1]", try (a, *b, c = [1]) else (e) { e["message"] })
+
+# --- a recursive function over head and tail --------------------------------------
+
+fn total(xs) {
+  match xs {
+    [] -> 0
+    [x, *rest] -> x + total(rest)
+  }
+}
+show("total([4, 5, 6])  by head and tail", total([4, 5, 6]))
+
+# --- routing on the shape of a path -----------------------------------------------
+
+println("")
+println("=== a router, one arm per shape ===")
+println("")
+
+fn route(method, path) {
+  match [method, *path.split("/").reject { it.empty }] {
+    ["GET", "users"] -> "list users"
+    ["GET", "users", id] -> "show user ${id}"
+    ["GET", "files", *parts] -> "file ${parts.join("/")}"
+    ["DELETE", *] -> "deletes are not allowed"
+    else -> "404"
+  }
+}
+
+[["GET", "/users"], ["GET", "/users/7"], ["GET", "/files/docs/a/b.txt"],
+ ["DELETE", "/users/7"], ["POST", "/users"]].each { (req) ->
+  show("${req[0]} ${req[1]}", route(*req))
+}
+
+# --- splat at a call ----------------------------------------------------------------
+
+println("")
+println("=== arguments from an array and a dict ===")
+println("")
+
+fn box(w, h = 1, unit = "cm", label = "") { "${label}${w}×${h} ${unit}".trim }
+
+dims = [30, 20]
+style = {unit: "mm", label: "A: "}
+show("box(*dims)", box(*dims))
+show("box(*dims, **style)", box(*dims, **style))
+show("box(5, **{unit: \"m\"})", box(5, **{unit: "m"}))
+show("max(*[3, 9, 2])   (builtins too)", max(*[3, 9, 2]))
+show("try box(**{w: 1}, w = 2)", try box(**{w: 1}, w = 2) else (e) { e["message"] })
+
+# --- spread in literals -------------------------------------------------------------
+
+println("")
+println("=== literals built from other values ===")
+println("")
+
+defaults = {timeout: 30, retries: 3, verbose: false}
+overrides = {retries: 5}
+config = {**defaults, **overrides, verbose: true}
+show("{**defaults, **overrides, verbose: true}", config)
+show("its keys keep the order of defaults", config.keys)
+show("[0, *[1, 2], *(3..4), 5]", [0, *[1, 2], *(3..4), 5])
+
+record Point(x, y)
+p = Point(1, 2)
+moved = {**p, x: 10}
+show("{**p, x: 10} on a record is a plain dict", [type(p), type(moved), moved])
+
+show("try [*(1..3).seq]", try [*(1..3).seq] else (e) { e["message"] })

@@ -19,6 +19,17 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Rest elements and spread.** `head, *tail = xs`, `*init, last = xs` and `a, *mid, z = xs`
+  bind the positions no other target takes as a new array; in a `match` arm
+  `["GET", *path] ->` binds them and `[first, *] ->` skips them. At a call `f(*xs)` passes
+  an array's or a range's elements as positions and `f(**opts)` a dict's entries as named
+  arguments — a parameter given twice is an error, never last-wins. In literals `[*a, x]`
+  concatenates and `{**defaults, k: v}` copies entries in order, a later one overwriting in
+  the earlier one's place, into a plain dict. A seq is refused (`*s.take(n).array`), and
+  `**kw` as a parameter stays reserved. Every new form was a syntax error, so this is
+  additive; the one parser change it needs — a line starting with `*` that begins a target
+  list starts a new statement instead of continuing the line before — changes no program
+  that parsed (SPEC §4, §8.15, §8.16, §20; RFC 0001).
 - **`parse_int` and `parse_float`**: a conversion that can say no. `"12abc".parse_int`,
   `"".parse_int` and `"1e400".parse_float` are `nil` where `int` and `float` answer `12`, `0`
   and `0.0`, so a program reading a CSV column or a query parameter can tell `0` from

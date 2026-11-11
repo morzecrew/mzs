@@ -398,6 +398,7 @@ func TestNamedArgumentErrors(t *testing.T) {
 		// letting it fall through to `undefined function 'filter'` (§6.3).
 		{"a named-only call to a stdlib row", `filter(xs = [1])`, "filter takes its arguments by position"},
 		{"a named-only call names the argument", `filter(xs = [1])`, "'xs = …' has no parameter to bind"},
+		{"a spread-only call to a stdlib row", `filter(**{xs: [1]})`, "filter takes its arguments by position, so a '**' spread has no parameter to bind"},
 		// The hint lists what the callee answers to, so it has to survive a parameter
 		// list with nothing in it and one whose last entry is `*rest`.
 		{"no parameters, so no hint", `fn f() { 1 }; f(x = 1)`, "f has no parameter named 'x'"},

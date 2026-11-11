@@ -49,6 +49,11 @@ func (p *printer) breakExpr(e ast.Expr, ind int) {
 		p.funcLit(x, ind)
 	case *ast.GroupExpr:
 		p.group(x, ind)
+	case *ast.Splat:
+		p.w(splatOp(x))
+		if x.X != nil {
+			p.writeExpr(x.X, ind)
+		}
 	case *ast.ArrayLit:
 		p.list("[", "]", x.Lbrack.Line, x.Rbrack.Offset, exprItems(x.Elems), ind)
 	case *ast.DictLit:
@@ -527,9 +532,21 @@ func exprItems(es []ast.Expr) []item {
 func callItems(args []ast.Expr, named []ast.NamedArg) []item {
 	out := exprItems(args)
 	for _, n := range named {
-		out = append(out, item{prefix: n.Name + " = ", value: n.Value, pos: n.NamePos})
+		prefix := n.Name + " = "
+		if n.Spread {
+			prefix = "**"
+		}
+		out = append(out, item{prefix: prefix, value: n.Value, pos: n.NamePos})
 	}
 	return out
+}
+
+// splatOp is the operator a Splat was written with (RFC 0001).
+func splatOp(s *ast.Splat) string {
+	if s.Double {
+		return "**"
+	}
+	return "*"
 }
 
 // dictItems renders the keys, which decide the separator: a string key takes `:`, a
@@ -538,6 +555,11 @@ func callItems(args []ast.Expr, named []ast.NamedArg) []item {
 func (p *printer) dictItems(d *ast.DictLit) []item {
 	out := make([]item, 0, len(d.Keys))
 	for i, k := range d.Keys {
+		if s, ok := k.(*ast.Splat); ok {
+			// `**d` has no key and no separator: the spread operand is the item.
+			out = append(out, item{prefix: "**", value: s.X, pos: s.Star})
+			continue
+		}
 		var prefix string
 		switch {
 		case isStrKey(k):

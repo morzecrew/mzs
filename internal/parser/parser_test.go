@@ -66,6 +66,50 @@ Program "t"
 `,
 		},
 		{
+			name: "rest and spread (RFC 0001)",
+			src:  "a, *r = xs; f(*a, **d); {**d, k: 1}; match x { [h, *] -> h }",
+			want: `
+Program "t"
+  ExprStmt
+    Destructure =
+      Pattern
+        Ident a
+        Splat *
+          Ident r
+      Ident xs
+  ExprStmt
+    Call
+      fn:
+        Ident f
+      arg
+        Splat *
+          Ident a
+      arg **
+        Ident d
+  ExprStmt
+    Dict
+      entry
+        Splat **
+          Ident d
+      entry
+        Str "k"
+        Int 1
+  ExprStmt
+    Match
+      subject:
+        Ident x
+      arm array
+        pat
+          Pattern
+            Ident h
+            Splat *
+        body
+          Block
+            ExprStmt
+              Ident h
+`,
+		},
+		{
 			name: "interpolated string",
 			src:  `"a${x+1}b$c"`,
 			want: `
@@ -1399,6 +1443,21 @@ func TestParseErrors(t *testing.T) {
 			"a record has no rest field: 'rest' would collect the remaining positions rather than name one", 1, 14},
 		{"a record names each field once", "record Q(a, a)", "record Q names the field 'a' twice", 1, 13},
 		{"export takes a declaration or a name", "export 1", "'export' expects `fn`, `record`, an assignment or a name, found 1", 1, 8},
+		// RFC 0001: rest elements and spread.
+		{"one rest element per level", "a, *b, *c = xs", "a pattern takes one rest element", 1, 8},
+		{"one rest element in brackets", "[*a, *b] = xs", "a pattern takes one rest element", 1, 6},
+		{"one rest element in a match arm", "match x { [*a, *b] -> 1 }", "a pattern takes one rest element", 1, 16},
+		{"a rest element alone has no neighbour", "*rest = xs", "a rest element needs a neighbour; write rest = xs.array", 1, 1},
+		{"a rest target is a name", "a, *$g = xs", "a rest element is '*' and a name: write *rest", 1, 4},
+		{"a rest target is not an index", "[a, *xs[0]] = ys", "a rest element is '*' and a name: write *rest", 1, 5},
+		{"a rest in a pattern binds or skips", "match x { [a, *[1]] -> 1 }", "a rest element in a pattern is '*' and a name, or a bare '*' to skip", 1, 15},
+		{"** in an array literal", "[**d]", "'**' spreads a dict's entries, into a dict or a call; in an array write '*'", 1, 2},
+		{"* in a dict literal", "{a: 1, *xs}", "'*' spreads an array's elements; in a dict write '**'", 1, 8},
+		{"a stray *", "x = *y", "unexpected '*': a spread stands only in a call, an array literal or a destructuring target", 1, 5},
+		{"a stray **", "x = **y", "unexpected '**': a spread of a dict stands only in a call or a dict literal", 1, 5},
+		{"a splat is positional", "f(a = 1, *xs)", "a positional argument may not follow a named one; move it before 'a = …'", 1, 10},
+		{"a splat after a spread", "f(**opts, *xs)", "a positional argument may not follow a named one; move it before '**…'", 1, 11},
+		{"**kwargs is not a parameter", "fn f(**kw) { }", "expected a parameter name, found '**'", 1, 6},
 	}
 
 	for _, tt := range tests {
@@ -1649,4 +1708,34 @@ func FuzzParse(f *testing.F) {
 			_ = ast.Dump(prog)
 		}
 	})
+}
+
+// A `*` that starts a line begins a target list, and only then (RFC 0001): a line that
+// starts with `*` and is not one still continues the line before (§3.10), and so does one
+// inside a bracket, where the comma belongs to the bracket.
+func TestRestStartsALine(t *testing.T) {
+	tests := []struct {
+		name  string
+		src   string
+		stmts int
+	}{
+		{"a target list ends the line before", "h = 1\n*i, l = xs", 2},
+		{"after a call", "f(x)\n*i, l = xs", 2},
+		{"a product still continues", "y = x\n  * 3", 1},
+		{"a product with a comma later on the line", "y = [x\n  * 3, 4]", 1},
+		{"inside a call the comma is the call's", "f(x\n  * 3, c = 1)", 1},
+		{"no assignment, no target list", "y = x\n  * 3 + 4", 1},
+		{"a comma carries the target list across the break", "a,\n*rest = xs", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prog, err := Parse("t", tt.src)
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", tt.src, err)
+			}
+			if len(prog.Stmts) != tt.stmts {
+				t.Errorf("Parse(%q) = %d statements, want %d:\n%s", tt.src, len(prog.Stmts), tt.stmts, ast.Dump(prog))
+			}
+		})
+	}
 }

@@ -1,6 +1,8 @@
 package mzs
 
 import (
+	"slices"
+
 	"mzs/internal/ast"
 	"mzs/internal/rx"
 	"mzs/internal/token"
@@ -206,6 +208,10 @@ func (e ev) evalChain(x ast.Expr) (Value, error) {
 		return e.evalArray(n)
 	case *ast.DictLit:
 		return e.evalDict(n)
+	case *ast.Splat:
+		// Every owner of a Splat consumes it; one evaluated on its own is a node the
+		// compile pass should have refused.
+		return Nil(), e.at(syntaxErrorf("a spread stands only in a call, an array literal or a pattern"), n.Star)
 	case *ast.Ident:
 		v, err := e.evalIdent(n)
 		return v, e.at(err, n.Start)
@@ -318,6 +324,9 @@ func (e ev) evalRegex(n *ast.RegexLit) (Value, error) {
 }
 
 func (e ev) evalArray(n *ast.ArrayLit) (Value, error) {
+	if hasSplat(n.Elems) {
+		return e.evalSpreadArray(n)
+	}
 	if err := e.rs.checkCollection(len(n.Elems)); err != nil {
 		return Nil(), err
 	}
@@ -335,14 +344,110 @@ func (e ev) evalArray(n *ast.ArrayLit) (Value, error) {
 	return arrayOf(out), nil
 }
 
+// hasSplat reports whether a list of elements or arguments spreads anything, so the
+// common literal and the common call pay nothing for RFC 0001.
+func hasSplat(xs []ast.Expr) bool {
+	for _, x := range xs {
+		if _, ok := x.(*ast.Splat); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// evalSpreadArray is an array literal with `*` elements (RFC 0001). The result is laid
+// out as each position is reached, left to right, so a spread is a snapshot of its operand
+// at that moment — `[*a, (a[0] = 9)]` keeps a's old first element — and the slice being
+// built is a root the whole time, followed through every reallocation.
+func (e ev) evalSpreadArray(n *ast.ArrayLit) (Value, error) {
+	out := make([]Value, 0, len(n.Elems))
+	m := e.rs.rootMark()
+	e.rs.holdGrowing(&out)
+	defer e.rs.rootReset(m)
+	for _, el := range n.Elems {
+		s, isSplat := el.(*ast.Splat)
+		if !isSplat {
+			v, err := e.eval(el)
+			if err != nil {
+				return Nil(), err
+			}
+			// v is in no root until it lands in out, and the charge may walk.
+			pending := e.rs.rootMark()
+			e.rs.hold(v)
+			if err := e.rs.allocCollection(len(out)+1, 1); err != nil {
+				return Nil(), err
+			}
+			out = append(out, v)
+			e.rs.rootReset(pending)
+			continue
+		}
+		v, err := e.eval(s.X)
+		if err != nil {
+			return Nil(), err
+		}
+		if out, err = e.appendSplat(out, v, s.Star); err != nil {
+			return Nil(), err
+		}
+	}
+	return arrayOf(out), nil
+}
+
+// appendSplat appends the elements `*v` stands for to out (RFC 0001): an Array's, or a
+// Range's, materialised only after the size the result will have has been checked and
+// charged. A seq is refused rather than drained: it may be endless, and the limit that
+// would stop it cannot be caught, so the one spelling that says how many is the one
+// asked for.
+func (e ev) appendSplat(out []Value, v Value, pos token.Pos) ([]Value, error) {
+	switch v.Kind() {
+	case KArray, KRange:
+	case KSeq:
+		return out, e.at(typeErrorf("cannot splat seq: it may be endless; write *s.take(n).array, or *s.array for one you know ends"), pos)
+	default:
+		return out, e.at(typeErrorf("cannot splat %s; '*' takes an array or a range", v.Kind()), pos)
+	}
+	n := v.Len()
+	// The operand may be a value nothing else holds — the result of a call — and the
+	// charge may walk, so it stays a root until its elements are in out.
+	m := e.rs.rootMark()
+	e.rs.hold(v)
+	defer e.rs.rootReset(m)
+	if err := e.rs.allocCollection(len(out)+n, n); err != nil {
+		return out, err
+	}
+	if v.Kind() == KRange {
+		// Laid out straight into the result: materialising the range first would hold a
+		// second slice of the same size that nothing charged.
+		r := v.rng()
+		out = slices.Grow(out, n)
+		for i := 0; i < n; i++ {
+			out = append(out, Int(r.At(i)))
+		}
+		return out, nil
+	}
+	return append(out, v.Elems()...), nil
+}
+
 // evalDict builds a dict in source order, which is the order it iterates and
 // serialises in (D11).
+//
+// A `**d` entry (RFC 0001) writes d's entries where it stands, in d's order, and a later
+// entry — written or spread — overwrites an earlier one's value in the earlier one's
+// place, exactly as assigning to an existing key does. The result is always a plain
+// dict: a literal carries no record label, whatever the dicts it was built from carried.
 func (e ev) evalDict(n *ast.DictLit) (Value, error) {
 	d := NewOrderedDictCap(len(n.Keys))
 	m := e.rs.rootMark()
 	e.rs.hold(dictOf(d))
 	defer e.rs.rootReset(m)
+	spread := false
 	for i := range n.Keys {
+		if s, ok := n.Keys[i].(*ast.Splat); ok {
+			if err := e.spreadDict(d, s); err != nil {
+				return Nil(), err
+			}
+			spread = true
+			continue
+		}
 		k, err := e.eval(n.Keys[i])
 		if err != nil {
 			return Nil(), err
@@ -351,11 +456,51 @@ func (e ev) evalDict(n *ast.DictLit) (Value, error) {
 		if err != nil {
 			return Nil(), err
 		}
+		// Once a spread has made the dict as large as its operand, a written key that
+		// is new is one more entry, and the limit is on the dict the literal produces.
+		// Without a spread a literal is no larger than its source, as it always was.
+		if spread && !d.Has(k) {
+			if err := e.rs.allocCollection(d.Len()+1, 1); err != nil {
+				return Nil(), err
+			}
+		}
 		if err := d.Set(k, v); err != nil {
 			return Nil(), e.at(err, n.Lbrack)
 		}
 	}
 	return dictOf(d), nil
+}
+
+// spreadDict writes the entries of `**x` into d.
+func (e ev) spreadDict(d *OrderedDict, s *ast.Splat) error {
+	v, err := e.eval(s.X)
+	if err != nil {
+		return err
+	}
+	src := v.odict()
+	if v.Kind() != KDict || src == nil {
+		return e.at(typeErrorf("cannot spread %s into a dict; '**' takes a dict", v.Kind()), s.Star)
+	}
+	if err := e.rs.step(int64(src.Len())); err != nil {
+		return err
+	}
+	// Only the keys d does not have yet make it larger: a spread that overlaps what is
+	// already there overwrites in place (D11) and costs no room.
+	added := 0
+	src.Each(func(k, _ Value) bool {
+		if !d.Has(k) {
+			added++
+		}
+		return true
+	})
+	if err := e.rs.allocCollection(d.Len()+added, added); err != nil {
+		return err
+	}
+	src.Each(func(k, val Value) bool {
+		_ = d.Set(k, val) // a key already in a dict is hashable
+		return true
+	})
+	return nil
 }
 
 // evalRange builds the lazy range of §8.6. String endpoints are not supported and a
@@ -768,10 +913,22 @@ func (e ev) matchPattern(pat *ast.ArrayPattern, v Value, env *Env) (bool, error)
 	if err != nil || !ok {
 		return false, err
 	}
-	if len(elems) != len(pat.Elems) {
+	rest := restIndex(pat)
+	if !fitsPattern(len(elems), len(pat.Elems), rest) {
 		return false, nil
 	}
-	for i, el := range pat.Elems {
+	for j, el := range pat.Elems {
+		if s, ok := el.(*ast.Splat); ok {
+			if id, ok := s.X.(*ast.Ident); ok {
+				tail, err := e.restOf(elems, j, len(pat.Elems))
+				if err != nil {
+					return false, err
+				}
+				env.Define(id.Name, tail)
+			}
+			continue
+		}
+		i := patternPos(j, rest, len(elems), len(pat.Elems))
 		switch t := el.(type) {
 		case *ast.ArrayPattern:
 			ok, err := e.matchPattern(t, elems[i], env)
@@ -794,6 +951,47 @@ func (e ev) matchPattern(pat *ast.ArrayPattern, v Value, env *Env) (bool, error)
 		}
 	}
 	return true, nil
+}
+
+// restIndex is the position of a pattern's rest element, or -1. The parser allows one
+// per level (RFC 0001).
+func restIndex(pat *ast.ArrayPattern) int {
+	for i, el := range pat.Elems {
+		if _, ok := el.(*ast.Splat); ok {
+			return i
+		}
+	}
+	return -1
+}
+
+// fitsPattern is the length rule: exact without a rest, at least the other positions
+// with one.
+func fitsPattern(have, positions, rest int) bool {
+	if rest < 0 {
+		return have == positions
+	}
+	return have >= positions-1
+}
+
+// patternPos maps pattern position j, which is not the rest, onto the value's elements.
+// Positions before the rest read from the front and positions after it from the back, so
+// in `a, *mid, z` the `z` is always the last element.
+func patternPos(j, rest, have, positions int) int {
+	if rest < 0 || j < rest {
+		return j
+	}
+	return have - (positions - j)
+}
+
+// restOf is what the rest element at position rest binds: a new array of the elements
+// no other position takes, possibly empty. It is a copy, never a view, so writing to it
+// cannot reach the array that was taken apart.
+func (e ev) restOf(elems []Value, rest, positions int) (Value, error) {
+	tail := elems[rest : len(elems)-(positions-1-rest)]
+	if err := e.rs.allocCollection(len(tail), len(tail)); err != nil {
+		return Nil(), err
+	}
+	return arrayOf(append(make([]Value, 0, len(tail)), tail...)), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,7 +1320,11 @@ func (e ev) destructure(pat *ast.ArrayPattern, v Value, op token.Kind) error {
 	if !ok {
 		return e.at(typeErrorf("cannot destructure %s: the right side must be an array", v.Kind()), pat.Start)
 	}
-	if len(elems) != len(pat.Elems) {
+	rest := restIndex(pat)
+	if !fitsPattern(len(elems), len(pat.Elems), rest) {
+		if rest >= 0 {
+			return e.at(indexErrorf("destructuring expects at least %d values, got %d", len(pat.Elems)-1, len(elems)), pat.Start)
+		}
 		return e.at(indexErrorf("destructuring expects %d values, got %d", len(pat.Elems), len(elems)), pat.Start)
 	}
 	if writesIndex(pat) {
@@ -1133,18 +1335,23 @@ func (e ev) destructure(pat *ast.ArrayPattern, v Value, op token.Kind) error {
 		// name writes a binding, never the array.
 		elems = append(make([]Value, 0, len(elems)), elems...)
 	}
-	for i, target := range pat.Elems {
+	for j, target := range pat.Elems {
+		if s, ok := target.(*ast.Splat); ok {
+			tail, err := e.restOf(elems, j, len(pat.Elems))
+			if err != nil {
+				return err
+			}
+			e.bindTarget(s.X.(*ast.Ident), tail, op)
+			continue
+		}
+		i := patternPos(j, rest, len(elems), len(pat.Elems))
 		switch t := target.(type) {
 		case *ast.ArrayPattern:
 			if err := e.destructure(t, elems[i], op); err != nil {
 				return err
 			}
 		case *ast.Ident:
-			if op == token.DECLARE {
-				e.env.Define(t.Name, elems[i])
-			} else {
-				e.env.Set(t.Name, elems[i])
-			}
+			e.bindTarget(t, elems[i], op)
 		case *ast.GlobalVar:
 			e.rs.globals[globalName(t.Name)] = elems[i]
 		case *ast.IndexExpr:
@@ -1156,6 +1363,16 @@ func (e ev) destructure(pat *ast.ArrayPattern, v Value, op token.Kind) error {
 		}
 	}
 	return nil
+}
+
+// bindTarget writes one name a destructuring binds: `:=` defines it in this scope, `=`
+// writes it wherever it resolves (§8.2).
+func (e ev) bindTarget(t *ast.Ident, v Value, op token.Kind) {
+	if op == token.DECLARE {
+		e.env.Define(t.Name, v)
+	} else {
+		e.env.Set(t.Name, v)
+	}
 }
 
 // writesIndex reports whether any position of pat writes through a subscript, which is

@@ -60,6 +60,15 @@ func (p *printer) flatNode(e ast.Expr) (string, bool) {
 		return x.Name, true
 	case *ast.ArrayLit:
 		return p.flatList("[", "]", exprItems(x.Elems))
+	case *ast.Splat:
+		if x.X == nil {
+			return "*", true
+		}
+		s, ok := p.flat(x.X)
+		if !ok {
+			return "", false
+		}
+		return splatOp(x) + s, true
 	case *ast.DictLit:
 		return p.flatList("{", "}", p.dictItems(x))
 	case *ast.UnaryExpr:

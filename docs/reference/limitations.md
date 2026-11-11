@@ -35,12 +35,12 @@ Each of these is a diagnostic today so that the lexeme is free later.
 | `1 << 3` | `syntax: unexpected '<'` — the shifts are `shl` / `shr` |
 | `x \|> f` | `syntax: '\|' is not an mzs operator; use bor(a, b), or '\|\|' for logical or` |
 | `fn f(**kw) { }` | `syntax: expected a parameter name, found '**'` |
-| `f(*xs)` | `syntax: unexpected '*'` |
-| `a, *rest = [1,2,3]` | `syntax: unexpected '*'` |
 | `s = "ab"; s[0] = "c"` | `type: cannot assign to an index of string` |
 
-The destructuring rest element arrives together with `*splat` at a call site, or not at all.
-Plain destructuring is not reserved — see [destructuring](../language/destructuring.md).
+`**kw` as a parameter stays reserved: collecting the named arguments a function did not
+declare would turn every misspelled argument name into a silent entry. The rest element
+(`a, *rest = xs`) and the splat at a call site (`f(*xs)`, `f(**opts)`) landed together — see
+[destructuring](../language/destructuring.md) and [functions](../language/functions.md#splat-and-spread).
 
 Two entries have left this table since the first draft. `try { … } else { … } ensure { … }`
 is the braced form of [errors](../language/errors.md), and `<<~TEXT` is the heredoc of

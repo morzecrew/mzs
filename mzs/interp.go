@@ -511,6 +511,16 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 	case *ast.DictLit:
 		c.dict(n)
 		return n
+	case *ast.Splat:
+		// Reached as an element of a literal or an argument list. The anonymous `*` of
+		// a match pattern never gets here — the arm turned it into a pattern — so here
+		// it has nothing to spread (RFC 0001).
+		if n.X == nil {
+			c.syntaxErrorf(n.Star, "a bare '*' skips positions only in a match pattern; here it needs a value: *xs")
+			return n
+		}
+		n.X = c.expr(n.X)
+		return n
 	case *ast.Ident:
 		c.ident(n)
 		return n
@@ -761,15 +771,25 @@ func (c *compiler) targets(pat *ast.ArrayPattern, op token.Kind) {
 		case *ast.ArrayPattern:
 			c.targets(t, op)
 		case *ast.Ident:
-			t.Slot, t.Ref = -1, ast.RefLocal
-			if op == token.DECLARE || !c.known(t.Name) {
-				c.declare(t.Name)
+			c.target(t, op)
+		case *ast.Splat:
+			if id, ok := t.X.(*ast.Ident); ok {
+				c.target(id, op)
 			}
 		case *ast.IndexExpr:
 			pat.Elems[i] = c.expr(t)
 		case *ast.GlobalVar:
 			// A $var needs no declaration: writing one inserts into the globals table (§10).
 		}
+	}
+}
+
+// target resolves one name a destructuring writes: `:=` declares it, and `=` declares it
+// only where no enclosing scope already has it, exactly as a single `=` does (§8.2).
+func (c *compiler) target(t *ast.Ident, op token.Kind) {
+	t.Slot, t.Ref = -1, ast.RefLocal
+	if op == token.DECLARE || !c.known(t.Name) {
+		c.declare(t.Name)
 	}
 }
 
@@ -801,6 +821,12 @@ func (c *compiler) bindings(pat *ast.ArrayPattern) {
 		case *ast.Ident:
 			t.Slot, t.Ref = -1, ast.RefLocal
 			c.declare(t.Name)
+		case *ast.Splat:
+			// `*rest` binds the tail; the anonymous `*` binds nothing (RFC 0001).
+			if id, ok := t.X.(*ast.Ident); ok {
+				id.Slot, id.Ref = -1, ast.RefLocal
+				c.declare(id.Name)
+			}
 		default:
 			pat.Elems[i] = c.expr(el)
 		}
@@ -848,9 +874,12 @@ func (c *compiler) call(n *ast.CallExpr) ast.Expr {
 		// gives only names has no receiver to dispatch on and can never resolve. Left
 		// to the run time it comes out as `undefined function 'filter'` — about a name
 		// that plainly exists — so the one true thing is said here instead (§5.6).
+		what := "'" + n.Named[0].Name + " = …'"
+		if n.Named[0].Spread {
+			what = "a '**' spread"
+		}
 		c.argErrorf(n.Named[0].NamePos,
-			"%s takes its arguments by position, so '%s = …' has no parameter to bind",
-			id.Name, n.Named[0].Name)
+			"%s takes its arguments by position, so %s has no parameter to bind", id.Name, what)
 	case len(n.Args) > 0 && c.hasMethod(id.Name):
 		// One namespace, not two (§12): `filter(xs, f)` is `xs.filter(f)`, so a name
 		// that is only a stdlib row of some kind is callable in prefix position too.
