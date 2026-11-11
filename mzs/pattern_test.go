@@ -30,8 +30,12 @@ func TestDictTargets(t *testing.T) {
 		// Every value is read before the first is written, so a target writing into the
 		// dict being taken apart cannot change what a later key reads.
 		{`d = {a: 1, b: 2}; {a: d["b"], b: x} = d; [d, x]`, `[{"a":1,"b":1},2]`},
-		// The value of the assignment is the right side.
+		// The value of the assignment is the right side, and the assignment is an
+		// expression wherever one may stand, as the bracketed array form is.
 		{`d = {a: 1}; ({a} = d) == d`, `true`},
+		{`fn f(x) { x }; d = {a: 1}; [f({a} = d), a]`, `[{"a":1},1]`},
+		{`fn f(x) { x }; f([p, {q}] = [1, {q: 2}]); [p, q]`, `[1,2]`},
+		{`xs = [({a} := {a: 3}), a]; xs`, `[{"a":3},3]`},
 		// A record is a dict, and its rest is a plain one, as `{**p}` is.
 		{`record P(x, y); {x, **r} = P(1, 2); [x, r, type(r)]`, `[1,{"y":2},"dict"]`},
 		// `=` writes an outer binding and `:=` declares a new one, as for one name.

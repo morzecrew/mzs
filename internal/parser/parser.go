@@ -459,12 +459,6 @@ func (p *parser) parseBareStmt() ast.Stmt {
 		if p.destructureAhead() {
 			return &ast.ExprStmt{X: p.parseDestructure()}
 		}
-		// `{name, age} = user` (RFC 0002): a bracket whose close stands right in front
-		// of an assignment operator is a target, so a `{ … }` inside it is a pattern.
-		// A closure is never followed by `=`, so the brace has no second reading.
-		if p.startsPattern() && token.IsAssignOp(p.kindAt(p.closeOf(p.pos))) {
-			p.patNext = true
-		}
 	case token.KW_FN:
 		if p.peekKind(1) == token.IDENT {
 			// A named `fn` is a declaration statement so the evaluator can hoist it
@@ -670,6 +664,13 @@ func (p *parser) parseExpr() ast.Expr { return p.parseAssign() }
 
 // parseAssign is level 14, right associative.
 func (p *parser) parseAssign() ast.Expr {
+	// A bracket whose close stands right in front of an assignment operator is a target,
+	// wherever the expression is — `f({a} = d)` as much as a statement (RFC 0002) — so a
+	// `{ … }` in it is a pattern. A closure or a dict literal is never assigned to, so the
+	// brace has no second reading.
+	if p.startsPattern() && token.IsAssignOp(p.kindAt(p.closeOf(p.pos))) {
+		p.patNext = true
+	}
 	l := p.parseTernary()
 	// §5.6: `k => v` lexes as ASSIGN followed by GT, and is the commonest paste from a
 	// Ruby hash or lambda.
