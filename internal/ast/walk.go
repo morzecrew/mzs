@@ -352,11 +352,15 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		labeled("cond:", x.Cond)
 		labeled("body:", x.Body)
 	case *ForExpr:
-		name := x.KeyVar
-		if x.ValVar != "" {
-			name += ", " + x.ValVar
+		// A loop variable that is a pattern has no name; its tree follows under key: or
+		// val:, so the header names only the plain ones.
+		var names []string
+		for _, n := range []string{x.KeyVar, x.ValVar} {
+			if n != "" {
+				names = append(names, n)
+			}
 		}
-		line("For " + name)
+		line(strings.TrimSpace("For " + strings.Join(names, ", ")))
 		labeled("key:", x.KeyPat)
 		labeled("val:", x.ValPat)
 		labeled("iter:", x.Iter)

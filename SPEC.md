@@ -633,8 +633,8 @@ Target         = IDENT | GVAR | Postfix "[" Expr "]" | TargetPattern
                | "*" IDENT ;                                 (* rest: at most one per level, §8.15 *)
 TargetPattern  = "[" [ Target { "," Target } [ "," ] ] "]"   (* also valid alone: [a, b] = xs *)
                | DictTarget ;                                (* {name, age: a} = user, §8.15 *)
-DictTarget     = "{" DictTargetEntry { "," DictTargetEntry } [ "," ] [ "," "**" IDENT ] "}"
-               | "{" "**" IDENT "}" ;
+DictTarget     = "{" DictTargetEntry { "," DictTargetEntry } [ "," "**" IDENT ] [ "," ] "}"
+               | "{" "**" IDENT [ "," ] "}" ;
 DictTargetEntry= IDENT                                       (* {name} is {name: name} *)
                | DictKey ":" Target ;
 DictKey        = IDENT | STRING ;                            (* a plain string: no interpolation *)
@@ -681,13 +681,14 @@ MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
                | "*" [ IDENT ]      (* rest: binds the positions between, or skips them; one per level *)
                | Expr ;             (* compared, exactly as an ArmPattern is *)
-DictMatch      = "{" [ DictMatchEntry { "," DictMatchEntry } [ "," ] ] [ "**" [ IDENT ] ] "}" ;
-               (* the "**" comes last, after a "," when entries precede it *)
+DictMatch      = "{" [ DictMatchRest | DictMatchEntry { "," DictMatchEntry } [ "," DictMatchRest ] ] [ "," ] "}" ;
+DictMatchRest  = "**" [ IDENT ] ;   (* the rest comes last *)
 DictMatchEntry = IDENT                          (* binds the value under that key *)
                | DictKey ":" MatchElem          (* a name binds, a pattern nests, an Expr compares *)
                | DictKey ":" "in" Expr ;        (* membership, as an "in" arm is *)
                (* a "[" or "{" is a pattern only when it is the whole element: the token after
-                  its close is "," "]" "}" "->" "if" or an AssignOp (§8.15) *)
+                  its close is "," "]" "}" "->" "if" or an AssignOp, or, in a for header,
+                  "in" (§8.15) *)
 TryExpr        = "try" TryClause [ "else" [ TryBinder ] TryClause ] [ "ensure" Block ] ;
                (* at least one of "else" and "ensure" is required (§8.11) *)
 TryClause      = Block | Expr ;     (* §3.12 reads a dict operand first: try {a: 1} is a dict *)
@@ -1024,7 +1025,8 @@ a guard. The same holds for a dict: `({a: 1}) ->` is equality with that dict, wh
 `{a: 1} ->` fires on any dict whose `"a"` is `1`.
 
 A `[` or `{` is a pattern only when it is the **whole** pattern or the whole element of
-one: the token after its close is `,`, `]`, `}`, `->`, `if` or an assignment operator. So
+one: the token after its close is `,`, `]`, `}`, `->`, `if` or an assignment operator — and,
+in a `for` header, the `in` that ends the loop variables. So
 `{a: 1}.len ->` and `{a: 1} in xs ->` are the operands they read as, a dict literal with a
 method or an operator after it, and are compared as any expression is.
 
@@ -2011,8 +2013,9 @@ form JSON wants — the data a program handles is dicts inside arrays inside dic
 
 * `{name}` is `{name: name}`. A key is a word or a plain string — a pattern names the keys
   it takes, so an interpolated key is refused — and each key is named once.
-* The right side must be a **Dict**; a record is one. Anything else is
-  `type: cannot destructure array with a dict pattern`.
+* The right side must be a **Dict**; a record is one. Anything else is a `type` error that
+  names its kind: `cannot destructure array with a dict pattern`,
+  `cannot destructure nil with a dict pattern`.
 * Every key named must be **present**: the array form is strict about length, the dict
   form about presence, and a missing key is the `key` error `fetch` raises —
   `key: destructuring: key not found: "a"`. Keys the pattern does not name are
