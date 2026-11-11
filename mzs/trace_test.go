@@ -175,3 +175,23 @@ func TestFormatTrace(t *testing.T) {
 		t.Errorf("FormatTrace of 12 = %q, want 8 lines and \"… 4 more\"", got)
 	}
 }
+
+// A call into a module that fails as a call — the wrong arity — is the caller's line in
+// the caller's file; a default that fails is the module's line in the module's file.
+func TestTraceCallFailuresNameTheCaller(t *testing.T) {
+	o := DefaultOptions()
+	o.ModuleLoader = func(from, path string) (string, string, error) {
+		return "lib.mzs", "export fn two(a, b) { a + b }\nexport fn dflt(a = 1 / 0) { a }", nil
+	}
+	e := traceRun(t, o, "include lib from \"./lib.mzs\"\n\n\nlib.two(1)")
+	if e.File != "t.mzs" || e.Line != 4 {
+		t.Errorf("arity error at %s:%d, want t.mzs:4", e.File, e.Line)
+	}
+	if len(e.Stack) != 0 {
+		t.Errorf("Stack = %+v, want the failing call not repeated", e.Stack)
+	}
+	e = traceRun(t, o, "include lib from \"./lib.mzs\"\nlib.dflt()")
+	if e.File != "lib.mzs" || e.Line != 2 {
+		t.Errorf("default error at %s:%d, want lib.mzs:2", e.File, e.Line)
+	}
+}

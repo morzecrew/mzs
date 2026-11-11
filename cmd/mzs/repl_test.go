@@ -561,3 +561,21 @@ func TestREPLCompleterOffersNothingUseless(t *testing.T) {
 		}
 	}
 }
+
+// RFC 0009: the REPL prints a runtime error's trace like a file does, and --no-trace
+// turns it off there too.
+func TestREPLTrace(t *testing.T) {
+	session := []scriptedLine{
+		{line: "fn f() { 1 / 0 }"},
+		{line: "f()"},
+		{line: ".exit"},
+	}
+	_, errOut, _ := replRun(t, []string{"--repl"}, session...)
+	if !strings.Contains(errOut, "in f, called from") {
+		t.Errorf("stderr = %q, want the trace", errOut)
+	}
+	_, errOut, _ = replRun(t, []string{"--repl", "--no-trace"}, session...)
+	if strings.Contains(errOut, "called from") || !strings.Contains(errOut, "zero-division") {
+		t.Errorf("--no-trace stderr = %q, want the error without its trace", errOut)
+	}
+}

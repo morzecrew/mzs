@@ -143,13 +143,17 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 
 	// The frame above was pushed with the caller's file; the body — its defaults
 	// included — is the callee's code and runs with the callee's file current.
-	if f.file != "" && f.file != e.rs.file {
-		prev := e.rs.file
+	prev := e.rs.file
+	if f.file != "" && f.file != prev {
 		e.rs.file = f.file
 		defer func() { e.rs.file = prev }()
 	}
 	env, err := e.bindParams(f, args, named)
 	if err != nil {
+		// A default that failed is positioned already, in the callee's file. What is not
+		// — an arity or a missing argument — is the call's own failure, and the call is
+		// written in the caller's file.
+		e.rs.file = prev
 		return Nil(), e.at(err, pos)
 	}
 	if f.Record != nil {

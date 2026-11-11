@@ -492,3 +492,18 @@ test.case("shallow") { raise("here") }
 		t.Errorf("a failure in the case body itself should have no trace:\n%s", out)
 	}
 }
+
+// The failure of an awaited task carries the task's own stack, which does not end with
+// the case's frames: all of it is inside the case and is shown.
+func TestTestCaseTraceThroughATask(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "task_test.mzs", `include test
+async fn job() { helper() }
+fn helper() { raise("in task") }
+test.case("awaits") { job().await }
+`)
+	_, out, _ := exec([]string{"test", dir}, "")
+	if !strings.Contains(out, "\n       in helper, called from ") || !strings.Contains(out, "\n       in job, called from ") {
+		t.Errorf("stdout =\n%s", out)
+	}
+}

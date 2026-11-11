@@ -151,9 +151,10 @@ left open or that the implementation had to make.
   `execStmts` positions any error that is still unpositioned at the statement that failed.
 * **Open question 2 — the input line under `-n`:** nothing new. The CLI already prints
   `mzs: input line N:` before the diagnostic, and the trace follows the caret as usual.
-* **No frame repeats the caret.** Builtins and stdlib rows push frames too, so the innermost
-  frame of a `raise` is the `raise` call itself, at the error's own position. That frame is
-  dropped, once per error. A **limit** error keeps all of its frames: it is raised between
+* **No frame repeats the caret.** This is how §2's "none is skipped" reads once builtins and
+  stdlib rows push frames too: the innermost frame of a `raise` would be the `raise` call
+  itself, at the error's own position — the caret, not a call that led to it. That one frame
+  is dropped, once per error; every call site that led to the failure is still printed. A **limit** error keeps all of its frames: it is raised between
   steps rather than by a call, and under `MaxDepth` its innermost frame is the previous
   level of a recursion written at the same site, which is not a repetition.
 * **Frame names.** A closure literal is `"{}"`. A stdlib row that called back into the
