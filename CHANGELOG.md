@@ -22,8 +22,9 @@ and the release is still ahead of it.
 - **`eprint` and `eprintln`** write to `Options.Stderr` exactly as `print` and `println` write
   to `Options.Stdout`, so a filter in a pipeline can report a skipped row or a summary
   without corrupting the data it emits. A nil `Stderr` discards, so the zero `Options` stay
-  silent; the CLI wires it to fd 2, and `mzs test` passes it through. `debug` stays on
-  stdout (SPEC §12.1; RFC 0012).
+  silent; the CLI wires it to fd 2, and `mzs test` passes it through. `engine.Options`
+  gains `Stderr` so a bot can capture them too. `debug` stays on stdout (SPEC §12.1,
+  §13.6; RFC 0012).
 - **Error traces.** An uncaught runtime error raised inside a function prints its call
   sites under the caret — `in c, called from st.mzs:2:10`, innermost first, a recursion
   collapsed to one line with a count, eight lines at most — and `--no-trace` turns that off.

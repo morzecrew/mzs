@@ -3447,6 +3447,7 @@ type Options struct {
     Timeout    time.Duration // default 1s (the ruby path used 5s)
     CacheSize  int           // compiled-expression LRU, default 1024
     Stdout     io.Writer     // for say/print inside scripts; default io.Discard
+    Stderr     io.Writer     // for eprint/eprintln inside scripts (§12.1); default io.Discard
     Now        func() time.Time
     Rand       *rand.Rand
 }

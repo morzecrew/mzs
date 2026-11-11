@@ -58,6 +58,9 @@ type Options struct {
 	CacheSize int
 	// Stdout receives say/print/debug from inside scripts. nil discards.
 	Stdout io.Writer
+	// Stderr receives eprint/eprintln from inside scripts, and warnings. nil discards,
+	// so a condition that writes a note stays silent unless the bot asks for it.
+	Stderr io.Writer
 	// Now enables now(), time.now and date.today.
 	Now func() time.Time
 	// Rand enables rand(), uuid(), sample and shuffle.
@@ -94,6 +97,7 @@ func New(o Options) *Engine {
 			Timeout:    o.Timeout,
 			StepBudget: mzs.DefaultStepBudget,
 			Stdout:     o.Stdout,
+			Stderr:     o.Stderr,
 			Now:        o.Now,
 			Rand:       o.Rand,
 		}),
