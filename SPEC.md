@@ -2129,6 +2129,8 @@ Conventions used in the tables:
 |---|---|---|---|
 | `print` | `print(*args) -> nil` | writes `str` of each arg to `Options.Stdout`, no separator, no newline | `print(a)` |
 | `println` | `println(*args) -> nil` | like `print` but appends `\n` after each arg; `println()` writes one `\n`; an Array arg prints one element per line | `println("hi")` |
+| `eprint` | `eprint(*args) -> nil` | `print`, to `Options.Stderr`; a nil `Stderr` discards | `eprint("…")` |
+| `eprintln` | `eprintln(*args) -> nil` | `println`, to `Options.Stderr` — the same rules for arrays and for no argument; a nil `Stderr` discards | `eprintln("skipped ${n} rows")` |
 | `debug` | `debug(*args) -> any` | writes the `inspect` form + `\n`; returns the first arg | `debug(x)` |
 | `input` | `input(prompt: any = nil) -> string \| nil` | writes `str(prompt)` to `Options.Stdout` with no newline, then reads one line of `Options.Stdin` without its terminator (CRLF like LF). The end of the input — and a host that installed no reader — is `nil`, never an error. It is one pull of the reader `io.stdin` and `io.lines` share (§12.13) | `input("Имя: ")` |
 | `len` | `len(x) -> int` | rune length of a String, element count of Array/Dict/Range; `nil` → 0 | `s.len > 2` |
@@ -2165,6 +2167,14 @@ Conventions used in the tables:
 | `rand` | `rand(n: int = 0) -> number` | **only if `Options.Rand` is set**, else `undefined function` | |
 | `uuid` | `uuid() -> string` | **only if `Options.Rand` is set** | |
 | `now` | `now() -> time` | **only if `Options.Now` is set** | |
+
+**Two streams.** `print`, `println` and `debug` write to `Options.Stdout`; `eprint` and
+`eprintln` write to `Options.Stderr`, which is also where compile warnings go. That is the
+one rule a filter in a pipeline has — data on stdout, everything else on stderr — so a
+warning, a progress line or a "3 rows skipped" summary does not corrupt the data stream. A
+nil `Stderr` discards, as it does for warnings: the zero `Options` stay silent (D15). Writes
+to one stream keep their order; the order *between* the two streams is the terminal's
+business. `debug` stays on stdout.
 
 ### 12.2 Strings
 

@@ -85,6 +85,22 @@ beta 2
 
 ```
 
+### Notes go to stderr
+
+A filter's stdout is the next program's input, so anything that is not data — a skipped
+line, a count, a warning — goes to stderr with `eprintln`. It returns `nil`, so under `-l` it
+prints nothing to stdout either:
+
+```sh
+$ printf '3\nfoo\n5\n' | mzs -l -e '$_ ~ /^\d+$/ ? $_.int * 2 : eprintln("skipping ${$_.inspect}")'
+6
+skipping "foo"
+10
+$ printf '3\nfoo\n5\n' | mzs -l -e '$_ ~ /^\d+$/ ? $_.int * 2 : eprintln("skipping ${$_.inspect}")' 2>/dev/null
+6
+10
+```
+
 ## What carries between lines
 
 Each line is its own run: its own frame, its own timeout, its own step budget. `$variables`

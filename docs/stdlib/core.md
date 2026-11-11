@@ -11,6 +11,8 @@ exception is `defined`, which must stay a call because it never evaluates its op
 |---|---|---|---|
 | `print` | `print(*args) -> nil` | writes `str` of each arg, no separator, no newline | `print("a", "b")` → `ab` |
 | `println` | `println(*args) -> nil` | adds `\n` after each arg; `println()` writes one `\n`; an Array prints one element per line | `println([1, 2])` → `1\n2\n` |
+| `eprint` | `eprint(*args) -> nil` | `print`, to stderr | `eprint("…")` |
+| `eprintln` | `eprintln(*args) -> nil` | `println`, to stderr — same rules for arrays and for no argument | `eprintln("skipped 3 rows")` |
 | `debug` | `debug(*args) -> any` | writes `inspect` + `\n`, returns the first arg | `debug("x")` → `"x"` |
 
 ```
@@ -18,6 +20,16 @@ debug("a", "b").upper    # writes "a" and "b" on their own lines, evaluates to A
 ```
 
 Output goes to the interpreter's stdout, not to `os.Stdout` directly — a host can capture it.
+`eprint` and `eprintln` are the same two rows on the other stream, `Options.Stderr`: the
+place for a warning, a progress line or a summary that must not end up mixed into the data
+a pipeline reads. A host that sets no `Stderr` discards them. `debug` stays on stdout.
+
+```
+for row in rows {
+  if row["price"] == nil { eprintln("skipping ${row["id"]}: no price"); next }
+  println(row["price"])
+}
+```
 
 ## Input
 

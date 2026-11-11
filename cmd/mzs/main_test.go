@@ -1535,3 +1535,16 @@ lib.boom()
 		t.Errorf("stderr =\n%s", errOut)
 	}
 }
+
+// RFC 0012: in a pipeline, data goes to stdout and the notes about it to stderr — the
+// one rule a filter has. eprintln is how a script keeps to it.
+func TestEprintlnKeepsStdoutForData(t *testing.T) {
+	code, out, errOut := exec([]string{"-n", "-e", `$_ ~ /^\d+$/ ? println($_) : eprintln("skipping ${$_.inspect}")`},
+		"1\nx\n2\n")
+	if code != exitOK || out != "1\n2\n" {
+		t.Errorf("code = %d, stdout = %q; want the numbers alone", code, out)
+	}
+	if errOut != "skipping \"x\"\n" {
+		t.Errorf("stderr = %q", errOut)
+	}
+}

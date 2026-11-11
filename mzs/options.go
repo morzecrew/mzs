@@ -92,7 +92,8 @@ type Options struct {
 
 	// Stdout receives print/println/debug. nil discards.
 	Stdout io.Writer
-	// Stderr receives warnings. nil discards.
+	// Stderr receives warnings and what a script writes with eprint and eprintln
+	// (§12.1). nil discards.
 	Stderr io.Writer
 	// Now enables now(), time.now and date.today. nil keeps evaluation deterministic.
 	Now func() time.Time
@@ -196,7 +197,7 @@ func (o *Options) out() io.Writer {
 	return o.Stdout
 }
 
-// errOut returns the sink for warnings; never nil.
+// errOut returns the sink for warnings and eprint/eprintln; never nil.
 func (o *Options) errOut() io.Writer {
 	if o.Stderr == nil {
 		return io.Discard
