@@ -638,6 +638,10 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 		if _, dup := seen[name]; dup {
 			return e.at(argErrorf("argument '%s' is given twice, once through '**'; a spread never overrides", name), pos)
 		}
+		// A name written after a spread is one more entry in the list the callee gets.
+		if err := e.rs.checkCollection(len(out) + 1); err != nil {
+			return err
+		}
 		seen[name] = struct{}{}
 		out = append(out, namedArg{Name: name, Val: v})
 		return nil

@@ -233,6 +233,8 @@ func TestSpreadOperandErrors(t *testing.T) {
 		`fn f(a = 0) { a }; f(**{a: 1, b: 2, c: 3, d: 4})`,
 		// And a written key that a spread has left no room for.
 		`{**{a: 1, b: 2, c: 3}, d: 4}`,
+		// And a named argument written after a `**` has filled the list.
+		`fn f(a = 0, b = 0, c = 0, d = 0) { a }; f(**{a: 1, b: 2, c: 3}, d = 4)`,
 	} {
 		if _, err := spreadEval(t, o, src); !errors.Is(err, ErrBudget) {
 			t.Errorf("%s under MaxCollection 3 = %v, want ErrBudget", src, err)

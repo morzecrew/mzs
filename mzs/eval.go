@@ -369,10 +369,14 @@ func (e ev) evalSpreadArray(n *ast.ArrayLit) (Value, error) {
 			if err != nil {
 				return Nil(), err
 			}
+			// v is in no root until it lands in out, and the charge may walk.
+			pending := e.rs.rootMark()
+			e.rs.hold(v)
 			if err := e.rs.allocCollection(len(out)+1, 1); err != nil {
 				return Nil(), err
 			}
 			out = append(out, v)
+			e.rs.rootReset(pending)
 			continue
 		}
 		v, err := e.eval(s.X)
@@ -400,6 +404,11 @@ func (e ev) appendSplat(out []Value, v Value, pos token.Pos) ([]Value, error) {
 		return out, e.at(typeErrorf("cannot splat %s; '*' takes an array or a range", v.Kind()), pos)
 	}
 	n := v.Len()
+	// The operand may be a value nothing else holds — the result of a call — and the
+	// charge may walk, so it stays a root until its elements are in out.
+	m := e.rs.rootMark()
+	e.rs.hold(v)
+	defer e.rs.rootReset(m)
 	if err := e.rs.allocCollection(len(out)+n, n); err != nil {
 		return out, err
 	}
