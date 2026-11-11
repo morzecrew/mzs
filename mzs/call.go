@@ -25,6 +25,10 @@ const definedName = "defined"
 type namedArg struct {
 	Name string
 	Val  Value
+	// Key is the dict key a `**` spread took Name from (RFC 0001), and nil for a name
+	// written at the call. It is kept so the key stays a root for the whole call: until
+	// checkNamed has matched it to a parameter, it may be any string the script built.
+	Key Value
 }
 
 // namedArgs is the named half of one call site's argument list. It is nil for every call
@@ -105,6 +109,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 	e.rs.hold(fn)
 	e.rs.pushVals(args)
 	for _, a := range named {
+		e.rs.hold(a.Key)
 		e.rs.hold(a.Val)
 	}
 	if err := e.rs.step(1); err != nil {
@@ -634,7 +639,7 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 	// size — the arity error it is heading for is reached in time proportional to the
 	// dict, not to its square.
 	seen := make(map[string]struct{}, len(named))
-	add := func(name string, v Value, pos token.Pos) error {
+	add := func(name string, key, v Value, pos token.Pos) error {
 		if _, dup := seen[name]; dup {
 			return e.at(argErrorf("argument '%s' is given twice, once through '**'; a spread never overrides", name), pos)
 		}
@@ -643,7 +648,7 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 			return err
 		}
 		seen[name] = struct{}{}
-		out = append(out, namedArg{Name: name, Val: v})
+		out = append(out, namedArg{Name: name, Val: v, Key: key})
 		return nil
 	}
 	for _, a := range named {
@@ -653,7 +658,7 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 		}
 		e.rs.hold(v)
 		if !a.Spread {
-			if err := add(a.Name, v, a.NamePos); err != nil {
+			if err := add(a.Name, Nil(), v, a.NamePos); err != nil {
 				return nil, nil, err
 			}
 			continue
@@ -678,12 +683,11 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 			}
 			// The key and the value are reachable through the dict only until a later
 			// argument replaces or deletes the entry; held, they stay roots for as long
-			// as the list is being built (§14.2). Past it, checkNamed matches every name
-			// against the callee's parameters before any of its code runs, so the names
-			// that live on are parameter names, which the source already bounds.
+			// as the list is being built (§14.2), and invoke holds both again for the
+			// whole call, through checkNamed and any default it runs.
 			e.rs.hold(k)
 			e.rs.hold(val)
-			bad = add(k.Str(), val, a.NamePos)
+			bad = add(k.Str(), k, val, a.NamePos)
 			return bad == nil
 		})
 		if bad != nil {
