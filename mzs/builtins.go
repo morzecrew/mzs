@@ -17,30 +17,23 @@ import (
 // `len` does not know how.
 //
 // Output goes to Options.Stdout through Ctx.Out, never to os.Stdout: a script running
-// inside a bot has no console, and the tests capture what it wrote.
+// inside a bot has no console, and the tests capture what it wrote. eprint and eprintln
+// are the same two rows writing to Options.Stderr: data on stdout, everything else on
+// stderr, which is the one rule a filter in a pipeline has (§12.1).
 
 func init() {
 	RegisterBuiltins(
 		Builtin{Name: "print", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
-			out := c.Out()
-			for _, a := range args {
-				if err := writeOut(c, out, a.Str()); err != nil {
-					return Nil(), err
-				}
-			}
-			return Nil(), nil
+			return Nil(), printArgs(c, c.Out(), args)
 		}},
 		Builtin{Name: "println", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
-			out := c.Out()
-			if len(args) == 0 {
-				return Nil(), writeOut(c, out, "\n")
-			}
-			for _, a := range args {
-				if err := printlnValue(c, out, a); err != nil {
-					return Nil(), err
-				}
-			}
-			return Nil(), nil
+			return Nil(), printlnArgs(c, c.Out(), args)
+		}},
+		Builtin{Name: "eprint", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
+			return Nil(), printArgs(c, c.rs.opts.errOut(), args)
+		}},
+		Builtin{Name: "eprintln", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
+			return Nil(), printlnArgs(c, c.rs.opts.errOut(), args)
 		}},
 		Builtin{Name: "debug", Max: -1, Fn: func(c *Ctx, args []Value) (Value, error) {
 			out := c.Out()
@@ -305,6 +298,31 @@ func writeOut(c *Ctx, w io.Writer, s string) error {
 	}
 	if _, err := io.WriteString(w, s); err != nil {
 		return c.ErrorfKind(ErrKindIO, "write failed: %s", err)
+	}
+	return nil
+}
+
+// printArgs is `print` and `eprint`: the `str` of each argument, no separator and no
+// newline, to w.
+func printArgs(c *Ctx, w io.Writer, args []Value) error {
+	for _, a := range args {
+		if err := writeOut(c, w, a.Str()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// printlnArgs is `println` and `eprintln`: no argument writes one newline, and each
+// argument is written by printlnValue.
+func printlnArgs(c *Ctx, w io.Writer, args []Value) error {
+	if len(args) == 0 {
+		return writeOut(c, w, "\n")
+	}
+	for _, a := range args {
+		if err := printlnValue(c, w, a); err != nil {
+			return err
+		}
 	}
 	return nil
 }

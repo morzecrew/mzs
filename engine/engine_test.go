@@ -325,6 +325,26 @@ func TestStdoutIsCaptured(t *testing.T) {
 	}
 }
 
+// TestStderrIsCaptured is TestStdoutIsCaptured for eprintln (RFC 0012): the bot gets
+// a script's notes only on the writer it set, and none at all by default.
+func TestStderrIsCaptured(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	eng := New(Options{Stdout: &out, Stderr: &errOut})
+	if _, err := eng.String(context.Background(), `eprintln("note"); "done"`, nil); err != nil {
+		t.Fatalf("String error: %v", err)
+	}
+	if errOut.String() != "note\n" || out.Len() != 0 {
+		t.Errorf("stderr = %q, stdout = %q; want %q and nothing", errOut.String(), out.String(), "note\n")
+	}
+
+	quiet := New(Options{})
+	if _, err := quiet.String(context.Background(), `eprintln("note"); "done"`, nil); err != nil {
+		t.Fatalf("String error: %v", err)
+	}
+}
+
 // TestCheckReportsWarnings covers the publish-time validator of §19.4: a literal
 // double backslash in a regex is the corpus's most common silent bug (§11.5).
 func TestCheckReportsWarnings(t *testing.T) {

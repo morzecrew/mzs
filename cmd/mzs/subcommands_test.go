@@ -521,3 +521,13 @@ func TestTestNoTrace(t *testing.T) {
 		t.Errorf("code = %d, stderr with --no-trace =\n%s", code, errOut)
 	}
 }
+
+// A case's stderr is passed through unchanged (RFC 0012).
+func TestTestPassesStderrThrough(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "e_test.mzs", "include test\ntest.case(\"notes\") { eprintln(\"a note\"); assert(true) }\n")
+	code, out, errOut := exec([]string{"test", dir}, "")
+	if code != exitOK || !strings.Contains(errOut, "a note\n") || strings.Contains(out, "a note") {
+		t.Errorf("code = %d\nstdout =\n%s\nstderr =\n%s", code, out, errOut)
+	}
+}

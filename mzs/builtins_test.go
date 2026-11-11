@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"bytes"
+	"context"
 	"math/rand"
 	"testing"
 	"time"
@@ -528,4 +529,52 @@ func TestBuiltinRoster(t *testing.T) {
 			}
 		})
 	}
+}
+
+// eprint and eprintln are print and println to Options.Stderr (§12.1, RFC 0012): the same
+// output, on the other stream, and nothing on the first one.
+func TestBuiltinErrorOutput(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		fn   string
+		args []Value
+		want string
+	}{
+		{"eprint has no separator and no newline", "eprint", []Value{Str("a"), Int(1)}, "a1"},
+		{"eprintln appends a newline per argument", "eprintln", []Value{Str("a"), Str("b")}, "a\nb\n"},
+		{"eprintln of an array prints one element per line", "eprintln", []Value{Array(Int(1), Int(2))}, "1\n2\n"},
+		{"eprintln with no arguments writes one newline", "eprintln", nil, "\n"},
+		{"eprintln of a Cyrillic value", "eprintln", []Value{Str("пропущено 3 строки")}, "пропущено 3 строки\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			opts := DefaultOptions()
+			opts.Stdout, opts.Stderr = &out, &errOut
+			c := stdCtx(opts)
+			got, err := stdBuiltin(t, c, tt.fn, tt.args...)
+			if err != nil || !got.IsNil() {
+				t.Fatalf("%s = %s, %v; want nil, nil", tt.fn, got.Inspect(), err)
+			}
+			if errOut.String() != tt.want || out.Len() != 0 {
+				t.Errorf("%s wrote stderr %q, stdout %q; want %q and nothing", tt.fn, errOut.String(), out.String(), tt.want)
+			}
+		})
+	}
+
+	// The zero Options discard it, as they discard warnings: silent and safe (D15).
+	t.Run("a nil Stderr discards", func(t *testing.T) {
+		if _, err := stdBuiltin(t, stdCtx(DefaultOptions()), "eprintln", Str("x")); err != nil {
+			t.Errorf("eprintln with no Stderr: %v", err)
+		}
+	})
+
+	// A method call reaches it by UFCS, like x.println (D18).
+	t.Run("ufcs", func(t *testing.T) {
+		var errOut bytes.Buffer
+		o := DefaultOptions()
+		o.Stderr = &errOut
+		if _, err := New(o).Eval(context.Background(), `"skipped".eprintln`, nil); err != nil || errOut.String() != "skipped\n" {
+			t.Errorf(`"skipped".eprintln wrote %q, %v`, errOut.String(), err)
+		}
+	})
 }

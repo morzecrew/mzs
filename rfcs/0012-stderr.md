@@ -1,6 +1,6 @@
 # RFC 0012 — `eprint` and `eprintln`: a second output stream
 
-**Status:** Draft · **Area:** stdlib · **Depends on:** — · **Audit:** S1
+**Status:** Landed (#21) · **Area:** stdlib · **Depends on:** — · **Audit:** S1
 
 ## Summary
 
@@ -65,3 +65,16 @@ Additive. Two new names; a local of the same spelling shadows them.
 
 `mzs/builtins.go` (two registrations sharing `print`'s body with a different writer),
 SPEC §12.1, `docs/stdlib/core.md`, `docs/cli/input.md` (the pipeline idiom), apidoc.
+
+## As landed
+
+SPEC §12.1 is the normative text.
+
+* **Open question — `debug` stays on stdout**, as proposed: moving it would break a program
+  that reads its own `debug` lines from stdout, for a convenience nobody asked for yet.
+* `print`/`eprint` and `println`/`eprintln` share one body each and differ only in the
+  writer, so the array and no-argument rules cannot drift between the two streams. A write
+  that fails is the same `io` error on either stream.
+* No new `Options` field and no gate: `Options.Stderr` already existed for warnings, and a
+  nil one discards (D15).
+

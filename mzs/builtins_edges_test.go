@@ -98,6 +98,7 @@ func TestOutputReportsAFailingWriter(t *testing.T) {
 	boom := errors.New("pipe closed")
 	opts := DefaultOptions()
 	opts.Stdout = failingWriter{boom}
+	opts.Stderr = failingWriter{boom}
 	c := stdCtx(opts)
 
 	for _, tt := range []struct {
@@ -108,6 +109,9 @@ func TestOutputReportsAFailingWriter(t *testing.T) {
 		{"println", []Value{Str("привет")}},
 		{"println", []Value{Array(Str("а"), Str("б"))}}, // an array prints one per line
 		{"println", nil}, // the bare newline
+		{"eprint", []Value{Str("привет")}},
+		{"eprintln", []Value{Str("привет")}},
+		{"eprintln", nil},
 		{"debug", []Value{Int(1)}},
 		{"input", []Value{Str("Имя: ")}}, // the prompt is output too, and may fail like any
 	} {

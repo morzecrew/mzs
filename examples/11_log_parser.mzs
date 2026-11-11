@@ -44,8 +44,14 @@ LINE = /^(?<ts>\S+) (?<level>\w+)\s+(?<svc>\w+)\s+(?<method>\w+)\s+(?<path>\S+)\
 
 # --- parse: a nil from `captures` is a line that is not ours ------------------
 
-parsed = log.lines.map { it.trim }.reject { it.blank }.map { (l) -> l.captures(LINE) }
+lines = log.lines.map { it.trim }.reject { it.blank }
+parsed = lines.map { (l) -> l.captures(LINE) }
 bad = parsed.count { it == nil }
+
+# The report is this program's output; the lines it could not read are a note about the
+# input, so they go to stderr — `mzs examples/11_log_parser.mzs 2>/dev/null` is the report
+# alone, ready for the next program in a pipe.
+lines.each_with_index { (l, i) -> if parsed[i] == nil { eprintln("skipping unparsable line: ${l.inspect}") } }
 rows = parsed.compact.map { (m) ->
   { time:   m["ts"].last(8),
     minute: m["ts"].last(8).first(5),

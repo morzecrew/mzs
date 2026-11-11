@@ -1450,6 +1450,16 @@
    "sem": "`len(x) == 0`",
    "ex": "`xs.empty`"
   },
+  "eprint": {
+   "sig": "`eprint(*args) -> nil`",
+   "sem": "`print`, to `Options.Stderr`; a nil `Stderr` discards",
+   "ex": "`eprint(\"…\")`"
+  },
+  "eprintln": {
+   "sig": "`eprintln(*args) -> nil`",
+   "sem": "`println`, to `Options.Stderr` — the same rules for arrays and for no argument; a nil `Stderr` discards",
+   "ex": "`eprintln(\"skipped ${n} rows\")`"
+  },
   "exit": {
    "sig": "`exit(code: int = 0) -> never`",
    "sem": "ends the Run with that status; not catchable, and never touches the process (§13.5)",
