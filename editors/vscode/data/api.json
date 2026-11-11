@@ -1530,6 +1530,16 @@
    "sem": "**only if `Options.Now` is set**",
    "ex": ""
   },
+  "parse_float": {
+   "sig": "`(s: string) -> float | nil`",
+   "sem": "the float the whole of `s` spells, or `nil`",
+   "ex": ""
+  },
+  "parse_int": {
+   "sig": "`(s: string, base: int = 10) -> int | nil`",
+   "sem": "the integer the whole of `s` spells, or `nil`",
+   "ex": ""
+  },
   "pipe": {
    "sig": "`pipe(x) { (v) -> … } -> any`",
    "sem": "runs the closure, returns **its** value",

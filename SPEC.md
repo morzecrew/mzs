@@ -2404,6 +2404,43 @@ Regex→`/src/flags`, Func→`#<fn name>`.
 String→leading optional sign + digits (underscores allowed, leading whitespace skipped),
 `""`→`0`, `"abc"`→`0`, `"12abc"`→`12`, `"0x1f"`→`0` (base 10 only).
 **Never raises** — this is what makes `$price.int + 1200` safe when `$price` is unset.
+To ask whether a string *is* a number, use `parse_int` or `parse_float` below: `int` is a
+conversion that always answers, they are a question that can answer `nil` (D17).
+
+**Strict parsing.**
+
+| Name | Signature | Semantics |
+|---|---|---|
+| `parse_int` | `(s: string, base: int = 10) -> int \| nil` | the integer the whole of `s` spells, or `nil` |
+| `parse_float` | `(s: string) -> float \| nil` | the float the whole of `s` spells, or `nil` |
+
+`parse_int` accepts surrounding whitespace (Unicode `White_Space`), an optional `+` or
+`-`, then one or more ASCII digits of `base`, letters in either case, with `_` allowed only
+*between* two digits: `"1_000"` is `1000`, while `"_1"`, `"1_"` and `"1__0"` are `nil`.
+`base` is 2–36, or `0`, where the prefix decides as in a literal (§3.6): `0x`, `0o`, `0b` in
+either case, else decimal, and the sign comes before the prefix (`"-0x1f"` is `-31`). An
+explicit base takes no prefix, so `"0x1f".parse_int(16)` is `nil`. A value outside `int64` is
+`nil`, not a Float: D9's promotion is for arithmetic, and a parse that lost digits would be
+the guess this row exists to refuse.
+
+`parse_float` accepts surrounding whitespace, an optional sign, then the decimal spelling of
+an int or float literal: digits with `_` between them, optionally `.` and more digits, and
+optionally an exponent `e`/`E`, a sign and digits with no separators. A digit is required on
+both sides of the `.` (`".5"` and `"1."` are `nil`, as they are not literals). The result is
+always a Float — `"12".parse_float` is `12.0`. Hex, `inf`, `nan` and a value past the range of
+`float64` are `nil`; a value too small to represent is `0.0`, as the literal is.
+
+Anything other than the whole string being such a number — trailing text, an empty string,
+a non-ASCII digit — is `nil`. The argument must be a String: `parse_int(nil)` is a `type`
+error, because a missing value is a bug in the caller, not a malformed number; `x?.parse_int`
+is the spelling for "x may be nil". A base that is not an Int is a `type` error, and one
+outside 0, 2–36 an `argument` error. Neither row ever raises on the *content* of the string.
+
+```
+port = $PORT?.parse_int ?? raise("PORT must be a number")
+n = s.parse_int ?? 0
+rows.filter { it[2].parse_float != nil }
+```
 
 `format` verbs: `%s %d %i %f %g %e %x %X %o %b %c %% %j` with the flags `- + 0 space #`,
 width, `.precision`, and `%<name>s`/`%{name}` when the single argument is a Dict. `%j` emits

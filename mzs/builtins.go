@@ -89,6 +89,39 @@ func init() {
 		Builtin{Name: "float", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
 			return Float(args[0].Float()), nil
 		}},
+		// The strict siblings of int and float (RFC 0008): a question with nil for "no",
+		// where int and float always answer. A non-string is a bug, not a missing number,
+		// so it raises; `x?.parse_int` is the spelling for "x may be nil".
+		Builtin{Name: "parse_int", Min: 1, Max: 2, Fn: func(c *Ctx, args []Value) (Value, error) {
+			s, err := argStr(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			base := int64(10)
+			if len(args) == 2 {
+				if args[1].Kind() != KInt {
+					return Nil(), c.TypeErrorf("parse_int: base must be an int, got %s", args[1].Kind())
+				}
+				base = args[1].n
+				if base != 0 && (base < 2 || base > 36) {
+					return Nil(), c.ArgErrorf("parse_int: invalid base %d (2–36, or 0 for a literal prefix)", base)
+				}
+			}
+			if n, ok := parseStrictInt(s, int(base)); ok {
+				return Int(n), nil
+			}
+			return Nil(), nil
+		}},
+		Builtin{Name: "parse_float", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
+			s, err := argStr(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			if x, ok := parseStrictFloat(s); ok {
+				return Float(x), nil
+			}
+			return Nil(), nil
+		}},
 		Builtin{Name: "bool", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
 			return Bool(args[0].Truthy()), nil
 		}},

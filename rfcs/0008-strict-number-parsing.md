@@ -1,6 +1,6 @@
 # RFC 0008 — `parse_int` and `parse_float`: a conversion that can say no
 
-**Status:** Draft · **Area:** stdlib · **Depends on:** — · **Audit:** L14
+**Status:** Landed (#22) · **Area:** stdlib · **Depends on:** — · **Audit:** L14
 
 ## Summary
 
@@ -87,3 +87,30 @@ Additive (§21.2): two new names. A local variable called `parse_int` shadows th
 
 `mzs/num.go` + `mzs/builtins.go` registration, `SPEC.md` §12.5/§12.7, `docs/stdlib`,
 `internal/apidoc` regeneration, corpus tests for each rejected spelling.
+
+## As landed
+
+SPEC §12.7 ("Strict parsing") is the normative text.
+
+* **Core rows, not string rows.** Both are registered beside `int` and `float` as
+  functions of any first argument (§12.1), so `5.parse_int` and `parse_int(nil)` are the
+  `type` error this RFC asks for. As §12.2 string rows they would have been
+  `name: undefined method 'parse_int' for int` — an error, but naming the wrong problem.
+  `x?.parse_int` still short-circuits on `nil`.
+* **Open question — underscores:** accepted, as proposed, but only *between* two digits:
+  `"1_000"` is `1000`; `"_1"`, `"1_"`, `"1__0"` and `"0x_1f"` (base 0) are `nil`. The lexer is
+  laxer than that (`1_` and `0x_1f` lex today); data is held to the stricter rule because a
+  stray `_` in a cell is more likely damage than a separator.
+* **Prefixes (`base = 0`)** are case-insensitive, as they are in literals (`0X1F` lexes), and
+  the sign comes before the prefix: `"-0x1f".parse_int(0)` is `-31`.
+* **A base that is not an Int** is a `type` error rather than truncated, so
+  `parse_int("1", 1.5)` does not silently mean base 1 and then fail as an `argument` error.
+* **`parse_float` reads decimal only.** "What a float or int literal accepts" is taken in its
+  decimal reading: `"0x1f".parse_float` is `nil`, like `"0x1p-2"`. It is the more
+  conservative answer: accepting hex later only turns a `nil` into a number, while
+  withdrawing a number once returned would break the programs that read it. A digit is required on both sides of a `.` (`".5"`, `"1."`
+  are `nil`), the exponent takes no separators, and a value too small for `float64` is `0.0`
+  as the literal `1e-400` is, while one too large is `nil` (the literal `1e400` does not lex).
+* **Whitespace** is Unicode `White_Space` on both sides (`strings.TrimSpace`), so a cell
+  ending in `\r\n` or padded with a no-break space parses. Digits are ASCII only: `"٣"` and
+  `"９"` are `nil`.

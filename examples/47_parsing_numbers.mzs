@@ -1,0 +1,83 @@
+# 47 — parse_int and parse_float: a conversion that can say no.
+#
+#   mzs examples/47_parsing_numbers.mzs
+#
+# `int` and `float` always have an answer, which is what makes `$price.int + 1200` safe
+# when `$price` is unset. It is also why they cannot validate anything: "abc", "" and
+# "12abc" all come out as a number. Every value from outside — a CSV cell, a query
+# parameter, a line a person typed — arrives as a string, so "is this a number?" is a
+# question a program has to ask. parse_int and parse_float ask it: the number, or nil
+# unless the *whole* string is one.
+
+fn show(label, v) { println("${label.ljust(40)}→ ${v.inspect}") }
+
+println("=== the same strings, two questions ===")
+println("")
+["42", " -7 ", "1_000", "12abc", "", "abc", "3.5", "0x1f"].each { (s) ->
+  println("${s.inspect.ljust(9)} int → ${s.int.inspect.ljust(5)} parse_int → ${s.parse_int.inspect}")
+}
+
+println("")
+println("=== what parse_int accepts ===")
+println("")
+show('"ff".parse_int(16)', "ff".parse_int(16))
+show('"-101".parse_int(2)', "-101".parse_int(2))
+show('"0x1f".parse_int(0)   (literal prefix)', "0x1f".parse_int(0))
+show('"0b1010".parse_int(0)', "0b1010".parse_int(0))
+show('"0x1f".parse_int(16)  (no prefix)', "0x1f".parse_int(16))
+show('"9223372036854775807".parse_int', "9223372036854775807".parse_int)
+show('"9223372036854775808".parse_int', "9223372036854775808".parse_int)
+
+println("")
+println("=== what parse_float accepts ===")
+println("")
+show('"2.5e3".parse_float', "2.5e3".parse_float)
+show('"12".parse_float', "12".parse_float)
+show('".5".parse_float', ".5".parse_float)
+show('"nan".parse_float', "nan".parse_float)
+show('"1e400".parse_float', "1e400".parse_float)
+
+# --- validating a form ---------------------------------------------------------------
+#
+# nil composes with what is already there: `??` gives a default, `?.` skips a missing
+# value, and a filter keeps what parsed. No regex in front of every conversion.
+
+println("")
+println("=== a form, validated ===")
+println("")
+
+form = {qty: "3", price: "19.90", page: "", discount: "ten"}
+
+errors = []
+fn need(v, why) {
+  if v == nil { errors.push(why) }
+  v
+}
+
+qty = need(form["qty"].parse_int, "qty must be a whole number")
+price = need(form["price"].parse_float, "price must be a number")
+page = form["page"].parse_int ?? 1                    # an empty field means the default
+discount = need(form["discount"].parse_float, "discount must be a number, got ${form["discount"].inspect}")
+coupon = form["coupon"]?.parse_int                      # absent → nil, not a type error
+
+show("qty", qty)
+show("price", price)
+show("page (empty → default)", page)
+show("coupon (absent)", coupon)
+errors.each { println("  invalid: ${it}") }
+
+# --- a column of mixed data ----------------------------------------------------------
+
+println("")
+println("=== a CSV column with junk in it ===")
+println("")
+
+cells = ["12.5", "n/a", "7", "", "3,5", "-1.25"]
+good = cells.filter { it.parse_float != nil }
+show("cells that are numbers", good)
+show("their sum", good.sum { it.parse_float })
+show("with float, \"n/a\" is 0 and \"3,5\" is 3", cells.map { it.float }.sum)
+
+# A missing value is not a malformed number: parse_int(nil) is a bug in the caller.
+println("")
+show("try parse_int(nil)", try parse_int(nil) else (e) { "${e["kind"]}: ${e["message"]}" })

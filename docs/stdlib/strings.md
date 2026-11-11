@@ -179,6 +179,8 @@ per emoji.
 |---|---|---|---|
 | `int` | `-> int` | leading base-10 digits, never raises | `"12abc".int` → `12` |
 | `float` | `-> float` | leading number, never raises | `"3.7kg".float` → `3.7` |
+| `parse_int` | `(base = 10) -> int \| nil` | the whole string, or `nil` (core, §12.7) | `"12abc".parse_int` → `nil` |
+| `parse_float` | `-> float \| nil` | the whole string, or `nil` (core, §12.7) | `"1e3".parse_float` → `1000.0` |
 | `str` | `-> string` | itself | `"a".str` → `a` |
 | `json` | `-> string` | JSON-quoted | `"a\"b".json` → `"a\"b"` |
 | `ord` | `-> int` | code point of the first rune | `"Я".ord` → `1071` |
