@@ -19,6 +19,15 @@ and the release is still ahead of it.
 
 ### Added
 
+- **A memory budget.** `Options.MaxMemory` bounds the bytes one Run holds *live* in script
+  values (default 64 MiB; negative disables), which the per-operation caps could not: an
+  array of a thousand 1 MB strings broke neither and ran until the clock stopped it with
+  the process at 1.5 GB. Exceeding it is `ErrMemory`, `Kind == "limit"`, uncatchable, exit
+  code 3. It is enforced by accounting and a reachability walk over the Run's own values —
+  deterministic, per Run, never the Go runtime's opinion — so a loop that allocates and
+  drops runs forever under it and a live set that grows ends. `Result.PeakMemory` reports
+  the most a walk found live; the CLI gains `--mem <size>` (`64m`, `1g`; `0` disables) on
+  `mzs` and `mzs test`, and `--stats` prints the peak (SPEC §14.2; RFC 0011).
 - **A search path for libraries.** `include money from "money"` — a path with neither `./`
   nor `../` — is a *library name*, looked for on `$MZSPATH` (the `~/.mzs/lib` default when it
   is unset), in either of two layouts: `money.mzs`, or `money/main.mzs` for a library that
@@ -36,6 +45,12 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **The zero `Options` now bounds memory** — a deliberate break (SPEC §21.4). A program
+  that legitimately holds more than 64 MiB of live values under default options now ends
+  with `limit: memory budget exceeded`. Restore the old behaviour with `MaxMemory: -1`
+  (`mzs --mem 0`), or raise the bound to what `Result.PeakMemory` reports. A Run that
+  never comes near the budget pays only the bookkeeping of its roots — no allocation and
+  no walk (SPEC §14.2, §14.4).
 - **A function you can see wins in method position too** — a deliberate break (SPEC §21.4).
   `x.f(y)` now tries a binding named `f` that holds a function (a `fn`, a closure, a
   parameter), then a host function installed with `Register`, and only then the stdlib

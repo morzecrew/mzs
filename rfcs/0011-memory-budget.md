@@ -1,6 +1,6 @@
 # RFC 0011 — An aggregate memory budget
 
-**Status:** Draft · **Area:** embedding, sandbox · **Depends on:** — · **Audit:** §3.1
+**Status:** Landed (#19), except `mzs.Opaque` · **Area:** embedding, sandbox · **Depends on:** — · **Audit:** §3.1
 
 ## Summary
 
@@ -159,3 +159,50 @@ the old behaviour (`--mem 0`, `MaxMemory: -1`). The CLI may reasonably default h
 `mzs/options.go`, `cmd/mzs/main.go` (`--mem`, `--stats`), SPEC §14.2, README limits table,
 `docs/reference/sandbox.md`. A regression test with the program above, and a benchmark
 proving the A4 numbers do not move when the budget is never approached.
+
+## As landed
+
+SPEC §14.2 is now the normative text; this section records where the implementation
+departs from the design above, and why.
+
+* **Charging is a step allowance plus exact charges, not a charge at every allocation
+  site.** Every interpreter step is charged 64 bytes, folded in at the §14.1 sampling
+  interval. The stdlib already charges steps in proportion to its work — an element per
+  step, 64 bytes of string per step — so the allowance tracks allocation without a hook in
+  every row, and a row added later cannot forget to charge. The operations that build a lot
+  in a single step are charged their exact size before they allocate: `+` and `*` on strings
+  and arrays, `push`, `concat`, `insert`, `unshift`, a range made into an array, writing past
+  an array's end, interpolation, `replace`, padding, `json`, `seq.array`. Over-charging is
+  safe by construction: the walk replaces the total with what is live.
+* **Frames are not charged on entry.** They are found by the walk instead. Making that
+  sound needed an explicit root set, since a Go-level tree-walker keeps much of its state
+  in Go variables: every `execStmts` roots its scope (and through `parent` every scope it
+  can see), every call roots its arguments, and the evaluator and the stdlib rows that call
+  back into the script hold what they are building — an array or dict literal, the left
+  operand of a binary, a method's receiver, a `for` iterable, a `match` subject, the value
+  an `ensure` will return, the output of `map`, `group_by`, a dict's `map`, `seq.array` and
+  a `seq.reduce` accumulator. Every live task's roots are walked too. A seq records the
+  values its cursors read from (`Seq.refs`), because a Go closure cannot be looked inside.
+* **The host baseline is measured by the first walk**, not at the start of the Run, and the
+  root stacks come from a pool, so a Run that never approaches the budget allocates
+  nothing for it. Measured with `BenchmarkMemoryBudget` (the A4 shape,
+  `$s.lower.trim == "оператор"`): the allocation count is unchanged and the time grows by
+  roughly 100–250 ns per Run — the bookkeeping of the roots — against SPEC §14.4's 5 µs
+  target and A4's 20 µs median.
+* **The diagnostic names both numbers**: `memory budget exceeded (64.85 MiB live, the limit
+  is 64 MiB)`. The sentinel is `ErrMemory`; exit code 3.
+* **Cuts copy**, as designed: `split`, `lines`, `trim*`, `chomp`, `chop` and the texts of
+  `captures` and `matches` return a copy unless the piece is the whole source. The other
+  cutting rows already built a new string from runes.
+* **The CLI default is the library's** (64 MiB), so a script behaves the same under `mzs`
+  and in a host that passed zero `Options`.
+
+### Not landed
+
+* `mzs.Opaque`. A host binding a graph far larger than the budget pays for walking it at
+  every walk; the wrapper that would make such a value a leaf needs a representation that
+  every accessor of `Value` sees through, and is left for a follow-up.
+* The two open questions stand: a per-request budget under `http.serve`, and values a
+  registered Go function retains (documented as the host's, in
+  `docs/reference/sandbox.md`).
+

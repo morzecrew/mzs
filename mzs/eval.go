@@ -82,14 +82,20 @@ func (e ev) hoist(stmts []ast.Stmt) {
 // execStmts runs a statement list in the current scope and yields the value of the
 // last one (D4).
 func (e ev) execStmts(stmts []ast.Stmt) (Value, error) {
+	// The scope is a root for as long as its statements run (§14.2): its parents are
+	// reached through it, and a caller's scope is rooted by the caller's own execStmts.
+	m := e.rs.rootMark()
+	e.rs.pushEnv(e.env)
 	last := Nil()
 	for _, s := range stmts {
 		v, err := e.execStmt(s)
 		if err != nil {
+			e.rs.rootReset(m)
 			return Nil(), err
 		}
 		last = v
 	}
+	e.rs.rootReset(m)
 	return last, nil
 }
 
@@ -277,6 +283,9 @@ func (e ev) evalStr(n *ast.StrLit) (Value, error) {
 			return Nil(), err
 		}
 	}
+	if err := e.rs.charge(int64(len(sb))); err != nil {
+		return Nil(), err
+	}
 	return Str(string(sb)), nil
 }
 
@@ -299,6 +308,9 @@ func (e ev) evalArray(n *ast.ArrayLit) (Value, error) {
 		return Nil(), err
 	}
 	out := make([]Value, len(n.Elems))
+	m := e.rs.rootMark()
+	e.rs.pushVals(out)
+	defer e.rs.rootReset(m)
 	for i, el := range n.Elems {
 		v, err := e.eval(el)
 		if err != nil {
@@ -313,6 +325,9 @@ func (e ev) evalArray(n *ast.ArrayLit) (Value, error) {
 // serialises in (D11).
 func (e ev) evalDict(n *ast.DictLit) (Value, error) {
 	d := NewOrderedDictCap(len(n.Keys))
+	m := e.rs.rootMark()
+	e.rs.hold(dictOf(d))
+	defer e.rs.rootReset(m)
 	for i := range n.Keys {
 		k, err := e.eval(n.Keys[i])
 		if err != nil {
@@ -352,7 +367,10 @@ func (e ev) evalBinary(n *ast.BinaryExpr) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
+	m := e.rs.rootMark()
+	e.rs.hold(l)
 	r, err := e.eval(n.R)
+	e.rs.rootReset(m)
 	if err != nil {
 		return Nil(), err
 	}
@@ -461,12 +479,17 @@ func (e ev) evalFor(n *ast.ForExpr) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
+	// The iterable and the list of items are roots for the whole loop (§14.2): the loop
+	// may be the only thing that still holds them.
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.hold(it)
 	var items []Value
 	switch it.Kind() {
 	case KArray:
 		items = it.Elems()
 	case KRange:
-		if err := e.rs.checkCollection(it.Len()); err != nil {
+		if err := e.rs.allocCollection(it.Len(), it.Len()); err != nil {
 			return Nil(), err
 		}
 		items = it.Elems()
@@ -484,6 +507,7 @@ func (e ev) evalFor(n *ast.ForExpr) (Value, error) {
 	default:
 		return Nil(), e.at(typeErrorf("cannot iterate over %s", it.Kind()), n.Kw)
 	}
+	e.rs.pushVals(items)
 	size := n.Body.FrameSize
 	if size < 2 {
 		size = 2
@@ -606,6 +630,9 @@ func (e ev) evalMatch(n *ast.MatchExpr) (Value, error) {
 		}
 		subject = v
 	}
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.hold(subject)
 	for i := range n.Arms {
 		arm := &n.Arms[i]
 		env, ok, err := e.armFires(arm, subject, n.Subject != nil)
@@ -776,8 +803,13 @@ func (e ev) evalTry(n *ast.TryExpr) (Value, error) {
 	}
 	if n.Ensure != nil && ensureRuns(err) {
 		// The ensure's own failure replaces what was pending: swallowing it would hide
-		// a broken release, and there is nowhere else for it to go.
-		if _, eerr := e.execBlock(n.Ensure); eerr != nil {
+		// a broken release, and there is nowhere else for it to go. The value it will
+		// hand back is a root while it runs (§14.2).
+		m := e.rs.rootMark()
+		e.rs.hold(v)
+		_, eerr := e.execBlock(n.Ensure)
+		e.rs.rootReset(m)
+		if eerr != nil {
 			return Nil(), eerr
 		}
 	}
@@ -795,7 +827,11 @@ func (e ev) evalFallback(n *ast.TryExpr, x *Error) (Value, error) {
 	}
 	env := newEnv(e.env, 1)
 	env.Define(n.Var, x.ErrorValue())
-	return e.in(env).eval(n.Fallback)
+	m := e.rs.rootMark()
+	e.rs.pushEnv(env)
+	v, err := e.in(env).eval(n.Fallback)
+	e.rs.rootReset(m)
+	return v, err
 }
 
 // ensureRuns reports whether an `ensure` block runs while err is unwinding. A control
@@ -995,7 +1031,7 @@ func (e ev) setIndex(recv, idx, v Value, pos token.Pos) error {
 		if !idx.IsNum() {
 			return e.at(typeErrorf("array index must be an int, got %s", idx.Kind()), pos)
 		}
-		if err := e.rs.checkCollection(int(idx.Int()) + 1); err != nil {
+		if err := e.rs.allocCollection(int(idx.Int())+1, int(idx.Int())+1-recv.Len()); err != nil {
 			return err
 		}
 		if err := recv.setIndex(int(idx.Int()), v); err != nil {
@@ -1134,7 +1170,7 @@ func (e ev) spread(v Value) ([]Value, bool, error) {
 	switch v.Kind() {
 	case KArray:
 	case KRange:
-		if err := e.rs.checkCollection(v.Len()); err != nil {
+		if err := e.rs.allocCollection(v.Len(), v.Len()); err != nil {
 			return nil, false, err
 		}
 	default:
@@ -1228,7 +1264,7 @@ func (e ev) slice(recv Value, start, count int) (Value, error) {
 		rs := []rune(recv.Str())
 		return Str(string(rs[start:end])), nil
 	}
-	if err := e.rs.checkCollection(end - start); err != nil {
+	if err := e.rs.allocCollection(end-start, end-start); err != nil {
 		return Nil(), err
 	}
 	xs := recv.Elems()

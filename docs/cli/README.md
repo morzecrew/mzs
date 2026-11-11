@@ -31,10 +31,11 @@ page of their own: [tools.md](./tools.md). Everything below is the `mzs` command
 | `--vars-file <path>` | the same, read from a file |
 | `-t, --timeout <d>` | wall clock per run (default `1s`; `0` disables) |
 | `--steps <n>` | step budget (default `5000000`; `0` disables) |
+| `--mem <size>` | live memory budget: `64m`, `1g`, `512k` or bytes (default `64m`; `0` disables) |
 | `--tasks <n>` | tasks running at once, for `async fn` (default `64`; `0` forbids them) |
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()`; pass a seed for reproducibility |
-| `--stats` | print step count and elapsed time to stderr |
+| `--stats` | print steps, elapsed time and peak live memory to stderr |
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
 | `--check` | compile only; report errors and warnings |
@@ -93,7 +94,7 @@ mzs --json -e '(1..3).seq.array'      # [1,2,3]
 | 0 | success (or a truthy value under `--bool`) |
 | 1 | compile or run-time error, `--check` failure, or a falsy value under `--bool` |
 | 2 | bad command line: unknown flag, missing value, unreadable file |
-| 3 | timeout, step budget, call depth, or a forbidden task |
+| 3 | timeout, step budget, memory budget, call depth, or a forbidden task |
 
 3 is separate from 1 so a supervisor can retry a run that ran away and never one that is
 simply wrong.

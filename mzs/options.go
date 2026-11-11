@@ -76,6 +76,11 @@ type Options struct {
 	MaxCollection int
 	// MaxStringBytes bounds the size of any single produced string.
 	MaxStringBytes int
+	// MaxMemory bounds the bytes a Run may hold live in script values at once (§14.2).
+	// It is enforced by accounting and a reachability walk over the Run's own values,
+	// never by asking the Go runtime, so the same program fails at the same point on
+	// every run. 0 uses DefaultMaxMemory; a negative value disables the budget.
+	MaxMemory int64
 	// RegexSteps is the backtracking budget per match attempt.
 	RegexSteps int
 	// RegexCacheSize bounds the runtime regex compile cache, shared per *Interp.
@@ -131,6 +136,7 @@ func DefaultOptions() Options {
 		MaxTasks:       DefaultMaxTasks,
 		MaxCollection:  DefaultMaxCollection,
 		MaxStringBytes: DefaultMaxStringBytes,
+		MaxMemory:      DefaultMaxMemory,
 		RegexSteps:     DefaultRegexSteps,
 		RegexCacheSize: DefaultRegexCacheSize,
 		ProgramCache:   DefaultProgramCache,
@@ -159,6 +165,11 @@ func (o Options) normalize() Options {
 	}
 	if o.MaxStringBytes <= 0 {
 		o.MaxStringBytes = DefaultMaxStringBytes
+	}
+	if o.MaxMemory == 0 {
+		o.MaxMemory = DefaultMaxMemory
+	} else if o.MaxMemory < 0 {
+		o.MaxMemory = 0
 	}
 	if o.RegexSteps <= 0 {
 		o.RegexSteps = DefaultRegexSteps

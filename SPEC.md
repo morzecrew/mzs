@@ -3185,6 +3185,7 @@ type Options struct {
     MaxTasks        int           // tasks of one Run unfinished at once (§8.14). Default 64. -1 forbids them.
     MaxCollection   int           // max elements materialised by one operation. Default 1_000_000.
     MaxStringBytes  int           // max size of a single produced string. Default 8 << 20.
+    MaxMemory       int64         // bytes held live in script values at once (§14.2). Default 64 << 20; <0 disables.
     RegexSteps      int           // backtracking budget per match. Default 200_000.
     RegexCacheSize  int           // Default 256.
     ProgramCache    int           // compiled-source LRU for Eval(). Default 512. 0 disables.
@@ -3264,6 +3265,7 @@ type Result struct {
     Steps   int64
     Elapsed time.Duration
     Tests   []TestCase       // one per `test.case`, in the order they ran (§12.18); empty otherwise
+    PeakMemory int64         // the most any memory walk found live, in bytes (§14.2); 0 when none ran
 }
 
 type TestCase struct {
@@ -3522,6 +3524,49 @@ right tool for it, and nothing is evaded by catching it — the reader stops at 
 either way and the bytes are never buffered.
 
 Recursion is bounded by `MaxDepth`; the Go stack is never allowed to overflow.
+
+**The live set is bounded too.** `MaxMemory` (default 64 MiB; negative disables) bounds the
+bytes a Run holds *live* in script values at once, which is what the two per-operation caps
+cannot: a million 1 MB strings in one array break neither of them. Exceeding it ends the Run
+with `ErrMemory`, `Kind == "limit"` — not catchable, and no `ensure` runs (§8.11):
+
+```
+-e:2:24: limit: memory budget exceeded (64.85 MiB live, the limit is 64 MiB)
+```
+
+The bound is enforced by **accounting**, never by asking the Go runtime, so it is the same on
+every run of the same program (D15) and it is one Run's, not the process's:
+
+1. **Charging** is pessimistic and cheap. Every step is charged a fixed allowance (64 bytes),
+   because the stdlib already charges steps in proportion to its work (§14.1) and the work
+   is what allocates. The operations that build something large in one go — `+` and `*` on
+   strings and arrays, `push`, `concat`, `insert`, `unshift`, a range made into an array,
+   interpolation, `replace`, padding, `json` encoding, writing past an array's end — are
+   charged their exact size before they allocate.
+2. **Release** is a reachability walk. When the charged total crosses a threshold, the Run
+   sums what it can actually reach — the globals, the loaded modules, every executing scope
+   (and so every closure's captured scope), the arguments of every call in progress, the
+   values the evaluator and the stdlib hold while they call back into the script, and the
+   same for every live task — and the total becomes that sum. A program that allocates and
+   drops therefore runs forever under the budget; a program whose live set grows ends.
+3. The walk runs with **slack**: after a walk that finds `L` live bytes, the next one waits
+   until another `max(MaxMemory − L, MaxMemory / 8)` has been charged, so the live set may
+   overshoot the budget by up to an eighth before the walk that ends the Run, and every walk
+   is paid for by at least `MaxMemory / 8` charged bytes. A single charge that crosses the
+   threshold walks *first*, so one allocation larger than what is left is refused without
+   being made.
+
+What a value weighs is an **estimate**, never less than its payload: a string its bytes; an
+array its capacity × the size of a `Value` (48 bytes on a 64-bit host); a dict its keys and
+values plus an index entry each; a scope its slots and names; a regex 64 bytes per byte of
+pattern; a function, a task, a seq, a time and a range a fixed size plus what they reference.
+Each object is counted once however many values share it, so a cycle (`d["self"] = d`) is
+walked once. The values the host bound — `Interp` globals and the map passed to `Run` — are
+reached but not charged: the first walk measures them as the Run's baseline. Go allocator
+overhead and garbage the Go collector has not reclaimed yet are outside the estimate, so the
+process's resident size can be a small multiple of `MaxMemory`; what the budget turns into a
+bound is "unbounded". `Result.PeakMemory` is the most any walk found live (0 when none ran),
+which is what a host reads to size the budget, and `mzs --stats` prints it.
 
 ### 14.3 Sandbox
 

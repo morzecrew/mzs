@@ -175,6 +175,22 @@ func (c *Ctx) CheckCollection(n int) error { return c.rs.checkCollection(n) }
 // Options.MaxStringBytes.
 func (c *Ctx) CheckString(n int) error { return c.rs.checkString(n) }
 
+// allocString and allocCollection are CheckString and CheckCollection for an operation
+// that is about to build that much in one go: they also charge it to the memory budget
+// (§14.2). allocCollection checks the total the collection will have and charges the
+// elements being added.
+// The holds below are how a stdlib row tells the memory walk about a result it is
+// building in Go while it calls back into the script (§14.2): mark, hold, and release to
+// the mark when the row returns.
+func (c *Ctx) rootMark() memMark      { return c.rs.rootMark() }
+func (c *Ctx) release(m memMark)      { c.rs.rootReset(m) }
+func (c *Ctx) holdVals(vs []Value)    { c.rs.pushVals(vs) }
+func (c *Ctx) holdGrowing(p *[]Value) { c.rs.holdGrowing(p) }
+func (c *Ctx) hold(v Value)           { c.rs.hold(v) }
+
+func (c *Ctx) allocString(n int) error                { return c.rs.allocString(n) }
+func (c *Ctx) allocCollection(total, added int) error { return c.rs.allocCollection(total, added) }
+
 // ---------------------------------------------------------------------------
 // Capabilities and diagnostics
 // ---------------------------------------------------------------------------

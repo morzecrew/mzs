@@ -417,7 +417,7 @@ func arrRangeSlice(c *Ctx, r *Range, from, n int) (Value, error) {
 	if n < 0 {
 		n = 0
 	}
-	if err := arrGrow(c, n); err != nil {
+	if err := c.allocCollection(n, n); err != nil {
 		return Nil(), err
 	}
 	if err := c.Step(int64(n)); err != nil {
@@ -621,6 +621,9 @@ func arrMap(c *Ctx, recv Value, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	out := make([]Value, len(xs))
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdVals(out)
 	for i, x := range xs {
 		r, err := c.CallClosure(x)
 		if err != nil {
@@ -1094,6 +1097,9 @@ func arrGroupBy(c *Ctx, recv Value, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	d := NewOrderedDict()
+	m := c.rootMark()
+	defer c.release(m)
+	c.hold(dictOf(d))
 	for _, x := range xs {
 		k, err := c.CallClosure(x)
 		if err != nil {
@@ -1637,7 +1643,7 @@ func arrPush(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	if err := arrGrow(c, len(*p)+len(args)); err != nil {
+	if err := c.allocCollection(len(*p)+len(args), len(args)); err != nil {
 		return Nil(), err
 	}
 	*p = append(*p, args...)
@@ -1675,7 +1681,7 @@ func arrUnshift(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	if err := arrGrow(c, len(*p)+len(args)); err != nil {
+	if err := c.allocCollection(len(*p)+len(args), len(*p)+len(args)); err != nil {
 		return Nil(), err
 	}
 	next := make([]Value, 0, len(*p)+len(args))
@@ -1699,7 +1705,7 @@ func arrInsert(c *Ctx, recv Value, args []Value) (Value, error) {
 		return Nil(), c.ErrorfKind(ErrKindIndex, "index %d is out of range", args[0].Int())
 	}
 	rest := args[1:]
-	if err := arrGrow(c, len(xs)+len(rest)); err != nil {
+	if err := c.allocCollection(len(xs)+len(rest), len(xs)+len(rest)); err != nil {
 		return Nil(), err
 	}
 	next := make([]Value, 0, len(xs)+len(rest))
@@ -1758,7 +1764,7 @@ func arrConcat(c *Ctx, recv Value, args []Value) (Value, error) {
 		if err != nil {
 			return Nil(), err
 		}
-		if err := arrGrow(c, len(*p)+len(ys)); err != nil {
+		if err := c.allocCollection(len(*p)+len(ys), len(ys)); err != nil {
 			return Nil(), err
 		}
 		*p = append(*p, ys...)

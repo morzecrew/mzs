@@ -128,7 +128,7 @@ func pad(text string, col int) string {
 // can retry the second and never the first.
 func codeFor(err error) int {
 	switch {
-	case errors.Is(err, mzs.ErrTimeout), errors.Is(err, mzs.ErrBudget),
+	case errors.Is(err, mzs.ErrTimeout), errors.Is(err, mzs.ErrBudget), errors.Is(err, mzs.ErrMemory),
 		errors.Is(err, mzs.ErrDepth), errors.Is(err, mzs.ErrCanceled):
 		return exitLimit
 	}

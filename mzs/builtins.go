@@ -371,7 +371,7 @@ func toArray(c *Ctx, v Value) (Value, error) {
 	case KArray:
 		return v, nil
 	case KRange:
-		if err := c.CheckCollection(v.Len()); err != nil {
+		if err := c.allocCollection(v.Len(), v.Len()); err != nil {
 			return Nil(), err
 		}
 		return arrayOf(v.Elems()), nil
@@ -421,7 +421,7 @@ func argElems(c *Ctx, v Value) ([]Value, error) {
 	case KArray:
 		return v.Elems(), nil
 	case KRange:
-		if err := c.CheckCollection(v.Len()); err != nil {
+		if err := c.allocCollection(v.Len(), v.Len()); err != nil {
 			return nil, err
 		}
 		return v.Elems(), nil
@@ -519,7 +519,7 @@ func rangeBuiltin(c *Ctx, args []Value) (Value, error) {
 	} else if step < 0 && hi < lo {
 		n = (lo - hi - step - 1) / (-step)
 	}
-	if err := c.CheckCollection(int(min(n, int64(1)<<31))); err != nil {
+	if err := c.allocCollection(int(min(n, int64(1)<<31)), int(min(n, int64(1)<<31))); err != nil {
 		return Nil(), err
 	}
 	out := make([]Value, 0, n)

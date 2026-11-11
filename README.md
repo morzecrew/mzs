@@ -189,6 +189,7 @@ run time. Every run is bounded:
 | `MaxTasks` | 64 | concurrent `async fn` tasks |
 | `MaxCollection` | 1,000,000 | elements materialised by one operation |
 | `MaxStringBytes` | 8 MiB | one constructed string |
+| `MaxMemory` | 64 MiB | bytes held live in script values at once |
 | `RegexSteps` | 200,000 | backtracking budget per match |
 
 The checks sit inside the node-walking loop, so `while true { }` is interrupted mid-iteration, and

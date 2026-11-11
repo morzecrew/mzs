@@ -65,7 +65,7 @@ func (e ev) add(a, b Value) (Value, error) {
 			return Nil(), typeErrorf("cannot add %s to array", b.Kind())
 		}
 		xs, ys := a.Elems(), b.Elems()
-		if err := e.rs.checkCollection(len(xs) + len(ys)); err != nil {
+		if err := e.rs.allocCollection(len(xs)+len(ys), len(xs)+len(ys)); err != nil {
 			return Nil(), err
 		}
 		out := make([]Value, 0, len(xs)+len(ys))
@@ -140,7 +140,7 @@ func (e ev) mul(a, b Value) (Value, error) {
 		if n <= 0 {
 			return Str(""), nil
 		}
-		if err := e.rs.checkString(len(a.Str()) * n); err != nil {
+		if err := e.rs.allocString(len(a.Str()) * n); err != nil {
 			return Nil(), err
 		}
 		return Str(strings.Repeat(a.Str(), n)), nil
@@ -153,7 +153,7 @@ func (e ev) mul(a, b Value) (Value, error) {
 		if n <= 0 {
 			return Array(), nil
 		}
-		if err := e.rs.checkCollection(len(xs) * n); err != nil {
+		if err := e.rs.allocCollection(len(xs)*n, len(xs)*n); err != nil {
 			return Nil(), err
 		}
 		out := make([]Value, 0, len(xs)*n)
@@ -255,7 +255,7 @@ func (e ev) pow(a, b Value) (Value, error) {
 // concat is the one place strings grow, so it is the one place the §14.2 cap is
 // charged.
 func (e ev) concat(a, b string) (Value, error) {
-	if err := e.rs.checkString(len(a) + len(b)); err != nil {
+	if err := e.rs.allocString(len(a) + len(b)); err != nil {
 		return Nil(), err
 	}
 	return Str(a + b), nil

@@ -97,6 +97,15 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 	if f == nil {
 		return Nil(), e.at(typeErrorf("not a function: nil"), pos)
 	}
+	// The arguments are roots for the whole call (§14.2): a host function holds them in
+	// Go only, and a script function's defaults run before its frame is the scope.
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.hold(fn)
+	e.rs.pushVals(args)
+	for _, a := range named {
+		e.rs.hold(a.Val)
+	}
 	if err := e.rs.step(1); err != nil {
 		return Nil(), err
 	}
@@ -454,16 +463,21 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 	if err := b.CheckArity(len(args)); err != nil {
 		return Nil(), e.at(err, pos)
 	}
+	m := e.rs.rootMark()
+	e.rs.pushVals(args)
 	if err := e.rs.step(1); err != nil {
+		e.rs.rootReset(m)
 		return Nil(), err
 	}
 	if err := e.rs.enter(b.Name, pos.Line, pos.Col); err != nil {
+		e.rs.rootReset(m)
 		return Nil(), e.at(err, pos)
 	}
 	restore := e.enterCall(b.Name, pos, args)
 	v, err := b.Fn(e.cx, args)
 	restore()
 	e.rs.leave()
+	e.rs.rootReset(m)
 	if bv, ok := isBreak(err); ok {
 		return bv, nil
 	}
@@ -515,13 +529,18 @@ func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs
 	if len(exprs) == 0 && len(named) == 0 {
 		return nil, nil, nil
 	}
-	args := make([]Value, 0, len(exprs))
-	for _, a := range exprs {
+	// The arguments already evaluated are roots while the rest are (§14.2): the slice
+	// is filled in place, so the one root sees each value as it lands.
+	args := make([]Value, len(exprs))
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.pushVals(args)
+	for i, a := range exprs {
 		v, err := e.eval(a)
 		if err != nil {
 			return nil, nil, err
 		}
-		args = append(args, v)
+		args[i] = v
 	}
 	if len(named) == 0 {
 		return args, nil, nil
@@ -537,6 +556,7 @@ func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs
 		if err != nil {
 			return nil, nil, err
 		}
+		e.rs.hold(v)
 		out = append(out, namedArg{Name: a.Name, Val: v})
 	}
 	return args, out, nil
@@ -560,9 +580,16 @@ func (e ev) evalMethodCall(n *ast.MethodCall) (Value, error) {
 	if n.Safe && recv.IsNil() {
 		return Nil(), errNilChain
 	}
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	e.rs.hold(recv)
 	args, named, err := e.evalArgs(n.Args, n.Named)
 	if err != nil {
 		return Nil(), err
+	}
+	e.rs.pushVals(args)
+	for _, a := range named {
+		e.rs.hold(a.Val)
 	}
 	// A module is reached with `.` like anything else (§12.8), and the compile pass has
 	// already decided that this receiver names one. An ordinary dict never dispatches
@@ -683,16 +710,22 @@ func (e ev) invokeMethod(m Method, name string, recv Value, args []Value, pos to
 	if err := m.CheckArity(len(args)); err != nil {
 		return Nil(), err
 	}
+	mark := e.rs.rootMark()
+	e.rs.hold(recv)
+	e.rs.pushVals(args)
 	if err := e.rs.step(1); err != nil {
+		e.rs.rootReset(mark)
 		return Nil(), err
 	}
 	if err := e.rs.enter(name, pos.Line, pos.Col); err != nil {
+		e.rs.rootReset(mark)
 		return Nil(), err
 	}
 	restore := e.enterCall(name, pos, args)
 	v, err := m.Fn(e.cx, recv, args)
 	restore()
 	e.rs.leave()
+	e.rs.rootReset(mark)
 	if bv, ok := isBreak(err); ok {
 		return bv, nil
 	}

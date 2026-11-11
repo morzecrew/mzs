@@ -99,7 +99,7 @@ func jsonvText(c *Ctx, v Value, indent string) (string, error) {
 		return "", err
 	}
 	s := encodeJSON(v, indent)
-	if err := c.CheckString(len(s)); err != nil {
+	if err := c.allocString(len(s)); err != nil {
 		return "", err
 	}
 	return s, nil

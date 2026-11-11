@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -58,6 +59,8 @@ type config struct {
 	timeoutSet bool
 	steps      int64
 	stepsSet   bool
+	mem        int64
+	memSet     bool
 	tasks      int
 	tasksSet   bool
 
@@ -180,7 +183,8 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	ctx := context.Background()
 	res, err := in.RunResult(ctx, prog, cfg.vars)
 	if cfg.stats {
-		fmt.Fprintf(stderr, "mzs: %d steps in %s\n", res.Steps, res.Elapsed.Round(time.Microsecond))
+		fmt.Fprintf(stderr, "mzs: %d steps in %s%s\n", res.Steps, res.Elapsed.Round(time.Microsecond),
+			peakNote(res.PeakMemory))
 	}
 	if code, ok := mzs.ExitCode(err); ok {
 		// `exit(n)` is the program choosing its own status, not a failure: nothing is
@@ -287,12 +291,14 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 	var (
 		lines   int
 		steps   int64
+		peak    int64
 		elapsed time.Duration
 		truthy  bool
 	)
 	stats := func() {
 		if cfg.stats {
-			fmt.Fprintf(stderr, "mzs: %d steps in %s over %d line(s)\n", steps, elapsed.Round(time.Microsecond), lines)
+			fmt.Fprintf(stderr, "mzs: %d steps in %s over %d line(s)%s\n", steps, elapsed.Round(time.Microsecond),
+				lines, peakNote(peak))
 		}
 	}
 
@@ -305,6 +311,7 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 		res, err := in.RunResult(ctx, prog, vars)
 		steps += res.Steps
 		elapsed += res.Elapsed
+		peak = max(peak, res.PeakMemory)
 		if code, ok := mzs.ExitCode(err); ok {
 			// One line asking to stop stops the whole run: `exit` is about the process,
 			// and the lines after it are never read (§12.1).
@@ -371,6 +378,12 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 		o.StepBudget = cfg.steps
 		if cfg.steps == 0 {
 			o.StepBudget = -1
+		}
+	}
+	if cfg.memSet {
+		o.MaxMemory = cfg.mem
+		if cfg.mem == 0 {
+			o.MaxMemory = -1
 		}
 	}
 	if cfg.tasksSet {
@@ -582,6 +595,16 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 				return nil, false, false, fmt.Errorf("--steps wants an integer, got %q", v)
 			}
 			cfg.steps, cfg.stepsSet = n, true
+		case "--mem":
+			v, e := need()
+			if e != nil {
+				return nil, false, false, e
+			}
+			n, ne := parseSize(v)
+			if ne != nil {
+				return nil, false, false, ne
+			}
+			cfg.mem, cfg.memSet = n, true
 		case "--tasks":
 			v, e := need()
 			if e != nil {
@@ -675,6 +698,41 @@ func splitFlag(a string) (name, val string, hasVal bool) {
 
 // parseDuration accepts both "500ms" and a bare number of seconds, because a
 // timeout typed into a shell is usually just "2".
+// parseSize reads --mem: a byte count with an optional k, m or g suffix (binary
+// multiples, either case, an optional trailing b or ib), so `64m`, `64MiB` and `67108864`
+// are one budget. 0 is "no budget", which options() turns into a negative MaxMemory.
+func parseSize(s string) (int64, error) {
+	t := strings.ToLower(strings.TrimSpace(s))
+	t = strings.TrimSuffix(strings.TrimSuffix(t, "b"), "i")
+	mult := int64(1)
+	if n := len(t); n > 0 {
+		switch t[n-1] {
+		case 'k':
+			mult = 1 << 10
+		case 'm':
+			mult = 1 << 20
+		case 'g':
+			mult = 1 << 30
+		}
+		if mult != 1 {
+			t = t[:n-1]
+		}
+	}
+	n, err := strconv.ParseInt(t, 10, 64)
+	if err != nil || n < 0 || n > math.MaxInt64/mult {
+		return 0, fmt.Errorf("--mem wants a size such as 64m or 1g, got %q", s)
+	}
+	return n * mult, nil
+}
+
+// peakNote is the --stats tail for the memory budget: nothing when no walk ran.
+func peakNote(peak int64) string {
+	if peak <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(", peak %.2f MiB live", float64(peak)/(1<<20))
+}
+
 func parseDuration(s string) (time.Duration, error) {
 	if d, err := time.ParseDuration(s); err == nil {
 		return d, nil
@@ -751,10 +809,11 @@ Flags:
       --vars-file <path>   same, read from a file
   -t, --timeout <d>  wall clock per run (default 1s; 0 disables)
       --steps <n>    step budget (default 5000000; 0 disables)
+      --mem <size>   live memory budget, e.g. 64m or 1g (default 64m; 0 disables)
       --tasks <n>    tasks running at once, for async fn (default 64; 0 forbids them)
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility
-      --stats        print step count and elapsed time to stderr
+      --stats        print steps, elapsed time and peak live memory to stderr
       --tokens       dump the token stream and exit
       --ast          dump the AST and exit
       --check        compile only; report errors and warnings
