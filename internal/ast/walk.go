@@ -118,6 +118,8 @@ func Walk(n Node, f func(Node) bool) {
 		Walk(x.Body, f)
 	case *GroupExpr:
 		walkStmts(x.Stmts, f)
+	case *Splat:
+		Walk(x.X, f)
 	}
 }
 
@@ -230,6 +232,8 @@ func isNilNode(n Node) bool {
 	case *FuncLit:
 		return x == nil
 	case *GroupExpr:
+		return x == nil
+	case *Splat:
 		return x == nil
 	}
 	return false
@@ -465,10 +469,7 @@ func dump(sb *strings.Builder, n Node, depth int) {
 			sb.WriteString(ind + "  arg\n")
 			dump(sb, a, depth+2)
 		}
-		for _, a := range x.Named {
-			sb.WriteString(ind + "  arg " + a.Name + " =\n")
-			dump(sb, a.Value, depth+2)
-		}
+		dumpNamed(sb, ind, x.Named, depth)
 	case *MethodCall:
 		op := "."
 		if x.Safe {
@@ -480,10 +481,7 @@ func dump(sb *strings.Builder, n Node, depth int) {
 			sb.WriteString(ind + "  arg\n")
 			dump(sb, a, depth+2)
 		}
-		for _, a := range x.Named {
-			sb.WriteString(ind + "  arg " + a.Name + " =\n")
-			dump(sb, a.Value, depth+2)
-		}
+		dumpNamed(sb, ind, x.Named, depth)
 	case *FuncLit:
 		kind := "Closure"
 		if x.ImplicitIt {
@@ -496,6 +494,13 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		for _, s := range x.Stmts {
 			child(s)
 		}
+	case *Splat:
+		op := "*"
+		if x.Double {
+			op = "**"
+		}
+		line("Splat " + op)
+		child(x.X)
 	default:
 		line(fmt.Sprintf("%T", n))
 	}
@@ -519,4 +524,17 @@ func paramsText(ps []Param) string {
 // PosString renders a position the way diagnostics do.
 func PosString(p token.Pos) string {
 	return strconv.Itoa(p.Line) + ":" + strconv.Itoa(p.Col)
+}
+
+// dumpNamed writes the named half of an argument list: `name =` for a named argument and
+// `**` for a spread of a dict's entries (RFC 0001).
+func dumpNamed(sb *strings.Builder, ind string, as []NamedArg, depth int) {
+	for _, a := range as {
+		if a.Spread {
+			sb.WriteString(ind + "  arg **\n")
+		} else {
+			sb.WriteString(ind + "  arg " + a.Name + " =\n")
+		}
+		dump(sb, a.Value, depth+2)
+	}
 }

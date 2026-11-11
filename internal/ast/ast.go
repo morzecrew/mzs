@@ -79,6 +79,11 @@ type NamedArg struct {
 	Name    string
 	Value   Expr
 	NamePos token.Pos
+	// Spread marks `**d` (RFC 0001): Name is empty, Value is the dict whose entries are
+	// passed as named arguments, and NamePos is the position of the `**`. A spread is
+	// not a name, so the parser's "named twice" rule cannot see through it; the call
+	// does, once the dict's keys are known.
+	Spread bool
 }
 
 // StrPart is one piece of a string literal: exactly one of Text and Expr is meaningful.
@@ -546,6 +551,26 @@ type FuncLit struct {
 	Stop       token.Pos
 }
 
+// Splat is `*x` and `**x` (RFC 0001, §8.16): the one node for every place a value is
+// taken apart into positions or entries. Which job it does is the owner's to say:
+//
+//   - an element of an ArrayLit: `[*a, x]` puts a's elements there;
+//   - an element of CallExpr.Args or MethodCall.Args: `f(*xs)` passes xs's elements as
+//     positional arguments (a `**` at a call is a NamedArg with Spread instead);
+//   - a key of a DictLit, with a nil value beside it: `{**d, k: v}` puts d's entries
+//     there (Double is always true here);
+//   - an element of an ArrayPattern: `a, *rest = xs` binds the middle as a new array,
+//     and in a `match` arm a nil X is the anonymous `*` that skips without binding.
+//
+// A Splat is never evaluated on its own: like an ArrayPattern it is consumed by the node
+// that owns it.
+type Splat struct {
+	X      Expr
+	Double bool
+	Star   token.Pos
+	Stop   token.Pos
+}
+
 // GroupExpr is `( a; b; c )`; its value is the last statement. This is what lets a
 // one-liner group statements inside an expression (§4).
 type GroupExpr struct {
@@ -596,6 +621,7 @@ func (*CallExpr) node()          {}
 func (*MethodCall) node()        {}
 func (*FuncLit) node()           {}
 func (*GroupExpr) node()         {}
+func (*Splat) node()             {}
 
 func (*ExprStmt) stmt()    {}
 func (*ReturnStmt) stmt()  {}
@@ -642,6 +668,7 @@ func (*CallExpr) expr()          {}
 func (*MethodCall) expr()        {}
 func (*FuncLit) expr()           {}
 func (*GroupExpr) expr()         {}
+func (*Splat) expr()             {}
 
 // ---------------------------------------------------------------------------
 // Positions
@@ -768,6 +795,9 @@ func (n *FuncLit) End() token.Pos { return n.Stop }
 
 func (n *GroupExpr) Pos() token.Pos { return n.Lparen }
 func (n *GroupExpr) End() token.Pos { return n.Rparen }
+
+func (n *Splat) Pos() token.Pos { return n.Star }
+func (n *Splat) End() token.Pos { return n.Stop }
 
 func nodePos(n Node) token.Pos {
 	if n == nil {

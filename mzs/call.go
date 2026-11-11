@@ -500,7 +500,10 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 // not an expression to evaluate, which is why an unbound `$price` is legal here and
 // nowhere else.
 func (e ev) evalDefined(n *ast.CallExpr) (Value, error) {
-	if len(n.Named) > 0 {
+	if len(n.Named) > 0 || hasSplat(n.Args) {
+		if len(n.Named) == 0 || n.Named[0].Spread {
+			return Nil(), e.at(argErrorf("%s takes a name to test, not a spread", definedName), n.Stop)
+		}
 		// `defined` takes a name to test for boundness, so `defined(x = 1)` reads as an
 		// argument named after the very thing being asked about. Say which one it is
 		// rather than counting to zero at it.
@@ -541,6 +544,9 @@ func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs
 	if len(exprs) == 0 && len(named) == 0 {
 		return nil, nil, nil
 	}
+	if hasSplat(exprs) || hasSpread(named) {
+		return e.evalSpreadArgs(exprs, named)
+	}
 	// The arguments already evaluated are roots while the rest are (§14.2): the slice
 	// is filled in place, so the one root sees each value as it lands.
 	args := make([]Value, len(exprs))
@@ -570,6 +576,95 @@ func (e ev) evalArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs
 		}
 		e.rs.hold(v)
 		out = append(out, namedArg{Name: a.Name, Val: v})
+	}
+	return args, out, nil
+}
+
+func hasSpread(named []ast.NamedArg) bool {
+	for _, a := range named {
+		if a.Spread {
+			return true
+		}
+	}
+	return false
+}
+
+// evalSpreadArgs is evalArgs for a call that splats (RFC 0001): `f(1, *xs)` passes xs's
+// elements as positions and `f(**opts)` passes opts's entries as names. Evaluation is
+// still strictly left to right, positions before names, and the arity is checked on the
+// expanded list by the callee exactly as for any other call.
+//
+// A parameter given a value twice is an error, never last-wins: by two spreads, or by a
+// spread and a written `name = …`. The parser can only see the written names, so this
+// is where the rule is kept for the others.
+func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, namedArgs, error) {
+	m := e.rs.rootMark()
+	defer e.rs.rootReset(m)
+	var args []Value
+	for _, a := range exprs {
+		s, isSplat := a.(*ast.Splat)
+		if !isSplat {
+			v, err := e.eval(a)
+			if err != nil {
+				return nil, nil, err
+			}
+			e.rs.hold(v)
+			args = append(args, v)
+			continue
+		}
+		v, err := e.eval(s.X)
+		if err != nil {
+			return nil, nil, err
+		}
+		e.rs.hold(v)
+		xs, err := e.splatElems(v, s.Star)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := e.rs.allocCollection(len(args)+len(xs), len(xs)); err != nil {
+			return nil, nil, err
+		}
+		args = append(args, xs...)
+	}
+	if len(named) == 0 {
+		return args, nil, nil
+	}
+	out := make(namedArgs, 0, len(named))
+	add := func(name string, v Value, pos token.Pos) error {
+		if out.index(name) >= 0 {
+			return e.at(argErrorf("argument '%s' is given twice, once through '**'; a spread never overrides", name), pos)
+		}
+		out = append(out, namedArg{Name: name, Val: v})
+		return nil
+	}
+	for _, a := range named {
+		v, err := e.eval(a.Value)
+		if err != nil {
+			return nil, nil, err
+		}
+		e.rs.hold(v)
+		if !a.Spread {
+			if err := add(a.Name, v, a.NamePos); err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
+		src := v.odict()
+		if v.Kind() != KDict || src == nil {
+			return nil, nil, e.at(typeErrorf("cannot splat %s as named arguments; '**' takes a dict", v.Kind()), a.NamePos)
+		}
+		var bad error
+		src.Each(func(k, val Value) bool {
+			if k.Kind() != KString {
+				bad = e.at(typeErrorf("'**' passes a dict's keys as parameter names, and %s is not a string", k.Inspect()), a.NamePos)
+				return false
+			}
+			bad = add(k.Str(), val, a.NamePos)
+			return bad == nil
+		})
+		if bad != nil {
+			return nil, nil, bad
+		}
 	}
 	return args, out, nil
 }

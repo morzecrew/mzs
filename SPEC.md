@@ -463,7 +463,9 @@ parser additionally skips a pending `NEWLINE` when the **next** significant toke
 *starts* with `in` is the `in` arm of a `match` (§5.3), so swallowing the newline in front
 of it would glue that arm onto the previous one's body. The continuation still works from
 the other side — `KW_IN` is in the set above — so `x in\n  xs` is one expression while
-`-> "low"\nin 6..10 ->` stays two arms.
+`-> "low"\nin 6..10 ->` stays two arms. `*` has a narrower exception of the same kind: a
+line that starts with `*` and begins a target list (`*init, last = xs`) is a statement of
+its own (§4, §8.15); every other line starting with `*` still continues.
 
 This gives leading-dot method chains, hanging `else`, and multi-line `match` arms:
 
@@ -627,7 +629,8 @@ ExportStmt     = "export" ( FnDecl | RecordDecl | Assignment | IDENT ) ;
 (* ---------- destructuring (§8.15) ---------- *)
 
 Destructure    = Target ( "," Target )+ ( "=" | ":=" ) Expr ;  (* the bare form: statement level only *)
-Target         = IDENT | GVAR | Postfix "[" Expr "]" | TargetPattern ;
+Target         = IDENT | GVAR | Postfix "[" Expr "]" | TargetPattern
+               | "*" IDENT ;                                 (* rest: at most one per level, §8.15 *)
 TargetPattern  = "[" [ Target { "," Target } [ "," ] ] "]" ;   (* also valid alone: [a, b] = xs *)
 
 ReturnStmt     = "return" [ Expr ] ;
@@ -668,6 +671,7 @@ ArmPattern     = "in" Expr          (* membership *)
 MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]" ;   (* §8.15; binds *)
 MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
+               | "*" [ IDENT ]      (* rest: binds the positions between, or skips them; one per level *)
                | Expr ;             (* compared, exactly as an ArmPattern is *)
 TryExpr        = "try" TryClause [ "else" [ TryBinder ] TryClause ] [ "ensure" Block ] ;
                (* at least one of "else" and "ensure" is required (§8.11) *)
@@ -700,7 +704,9 @@ Trailer        = ( "." | "?." ) MethodName [ "(" ArgList ")" ] [ Closure ]
                | "[" Expr [ "," Expr ] "]" ;
 MethodName     = IDENT | KEYWORD ;
 ArgList        = [ Arg { "," Arg } [ "," ] ] ;
-Arg            = Expr | IDENT "=" Expr ;           (* named argument -> parameter, §8.7 *)
+Arg            = Expr | IDENT "=" Expr             (* named argument -> parameter, §8.7 *)
+               | "*" TernaryExpr                   (* positional splat, §8.16 *)
+               | "**" TernaryExpr ;                (* named splat: a dict's entries, §8.16 *)
 
 Primary        = INT | FLOAT | String | Regex | "true" | "false" | "nil"
                | IDENT | GVAR
@@ -715,16 +721,26 @@ ArrowFn        = "(" ParamList ")" "->" Closure ;  (* an anonymous FnDecl, §4.1
 GroupExpr      = "(" StmtList ")" ;                (* value = last statement *)
 Collection     = ArrayLit | DictLit ;
 ArrayLit       = "[" ArrayBody "]" ;                (* "[" is always an array, D3 *)
-ArrayBody      = [ Expr { "," Expr } [ "," ] ] ;
+ArrayBody      = [ ArrayElem { "," ArrayElem } [ "," ] ] ;
+ArrayElem      = Expr | "*" TernaryExpr ;           (* spread, §8.16 *)
 DictLit        = "{" [ DictBody ] "}" ;             (* operand position only; §3.12 decides it from a Closure *)
 DictBody       = DictEntry { "," DictEntry } [ "," ] ;
 DictEntry      = ( IDENT | String ) ( ":" | "->" ) Expr   (* a string key *)
                | "(" Expr ")" ":" Expr                    (* computed; never "->", §3.12 *)
-               | LiteralKey "->" Expr ;                   (* a key that is not a string, §7.6 *)
+               | LiteralKey "->" Expr                     (* a key that is not a string, §7.6 *)
+               | "**" TernaryExpr ;                       (* spread of a dict, §8.16 *)
 LiteralKey     = [ "-" | "+" ] ( INT | FLOAT ) | "true" | "false" | "nil" | Regex ;
 String         = STR_BEGIN { STR_TEXT | STR_GVAR | INTERP_BEGIN Expr INTERP_END } STR_END ;
 Regex          = REGEX ;
 ```
+
+`*` and `**` are prefixes only at the start of an element — directly after `(`, `[`, `{` or
+`,`, or at the start of a statement for a rest target — where a binary operator cannot
+stand, so `a * b` and `a ** b` keep their one reading (D16). A line that starts with `*`
+continues the line before it (§3.10) unless it begins a target list: a `*` at bracket depth
+zero followed, before the line ends, by a comma and then `=` or `:=` starts a statement of
+its own. Read as a continuation that line would be a syntax error, so the rule takes away
+no program.
 
 ### 4.1 Closures
 
@@ -1128,7 +1144,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `StrLit` | `Parts []StrPart` — each part is `{Text string}` or `{Expr Expr}`; a literal string has one text part |
 | `RegexLit` | `Pattern string`, `Flags string`, `compiled *rx.Regexp` (filled at compile time) |
 | `ArrayLit` | `Elems []Expr` |
-| `DictLit` | `Keys []Expr`, `Vals []Expr` (parallel, insertion order) |
+| `DictLit` | `Keys []Expr`, `Vals []Expr` (parallel, insertion order); a `**d` entry is a `*Splat` key with a nil value |
 | `Ident` | `Name string` |
 | `GlobalVar` | `Name string` (includes the `$`) |
 | `UnaryExpr` | `Op token.Kind`, `X Expr` |
@@ -1144,12 +1160,13 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `MethodCall` | `Recv Expr`, `Name string`, `Args []Expr`, `Named []NamedArg`, `Safe bool` (`?.`) |
 | `FuncLit` | `Params []Param`, `Body *BlockStmt`, `ImplicitIt bool` |
 | `GroupExpr` | `Stmts []Stmt` — `( a; b; c )`, value is the last |
+| `Splat` | `X Expr`, `Double bool` — `*x` in an array literal, an argument list or a pattern, `**x` as a dict key; `X` is nil for the anonymous `*` of a match pattern (§8.16) |
 
 **Support types**
 
 ```go
 type Param struct { Name string; Default Expr; Rest bool; Pos token.Pos }
-type NamedArg struct { Name string; Value Expr; NamePos token.Pos }  // `name = v` at a call (§8.7)
+type NamedArg struct { Name string; Value Expr; NamePos token.Pos; Spread bool }  // `name = v`, or `**d` with Spread (§8.7, §8.16)
 type StrPart struct { Text string; Expr Expr }   // exactly one of the two is set
 
 type ArmKind uint8
@@ -1607,6 +1624,7 @@ The rules, and where each is caught:
 | A parameter filled by position may not also be named | run time, `got two values for parameter 'a'` |
 | A `*rest` parameter collects positions and cannot be named | run time |
 | A parameter no rule reached is the arity error, by name | run time |
+| A parameter given twice through `**` is an error, never last-wins | run time (§8.16) |
 
 A default is an ordinary expression evaluated **at each call**, never once when the
 declaration is read, so `fn f(xs = [])` hands out a fresh array every time rather than one
@@ -1915,8 +1933,9 @@ a, b = [b, a]                    # a swap needs no temporary
 * Only an **Array** or a **Range** has positions. A Dict does not: key order is insertion
   order (D11), not a positional contract, so `a, b = {x: 1, y: 2}` is a type error and
   taking a dict apart is spelled `d["x"], d["y"] = …` or `for k, v in d`.
-* The lengths must be **equal**. Too few values and too many are both run-time errors —
-  never a silent `nil` in the extra name, never a silently dropped value:
+* The lengths must be **equal**, unless the pattern has a rest element (below). Too few
+  values and too many are both run-time errors — never a silent `nil` in the extra name,
+  never a silently dropped value:
 
   | Input | Error |
   |---|---|
@@ -1932,7 +1951,24 @@ a, b = [b, a]                    # a swap needs no temporary
   are filled left to right, and the right side is evaluated — and read — exactly once,
   including when a target writes into the array being taken apart: `xs[1], xs[0] = xs`
   swaps in place.
-* There is no rest element. `a, *rest` stays reserved together with `*splat` (§20).
+* **A rest element** `*name` takes the positions no other target takes, as a **new array**
+  — possibly empty, never a view of the one taken apart. Targets before it read from the
+  front and targets after it from the back, so in `a, *mid, z = xs` the `z` is always the
+  last element, and the length rule becomes "at least the other targets":
+
+  ```
+  head, *tail = [1, 2, 3]          # 1, [2, 3]
+  *init, last = [1, 2, 3]          # [1, 2], 3
+  a, *mid, z = 1..5                # 1, [2, 3, 4], 5
+  h, *t = [1]                      # 1, []
+  [a, [b, *c], *d] = [1, [2, 3, 4], 5, 6]   # a nested pattern has its own
+  a, *mid, z = [1]                 # index: destructuring expects at least 2 values, got 1
+  ```
+
+  One rest per level (`a, *b, *c = xs` is `a pattern takes one rest element` at parse
+  time), and it is a name: `*$g` and `*xs[0]` are refused. `*rest = xs` alone has no
+  neighbour to be the rest *of* and is a diagnostic naming `rest = xs.array`; the bracketed
+  `[*all] = xs` is a copy and is allowed.
 
 The bare `a, b = …` form is a **statement**, not an expression: a comma at bracket depth
 zero means something else inside a call, a collection, a `for` header and a `match` arm.
@@ -1952,10 +1988,65 @@ match order {
 }
 ```
 
+A rest element in an arm makes the length rule "at least": `["GET", *path] ->` fires on an
+array of one or more whose first element is `"GET"` and binds the rest to `path`, and a
+bare `*` skips the positions without binding them — `[first, *] -> first`. A bare `*`
+anywhere else has nothing to spread and is a compile error.
+
 `for k, v in xs` is the same rule with the pattern written in the loop header: every item
 must be an array (or range) of exactly two. A Dict iterates as `[key, value]` pairs, which
 is why `for k, v in d` reads the way it does; an item that is not a pair is an error, not
 a `nil` in `v`.
+
+### 8.16 Splat and spread
+
+`*` and `**` take a value apart where a list of values is written (RFC 0001): `*` an array's
+elements, `**` a dict's entries. They are prefixes only at the start of an element (§4),
+so they never compete with multiplication and power.
+
+```
+fn area(w, h = 2, unit = "cm") { "${w * h} ${unit}²" }
+
+dims = [3, 5]
+area(*dims)                      # "15 cm²"  — the elements as positions
+area(3, **{unit: "m"})           # "6 m²"    — the entries as named arguments
+[*dims, 7, *(8..9)]              # [3, 5, 7, 8, 9]
+defaults = {unit: "cm", h: 2}
+{**defaults, unit: "m"}          # {"unit": "m", "h": 2}
+```
+
+**`*` at a call** passes the elements of an Array or a Range as positional arguments where
+it stands, so `f(1, *xs, 2)` is `f(1, xs[0], …, 2)`. The callee checks its arity on the
+expanded list, with the ordinary message. **`**` at a call** passes each entry of a Dict as
+`name = value`; it is part of the named half of the argument list and may stand among the
+names in any order. Keys must be strings naming parameters — an unknown one is the ordinary
+`has no parameter named '…'` — and a parameter given a value twice, by two spreads or by a
+spread and a written `name = …`, is an `argument` error, **never last-wins**. A builtin and a
+stdlib row still take no names (§8.7), so `len(**{})` is fine and `len(**{a: 1})` is not.
+
+**`*` in an array literal** puts the elements there: `[*a, x, *b]` concatenates. **`**` in a
+dict literal** writes the entries of a Dict where it stands, in its order; a later entry —
+written or spread — overwrites an earlier one's value **in the earlier one's place**, as
+assigning to an existing key does (D11). The result is a new plain dict: a literal never
+carries a record label, so `{**money, amount: 0}` is a dict even when `money` is a record —
+unlike `m + {…}` and `dup`, which keep the label, and unlike `a + b` between two records,
+which refuses (§7.8).
+
+**Operands.** `*` takes an Array or a Range, materialised under `Options.MaxCollection`; the
+limit is checked on what the literal or the call lays out, not on what it says. A Seq is
+refused rather than drained, because it may be endless and the limit that would stop it
+cannot be caught: `cannot splat seq: it may be endless; write *s.take(n).array, or
+*s.array for one you know ends`. `**` takes a Dict. Anything else is a `type` error that
+names the kind and the operator: `cannot splat int; '*' takes an array or a range`,
+`cannot splat array as named arguments; '**' takes a dict`, `cannot spread array into a
+dict; '**' takes a dict`.
+
+**Order.** Left to right, as every argument list and every literal is (§8.7): an operand is
+evaluated once, when its position is reached.
+
+`**name` as a *parameter* — collecting the named arguments a function did not declare —
+does not exist and stays reserved (§20): it would turn every misspelled argument name from a
+diagnostic into a silent entry.
 
 ---
 ## 9. One semantics — no modes
@@ -4401,15 +4492,16 @@ arithmetic or ordering operator — and it covers corpus rows 14, 15 and 29.
 
 Reserved syntax — lexed or parsed as an error today so it can be added later without breaking
 anyone: `@ivar`, `@@cvar`, `class`, `module`, `yield`, `defer`,
-`<<`/`>>`, `|>`, `**kwargs`, `*splat` at a call site, string mutation.
+`<<`/`>>`, `|>`, `**kwargs` as a parameter, string mutation.
 
 `import`, `require` and `use` are not reserved for a future feature: mzs has the feature and
 spells it `include` (§12.8), so each of them is an ordinary identifier that the parser
 diagnoses with that fix-it when it is written in the dependency shape (§5.6).
 
 Destructuring is no longer reserved: `a, b = pair` and the binding `match` arm `[x, y] -> …`
-are §8.15. What stayed behind is the **rest element** — `a, *rest = xs` — which is reserved
-together with `*splat` at a call site and lands with it or not at all.
+are §8.15, and the rest element `a, *rest = xs` landed together with the splat at a call
+site, as this section required (§8.15, §8.16; RFC 0001). What stays reserved is `**kw` as a
+*parameter*.
 
 `<<` and `>>` stay reserved even though the shifts arrived: they are the functions `shl`
 and `shr` (§12.5), so nothing spends the lexeme. `&`, `|` and `^` are not reserved either —

@@ -48,9 +48,39 @@ apart:
 xs = [1, 2]; xs[1], xs[0] = xs; xs      # [2,1]
 ```
 
+## The rest element: `*rest`
+
+`*name` takes every position no other target takes, as a **new array** — possibly empty:
+
+```
+head, *tail = [1, 2, 3]       # head=1 tail=[2,3]
+*init, last = [1, 2, 3]       # init=[1,2] last=3
+a, *mid, z = 1..5             # a=1 mid=[2,3,4] z=5
+h, *t = [1]                   # h=1 t=[]
+[a, [b, *c], *d] = [1, [2, 3, 4], 5, 6]   # each level may have its own
+```
+
+Targets before the rest read from the front and targets after it read from the back, so
+`z` above is always the last element. With a rest the length rule is "at least the other
+targets", and the rest is a copy — pushing to `tail` leaves the original array alone.
+
+```
+a, *mid, z = [1]
+# -e:1:1: index: destructuring expects at least 2 values, got 1
+a, *b, *c = [1, 2, 3]
+# -e:1:8: syntax: a pattern takes one rest element
+*rest = [1, 2]
+# -e:1:1: syntax: a rest element needs a neighbour; write rest = xs.array
+```
+
+A line may start with the rest — `*init, last = xs` — even though a line starting with `*`
+otherwise continues the one before it: a `*` that begins a target list starts a statement of
+its own.
+
 ## Lengths must match
 
-Too few and too many are both run-time errors — never a silent `nil`, never a dropped value.
+Without a rest element, too few and too many are both run-time errors — never a silent
+`nil`, never a dropped value.
 
 | Written | Message |
 |---|---|
@@ -62,13 +92,6 @@ Too few and too many are both run-time errors — never a silent `nil`, never a 
 
 A dict is not positional: key order is insertion order, not a contract. Take one apart by
 name — `d["x"], d["y"] = …` — or iterate it with `for k, v in d`.
-
-There is no rest element; `a, *rest` is reserved syntax:
-
-```
-a, *rest = [1, 2, 3]
-# -e:1:4: syntax: unexpected '*'
-```
 
 No compound operator destructures:
 
@@ -93,6 +116,15 @@ wrong length is the next arm, not an error.
 match [1, [2, 3]] { [x, [y, z]] -> x + y + z; else -> -1 }   # 6
 match 1           { [a, b] -> "fits"; else -> "moved on" }   # moved on
 match 1..2        { [a, b] -> "range fits ${a}${b}"; else -> "no" }   # range fits 12
+```
+
+A rest element works here too, and makes the length "at least": `*name` binds the positions
+in between and a bare `*` skips them.
+
+```
+match ["GET", "users", "7"] { ["GET", *path] -> path.join("/"); else -> "?" }   # users/7
+match [3, 1, 2]             { [first, *] -> first }                           # 3
+match []                    { [first, *] -> first; else -> "empty" }          # empty
 ```
 
 A name binds, a literal still compares, and a guard sees what the pattern bound — see

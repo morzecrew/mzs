@@ -75,6 +75,10 @@ type parser struct {
 	// not the arrow function of §4.1 — the same kind of rule as header's, over the
 	// other token that can end a construct.
 	arm int
+
+	// stmt is the index of the first token of the statement being parsed, which
+	// restStartsLine scans from to learn its bracket depth.
+	stmt int
 }
 
 // state is what push saves: both counters answer "what does this token close", and
@@ -348,12 +352,15 @@ func (p *parser) parseProgram() *ast.Program {
 // parseStmtList reads `StmtList` up to EOF or any of stops, which it does not consume.
 func (p *parser) parseStmtList(stops ...token.Kind) []ast.Stmt {
 	var out []ast.Stmt
+	outer := p.stmt
+	defer func() { p.stmt = outer }()
 	for {
 		p.skipSeps()
 		if p.kind() == token.EOF || contains(stops, p.kind()) {
 			return out
 		}
 		before := p.pos
+		p.stmt = before
 		if s := p.parseStmt(); s != nil {
 			out = append(out, s)
 		}
@@ -365,7 +372,7 @@ func (p *parser) parseStmtList(stops ...token.Kind) []ast.Stmt {
 		switch p.kind() {
 		case token.SEMI, token.NEWLINE, token.EOF:
 		default:
-			if contains(stops, p.kind()) {
+			if contains(stops, p.kind()) || p.restStartsLine() {
 				continue
 			}
 			// A Ruby word left dangling after a statement (`a and b`, `a rescue b`) is
@@ -426,6 +433,17 @@ func (p *parser) parseBareStmt() ast.Stmt {
 		}
 		if p.destructureAhead() {
 			return &ast.ExprStmt{X: p.parseDestructure()}
+		}
+	case token.STAR:
+		// `*init, last = xs` (RFC 0001). A rest element alone has no neighbour to be the
+		// rest *of*, and the plain assignment already says it: name the fix.
+		if p.destructureAhead() {
+			return &ast.ExprStmt{X: p.parseDestructure()}
+		}
+		if p.peekKind(1) == token.IDENT && token.IsAssignOp(p.peekKind(2)) {
+			name := p.peek(1)
+			p.errorAt(p.cur().Pos, "a rest element needs a neighbour; write %s = xs.array", name.Value)
+			p.advance() // the '*': the assignment after it is the one the fix-it names
 		}
 	case token.GVAR, token.LBRACKET:
 		// `[a, b] = xs` needs no lookahead — parseAssign sees the pattern where the
@@ -703,6 +721,13 @@ func (p *parser) destructureAhead() bool {
 			if depth == 0 {
 				return false
 			}
+		case token.STAR:
+			// A `*` starting a line at depth zero starts the next statement's target
+			// list, never this one's (restStartsLine): §3.10 dropped the line break in
+			// front of it, so the break is read back from the positions.
+			if depth == 0 && i > p.pos && p.toks[i-1].End.Line < p.toks[i].Pos.Line {
+				return false
+			}
 		default:
 			if depth == 0 && token.IsAssignOp(k) {
 				return comma
@@ -712,13 +737,42 @@ func (p *parser) destructureAhead() bool {
 	return false
 }
 
+// restStartsLine reports whether the `*` under the cursor begins a new statement rather
+// than continuing the line before it: `*init, last = xs` at the start of a line (RFC 0001).
+//
+// §3.10 drops a line break in front of a binary operator, so `a\n* b` is one expression,
+// and that stays true. The exception is narrow enough to change no program that runs: the
+// `*` must start its line, stand at bracket depth zero of a statement, and begin a target
+// list — a comma at depth zero and then `=` before the line ends. Read as a continuation,
+// that line is `a * init, last = xs`, which is a syntax error today.
+func (p *parser) restStartsLine() bool {
+	if p.kind() != token.STAR || p.pos == 0 || p.toks[p.pos-1].End.Line >= p.cur().Pos.Line {
+		return false
+	}
+	depth := 0
+	for i := p.stmt; i < p.pos; i++ {
+		switch p.toks[i].Kind {
+		case token.LPAREN, token.LBRACKET, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACKET, token.RBRACE:
+			depth--
+		}
+	}
+	return depth == 0 && p.destructureAhead()
+}
+
 // parseDestructure reads the bare `a, b = xs` form, which destructureAhead has already
 // confirmed. Targets are read below the assignment level, so the operator that ends the
 // list is still current when the loop stops.
 func (p *parser) parseDestructure() ast.Expr {
 	pat := &ast.ArrayPattern{Start: p.cur().Pos}
 	for {
-		el := p.targetElem(p.parseTernary())
+		var el ast.Expr
+		if p.kind() == token.STAR {
+			el = p.targetElem(p.parseElem())
+		} else {
+			el = p.targetElem(p.parseTernary())
+		}
 		pat.Elems = append(pat.Elems, el)
 		pat.Stop = el.End()
 		if !p.accept(token.COMMA) {
@@ -731,6 +785,7 @@ func (p *parser) parseDestructure() ast.Expr {
 		p.errorAt(t.Pos, "expected '=' after a destructuring target list, found %s", describe(t))
 		return &ast.NilLit{Start: t.Pos, Stop: t.End}
 	}
+	p.checkRest(pat)
 	return p.parseDestructureTail(pat, p.advance())
 }
 
@@ -753,6 +808,7 @@ func (p *parser) targetPattern(lit *ast.ArrayLit) *ast.ArrayPattern {
 	for _, el := range lit.Elems {
 		pat.Elems = append(pat.Elems, p.targetElem(el))
 	}
+	p.checkRest(pat)
 	return pat
 }
 
@@ -762,9 +818,51 @@ func (p *parser) targetElem(x ast.Expr) ast.Expr {
 		return x
 	case *ast.ArrayLit:
 		return p.targetPattern(t)
+	case *ast.Splat:
+		// `*rest` collects the positions no other target takes, into a new array; it is
+		// a binding, so it names one (RFC 0001).
+		if _, ok := t.X.(*ast.Ident); !ok || t.Double {
+			p.errorAt(t.Star, "a rest element is '*' and a name: write *rest")
+		}
+		return x
 	}
 	p.errorAt(x.Pos(), "cannot assign to this expression: a destructuring target is a name, a $var, an index or a nested [ … ]")
 	return x
+}
+
+// checkRest enforces the one-rest rule of RFC 0001 on one level of a pattern: with two,
+// where one ends and the other begins would be a guess. A nested pattern is its own
+// level and may have its own.
+func (p *parser) checkRest(pat *ast.ArrayPattern) {
+	seen := false
+	for _, el := range pat.Elems {
+		if s, ok := el.(*ast.Splat); ok {
+			if seen {
+				p.errorAt(s.Star, "a pattern takes one rest element")
+				return
+			}
+			seen = true
+		}
+	}
+}
+
+// parseElem reads one element of an array literal, a call's argument list or a
+// destructuring target list (RFC 0001): an expression, or `*` and the expression whose
+// elements go there. `*` is a prefix only at the start of an element — after `[`, `(`
+// or `,`, where a binary operator cannot stand — so `a * b` keeps its one reading (D16).
+// A `*` with nothing after it is the anonymous rest of a `match` pattern; anywhere else
+// the compile pass reports it.
+func (p *parser) parseElem() ast.Expr {
+	if p.kind() != token.STAR {
+		return p.parseExpr()
+	}
+	star := p.advance()
+	switch p.kind() {
+	case token.COMMA, token.RBRACKET, token.RPAREN:
+		return &ast.Splat{Star: star.Pos, Stop: star.End}
+	}
+	x := p.parseTernary()
+	return &ast.Splat{X: x, Star: star.Pos, Stop: x.End()}
 }
 
 // matchPattern converts an array literal in a `match` arm into a pattern: a bare name
@@ -773,12 +871,20 @@ func (p *parser) targetElem(x ast.Expr) ast.Expr {
 func (p *parser) matchPattern(lit *ast.ArrayLit) *ast.ArrayPattern {
 	pat := &ast.ArrayPattern{Brackets: true, Start: lit.Lbrack, Stop: lit.Rbrack}
 	for _, el := range lit.Elems {
-		if nested, ok := el.(*ast.ArrayLit); ok {
-			pat.Elems = append(pat.Elems, p.matchPattern(nested))
+		switch t := el.(type) {
+		case *ast.ArrayLit:
+			pat.Elems = append(pat.Elems, p.matchPattern(t))
 			continue
+		case *ast.Splat:
+			// `[head, *tail]` binds the rest and `[head, *]` skips it; what would a
+			// rest *compare* against? Nothing, so a rest is a name or nothing.
+			if _, ok := t.X.(*ast.Ident); t.X != nil && !ok {
+				p.errorAt(t.Star, "a rest element in a pattern is '*' and a name, or a bare '*' to skip")
+			}
 		}
 		pat.Elems = append(pat.Elems, el)
 	}
+	p.checkRest(pat)
 	return pat
 }
 
@@ -952,6 +1058,9 @@ func (p *parser) parseBinary(min int) ast.Expr {
 		if k == token.DOTDOT || k == token.DOTLT {
 			l = p.parseRangeTail(l)
 			continue
+		}
+		if k == token.STAR && p.restStartsLine() {
+			return l
 		}
 		op := p.advance()
 		next := prec + 1
@@ -1201,8 +1310,13 @@ func (p *parser) parseCallArgs() (args []ast.Expr, named []ast.NamedArg, stop to
 				p.errorAt(key.Pos, "argument '%s' is named twice", key.Value)
 			}
 			named = append(named, ast.NamedArg{Name: key.Value, Value: val, NamePos: key.Pos})
+		case p.kind() == token.POW:
+			// `f(**opts)`: the dict's entries are named arguments (RFC 0001). It is the
+			// named half of the list, so it may sit among the names in any order.
+			star := p.advance()
+			named = append(named, ast.NamedArg{Value: p.parseTernary(), NamePos: star.Pos, Spread: true})
 		default:
-			arg := p.parseExpr()
+			arg := p.parseElem()
 			if len(named) > 0 {
 				p.errorAt(arg.Pos(), "a positional argument may not follow a named one; move it before '%s = …'",
 					named[0].Name)
@@ -1356,6 +1470,16 @@ func (p *parser) parsePrimary() ast.Expr {
 			return &ast.ArrayLit{Lbrack: t.Pos, Rbrack: stop}
 		}
 	}
+	switch t.Kind {
+	case token.STAR:
+		p.errorAt(t.Pos, "unexpected '*': a spread stands only in a call, an array literal or a destructuring target")
+		p.advance()
+		return &ast.NilLit{Start: t.Pos, Stop: t.End}
+	case token.POW:
+		p.errorAt(t.Pos, "unexpected '**': a spread of a dict stands only in a call or a dict literal")
+		p.advance()
+		return &ast.NilLit{Start: t.Pos, Stop: t.End}
+	}
 	p.errorAt(t.Pos, "unexpected %s", describe(t))
 	p.advance()
 	return &ast.NilLit{Start: t.Pos, Stop: t.End}
@@ -1433,7 +1557,7 @@ func (p *parser) parseCollection() ast.Expr {
 	if p.kind() == token.COLON && p.peekKind(1) == token.RBRACKET {
 		return p.bracketDict(lbIdx, lb, "the empty dict is written {}")
 	}
-	if p.dictFollows() {
+	if p.kind() != token.POW && p.dictFollows() {
 		return p.bracketDict(lbIdx, lb, "a dict is written {a: 1}")
 	}
 	return p.parseArrayBody(lb) // rule 5
@@ -1462,6 +1586,10 @@ func (p *parser) dictFollows() bool { return p.dictFollowsAt(p.pos) }
 // the closure it has always been and a computed key keeps its one spelling, `(k): v`.
 func (p *parser) dictFollowsAt(i int) bool {
 	switch p.kindAt(i) {
+	case token.POW:
+		// `{**d, k: v}` (RFC 0001). A block cannot begin with `**`, which is binary
+		// everywhere else, so the brace has one reading.
+		return true
 	case token.IDENT:
 		return endsDictKey(p.kindAt(i + 1))
 	case token.STR_BEGIN:
@@ -1499,7 +1627,11 @@ func (p *parser) parseArrayBody(lb token.Pos) ast.Expr {
 		if p.kind() == token.RBRACKET || p.kind() == token.EOF {
 			break
 		}
-		elems = append(elems, p.parseExpr())
+		if p.kind() == token.POW {
+			p.errorAt(p.cur().Pos, "'**' spreads a dict's entries, into a dict or a call; in an array write '*'")
+			p.advance()
+		}
+		elems = append(elems, p.parseElem())
 		p.skipNewlines()
 		if !p.accept(token.COMMA) {
 			break
@@ -1537,6 +1669,22 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 		var key ast.Expr
 		form := keyEither
 		switch {
+		case p.kind() == token.POW:
+			// `**d` puts d's entries here; it has no value of its own, so Vals gets a
+			// nil beside it (RFC 0001).
+			star := p.advance()
+			x := p.parseTernary()
+			d.Keys = append(d.Keys, &ast.Splat{X: x, Double: true, Star: star.Pos, Stop: x.End()})
+			d.Vals = append(d.Vals, nil)
+			p.skipNewlines()
+			if !p.accept(token.COMMA) {
+				goto done
+			}
+			continue
+		case p.kind() == token.STAR:
+			p.errorAt(p.cur().Pos, "'*' spreads an array's elements; in a dict write '**'")
+			p.advance()
+			continue
 		case p.kind() == token.IDENT && endsDictKey(p.peekKind(1)):
 			t := p.advance()
 			key = strLit(t.Value, t.Pos, t.End)
@@ -1576,6 +1724,7 @@ func (p *parser) parseDictBody(lb token.Pos) ast.Expr {
 			break
 		}
 	}
+done:
 	p.skipNewlines()
 	rb := p.expect(close, "dict literal")
 	d.Rbrack = rb.End

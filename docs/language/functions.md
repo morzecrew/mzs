@@ -161,6 +161,40 @@ retry(times = 3, body = { … })  # every argument by name
 retry(times = 3) { … }          # syntax: a trailing closure is a positional argument, …
 ```
 
+## Splat and spread
+
+`*` passes an array's (or a range's) elements as positional arguments, and `**` passes a
+dict's entries as named ones. The callee checks its arity on what arrives, as for any call.
+
+```
+fn area(w, h = 2, unit = "cm") { "${w * h} ${unit}²" }
+
+dims = [3, 5]
+area(*dims)                  # 15 cm²
+area(3, **{unit: "m"})       # 6 m²
+max(*[3, 9, 2])              # 9 — builtins and methods take positions too
+```
+
+A parameter given twice — by two spreads, or by a spread and a written `name = …` — is an
+error, never last-wins:
+
+```
+area(**{w: 1}, w = 2)
+# argument: argument 'w' is given twice, once through '**'; a spread never overrides
+```
+
+The same two operators build literals: `[*a, x, *b]` concatenates, and `{**defaults, k: v}`
+copies a dict's entries and then overrides one. A later entry keeps the earlier one's
+place, and the result is always a plain dict, even when the source was a record.
+
+```
+[*[1, 2], 3, *(4..5)]                  # [1,2,3,4,5]
+{**{unit: "cm", h: 2}, unit: "m"}      # {"unit":"m","h":2}
+```
+
+`*` takes an array or a range. A seq is refused, because it may never end — write
+`*s.take(n).array`. `**` takes a dict.
+
 ## Closures and `it`
 
 `{ … }` is the closure form of a function value — the other is the anonymous `fn` above.

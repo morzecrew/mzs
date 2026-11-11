@@ -198,6 +198,13 @@ func TestFormat(t *testing.T) {
 		{"parentheses are kept", "x = (1 + 2) * 3", "x = (1 + 2) * 3\n"},
 		{"an empty array is one token pair", "x = []", "x = []\n"},
 		{"an empty dict is one token pair", "x = {}", "x = {}\n"},
+		{"a rest target keeps its star", "a,*rest=xs", "a, *rest = xs\n"},
+		{"a rest in brackets", "[ *init , last ] = xs", "[*init, last] = xs\n"},
+		{"a splat at a call", "f( *xs , **opts )", "f(*xs, **opts)\n"},
+		{"a spread in an array", "x = [ *a, 1, *( 2..3 ) ]", "x = [*a, 1, *(2..3)]\n"},
+		{"a spread in a dict", "x = { **d , k : 1 }", "x = {**d, k: 1}\n"},
+		{"an anonymous rest in an arm", "match x { [h, * ] -> h }", "match x { [h, *] -> h }\n"},
+		{"a rest that starts its line", "h = 1\n*init, last = xs", "h = 1\n*init, last = xs\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

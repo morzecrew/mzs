@@ -1,6 +1,6 @@
 # RFC 0001 — Rest elements and spread
 
-**Status:** Draft · **Area:** language · **Depends on:** — · **Audit:** L1, L2, L3
+**Status:** Landed (#23) · **Area:** language · **Depends on:** — · **Audit:** L1, L2, L3
 
 ## Summary
 
@@ -110,3 +110,40 @@ reserved syntax "may become a feature". §20's paragraph on the rest element is 
 `internal/parser` (four productions), `internal/ast` (`Splat`, `RestTarget`),
 `mzs/eval.go` destructuring, `mzs/call.go` argument binding, `internal/printer`. The fold
 pass (`mzs/fold.go`) must not constant-fold a literal containing a spread.
+
+## As landed
+
+SPEC §4 (grammar), §8.15 (the rest element) and §8.16 (splat and spread) are the normative
+text.
+
+* **Open question — is a seq splattable?** No, the more conservative answer. `*` takes an
+  Array or a Range; a Seq is a `type` error that names the bounded spelling, `*s.take(n).array`,
+  and the unbounded one for a seq the author knows ends. An endless seq would otherwise run
+  into `MaxCollection`, which a script cannot catch. Accepting a seq later turns an error
+  into a value, so it stays open as an addition.
+* **`for a, *rest in rows`** is RFC 0002's, as this RFC said, and is not part of this change.
+* **One node, `ast.Splat`**, for every position: an array element, a positional argument,
+  a pattern element (with a nil `X` for the anonymous `*`), and a dict key with a nil value
+  beside it. `**` at a call is a `NamedArg` with `Spread` set, so it lives in the named half
+  of the argument list and may stand among the names in any order.
+* **A line that starts with `*`.** §3.10 joins a line that starts with a binary operator to
+  the one before it, so `*init, last = xs` on a line of its own would have read as
+  `prev * init, last = xs`. A `*` that starts its line at bracket depth zero of a statement
+  and begins a target list — a comma at depth zero, then `=` or `:=`, before the line ends —
+  now starts a statement of its own. The other reading was a syntax error in every case, so
+  no program changes meaning; a product written across lines (`a\n  * b`) still continues.
+* **`*rest = xs` alone** is a diagnostic naming `rest = xs.array`, as proposed; the bracketed
+  `[*all] = xs` is a copy and is allowed, since it has the brackets that make it a pattern.
+* **A rest target is a name.** `*$g` and `*xs[0]` are refused at parse time: the RFC's grammar
+  gives `"*" IDENT`, and a rest writes a new array, which a subscript or a global would only
+  obscure. A pattern element `*[1]` in a `match` arm is refused for the same reason: a rest
+  binds or skips, it does not compare.
+* **The rest is a copy** in a target and in an arm alike, charged to the memory budget like
+  any new array.
+* **Duplicates.** `f(**{a: 1}, a = 2)` and `f(**{a: 1}, **{a: 2})` are the `argument` error
+  `argument 'a' is given twice, once through '**'; a spread never overrides`. A spread that
+  names a parameter a position already filled is the existing `got two values for parameter`.
+* **A bare `*`** outside a match pattern — `[1, *]`, `f(*)` — is a compile error, not a parse
+  error, because the parser reads arrays before it knows they are patterns.
+* **Limits.** A spread array literal checks `MaxCollection` on the laid-out size and charges
+  the new array to `MaxMemory`; a dict spread charges one step per entry, as `merge` does.
