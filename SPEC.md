@@ -1974,9 +1974,11 @@ a, b = [b, a]                    # a swap needs no temporary
   nearest existing binding and creates one here when there is none, `:=` always creates
   or shadows here. No compound operator destructures — `a, b += xs` is a diagnostic.
 * The value of the expression is the **right side**, as it is for `a = 1`; the positions
-  are filled left to right, and the right side is evaluated — and read — exactly once,
-  including when a target writes into the array being taken apart: `xs[1], xs[0] = xs`
-  swaps in place.
+  are filled left to right, and the right side is evaluated — and read — exactly once:
+  every value the pattern reaches, at every depth, is read before any target is written,
+  so a target that writes into the array being taken apart cannot change what a later
+  position reads — `xs[1], xs[0] = xs` swaps in place — and a shape that does not fit
+  writes nothing at all.
 * **A rest element** `*name` takes the positions no other target takes, as a **new array**
   — possibly empty, never a view of the one taken apart. Targets before it read from the
   front and targets after it from the back, so in `a, *mid, z = xs` the `z` is always the
@@ -2021,8 +2023,8 @@ form JSON wants — the data a program handles is dicts inside arrays inside dic
 * A value position is a target exactly as in an array pattern: a name, a `$var`, an index
   or a nested pattern. A literal there is `a destructuring target binds …` at parse time —
   comparing is what a `match` arm is for — and `{} = d` binds nothing and is refused.
-* Every value is read before the first is written, so `{a: d["b"], b: x} = d` reads `"b"`
-  as it was.
+* Every value is read before the first is written, as in an array pattern, so
+  `{a: d["b"], b: x} = d` reads `"b"` as it was.
 
 The bare `a, b = …` form is a **statement**, not an expression: a comma at bracket depth
 zero means something else inside a call, a collection, a `for` header and a `match` arm.

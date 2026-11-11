@@ -29,8 +29,14 @@ func TestDictTargets(t *testing.T) {
 		{`{a: $g} = {a: 5}; $g`, `5`},
 		{`xs = [0, 0]; {a: xs[0], b: xs[1]} = {a: 1, b: 2}; xs`, `[1,2]`},
 		// Every value is read before the first is written, so a target writing into the
-		// dict being taken apart cannot change what a later key reads.
+		// dict being taken apart cannot change what a later key reads — at any depth.
 		{`d = {a: 1, b: 2}; {a: d["b"], b: x} = d; [d, x]`, `[{"a":1,"b":1},2]`},
+		{`d = {a: {x: 1}, b: {y: 2}}; {a: {x: d["b"]["y"]}, b: {y: got}} = d; [d, got]`, `[{"a":{"x":1},"b":{"y":1}},2]`},
+		{`xs = [[1], [2]]; [[xs[1][0]], [got]] = xs; [xs, got]`, `[[[1],[1]],2]`},
+		{`xs = [1, 2]; xs[1], xs[0] = xs; xs`, `[2,1]`},
+		// A shape that does not fit writes nothing, not the targets to its left.
+		{`a = 0; try ([a, [b, c]] = [1, 2]) else nil; a`, `0`},
+		{`a = 0; try ({a, z} = {a: 1}) else nil; a`, `0`},
 		// The value of the assignment is the right side, and the assignment is an
 		// expression wherever one may stand, as the bracketed array form is.
 		{`d = {a: 1}; ({a} = d) == d`, `true`},
@@ -125,7 +131,7 @@ func TestDictPatternArmErrors(t *testing.T) {
 		{`d = {a: 1}; match d { {a: 1}, {b: 2} -> 1 }`, ErrKindSyntax, "a dict pattern must be the only pattern in its arm"},
 		{`d = {a: 1}; match d { {a} -> a; {a, a: b} -> b }`, ErrKindSyntax, `key "a" is named twice`},
 		// A comparison inside a pattern still raises the errors it raises anywhere.
-		{`d = {a: 1}; match d { {a: in 5} -> 1 }`, ErrKindName, "undefined method 'has' for int"},
+		{`d = {a: 1}; match d { {a: in 5} -> 1 }`, ErrKindType, "the right side of 'in' must have members"},
 	})
 }
 

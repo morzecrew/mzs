@@ -547,20 +547,16 @@ func (p *printer) loopVars(x *ast.ForExpr) (string, bool) {
 		if s, ok := p.flat(pat); ok {
 			return s, true
 		}
-		// A header has no break point of its own, so a pattern with a part that has no
-		// flat form keeps the text it was written with.
-		return p.text(pat), true
+		// A header has no break point of its own, so a pattern with no flat form — one
+		// holding a comment — keeps the text it was written with, and the `for` is not
+		// flat either: the comment is written once, from that text.
+		return p.text(pat), false
 	}
 	vars, ok := one(x.KeyVar, x.KeyPat)
-	if !ok {
-		return "", false
-	}
 	if x.ValVar != "" || x.ValPat != nil {
-		v, ok := one(x.ValVar, x.ValPat)
-		if !ok {
-			return "", false
-		}
+		v, vok := one(x.ValVar, x.ValPat)
 		vars += ", " + v
+		ok = ok && vok
 	}
-	return vars, true
+	return vars, ok
 }

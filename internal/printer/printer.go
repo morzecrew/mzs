@@ -300,6 +300,13 @@ func (p *printer) brackets(e ast.Expr) (from, to int, ok bool) {
 		return x.Lbrack.Offset, x.Rbrack.Offset, true
 	case *ast.DictLit:
 		return x.Lbrack.Offset, x.Rbrack.Offset, true
+	case *ast.ArrayPattern:
+		if !x.Brackets {
+			return 0, 0, false
+		}
+		return x.Start.Offset, x.Stop.Offset, true
+	case *ast.DictPattern:
+		return x.Lbrace.Offset, x.Stop.Offset, true
 	case *ast.GroupExpr:
 		return x.Lparen.Offset, x.Rparen.Offset, true
 	case *ast.CallExpr:

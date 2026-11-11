@@ -182,8 +182,14 @@ include exports, RFC 0003) and it carries its own §21.4 corner, below.
   twice in one pattern is a parse error.
 * **The rest of a record is a plain dict**, as `{**p}` is (RFC 0001): a record is a shape
   its constructor promised, and a dict with fields taken out is no longer that shape.
-* **Every value is read before the first is written**, as the array form does, so a target
-  writing into the dict being taken apart cannot change what a later key reads.
+* **Every value is read before the first is written**, at every depth, so a target writing
+  into the dict being taken apart — or into a nested container a later key reads — cannot
+  change what that key reads. Destructuring is two passes, read then write, for the array
+  form too, which had the same gap one level down; a shape that does not fit therefore
+  writes nothing.
+* **A spreading arm.** `{**defaults} ->` binds the subject's entries rather than comparing
+  with a copy, and `{**defaults, a: 1} ->` no longer compiles, because a pattern's rest
+  comes last. Both are part of the declared §21.4 change; parenthesised, both compare.
 * **A loop pattern holds names, rests and nested patterns only.** A `$var` or an index
   target is refused in a `for` header — a loop binds fresh names per item, and writing into
   a global on every turn is what the body is for. The anonymous `*` and `**` stay `match`
