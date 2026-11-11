@@ -14,6 +14,8 @@ func parseEval(t *testing.T, src string) (Value, error) {
 	return New(DefaultOptions()).Eval(context.Background(), src, nil)
 }
 
+// Every spelling parse_int accepts, with and without a base, and every one it refuses:
+// trailing text, misplaced separators, a prefix under an explicit base, overflow.
 func TestParseInt(t *testing.T) {
 	ok := []struct {
 		src  string
@@ -73,6 +75,8 @@ func TestParseInt(t *testing.T) {
 	}
 }
 
+// Every spelling parse_float accepts, and the ones a literal would not: a bare `.`, a
+// separator in the exponent, inf, nan, hex and a value past float64.
 func TestParseFloat(t *testing.T) {
 	ok := []struct {
 		src  string
