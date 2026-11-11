@@ -312,6 +312,27 @@ func TestExportedDeclarationsAreDeclarations(t *testing.T) {
 	}
 }
 
+// A destructuring declares every name it binds (RFC 0001, RFC 0002); an index it writes
+// through declares nothing.
+func TestDestructuringDeclaresItsNames(t *testing.T) {
+	src := "head, *tail = [1, 2, 3]\n{name, age: a, **rest} = {name: 1, age: 2}\n[x, {y}] = [1, {y: 2}]\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(uri, src),
+		msg("textDocument/documentSymbol", 2, map[string]any{"textDocument": map[string]any{"uri": uri}}),
+		msg("exit", nil, nil),
+	)
+	var syms []documentSymbol
+	into(t, s.reply(2)["result"], &syms)
+	var names []string
+	for _, sym := range syms {
+		names = append(names, sym.Name)
+	}
+	if strings.Join(names, ",") != "head,tail,name,a,rest,x,y" {
+		t.Errorf("symbols = %v, want head,tail,name,a,rest,x,y", names)
+	}
+}
+
 func TestDefinitionOpensAnIncludedFile(t *testing.T) {
 	dir := t.TempDir()
 	lib := filepath.Join(dir, "lib.mzs")

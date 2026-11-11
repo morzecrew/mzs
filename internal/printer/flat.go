@@ -118,6 +118,8 @@ func (p *printer) flatNode(e ast.Expr) (string, bool) {
 			return "[" + strings.Join(parts, ", ") + "]", true
 		}
 		return strings.Join(parts, ", "), true
+	case *ast.DictPattern:
+		return p.flatDictPattern(x)
 	case *ast.IndexExpr:
 		recv, ok := p.flat(x.X)
 		if !ok {
@@ -187,9 +189,9 @@ func (p *printer) flatNode(e ast.Expr) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		vars := x.KeyVar
-		if x.ValVar != "" {
-			vars += ", " + x.ValVar
+		vars, ok := p.loopVars(x)
+		if !ok {
+			return "", false
 		}
 		return "for " + vars + " in " + iter + " " + body, true
 	case *ast.MatchExpr:
@@ -504,4 +506,61 @@ func (p *printer) flatClause(e ast.Expr) (string, bool) {
 		return p.flatBlock(b)
 	}
 	return p.flat(e)
+}
+
+// flatDictPattern writes `{name, age: a, "content-type": ct, **rest}` (RFC 0002). A key
+// keeps the spelling it was written with, so a quoted key stays quoted.
+func (p *printer) flatDictPattern(x *ast.DictPattern) (string, bool) {
+	parts := make([]string, 0, len(x.Entries)+1)
+	for _, en := range x.Entries {
+		key := p.slice(en.KeyPos.Offset, en.KeyEnd.Offset)
+		if en.Short {
+			parts = append(parts, key)
+			continue
+		}
+		v, ok := p.flat(en.Value)
+		if !ok {
+			return "", false
+		}
+		if en.In {
+			v = "in " + v
+		}
+		parts = append(parts, key+": "+v)
+	}
+	if x.HasRest {
+		rest := "**"
+		if x.Rest != nil {
+			rest += x.Rest.Name
+		}
+		parts = append(parts, rest)
+	}
+	return "{" + strings.Join(parts, ", ") + "}", true
+}
+
+// loopVars writes a `for` header's variables: names, or the patterns that take each item
+// apart (RFC 0002).
+func (p *printer) loopVars(x *ast.ForExpr) (string, bool) {
+	one := func(name string, pat ast.Expr) (string, bool) {
+		if pat == nil {
+			return name, true
+		}
+		if s, ok := p.flat(pat); ok {
+			return s, true
+		}
+		// A header has no break point of its own, so a pattern with a part that has no
+		// flat form keeps the text it was written with.
+		return p.text(pat), true
+	}
+	vars, ok := one(x.KeyVar, x.KeyPat)
+	if !ok {
+		return "", false
+	}
+	if x.ValVar != "" || x.ValPat != nil {
+		v, ok := one(x.ValVar, x.ValPat)
+		if !ok {
+			return "", false
+		}
+		vars += ", " + v
+	}
+	return vars, true
 }

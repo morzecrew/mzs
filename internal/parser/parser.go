@@ -79,6 +79,13 @@ type parser struct {
 	// stmt is the index of the first token of the statement being parsed, which
 	// restStartsLine scans from to learn its bracket depth.
 	stmt int
+
+	// patNext says that the operand about to be read stands in pattern position — the
+	// left of `=`, a `match` arm, a `for` variable, or an element of a pattern already
+	// being read — so a `{ … }` that is the whole element is a dict pattern (RFC 0002).
+	// parsePrimary takes it and clears it, which is what keeps it from reaching any
+	// operand but the first: `{a} + x` reads `{a}` as the pattern and nothing after it.
+	patNext bool
 }
 
 // state is what push saves: both counters answer "what does this token close", and
@@ -445,12 +452,18 @@ func (p *parser) parseBareStmt() ast.Stmt {
 			p.errorAt(p.cur().Pos, "a rest element needs a neighbour; write %s = xs.array", name.Value)
 			p.advance() // the '*': the assignment after it is the one the fix-it names
 		}
-	case token.GVAR, token.LBRACKET:
+	case token.GVAR, token.LBRACKET, token.LBRACE:
 		// `[a, b] = xs` needs no lookahead — parseAssign sees the pattern where the
 		// target would be — but `[a, b], c = xs` does, because its comma is the one at
 		// depth zero.
 		if p.destructureAhead() {
 			return &ast.ExprStmt{X: p.parseDestructure()}
+		}
+		// `{name, age} = user` (RFC 0002): a bracket whose close stands right in front
+		// of an assignment operator is a target, so a `{ … }` inside it is a pattern.
+		// A closure is never followed by `=`, so the brace has no second reading.
+		if p.startsPattern() && token.IsAssignOp(p.kindAt(p.closeOf(p.pos))) {
+			p.patNext = true
 		}
 	case token.KW_FN:
 		if p.peekKind(1) == token.IDENT {
@@ -673,8 +686,11 @@ func (p *parser) parseAssign() ast.Expr {
 		// `[` is always an array (D3), so the left side of `=` arrives here as an array
 		// literal and becomes a pattern now — the one place the two spellings of §8.15
 		// meet.
-		if lit, ok := l.(*ast.ArrayLit); ok {
-			return p.parseDestructureTail(p.targetPattern(lit), op)
+		switch t := l.(type) {
+		case *ast.ArrayLit:
+			return p.parseDestructureTail(p.targetPattern(t), op)
+		case *ast.DictPattern:
+			return p.parseDestructureTail(p.targetDict(t), op)
 		}
 		if !assignable(l) {
 			p.errorAt(op.Pos, "cannot assign to this expression")
@@ -783,6 +799,7 @@ func (p *parser) parseDestructure() ast.Expr {
 		if p.kind() == token.STAR {
 			el = p.targetElem(p.parseElem())
 		} else {
+			p.patNext = p.startsPattern()
 			el = p.targetElem(p.parseTernary())
 		}
 		pat.Elems = append(pat.Elems, el)
@@ -804,7 +821,7 @@ func (p *parser) parseDestructure() ast.Expr {
 // parseDestructureTail reads the right side once the pattern and the operator are in
 // hand. Only `=` and `:=` destructure: `a, b += xs` has no reading that is not a
 // surprise, so it is a diagnostic rather than a definition.
-func (p *parser) parseDestructureTail(pat *ast.ArrayPattern, op token.Token) ast.Expr {
+func (p *parser) parseDestructureTail(pat ast.Expr, op token.Token) ast.Expr {
 	kind := op.Kind
 	if kind != token.ASSIGN && kind != token.DECLARE {
 		p.errorAt(op.Pos, "destructuring assigns with '=' or ':=', not '%s'", kind.String())
@@ -830,6 +847,8 @@ func (p *parser) targetElem(x ast.Expr) ast.Expr {
 		return x
 	case *ast.ArrayLit:
 		return p.targetPattern(t)
+	case *ast.DictPattern:
+		return p.targetDict(t)
 	case *ast.Splat:
 		// `*rest` collects the positions no other target takes, into a new array; it is
 		// a binding, so it names one (RFC 0001).
@@ -886,6 +905,9 @@ func (p *parser) matchPattern(lit *ast.ArrayLit) *ast.ArrayPattern {
 		switch t := el.(type) {
 		case *ast.ArrayLit:
 			pat.Elems = append(pat.Elems, p.matchPattern(t))
+			continue
+		case *ast.DictPattern:
+			pat.Elems = append(pat.Elems, p.matchDict(t))
 			continue
 		case *ast.Splat:
 			// `[head, *tail]` binds the rest and `[head, *]` skips it; what would a
@@ -1366,6 +1388,8 @@ func strLit(text string, start, stop token.Pos) *ast.StrLit {
 // ---------------------------------------------------------------------------
 
 func (p *parser) parsePrimary() ast.Expr {
+	pat := p.patNext
+	p.patNext = false
 	p.depth++
 	if p.depth > maxDepth {
 		p.errorAt(p.cur().Pos, "expression nesting is too deep")
@@ -1436,8 +1460,11 @@ func (p *parser) parsePrimary() ast.Expr {
 		}
 		return p.parseGroup()
 	case token.LBRACKET:
-		return p.parseCollection()
+		return p.parseCollection(pat && p.isElement(p.pos))
 	case token.LBRACE:
+		if pat && p.isElement(p.pos) {
+			return p.parseDictPattern()
+		}
 		// §3.12: the dict lookahead runs before §3.11, because a body can never begin
 		// with `name :` — so `if x == {a: 1} { … }` reads the dict and still leaves the
 		// body to the caller. Only a non-dict `{` in a header ends the header.
@@ -1555,7 +1582,7 @@ func (p *parser) parseGroup() ast.Expr {
 // parseCollection reads `[ … ]`. `[` is always an array (D3). The two dict shapes it
 // used to carry are still recognised by the §3.12 lookahead, but only so that each can
 // name its brace replacement instead of failing as a mangled array.
-func (p *parser) parseCollection() ast.Expr {
+func (p *parser) parseCollection(pat bool) ast.Expr {
 	lbIdx := p.pos
 	lb := p.advance().Pos
 	saved := p.push()
@@ -1572,7 +1599,7 @@ func (p *parser) parseCollection() ast.Expr {
 	if p.kind() != token.POW && p.dictFollows() {
 		return p.bracketDict(lbIdx, lb, "a dict is written {a: 1}")
 	}
-	return p.parseArrayBody(lb) // rule 5
+	return p.parseArrayBody(lb, pat) // rule 5
 }
 
 // bracketDict reports a dict written in brackets — the earlier draft's spelling — and names the
@@ -1632,7 +1659,7 @@ func (p *parser) literalKeyAt(i int) bool {
 	return endsDictKey(p.kindAt(i + 1))
 }
 
-func (p *parser) parseArrayBody(lb token.Pos) ast.Expr {
+func (p *parser) parseArrayBody(lb token.Pos, pat bool) ast.Expr {
 	var elems []ast.Expr
 	for {
 		p.skipNewlines()
@@ -1643,6 +1670,7 @@ func (p *parser) parseArrayBody(lb token.Pos) ast.Expr {
 			p.errorAt(p.cur().Pos, "'**' spreads a dict's entries, into a dict or a call; in an array write '*'")
 			p.advance()
 		}
+		p.patNext = pat && p.startsPattern()
 		elems = append(elems, p.parseElem())
 		p.skipNewlines()
 		if !p.accept(token.COMMA) {
@@ -2030,30 +2058,255 @@ func (p *parser) parseWhile() ast.Expr {
 	return &ast.WhileExpr{Cond: cond, Body: body, Kw: kw, Stop: body.Stop}
 }
 
+// startsPattern reports whether the token under the cursor can open a pattern: `[` for
+// an array pattern, `{` for a dict pattern (RFC 0002).
+func (p *parser) startsPattern() bool {
+	k := p.kind()
+	return k == token.LBRACKET || k == token.LBRACE
+}
+
+// closeOf is the index just past the bracket that closes the one opened at i, read over
+// tokens alone: a string is skipped whole, so a brace inside `"${…}"` never counts.
+func (p *parser) closeOf(i int) int {
+	depth := 0
+	for ; i < len(p.toks); i++ {
+		switch p.toks[i].Kind {
+		case token.LPAREN, token.LBRACKET, token.LBRACE:
+			depth++
+		case token.RPAREN, token.RBRACKET, token.RBRACE:
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		case token.STR_BEGIN:
+			i = p.skipString(i) - 1
+		case token.EOF:
+			return i
+		}
+	}
+	return i
+}
+
+// isElement reports whether the bracket opened at i is a whole element of the pattern
+// being read: what follows its close ends the element. That is the line between a
+// pattern and an operand that merely starts with a bracket — `{a: 1}.len -> …` and
+// `{a: 1} in xs -> …` compare what they always compared, while `{a: 1} -> …` asks for a
+// key (RFC 0002). The `in` of a `for` header is parseForTarget's to read.
+func (p *parser) isElement(i int) bool {
+	switch k := p.kindAt(p.closeOf(i)); k {
+	case token.COMMA, token.RBRACKET, token.RBRACE, token.ARROW, token.KW_IF:
+		return true
+	default:
+		return token.IsAssignOp(k)
+	}
+}
+
+// parseDictPattern reads `{ entry, … }` in pattern position (RFC 0002). Whether a value
+// position binds, compares or nests is the owner's to decide — targetDict for the left of
+// `=`, matchDict for an arm — so this reads the one grammar both share:
+//
+//	{name}            the value under "name", into name
+//	{name: where}     the value under "name", wherever `where` says
+//	{"a-b": where}    a key that is not a word
+//	{age: in 18..65}  membership, in an arm
+//	{**rest}          the entries no other key names, as a new dict; last
+func (p *parser) parseDictPattern() ast.Expr {
+	lb := p.advance()
+	saved := p.push()
+	pat := &ast.DictPattern{Lbrace: lb.Pos}
+	seen := map[string]bool{}
+	for {
+		p.skipNewlines()
+		if p.kind() == token.RBRACE || p.kind() == token.EOF {
+			break
+		}
+		if pat.HasRest {
+			p.errorAt(p.cur().Pos, "'**' collects the entries no key names, so it comes last in a dict pattern")
+		}
+		if p.kind() == token.POW {
+			star := p.advance()
+			if pat.HasRest {
+				p.errorAt(star.Pos, "a pattern takes one rest element")
+			}
+			pat.HasRest = true
+			if t := p.cur(); t.Kind == token.IDENT {
+				p.advance()
+				pat.Rest = &ast.Ident{Name: t.Value, Slot: -1, Start: t.Pos, Stop: t.End}
+			}
+		} else if en, ok := p.parseDictPatternEntry(); ok {
+			if seen[en.Key] {
+				p.errorAt(en.KeyPos, "key %q is named twice in this pattern", en.Key)
+			}
+			seen[en.Key] = true
+			pat.Entries = append(pat.Entries, en)
+		} else {
+			p.sync([]token.Kind{token.COMMA, token.RBRACE})
+		}
+		p.skipNewlines()
+		if !p.accept(token.COMMA) {
+			break
+		}
+	}
+	p.skipNewlines()
+	p.pop(saved)
+	rb := p.expect(token.RBRACE, "dict pattern")
+	pat.Rbrace, pat.Stop = rb.Pos, rb.End
+	return pat
+}
+
+// parseDictPatternEntry reads one `key` or `key: value` of a dict pattern. A key is a
+// word or a plain string: a pattern names the keys it takes, so a key computed at run
+// time has no place in it.
+func (p *parser) parseDictPatternEntry() (ast.DictPatternEntry, bool) {
+	t := p.cur()
+	en := ast.DictPatternEntry{KeyPos: t.Pos}
+	switch t.Kind {
+	case token.IDENT:
+		p.advance()
+		en.Key, en.KeyEnd = t.Value, t.End
+		if p.kind() != token.COLON {
+			// `{name}` is `{name: name}`.
+			en.Short = true
+			en.Value = &ast.Ident{Name: t.Value, Slot: -1, Start: t.Pos, Stop: t.End}
+			return en, true
+		}
+	case token.STR_BEGIN:
+		lit, ok := p.parseStrLit().(*ast.StrLit)
+		if !ok || !lit.IsConst() {
+			p.errorAt(t.Pos, "a key in a pattern is a name or a plain string, not an interpolation")
+			return en, false
+		}
+		en.Key, en.KeyEnd = lit.ConstText(), lit.Stop
+		if p.kind() != token.COLON {
+			p.errorAt(p.cur().Pos, "a string key in a pattern needs ':' and where its value goes: {%q: v}", en.Key)
+			return en, false
+		}
+	default:
+		p.errorAt(t.Pos, "expected a key in a dict pattern, found %s: a key is a name or a plain string", describe(t))
+		return en, false
+	}
+	p.advance() // ':'
+	p.skipNewlines()
+	if p.accept(token.KW_IN) {
+		en.In = true
+		en.Value = p.parseTernary()
+		return en, true
+	}
+	p.patNext = p.startsPattern()
+	en.Value = p.parseTernary()
+	return en, true
+}
+
+// targetDict checks a dict pattern on the left of `=` (RFC 0002). Every value position is
+// a target — a name, a $var, an index or a nested pattern — because assignment binds; a
+// comparison is what a `match` arm is for.
+func (p *parser) targetDict(pat *ast.DictPattern) *ast.DictPattern {
+	if len(pat.Entries) == 0 && !pat.HasRest {
+		p.errorAt(pat.Lbrace, "an empty dict pattern binds nothing")
+	}
+	if pat.HasRest && pat.Rest == nil {
+		p.errorAt(pat.Lbrace, "a rest element in a destructuring is '**' and a name: write **rest")
+	}
+	for i := range pat.Entries {
+		en := &pat.Entries[i]
+		if en.In {
+			p.errorAt(en.Value.Pos(), "'in' tests membership, which belongs in a match arm; a destructuring binds")
+			continue
+		}
+		switch t := en.Value.(type) {
+		case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr:
+		case *ast.ArrayLit:
+			en.Value = p.targetPattern(t)
+		case *ast.DictPattern:
+			en.Value = p.targetDict(t)
+		default:
+			p.errorAt(en.Value.Pos(), "a destructuring target binds, so the value of '%s' goes to a name, a $var, an index or a nested pattern; comparing belongs in a match arm", en.Key)
+		}
+	}
+	return pat
+}
+
+// matchDict converts the nested patterns of a dict pattern in a `match` arm. A bare name
+// binds, `[ … ]` and `{ … }` recurse, and any other value is compared as an arm pattern
+// is (§5.3), which is the rule matchPattern applies to an array.
+func (p *parser) matchDict(pat *ast.DictPattern) *ast.DictPattern {
+	for i := range pat.Entries {
+		en := &pat.Entries[i]
+		if en.In {
+			continue
+		}
+		switch t := en.Value.(type) {
+		case *ast.ArrayLit:
+			en.Value = p.matchPattern(t)
+		case *ast.DictPattern:
+			en.Value = p.matchDict(t)
+		}
+	}
+	return pat
+}
+
 func (p *parser) parseFor() ast.Expr {
 	kw := p.advance().Pos
 	node := &ast.ForExpr{Kw: kw}
-	t := p.cur()
-	if t.Kind != token.IDENT {
-		p.errorAt(t.Pos, "expected a loop variable, found %s", describe(t))
-	} else {
-		p.advance()
-		node.KeyVar = t.Value
-	}
+	node.KeyVar, node.KeyPat = p.parseForTarget("a loop variable")
 	if p.accept(token.COMMA) {
-		v := p.cur()
-		if v.Kind != token.IDENT {
-			p.errorAt(v.Pos, "expected a second loop variable, found %s", describe(v))
-		} else {
-			p.advance()
-			node.ValVar = v.Value
-		}
+		node.ValVar, node.ValPat = p.parseForTarget("a second loop variable")
 	}
 	p.expect(token.KW_IN, "for loop")
 	node.Iter = p.parseHeaderExpr()
 	node.Body = p.parseBody("for body")
 	node.Stop = node.Body.Stop
 	return node
+}
+
+// parseForTarget reads one loop variable: a name, or a pattern that takes each item
+// apart (RFC 0002) — `for [id, row] in pairs`, `for {name} in users`. Exactly one of
+// the two results is set when the header is well formed.
+func (p *parser) parseForTarget(what string) (string, ast.Expr) {
+	t := p.cur()
+	switch {
+	case t.Kind == token.IDENT:
+		p.advance()
+		return t.Value, nil
+	case p.startsPattern():
+		// The header's own `in` or `,` ends the pattern, so it is read here rather than
+		// through isElement, which leaves `in` to an operand everywhere else.
+		if k := p.kindAt(p.closeOf(p.pos)); k != token.KW_IN && k != token.COMMA {
+			break
+		}
+		if t.Kind == token.LBRACE {
+			return "", p.loopPattern(p.parseDictPattern())
+		}
+		return "", p.loopPattern(p.parseCollection(true))
+	}
+	p.errorAt(t.Pos, "expected %s, found %s", what, describe(t))
+	return "", nil
+}
+
+// loopPattern converts the pattern of a `for` header. It is a destructuring target, but
+// one that binds fresh names for each iteration, so it holds names, rests and nested
+// patterns only: writing an item into `$g` or `xs[0]` on every turn is what the body is
+// for.
+func (p *parser) loopPattern(x ast.Expr) ast.Expr {
+	var pat ast.Expr
+	switch t := x.(type) {
+	case *ast.ArrayLit:
+		pat = p.targetPattern(t)
+	case *ast.DictPattern:
+		pat = p.targetDict(t)
+	default:
+		p.errorAt(x.Pos(), "expected a loop variable: a name, [ … ] or { … }")
+		return nil
+	}
+	ast.Walk(pat, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.GlobalVar, *ast.IndexExpr:
+			p.errorAt(n.Pos(), "a loop pattern binds names: a $var or an index is written in the body")
+			return false
+		}
+		return true
+	})
+	return pat
 }
 
 // parseMatch reads §5.2–§5.5. The subject is optional (§5.4); arms are separated by a
@@ -2102,6 +2355,9 @@ func (p *parser) parseMatch() ast.Expr {
 		if node.Arms[i].Kind == ast.ArmArray && node.Subject == nil {
 			p.errorAt(node.Arms[i].Pos, "an array pattern needs a subject: match xs { [a, b] -> … }")
 		}
+		if node.Arms[i].Kind == ast.ArmDict && node.Subject == nil {
+			p.errorAt(node.Arms[i].Pos, "a dict pattern needs a subject: match d { {kind: k} -> … }")
+		}
 	}
 	return node
 }
@@ -2131,6 +2387,7 @@ func (p *parser) parseMatchArm() ast.MatchArm {
 		} else if kind != arm.Kind {
 			p.errorAt(p.cur().Pos, "every pattern in one arm must use the same form")
 		}
+		p.patNext = kind == ast.ArmValue && p.startsPattern()
 		arm.Pats = append(arm.Pats, p.armExpr())
 		if !p.accept(token.COMMA) {
 			break
@@ -2165,12 +2422,17 @@ func (p *parser) armArrayPattern(arm *ast.MatchArm) {
 	if arm.Kind != ast.ArmValue {
 		return
 	}
-	found := -1
+	found, what := -1, ""
 	for i, pat := range arm.Pats {
-		if _, ok := pat.(*ast.ArrayLit); ok {
-			found = i
-			break
+		switch pat.(type) {
+		case *ast.ArrayLit:
+			found, what = i, "an array pattern"
+		case *ast.DictPattern:
+			found, what = i, "a dict pattern"
+		default:
+			continue
 		}
+		break
 	}
 	if found < 0 {
 		return
@@ -2178,11 +2440,17 @@ func (p *parser) armArrayPattern(arm *ast.MatchArm) {
 	if len(arm.Pats) > 1 {
 		// "Or" over patterns that bind different names in the same arm has no reading
 		// the body could rely on, so it is refused rather than guessed at.
-		p.errorAt(arm.Pats[found].Pos(), "an array pattern must be the only pattern in its arm")
+		p.errorAt(arm.Pats[found].Pos(), "%s must be the only pattern in its arm", what)
 		return
 	}
-	arm.Kind = ast.ArmArray
-	arm.Pats[0] = p.matchPattern(arm.Pats[0].(*ast.ArrayLit))
+	switch t := arm.Pats[0].(type) {
+	case *ast.ArrayLit:
+		arm.Kind = ast.ArmArray
+		arm.Pats[0] = p.matchPattern(t)
+	case *ast.DictPattern:
+		arm.Kind = ast.ArmDict
+		arm.Pats[0] = p.matchDict(t)
+	}
 }
 
 // parseArmBody reads `-> ( Expr | Closure )`. A `{ … }` here is a body, evaluated

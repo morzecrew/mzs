@@ -631,7 +631,13 @@ ExportStmt     = "export" ( FnDecl | RecordDecl | Assignment | IDENT ) ;
 Destructure    = Target ( "," Target )+ ( "=" | ":=" ) Expr ;  (* the bare form: statement level only *)
 Target         = IDENT | GVAR | Postfix "[" Expr "]" | TargetPattern
                | "*" IDENT ;                                 (* rest: at most one per level, §8.15 *)
-TargetPattern  = "[" [ Target { "," Target } [ "," ] ] "]" ;   (* also valid alone: [a, b] = xs *)
+TargetPattern  = "[" [ Target { "," Target } [ "," ] ] "]"   (* also valid alone: [a, b] = xs *)
+               | DictTarget ;                                (* {name, age: a} = user, §8.15 *)
+DictTarget     = "{" DictTargetEntry { "," DictTargetEntry } [ "," ] [ "," "**" IDENT ] "}"
+               | "{" "**" IDENT "}" ;
+DictTargetEntry= IDENT                                       (* {name} is {name: name} *)
+               | DictKey ":" Target ;
+DictKey        = IDENT | STRING ;                            (* a plain string: no interpolation *)
 
 ReturnStmt     = "return" [ Expr ] ;
 BreakStmt      = "break"  [ Expr ] ;
@@ -660,7 +666,8 @@ Field          = IDENT [ "=" Expr ] ;                  (* a Param without "*rest
 
 IfExpr         = "if" Expr Closure { "else" "if" Expr Closure } [ "else" Closure ] ;
 WhileExpr      = "while" Expr Closure ;
-ForExpr        = "for" IDENT [ "," IDENT ] "in" Expr Closure ;
+ForExpr        = "for" ForTarget [ "," ForTarget ] "in" Expr Closure ;
+ForTarget      = IDENT | TargetPattern ;   (* a pattern binds names only: no $var, no index (§8.15) *)
 MatchExpr      = "match" [ Expr ] "{" SEP* MatchArm ( SEP+ MatchArm )* SEP* "}" ;
 MatchArm       = ArmPattern { "," ArmPattern } [ "if" Expr ] "->" ( Expr | Closure )
                | MatchPattern [ "if" Expr ] "->" ( Expr | Closure )
@@ -668,11 +675,19 @@ MatchArm       = ArmPattern { "," ArmPattern } [ "if" Expr ] "->" ( Expr | Closu
 ArmPattern     = "in" Expr          (* membership *)
                | "if" Expr          (* bare condition *)
                | Expr ;             (* equality; a regex means match, a record the shape *)
-MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]" ;   (* §8.15; binds *)
+MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]"   (* §8.15; binds *)
+               | DictMatch ;
 MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
                | "*" [ IDENT ]      (* rest: binds the positions between, or skips them; one per level *)
                | Expr ;             (* compared, exactly as an ArmPattern is *)
+DictMatch      = "{" [ DictMatchEntry { "," DictMatchEntry } [ "," ] ] [ "**" [ IDENT ] ] "}" ;
+               (* the "**" comes last, after a "," when entries precede it *)
+DictMatchEntry = IDENT                          (* binds the value under that key *)
+               | DictKey ":" MatchElem          (* a name binds, a pattern nests, an Expr compares *)
+               | DictKey ":" "in" Expr ;        (* membership, as an "in" arm is *)
+               (* a "[" or "{" is a pattern only when it is the whole element: the token after
+                  its close is "," "]" "}" "->" "if" or an AssignOp (§8.15) *)
 TryExpr        = "try" TryClause [ "else" [ TryBinder ] TryClause ] [ "ensure" Block ] ;
                (* at least one of "else" and "ensure" is required (§8.11) *)
 TryClause      = Block | Expr ;     (* §3.12 reads a dict operand first: try {a: 1} is a dict *)
@@ -969,6 +984,7 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring of a string |
 | `if expr` | `expr` is truthy (the subject is not consulted) |
 | `[p, …]` | the subject is an array (or range) of exactly that length and every position fits — a bare name binds it (§8.15) |
+| `{k: p, …}` | the subject is a dict (a record is one) that has every key named and every value fits — a bare name binds it, `k: in expr` asks membership; other keys are ignored (§8.15) |
 | `else` | always; allowed only as the last arm |
 | any other expression | `subject == expr` |
 
@@ -986,10 +1002,11 @@ match n { (1) -> { "one" }; else -> "many" }      # a pattern, then the arm's bo
 match n { 1 -> (y) -> { y + 1 }; else -> nil }    # the body is an arrow function
 ```
 
-An array pattern is the one form that **binds**, so it must be the only pattern in its arm —
-"or" over patterns that bind different names has no reading the body could rely on — and it
-needs a subject, because with none every pattern is a condition (§5.4). The names it binds
-live in the arm's own scope: the guard sees them, and nothing after the arm does.
+An array pattern and a dict pattern are the forms that **bind**, so each must be the only
+pattern in its arm — "or" over patterns that bind different names has no reading the body
+could rely on — and each needs a subject, because with none every pattern is a condition
+(§5.4). The names one binds live in the arm's own scope: the guard sees them, and nothing
+after the arm does.
 
 ```
 match order {
@@ -1003,7 +1020,13 @@ match order {
 `in [1, 2]` and `[a, b]` are different questions and stay spelled differently: the first asks
 whether the subject is *in* that array, the second takes the subject *apart*. To compare
 against an array value rather than destructure it, parenthesise it — `(xs) ->` — or compare in
-a guard.
+a guard. The same holds for a dict: `({a: 1}) ->` is equality with that dict, while
+`{a: 1} ->` fires on any dict whose `"a"` is `1`.
+
+A `[` or `{` is a pattern only when it is the **whole** pattern or the whole element of
+one: the token after its close is `,`, `]`, `}`, `->`, `if` or an assignment operator. So
+`{a: 1}.len ->` and `{a: 1} in xs ->` are the operands they read as, a dict literal with a
+method or an operator after it, and are compared as any expression is.
 
 ### 5.4 `match` with no subject
 
@@ -1129,7 +1152,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 |---|---|
 | `IfExpr` | `Cond Expr`, `Then *BlockStmt`, `Else Stmt` (nil, `*BlockStmt`, or a nested `*IfExpr` for `else if`) |
 | `WhileExpr` | `Cond Expr`, `Body *BlockStmt` |
-| `ForExpr` | `KeyVar string`, `ValVar string` (may be ""), `Iter Expr`, `Body *BlockStmt` |
+| `ForExpr` | `KeyVar string`, `ValVar string` (may be ""), `KeyPat Expr`, `ValPat Expr` (a pattern in place of the name, else nil), `Iter Expr`, `Body *BlockStmt` |
 | `MatchExpr` | `Subject Expr` (nil for the subject-less form), `Arms []MatchArm` |
 | `TryExpr` | `X Expr`, `Var string` (may be ""), `Fallback Expr` (nil with no `else`), `Ensure *BlockStmt` (nil with no `ensure`) — `X` and `Fallback` hold a `*BlockStmt` in the braced form (§8.11) |
 
@@ -1154,7 +1177,8 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `RangeExpr` | `Lo, Hi Expr`, `Exclusive bool` (set by `..<`) |
 | `AssignExpr` | `Target Expr` (`*Ident`, `*GlobalVar`, `*IndexExpr`), `Op token.Kind` (`=`, `:=`, `+=`, …), `Value Expr` |
 | `ArrayPattern` | `Elems []Expr`, `Brackets bool` — one entry per position; a target or a nested pattern on the left of `=`, a binding name or a compared expression in a `match` arm (§8.15) |
-| `DestructureAssign` | `Pattern *ArrayPattern`, `Op token.Kind` (`=` or `:=`), `Value Expr` |
+| `DictPattern` | `Entries []DictPatternEntry`, `HasRest bool`, `Rest *Ident` — `{name, age: a, **rest}`; each entry is `Key string` and where its `Value` goes (a target on the left of `=`, a binding name, a nested pattern or a compared expression in an arm), with `In` for `key: in expr` and `Short` for `{name}`; `Rest` is nil for the anonymous `**` of an arm (§8.15) |
+| `DestructureAssign` | `Pattern Expr` (an `ArrayPattern` or a `DictPattern`), `Op token.Kind` (`=` or `:=`), `Value Expr` |
 | `IndexExpr` | `X Expr`, `Index Expr`, `Index2 Expr` (nil unless `a[i, n]`) |
 | `CallExpr` | `Fn Expr`, `Args []Expr`, `Named []NamedArg` (the `name = value` arguments, §8.7) |
 | `MethodCall` | `Recv Expr`, `Name string`, `Args []Expr`, `Named []NamedArg`, `Safe bool` (`?.`) |
@@ -1175,12 +1199,13 @@ const (
     ArmIn                   // `in expr`
     ArmGuard                // `if expr`
     ArmElse                 // `else`
-    ArmArray                // `[x, y]` — an array pattern, the one arm form that binds
+    ArmArray                // `[x, y]` — an array pattern, which binds
+    ArmDict                 // `{kind: k}` — a dict pattern, which binds (§8.15)
 )
 
 type MatchArm struct {
     Kind  ArmKind
-    Pats  []Expr      // ArmValue / ArmIn: more than one means "or"; ArmArray: exactly one
+    Pats  []Expr      // ArmValue / ArmIn: more than one means "or"; ArmArray, ArmDict: exactly one
     Guard Expr        // the arm's `if` condition; may be nil
     Body  *BlockStmt
     Pos   token.Pos
@@ -1216,6 +1241,7 @@ concept in the language (§4.1).
 | `x.foo` (no parens) | `MethodCall{Args: nil}` |
 | `a, b = xs`, `[a, b] = xs` | `DestructureAssign{Pattern: ArrayPattern{[a, b]}}` (§8.15) |
 | `[x, y] ->` in a `match` arm | `MatchArm{Kind: ArmArray, Pats: [ArrayPattern{[x, y]}]}` |
+| `{name, age: a} = u`, `{kind: k} ->` | `DestructureAssign{Pattern: DictPattern{…}}`, `MatchArm{Kind: ArmDict, Pats: [DictPattern{…}]}` |
 
 ### 6.3 Compile step
 
@@ -1932,7 +1958,7 @@ a, b = [b, a]                    # a swap needs no temporary
 
 * Only an **Array** or a **Range** has positions. A Dict does not: key order is insertion
   order (D11), not a positional contract, so `a, b = {x: 1, y: 2}` is a type error and
-  taking a dict apart is spelled `d["x"], d["y"] = …` or `for k, v in d`.
+  taking a dict apart is a **dict pattern**, `{x, y} = d` (below), which goes by key.
 * The lengths must be **equal**, unless the pattern has a rest element (below). Too few
   values and too many are both run-time errors — never a silent `nil` in the extra name,
   never a silently dropped value:
@@ -1970,6 +1996,34 @@ a, b = [b, a]                    # a swap needs no temporary
   neighbour to be the rest *of* and is a diagnostic naming `rest = xs.array`; the bracketed
   `[*all] = xs` is a copy and is allowed.
 
+**A dict pattern** `{key: target, …}` takes a dict apart by key (RFC 0002). It is the
+form JSON wants — the data a program handles is dicts inside arrays inside dicts:
+
+```
+{name, age: a} = user            # name = user["name"], a = user["age"]
+{"content-type": ct} = headers   # a key that is not a word is a plain string
+{data: {reason}} = event         # nesting, by key
+[id, {name}] = row               # inside an array pattern, and the other way round
+{id, **rest} = user              # rest: a new dict of the entries no key names
+```
+
+* `{name}` is `{name: name}`. A key is a word or a plain string — a pattern names the keys
+  it takes, so an interpolated key is refused — and each key is named once.
+* The right side must be a **Dict**; a record is one. Anything else is
+  `type: cannot destructure array with a dict pattern`.
+* Every key named must be **present**: the array form is strict about length, the dict
+  form about presence, and a missing key is the `key` error `fetch` raises —
+  `key: destructuring: key not found: "a"`. Keys the pattern does not name are
+  **ignored**: a dict pattern is open, because JSON objects grow.
+* `**rest`, last in the pattern, binds a **new dict** of the entries no key names, in the
+  order the source holds them — possibly empty, never a view, and a plain dict even when
+  the source is a record, as `{**p}` is (§8.16).
+* A value position is a target exactly as in an array pattern: a name, a `$var`, an index
+  or a nested pattern. A literal there is `a destructuring target binds …` at parse time —
+  comparing is what a `match` arm is for — and `{} = d` binds nothing and is refused.
+* Every value is read before the first is written, so `{a: d["b"], b: x} = d` reads `"b"`
+  as it was.
+
 The bare `a, b = …` form is a **statement**, not an expression: a comma at bracket depth
 zero means something else inside a call, a collection, a `for` header and a `match` arm.
 The bracketed form is an ordinary expression and works anywhere one does.
@@ -1993,10 +2047,37 @@ array of one or more whose first element is `"GET"` and binds the rest to `path`
 bare `*` skips the positions without binding them — `[first, *] -> first`. A bare `*`
 anywhere else has nothing to spread and is a compile error.
 
+A dict pattern in an arm fires when the subject is a dict, every key it names is present,
+and every value position fits: a bare name binds, a nested pattern recurses, `key: in expr`
+fires exactly when `subject[key] in expr` (§8.4), and any other expression compares as an
+arm pattern does — so a regex matches. A missing key is **no match**, not an error: an arm
+is a question. `**rest` binds the other entries, a bare `**` says nothing about them, and
+`{}` fires on any dict.
+
+```
+match event {
+  {kind: "paid", total: t} if t > 0  -> credit(t)
+  {kind: "refund", data: {reason}}   -> log(reason)
+  {kind: /^test\./}                  -> nil
+  {age: in 18..65}                   -> "adult"      # {age: 18..65} would compare with a range
+  else                               -> raise("unknown event")
+}
+```
+
+A name binds even when one of that spelling is in scope, as in an array pattern; to compare
+with a variable's value, parenthesise it — `{k: (limit)}`.
+
 `for k, v in xs` is the same rule with the pattern written in the loop header: every item
 must be an array (or range) of exactly two. A Dict iterates as `[key, value]` pairs, which
 is why `for k, v in d` reads the way it does; an item that is not a pair is an error, not
 a `nil` in `v`.
+
+Either loop variable may be a **pattern** instead of a name, taking each item apart under
+the rules of `:=`: `for [id, row] in pairs`, `for {name, age} in users`,
+`for k, {total} in by_user`. The names are fresh for each iteration and live in the loop's
+scope, as a loop variable does, so a loop pattern holds names, rests and nested patterns
+only — a `$var` or an index target is refused. An item of the wrong shape is the error the
+same pattern raises on the left of `:=`.
 
 ### 8.16 Splat and spread
 

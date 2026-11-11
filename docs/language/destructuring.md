@@ -91,7 +91,8 @@ Without a rest element, too few and too many are both run-time errors — never 
 | `a, b = {x: 1, y: 2}` | `type: cannot destructure dict: the right side must be an array` |
 
 A dict is not positional: key order is insertion order, not a contract. Take one apart by
-name — `d["x"], d["y"] = …` — or iterate it with `for k, v in d`.
+key with a [dict pattern](#dict-patterns) — `{x, y} = d` — or iterate it with
+`for k, v in d`.
 
 No compound operator destructures:
 
@@ -106,6 +107,33 @@ and creates one here when there is none, `:=` always creates here.
 ```
 n = 0; f = { n, m := [1, 2]; n }; [f.call(), n]    # [1,0]
 ```
+
+## Dict patterns
+
+`{ … }` on the left of `=` takes a dict apart **by key**. It is the shape JSON arrives in:
+
+```
+user = {name: "Ann", age: 41, city: "Riga"}
+{name, age: a} = user                 # name = "Ann", a = 41
+{"content-type": ct} = {"content-type": "text/csv"}   # a key that is not a word
+{data: {reason}} = {data: {reason: "late"}}           # nested, by key
+[id, {name}] = [7, user]              # inside an array pattern
+{name, **rest} = user                 # rest = {"age":41,"city":"Riga"}
+```
+
+`{name}` is short for `{name: name}`. A pattern is **open**: keys it does not name are
+ignored, because a JSON object grows. Every key it does name must be there:
+
+| Written | Message |
+|---|---|
+| `{a} = {}` | `key: destructuring: key not found: "a"` |
+| `{a, b} = [1, 2]` | `type: cannot destructure array with a dict pattern` |
+| `{a: 1} = d` | `syntax: a destructuring target binds, so the value of 'a' goes to a name, …` |
+| `{} = d` | `syntax: an empty dict pattern binds nothing` |
+| `{**r, a} = d` | `syntax: '**' collects the entries no key names, so it comes last in a dict pattern` |
+
+`**rest` is a **new** dict of what no key names, in the source's order. A record is a dict,
+so a pattern takes one apart too; its rest is a plain dict, as `{**p}` is.
 
 ## In a `match` arm
 
@@ -130,6 +158,29 @@ match []                    { [first, *] -> first; else -> "empty" }          # 
 A name binds, a literal still compares, and a guard sees what the pattern bound — see
 [`examples/33_destructuring.mzs`](../../examples/33_destructuring.mzs) for the full set.
 
+A dict pattern in an arm fires when the subject is a dict with every key it names and every
+value fits. A missing key is the next arm, not an error:
+
+```
+fn describe(ev) {
+  match ev {
+    {kind: "paid", total: t} if t > 0 -> "credit ${t}"
+    {kind: "refund", data: {reason}}  -> "refund: ${reason}"
+    {kind: /^test\./}                 -> "a test event"
+    {age: in 18..65}                  -> "adult"
+    {}                                -> "some other dict"
+    else                              -> "not a dict"
+  }
+}
+describe({kind: "refund", data: {reason: "late"}})   # refund: late
+describe({kind: "paid", total: 0})                   # some other dict
+```
+
+`{age: in 18..65}` asks membership; `{age: 18..65}` would compare with a range and is never
+true of an int. `**rest` binds the other entries, and a bare `**` skips them. A name in a
+pattern binds even if one is in scope — write `{k: (limit)}` to compare with its value, and
+`({a: 1}) ->` to compare the whole subject with a dict.
+
 ## In a `for` header
 
 ```
@@ -144,6 +195,17 @@ does. An item that is not a pair is an error:
 for k, v in [1, 2] { println(k) }
 # -e:1:1: type: cannot destructure int: a two-variable 'for' takes an array of two per item
 ```
+
+Either loop variable may be a pattern, which takes each item apart as `:=` would:
+
+```
+for [id, row] in [[1, "a"], [2, "b"]] { println("${id}:${row}") }
+for {name, age} in users { println("${name} is ${age}") }
+for k, {total} in {ann: {total: 3}, bob: {total: 5}} { println("${k}=${total}") }
+```
+
+A loop pattern binds fresh names for each item, so it holds names, rests and nested
+patterns — not a `$var` or an index.
 
 ## Statement or expression
 

@@ -152,10 +152,8 @@ func (p *printer) whileExpr(x *ast.WhileExpr, ind int) {
 }
 
 func (p *printer) forExpr(x *ast.ForExpr, ind int) {
-	p.w("for " + x.KeyVar)
-	if x.ValVar != "" {
-		p.w(", " + x.ValVar)
-	}
+	vars, _ := p.loopVars(x)
+	p.w("for " + vars)
 	p.w(" in ")
 	p.writeExpr(x.Iter, ind)
 	p.w(" ")

@@ -110,6 +110,49 @@ Program "t"
 `,
 		},
 		{
+			name: "dict patterns (RFC 0002)",
+			src:  `{name, age: a, **r} = u; match e { {kind: "x", n: in xs, **} -> 1 }; for k, {v} in d { }`,
+			want: `
+Program "t"
+  ExprStmt
+    Destructure =
+      DictPattern
+        key "name":
+          Ident name
+        key "age":
+          Ident a
+        **
+          Ident r
+      Ident u
+  ExprStmt
+    Match
+      subject:
+        Ident e
+      arm dict
+        pat
+          DictPattern
+            key "kind":
+              Str "x"
+            key "n" in:
+              Ident xs
+            **
+        body
+          Block
+            ExprStmt
+              Int 1
+  ExprStmt
+    For k
+      val:
+        DictPattern
+          key "v":
+            Ident v
+      iter:
+        Ident d
+      body:
+        Block
+`,
+		},
+		{
 			name: "interpolated string",
 			src:  `"a${x+1}b$c"`,
 			want: `
@@ -1451,6 +1494,18 @@ func TestParseErrors(t *testing.T) {
 		{"a rest target is a name", "a, *$g = xs", "a rest element is '*' and a name: write *rest", 1, 4},
 		{"a rest target is not an index", "[a, *xs[0]] = ys", "a rest element is '*' and a name: write *rest", 1, 5},
 		{"a rest in a pattern binds or skips", "match x { [a, *[1]] -> 1 }", "a rest element in a pattern is '*' and a name, or a bare '*' to skip", 1, 15},
+		{"a dict target binds", "{a: 1} = d", "a destructuring target binds, so the value of 'a' goes to a name, a $var, an index or a nested pattern; comparing belongs in a match arm", 1, 5},
+		{"an empty dict target", "{} = d", "an empty dict pattern binds nothing", 1, 1},
+		{"a dict rest target names", "{**} = d", "a rest element in a destructuring is '**' and a name: write **rest", 1, 1},
+		{"a dict rest comes last", "{**r, a} = d", "'**' collects the entries no key names, so it comes last in a dict pattern", 1, 7},
+		{"a key once", "{a, a: b} = d", "key \"a\" is named twice in this pattern", 1, 5},
+		{"a dict pattern key is a word or a string", "{1: a} = d", "expected a key in a dict pattern, found 1: a key is a name or a plain string", 1, 2},
+		{"a string key needs a target", "{\"a\"} = d", "a string key in a pattern needs ':' and where its value goes: {\"a\": v}", 1, 5},
+		{"in is for a match arm", "{a: in xs} = d", "'in' tests membership, which belongs in a match arm; a destructuring binds", 1, 8},
+		{"a dict pattern is alone in its arm", "match d { {a}, {b} -> 1 }", "a dict pattern must be the only pattern in its arm", 1, 11},
+		{"a dict pattern needs a subject", "match { {a} -> 1 }", "a dict pattern needs a subject: match d { {kind: k} -> … }", 1, 9},
+		{"a loop pattern binds names", "for [a, $g] in xs { }", "a loop pattern binds names: a $var or an index is written in the body", 1, 9},
+		{"a loop variable is a name or a pattern", "for 1 in xs { }", "expected a loop variable, found 1", 1, 5},
 		{"** in an array literal", "[**d]", "'**' spreads a dict's entries, into a dict or a call; in an array write '*'", 1, 2},
 		{"* in a dict literal", "{a: 1, *xs}", "'*' spreads an array's elements; in a dict write '**'", 1, 8},
 		{"a stray *", "x = *y", "unexpected '*': a spread stands only in a call, an array literal or a destructuring target", 1, 5},

@@ -1,6 +1,6 @@
 # RFC 0002 — Dict and record patterns
 
-**Status:** Draft · **Area:** language · **Depends on:** 0001 (for `**rest`) · **Audit:** L4, L5, L6
+**Status:** Draft (partially landed, #24) · **Area:** language · **Depends on:** 0001 (for `**rest`) · **Audit:** L4, L5, L6
 
 ## Summary
 
@@ -143,3 +143,56 @@ a closure can never be followed by `=`, so there is no second reading.
 `internal/ast` (`DictPattern`), `mzs/eval.go` (the matcher that array patterns use gains a
 dict case), `mzs/record.go` (field check), `internal/printer`, LSP symbol collection for
 the new binders.
+
+## As landed
+
+Part 1 landed in #24: dict patterns on the left of `=` and `:=`, in `match` arms, nested in
+array patterns (and array patterns in them), and patterns as `for` variables. SPEC §4
+(grammar), §5.3 (the arm form) and §8.15 (dict patterns, loop patterns) are the normative
+text. **What remains** is the record shape, `Money {amount, currency: "RUB"} ->`, with its
+compile-time field check and the `mod.Name` form; it waits for a part of its own because
+the reading is decided by name resolution (which `record` a name is, including one an
+include exports, RFC 0003) and it carries its own §21.4 corner, below.
+
+* **Compatibility — the RFC was wrong about one form.** It said all three forms were syntax
+  errors. In assignment and in a `for` header they were. In a `match` arm they were not: a
+  dict literal is an expression, and an expression arm compares, so `{a: 1} ->` fired on a
+  subject *equal* to `{a: 1}` and `{} ->` on the empty dict. Under this RFC both are dict
+  patterns — open, so `{a: 1}` fires on any dict whose `"a"` is `1`, and `{}` on any dict —
+  and a name in value position binds instead of being read. That is a change of meaning for
+  a program that runs, so it is declared as a deliberate break under §21.4 in the
+  CHANGELOG, with the spelling that keeps the old meaning: `({a: 1}) ->` compares with the
+  whole dict and `{k: (limit)}` with a variable, exactly as `(xs) ->` already compares with
+  an array instead of destructuring it (§5.3). The alternative — a closed pattern when no
+  name appears, an open one when one does — would make one spelling mean two things by
+  what is inside it, which is the guess D16 forbids.
+* **A bracket is a pattern only when it is the whole element.** The parser decides over
+  tokens, before anything is consumed: a `{` (or `[`) in pattern position is a pattern when
+  the token after its close is `,`, `]`, `}`, `->`, `if` or an assignment operator. So
+  `{a: 1}.len ->` and `{a: 1} in xs ->` stay the operands they were, compared as any
+  expression is, and only the arms that are a dict and nothing more change. In a `for`
+  header the `in` (or the `,`) after the close is what ends the pattern.
+* **`**rest` comes last**, and a pattern takes one. The grammar allowed it anywhere; last
+  is the reading nobody has to look up, and an error can later become a feature. A bare
+  `**` is an arm's only (it says nothing about the other entries); on the left of `=` a
+  rest is `**` and a name, as `*rest` is.
+* **A key is a word or a plain string.** An interpolated key is refused — a pattern names the
+  keys it takes — and so is a literal of another kind (`{1: v}`): the RFC's grammar gives
+  `IDENT | String`, and a non-string key can be added later as an addition. A key named
+  twice in one pattern is a parse error.
+* **The rest of a record is a plain dict**, as `{**p}` is (RFC 0001): a record is a shape
+  its constructor promised, and a dict with fields taken out is no longer that shape.
+* **Every value is read before the first is written**, as the array form does, so a target
+  writing into the dict being taken apart cannot change what a later key reads.
+* **A loop pattern holds names, rests and nested patterns only.** A `$var` or an index
+  target is refused in a `for` header — a loop binds fresh names per item, and writing into
+  a global on every turn is what the body is for. The anonymous `*` and `**` stay `match`
+  arm forms; a loop pattern, like an assignment, names what it binds.
+* **Diagnostics.** `{a: 1} = d` is `syntax: a destructuring target binds, so the value of
+  'a' goes to a name, a $var, an index or a nested pattern; comparing belongs in a match
+  arm` — the RFC's wording quoted the source text, which the parser does not keep; the
+  other three are as the table proposed.
+* **The LSP outline** lists every name a top-level destructuring binds — for the array
+  patterns of RFC 0001 too, which it had missed.
+* **Open questions.** Defaults in a target (`{port = 8080} = cfg`) and a scalar binder in
+  `match` stay deferred, as the RFC proposed.
