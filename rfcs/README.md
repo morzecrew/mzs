@@ -20,7 +20,7 @@ points back to, plus the defects that need a fix rather than a design.
 | [0006](0006-open-ended-ranges.md) | Open-ended ranges and slices: `xs[1..]`, `xs[..3]` | language | S | P2 |
 | [0007](0007-labelled-loops.md) | Labelled `break` and `next` | language | S | P3 |
 | [0008](0008-strict-number-parsing.md) | `parse_int` / `parse_float` — a conversion that can say no | stdlib | S | P1 |
-| [0009](0009-error-traces.md) | Error traces: the call stack a script and a person can read — **landed** (#PR) | language, CLI | S | P1 |
+| [0009](0009-error-traces.md) | Error traces: the call stack a script and a person can read — **landed** (#20) | language, CLI | S | P1 |
 | [0010](0010-parameter-contracts.md) | Parameter and field contracts: `fn f(n: int)` | language | L | P3 |
 | [0011](0011-memory-budget.md) | An aggregate memory budget — **landed** (#19), except `mzs.Opaque` | embedding | M | P1 |
 | [0012](0012-stderr.md) | `eprint` / `eprintln` — a second output stream | stdlib | S | P1 |
@@ -82,4 +82,4 @@ Status · Area · Depends on
 Statuses: **Draft** (written, not agreed) → **Accepted** (agreed, not built) → **Landed**
 (in `SPEC.md`; the RFC then only records the reasoning). Every RFC in this directory is a
 **Draft** except 0011, which has landed (#19) with one piece left, and 0009, which has
-landed (#PR); their *As landed* sections record what the implementation decided.
+landed (#20); their *As landed* sections record what the implementation decided.

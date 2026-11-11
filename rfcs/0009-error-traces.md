@@ -1,6 +1,6 @@
 # RFC 0009 — Error traces
 
-**Status:** Landed (#PR) · **Area:** language, CLI · **Depends on:** — · **Audit:** L15, B5
+**Status:** Landed (#20) · **Area:** language, CLI · **Depends on:** — · **Audit:** L15, B5
 
 ## Summary
 

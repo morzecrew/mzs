@@ -45,7 +45,7 @@ four places:
 | L12 | Open-ended ranges / slices | `xs[1..]` → `syntax: unexpected ']'` | [0006](0006-open-ended-ranges.md) |
 | L13 | Leaving a nested loop | `outer: for …` → syntax error; no labelled `break` | [0007](0007-labelled-loops.md) |
 | L14 | Strict numeric parsing | `"abc".int` → `0`, `"x".float` → `0.0`, `"0x1f".int` → `0`; no way to parse hex, no way to learn the string was not a number | [0008](0008-strict-number-parsing.md) |
-| L15 | **Landed (#PR).** Error traces | SPEC §8.11: "errors carry … a short call stack". `*Error.Stack` is filled, but the CLI prints one position and `else (e)` gets `{message, kind, line}` — no file, column or stack | [0009](0009-error-traces.md) |
+| L15 | **Landed (#20).** Error traces | SPEC §8.11: "errors carry … a short call stack". `*Error.Stack` is filled, but the CLI prints one position and `else (e)` gets `{message, kind, line}` — no file, column or stack | [0009](0009-error-traces.md) |
 | L16 | Contracts on parameters | `fn f(x: int)` → `expected ')' in parameter list, found ':'` | [0010](0010-parameter-contracts.md) |
 | L17 | Integers past 2⁶³ | `2 ** 100` → `1.2676506002282294e+30`; `fact(25)` → a float; `decimal` holds 19 digits | [0018](0018-big-integers.md) |
 
@@ -138,7 +138,7 @@ These need a fix, not an RFC.
 | B2 | **Fixed (#17).** `mzs test --help` prints an example that does not compile | it shows `test.eq(decimal("10.00") * 3, decimal("30.00"))`; `decimal` is a module, not a function, and `*` on a Decimal is an error. SPEC §12.18 has the right line (`decimal.times(decimal.of("10.00"), 3)`) |
 | B3 | **Fixed (#17).** SPEC §4 still gives dicts square brackets | `Collection = "[" ( ArrayBody \| DictBody \| ":" ) "]"`, while D3 and the implementation say `{a: 1}` and `{}` (`[a: 1]` → `a dict is written {a: 1}`) |
 | B4 | "Reserved" words are not reserved | SPEC §20 lists `class`, `module`, `yield`, `defer` as reserved syntax; `class = 1; yield = 2; defer = 3; module = 4; class + yield + defer + module` → `10`, and `defer { 1 }` → `undefined function 'defer'`. Either reserve them in the lexer or drop them from §20 — as written, adding any of them later breaks programs §21.1 promises to keep |
-| B5 | **Fixed (#PR).** The specified call stack is not shown | see L15; §8.11 promises it, nothing prints it |
+| B5 | **Fixed (#20).** The specified call stack is not shown | see L15; §8.11 promises it, nothing prints it |
 | B6 | An unknown `strftime` directive is echoed | `mzs --time -e 'include time; time.parse("2026-01-01").strftime("%s %f %G")'` → `%s %f %G`. By D16 it should be an `argument` error naming the directive |
 | B7 | Range indexing is unspecified, and a negative end is inconsistent | SPEC §8.8 lists `x[i]` and `x[i, n]` only; `x[a..b]` works but is not in the table. `[1,2,3][-2..-1]` → `[2,3]`, yet `[1,2,3][0..-1]` → `[]` and `"hello"[1..-1]` → `""` — the range is materialised before the bounds are resolved. RFC 0006 specifies the rule |
 | B8 | A script cannot receive a flag without `--` | `mzs a.mzs --x 1` → `mzs: unknown flag --x`; only `mzs a.mzs -- --x 1` reaches `$ARGV`. Arguments after the script name should belong to the script (RFC 0017) |
