@@ -145,8 +145,10 @@ parse_int(nil)            # type: parse_int expects a string, got nil
 port = $PORT?.parse_int ?? raise("PORT must be a number")
 ```
 
-Both raise only on a non-string argument (or a bad base): `?.` is the spelling for a value
-that may be missing, and `??` supplies the default.
+Neither raises on what the string says. The errors are a non-string argument, a bad base,
+or a wrong number of arguments: `?.` is the spelling for a value that may be missing, and
+`??` supplies the default.
+
 After `include json` the bare `json(x)` call is the module; the function is only `x.json`.
 
 ## nil and bool receivers
