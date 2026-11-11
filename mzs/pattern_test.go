@@ -71,6 +71,8 @@ func TestDictTargetErrors(t *testing.T) {
 		{`d = {a: 1}; {a} += d`, ErrKindSyntax, "destructuring assigns with '=' or ':='"},
 		{`d = {a: 1}; k = "a"; {"${k}": v} = d`, ErrKindSyntax, "a name or a plain string"},
 		{`d = {a: 1}; {1: v} = d`, ErrKindSyntax, "expected a key in a dict pattern"},
+		// A write that fails fails at its target; the shape had already fit.
+		{`s = 5; {a: s[0]} = {a: 1}`, ErrKindType, "cannot assign to an index of int"},
 	})
 }
 
@@ -104,6 +106,7 @@ func TestDictPatternsInMatch(t *testing.T) {
 		{`s = {age: 30}; match s { {age: 18..65} -> "eq"; else -> "no" }`, `"no"`},
 		{`s = {age: 18..65}; match s { {age: 18..65} -> "eq"; else -> "no" }`, `"eq"`},
 		{`s = {tag: "b"}; match s { {tag: in ["a", "b"]} -> "yes"; else -> "no" }`, `"yes"`},
+		{`allowed = ["a", "b"]; s = {tag: "c"}; match s { {tag: in allowed} -> "yes"; else -> "no" }`, `"no"`},
 		// Rest, named and anonymous.
 		{`s = {a: 1, b: 2}; match s { {a, **rest} -> [a, rest] }`, `[1,{"b":2}]`},
 		{`s = {a: 1, b: 2}; match s { {a, **} -> a }`, `1`},
@@ -132,6 +135,8 @@ func TestDictPatternArmErrors(t *testing.T) {
 		{`d = {a: 1}; match d { {a} -> a; {a, a: b} -> b }`, ErrKindSyntax, `key "a" is named twice`},
 		// A comparison inside a pattern still raises the errors it raises anywhere.
 		{`d = {a: 1}; match d { {a: in 5} -> 1 }`, ErrKindType, "the right side of 'in' must have members"},
+		{`d = {a: 1}; match d { {a: in raise("no list")} -> 1 }`, ErrKindRaise, "no list"},
+		{`d = {a: 1}; match d { {a: raise("no value")} -> 1 }`, ErrKindRaise, "no value"},
 	})
 }
 
@@ -159,6 +164,8 @@ func TestDictPatternsInFor(t *testing.T) {
 		{`xs = [0]; for [xs[0]] in [[1]] { }`, ErrKindSyntax, "a loop pattern binds names"},
 		{`for {a: $g} in [{a: 1}] { }`, ErrKindSyntax, "a loop pattern binds names"},
 		{`for 1 in [1] { }`, ErrKindSyntax, "expected a loop variable"},
+		{`for [a].x in [[1]] { }`, ErrKindSyntax, "expected a loop variable"},
+		{`for [a: 1] in [1] { }`, ErrKindSyntax, "a dict is written {a: 1}"},
 	})
 }
 
