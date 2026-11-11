@@ -1,6 +1,8 @@
 package mzs
 
 import (
+	"slices"
+
 	"mzs/internal/ast"
 	"mzs/internal/rx"
 	"mzs/internal/token"
@@ -411,6 +413,16 @@ func (e ev) appendSplat(out []Value, v Value, pos token.Pos) ([]Value, error) {
 	defer e.rs.rootReset(m)
 	if err := e.rs.allocCollection(len(out)+n, n); err != nil {
 		return out, err
+	}
+	if v.Kind() == KRange {
+		// Laid out straight into the result: materialising the range first would hold a
+		// second slice of the same size that nothing charged.
+		r := v.rng()
+		out = slices.Grow(out, n)
+		for i := 0; i < n; i++ {
+			out = append(out, Int(r.At(i)))
+		}
+		return out, nil
 	}
 	return append(out, v.Elems()...), nil
 }
