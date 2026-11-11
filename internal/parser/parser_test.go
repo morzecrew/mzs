@@ -1724,6 +1724,7 @@ func TestRestStartsALine(t *testing.T) {
 		{"a product with a comma later on the line", "y = [x\n  * 3, 4]", 1},
 		{"inside a call the comma is the call's", "f(x\n  * 3, c = 1)", 1},
 		{"no assignment, no target list", "y = x\n  * 3 + 4", 1},
+		{"a comma carries the target list across the break", "a,\n*rest = xs", 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

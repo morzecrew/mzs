@@ -205,6 +205,15 @@ func TestFormat(t *testing.T) {
 		{"a spread in a dict", "x = { **d , k : 1 }", "x = {**d, k: 1}\n"},
 		{"an anonymous rest in an arm", "match x { [h, * ] -> h }", "match x { [h, *] -> h }\n"},
 		{"a rest that starts its line", "h = 1\n*init, last = xs", "h = 1\n*init, last = xs\n"},
+		{"a long spread breaks one element to a line",
+			"x = [*first_long_array_name_that_is_longer, *second_long_array_name_that_is_longer, *third_one_too]",
+			"x = [\n    *first_long_array_name_that_is_longer,\n    *second_long_array_name_that_is_longer,\n    *third_one_too,\n]\n"},
+		{"a long dict spread breaks too",
+			"y = {**first_long_dict_name_that_is_longer, **second_long_dict_name_that_is_longer, keyname: 12345}",
+			"y = {\n    **first_long_dict_name_that_is_longer,\n    **second_long_dict_name_that_is_longer,\n    keyname: 12345,\n}\n"},
+		{"a long call with splats breaks",
+			"z = compute(*first_long_argument_list_longer_still, **first_long_keyword_options_longer_still, a = 1)",
+			"z = compute(\n    *first_long_argument_list_longer_still,\n    **first_long_keyword_options_longer_still,\n    a = 1,\n)\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

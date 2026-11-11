@@ -78,6 +78,9 @@ func TestRestStartsALine(t *testing.T) {
 		{"x = 2\ny = x\n  * 3\ny", `6`},
 		{"fn f(a, c = 0) { [a, c] }\nf(2\n  * 3, c = 1)", `[6,1]`},
 		{"[1].map { (x) ->\n  y = x\n  *a, b = [y, 2]\n  a\n}", `[[1]]`},
+		// A break after a comma was never a statement boundary: the list goes on.
+		{"a,\n*rest = [1, 2, 3]\n[a, rest]", `[1,[2,3]]`},
+		{"h = 0\na,\n  *rest = [1, 2]\n[h, a, rest]", `[0,1,[2]]`},
 	})
 }
 
@@ -194,6 +197,35 @@ func TestBareStarOutsideAPattern(t *testing.T) {
 		_, err := New(Options{}).Compile("t.mzs", src)
 		if err == nil || !strings.Contains(err.Error(), "a bare '*' skips positions only in a match pattern") {
 			t.Errorf("Compile(%s) = %v", src, err)
+		}
+	}
+}
+
+// An operand that raises stops the literal or the call where it stands, with its own
+// error.
+func TestSpreadOperandErrors(t *testing.T) {
+	spreadErrors(t, [][3]string{
+		{`fn bad() { raise("no", "app") }; [1, *bad()]`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; [bad(), *[1]]`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; {**bad()}`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; fn f(*a) { a }; f(*bad())`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; fn f(*a) { a }; f(bad(), *[1])`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; fn f(a = 0) { a }; f(**bad())`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; fn f(a = 0) { a }; f(*[], a = bad())`, "app", "no"},
+		{`fn bad() { raise("no", "app") }; h, *t = bad()`, "app", "no"},
+	})
+	// The limit holds while the operands are still being laid out, and for a rest.
+	o := DefaultOptions()
+	o.MaxCollection = 3
+	for _, src := range []string{
+		`[*(1..2), *(1..2)]`,
+		`[*(1..9)]`,
+		`h, *t = 1..9`,
+		`match 1..9 { [h, *t] -> t }`,
+		`{**{a: 1, b: 2}, **{c: 3, d: 4}}`,
+	} {
+		if _, err := spreadEval(t, o, src); !errors.Is(err, ErrBudget) {
+			t.Errorf("%s under MaxCollection 3 = %v, want ErrBudget", src, err)
 		}
 	}
 }

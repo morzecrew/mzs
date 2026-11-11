@@ -725,7 +725,7 @@ func (p *parser) destructureAhead() bool {
 			// A `*` starting a line at depth zero starts the next statement's target
 			// list, never this one's (restStartsLine): §3.10 dropped the line break in
 			// front of it, so the break is read back from the positions.
-			if depth == 0 && i > p.pos && p.toks[i-1].End.Line < p.toks[i].Pos.Line {
+			if depth == 0 && i > p.pos && p.brokeLineBefore(i) {
 				return false
 			}
 		default:
@@ -746,7 +746,7 @@ func (p *parser) destructureAhead() bool {
 // list — a comma at depth zero and then `=` before the line ends. Read as a continuation,
 // that line is `a * init, last = xs`, which is a syntax error today.
 func (p *parser) restStartsLine() bool {
-	if p.kind() != token.STAR || p.pos == 0 || p.toks[p.pos-1].End.Line >= p.cur().Pos.Line {
+	if p.kind() != token.STAR || !p.brokeLineBefore(p.pos) {
 		return false
 	}
 	depth := 0
@@ -759,6 +759,18 @@ func (p *parser) restStartsLine() bool {
 		}
 	}
 	return depth == 0 && p.destructureAhead()
+}
+
+// brokeLineBefore reports whether a line break that the lexer would have kept as a
+// NEWLINE stands in front of token i — one it dropped only because a binary operator
+// follows (§3.10). A break after a continuation token such as `,` was never a NEWLINE,
+// so `a,\n*rest = xs` is one target list, read across the break.
+func (p *parser) brokeLineBefore(i int) bool {
+	if i == 0 {
+		return false
+	}
+	prev := p.toks[i-1]
+	return prev.End.Line < p.toks[i].Pos.Line && !token.SuppressesNewlineAfter(prev.Kind)
 }
 
 // parseDestructure reads the bare `a, b = xs` form, which destructureAhead has already
