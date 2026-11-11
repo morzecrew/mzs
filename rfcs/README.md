@@ -23,7 +23,7 @@ points back to, plus the defects that need a fix rather than a design.
 | [0009](0009-error-traces.md) | Error traces: the call stack a script and a person can read — **landed** (#20) | language, CLI | S | P1 |
 | [0010](0010-parameter-contracts.md) | Parameter and field contracts: `fn f(n: int)` | language | L | P3 |
 | [0011](0011-memory-budget.md) | An aggregate memory budget — **landed** (#19), except `mzs.Opaque` | embedding | M | P1 |
-| [0012](0012-stderr.md) | `eprint` / `eprintln` — a second output stream — **landed** (#PR) | stdlib | S | P1 |
+| [0012](0012-stderr.md) | `eprint` / `eprintln` — a second output stream — **landed** (#21) | stdlib | S | P1 |
 | [0013](0013-csv-module.md) | The `csv` module | stdlib | M | P1 |
 | [0014](0014-test-module.md) | `test` grows up: `raises`, `near`, `skip`, `group`, and runner flags | stdlib, CLI | M | P1 |
 | [0015](0015-path-and-io.md) | The `path` module, and `io.stat` / `rm` / `mkdir` / `mv` / `walk` | stdlib | M | P2 |
@@ -82,5 +82,5 @@ Status · Area · Depends on
 Statuses: **Draft** (written, not agreed) → **Accepted** (agreed, not built) → **Landed**
 (in `SPEC.md`; the RFC then only records the reasoning). Every RFC in this directory is a
 **Draft** except 0011, which has landed (#19) with one piece left, and 0009 (#20) and 0012
-(#PR), which have landed; their *As landed* sections record what the implementation
+(#21), which have landed; their *As landed* sections record what the implementation
 decided.

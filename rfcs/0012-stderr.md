@@ -1,6 +1,6 @@
 # RFC 0012 — `eprint` and `eprintln`: a second output stream
 
-**Status:** Landed (#PR) · **Area:** stdlib · **Depends on:** — · **Audit:** S1
+**Status:** Landed (#21) · **Area:** stdlib · **Depends on:** — · **Audit:** S1
 
 ## Summary
 
