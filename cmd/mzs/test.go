@@ -93,6 +93,8 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (int, i
 
 	opts := cfg.opts
 	opts.file = path
+	// Each file is its own Run (§15.2), and keeps its own record of what it included.
+	opts.loaded = map[string]string{}
 	opts.root = includeRoot(&opts)
 	in := mzs.New(options(&opts, stdout, stderr, nil))
 	prog, err := in.Compile(path, src)

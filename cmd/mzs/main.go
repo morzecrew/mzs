@@ -406,9 +406,8 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	if cfg.randOn {
 		o.Rand = rand.New(rand.NewSource(cfg.randSeed))
 	}
-	if cfg.loaded == nil {
-		cfg.loaded = map[string]string{}
-	}
+	// options only reads cfg: it is called more than once per config (the REPL's completer
+	// builds Options of its own), so the record of loaded sources is made with the config.
 	o.ModuleLoader = recordSources(fileLoader(cfg.root, libDirs()), cfg.loaded)
 	// The io module (§12.13) is a host capability, and on the command line the host is
 	// the person typing it: a one-liner that cannot read a file is not a shell tool. An
@@ -491,7 +490,7 @@ func lintRegexes(w io.Writer, name, src string) {
 }
 
 func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
-	cfg = &config{vars: map[string]mzs.Value{}, ioOn: true}
+	cfg = &config{vars: map[string]mzs.Value{}, ioOn: true, loaded: map[string]string{}}
 	positional := []string{}
 	endOfFlags := false
 

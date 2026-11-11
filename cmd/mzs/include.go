@@ -123,7 +123,7 @@ func fileLoader(root string, libs []string) mzs.ModuleLoader {
 func recordSources(load mzs.ModuleLoader, into map[string]string) mzs.ModuleLoader {
 	return func(from, path string) (string, string, error) {
 		resolved, src, err := load(from, path)
-		if err == nil {
+		if err == nil && into != nil {
 			into[resolved] = src
 		}
 		return resolved, src, err
