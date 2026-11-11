@@ -1456,6 +1456,7 @@ func TestParseErrors(t *testing.T) {
 		{"a stray *", "x = *y", "unexpected '*': a spread stands only in a call, an array literal or a destructuring target", 1, 5},
 		{"a stray **", "x = **y", "unexpected '**': a spread of a dict stands only in a call or a dict literal", 1, 5},
 		{"a splat is positional", "f(a = 1, *xs)", "a positional argument may not follow a named one; move it before 'a = …'", 1, 10},
+		{"a splat after a spread", "f(**opts, *xs)", "a positional argument may not follow a named one; move it before '**…'", 1, 11},
 		{"**kwargs is not a parameter", "fn f(**kw) { }", "expected a parameter name, found '**'", 1, 6},
 	}
 

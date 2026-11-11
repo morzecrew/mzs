@@ -1330,8 +1330,8 @@ func (p *parser) parseCallArgs() (args []ast.Expr, named []ast.NamedArg, stop to
 		default:
 			arg := p.parseElem()
 			if len(named) > 0 {
-				p.errorAt(arg.Pos(), "a positional argument may not follow a named one; move it before '%s = …'",
-					named[0].Name)
+				p.errorAt(arg.Pos(), "a positional argument may not follow a named one; move it before '%s'",
+					namedLabel(named[0]))
 			}
 			args = append(args, arg)
 		}
@@ -2412,4 +2412,13 @@ func (p *parser) recoverDoEnd() *ast.BlockStmt {
 			return &ast.BlockStmt{Start: start, Stop: t.End}
 		}
 	}
+}
+
+// namedLabel is how a diagnostic points at a named argument: `name = …`, or `**…` for a
+// spread, which has no name of its own.
+func namedLabel(a ast.NamedArg) string {
+	if a.Spread {
+		return "**…"
+	}
+	return a.Name + " = …"
 }

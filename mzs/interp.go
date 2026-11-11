@@ -869,14 +869,17 @@ func (c *compiler) call(n *ast.CallExpr) ast.Expr {
 		c.markUsed(id.Name)
 	case c.hasFunc(id.Name):
 		id.Ref = ast.RefFunc
-	case len(n.Args) == 0 && len(n.Named) > 0 && !n.Named[0].Spread && c.hasMethod(id.Name):
+	case len(n.Args) == 0 && len(n.Named) > 0 && c.hasMethod(id.Name):
 		// A stdlib row is reached through the first argument's kind, so a call that
 		// gives only names has no receiver to dispatch on and can never resolve. Left
 		// to the run time it comes out as `undefined function 'filter'` — about a name
 		// that plainly exists — so the one true thing is said here instead (§5.6).
+		what := "'" + n.Named[0].Name + " = …'"
+		if n.Named[0].Spread {
+			what = "a '**' spread"
+		}
 		c.argErrorf(n.Named[0].NamePos,
-			"%s takes its arguments by position, so '%s = …' has no parameter to bind",
-			id.Name, n.Named[0].Name)
+			"%s takes its arguments by position, so %s has no parameter to bind", id.Name, what)
 	case len(n.Args) > 0 && c.hasMethod(id.Name):
 		// One namespace, not two (§12): `filter(xs, f)` is `xs.filter(f)`, so a name
 		// that is only a stdlib row of some kind is callable in prefix position too.
