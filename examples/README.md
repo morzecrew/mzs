@@ -70,6 +70,7 @@ does not have it at all.
 | 43 | `43_crypto_webhook.mzs` | `crypto` — the webhook check `http` could not make: HMAC and the digests, hex and both base64 alphabets, one decoder for all four spellings, and `crypto.equal` instead of the `==` that leaks |
 | 44 | `44_urls.mzs` | `url` — the eight keys of a parsed URL and the inverse that builds one, the two encodings the `+` tells apart, a query written from an array, and a callback link that carries its own signature |
 | 46 | `46_error_traces.mzs` | where a failure came from: `e["file"]`, `e["col"]` and `e["stack"]`, the path through a helper called from many places, a one-line report a handler can log, and the trace the CLI prints under an uncaught error |
+| 47 | `47_parsing_numbers.mzs` | `parse_int` and `parse_float` — the conversion that can say no: the same strings through `int` and `parse_int`, bases and literal prefixes, a form validated without a regex, and a CSV column with junk in it |
 
 ## Text, patterns and data
 

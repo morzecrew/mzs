@@ -1,9 +1,11 @@
 package mzs
 
 import (
+	"errors"
 	"math"
 	"math/bits"
 	"strconv"
+	"strings"
 )
 
 // Number methods (SPEC §12.5) for both Int and Float, plus the arithmetic helpers the
@@ -565,4 +567,127 @@ func iterInts(c *Ctx, from, to, by int64, recv Value) (Value, error) {
 		return recv, nil
 	}
 	return arrayOf(out), nil
+}
+
+// ---------------------------------------------------------------------------
+// Strict parsing (§12.7, RFC 0008)
+// ---------------------------------------------------------------------------
+//
+// `int` and `float` are lenient conversions that always have an answer; parse_int and
+// parse_float are the question "does this whole string spell a number?". The answer is
+// the number or false (nil), never a guess: trailing text, an empty string, a value
+// outside int64 or float64 and every spelling a literal would refuse are all nil.
+
+// cutSign splits an optional leading sign off s.
+func cutSign(s string) (sign, rest string) {
+	if s != "" && (s[0] == '+' || s[0] == '-') {
+		return s[:1], s[1:]
+	}
+	return "", s
+}
+
+// stripSeparators removes the `_` separators of a run of digits. It reports false
+// unless s is one or more digits with every `_` standing between two of them, so
+// "1_000" is accepted and "", "_1", "1_", "1__0" are not. digit decides what a digit is.
+func stripSeparators(s string, digit func(byte) bool) (string, bool) {
+	if s == "" {
+		return "", false
+	}
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case digit(c):
+			if b != nil {
+				b = append(b, c)
+			}
+		case c == '_' && i > 0 && i+1 < len(s) && digit(s[i-1]) && digit(s[i+1]):
+			if b == nil {
+				b = append(make([]byte, 0, len(s)), s[:i]...)
+			}
+		default:
+			return "", false
+		}
+	}
+	if b == nil {
+		return s, true
+	}
+	return string(b), true
+}
+
+func isDecDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+// digitOf returns the value of an ASCII digit or letter in base 36, or 36 for anything
+// else, so `digitOf(c) < base` is "c is a digit of base".
+func digitOf(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'z':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'Z':
+		return int(c-'A') + 10
+	}
+	return 36
+}
+
+// parseStrictInt is parse_int: surrounding whitespace, an optional sign, then digits of
+// base with `_` between digits. Base 0 reads the literal prefixes of §3.6 — 0x, 0o, 0b,
+// else decimal; an explicit base takes no prefix. ok is false when s is not such a
+// number or the number does not fit in int64.
+func parseStrictInt(s string, base int) (int64, bool) {
+	sign, rest := cutSign(strings.TrimSpace(s))
+	if base == 0 {
+		base = 10
+		if len(rest) > 2 && rest[0] == '0' {
+			switch rest[1] {
+			case 'x', 'X':
+				base, rest = 16, rest[2:]
+			case 'o', 'O':
+				base, rest = 8, rest[2:]
+			case 'b', 'B':
+				base, rest = 2, rest[2:]
+			}
+		}
+	}
+	digits, ok := stripSeparators(rest, func(c byte) bool { return digitOf(c) < base })
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(sign+digits, base, 64)
+	return n, err == nil
+}
+
+// parseStrictFloat is parse_float: surrounding whitespace, an optional sign, then the
+// decimal spelling of a §3.6 int or float literal — `12`, `1.5`, `1_000.25`, `2e10`,
+// `1.5E-3`. A digit is required on both sides of a `.`, the exponent has no separators,
+// and inf, nan, hex and a value past float64's range are refused.
+func parseStrictFloat(s string) (float64, bool) {
+	sign, rest := cutSign(strings.TrimSpace(s))
+	mant, exp := rest, ""
+	if i := strings.IndexAny(rest, "eE"); i >= 0 {
+		mant, exp = rest[:i], rest[i+1:]
+		esign, edigits := cutSign(exp)
+		if edigits == "" || strings.TrimLeft(edigits, "0123456789") != "" {
+			return 0, false
+		}
+		exp = "e" + esign + edigits
+	}
+	whole, frac, dotted := strings.Cut(mant, ".")
+	w, ok := stripSeparators(whole, isDecDigit)
+	if !ok {
+		return 0, false
+	}
+	if dotted {
+		f, ok := stripSeparators(frac, isDecDigit)
+		if !ok {
+			return 0, false
+		}
+		w += "." + f
+	}
+	x, err := strconv.ParseFloat(sign+w+exp, 64)
+	if err != nil && !(errors.Is(err, strconv.ErrRange) && !math.IsInf(x, 0)) {
+		return 0, false
+	}
+	return x, true
 }

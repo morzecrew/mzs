@@ -19,9 +19,12 @@ Every row is a complete program: `mzs -e '<line>'` prints the result shown.
 | `"%.2f" % [3.14159]` | `3.14` |
 | `"".int + 1200` | `1200` |
 | `"12abc".int` | `12` |
+| `"12abc".parse_int` | `nil` |
+| `"ff".parse_int(16)` | `255` |
 
 `int` never raises: a missing or malformed string is `0`, which is what makes arithmetic on
-host values safe.
+host values safe. `parse_int` and `parse_float` are the strict question: the number, or
+`nil` unless the whole string is one.
 
 ## Collections
 

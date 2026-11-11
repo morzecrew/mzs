@@ -19,6 +19,13 @@ and the release is still ahead of it.
 
 ### Added
 
+- **`parse_int` and `parse_float`**: a conversion that can say no. `"12abc".parse_int`,
+  `"".parse_int` and `"1e400".parse_float` are `nil` where `int` and `float` answer `12`, `0`
+  and `0.0`, so a program reading a CSV column or a query parameter can tell `0` from
+  garbage without a regex in front of every conversion. `parse_int(s, base)` takes a base
+  2–36, or `0` for the `0x`/`0o`/`0b` prefix of a literal; a value outside `int64` is `nil`,
+  never a lossy Float. A non-string argument is a `type` error — `x?.parse_int` handles a
+  missing value. `int` and `float` are unchanged (SPEC §12.7; RFC 0008).
 - **`eprint` and `eprintln`** write to `Options.Stderr` exactly as `print` and `println` write
   to `Options.Stdout`, so a filter in a pipeline can report a skipped row or a summary
   without corrupting the data it emits. A nil `Stderr` discards, so the zero `Options` stay

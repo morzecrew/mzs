@@ -109,6 +109,8 @@ A Range answers `true` to `is(r, "array")` while `type(r)` stays `"range"`.
 | `str` | `str(x) -> string` | `nil`→`""`, Float keeps a `.`, Array/Dict→JSON | `str(2.0)` → `2.0` |
 | `int` | `int(x) -> int` | leading sign+digits, base 10, **never raises** | `"12abc".int` → `12` |
 | `float` | `float(x) -> float` | leading number, never raises | `"3.7kg".float` → `3.7` |
+| `parse_int` | `parse_int(s, base = 10) -> int \| nil` | the whole string as an integer, or `nil` | `"12abc".parse_int` → `nil` |
+| `parse_float` | `parse_float(s) -> float \| nil` | the whole string as a float, or `nil` | `"3.7".parse_float` → `3.7` |
 | `bool` | `bool(x) -> bool` | truthiness: only `nil` and `false` are falsy | `bool("")` → `true` |
 | `array` | `array(x) -> array` | Range materialises, Dict → `[k,v]` pairs, `nil` → `[]`, else wraps | `(1..3).array` → `[1,2,3]` |
 | `dict` | `dict(x) -> dict` | from an Array of `[k, v]` pairs | `[[1,2]].dict` → `{"1":2}` |
@@ -122,7 +124,31 @@ int(-1.9)       # -1 — truncates toward zero
 "abc".int       # 0
 ```
 
-`int` never raising is what makes `$price.int + 1200` safe when `$price` is unset.
+`int` never raising is what makes `$price.int + 1200` safe when `$price` is unset. The
+price of that is that `int` cannot tell `"0"` from garbage. When the question is "is this a
+number?" — a CSV column, a query parameter, a line a user typed — ask it with `parse_int`
+or `parse_float`, which answer `nil` unless the *whole* string is one:
+
+```
+"42".parse_int            # 42
+" -1_000 ".parse_int      # -1000 — surrounding whitespace, a sign, `_` between digits
+"12abc".parse_int         # nil
+"".parse_int              # nil
+"ff".parse_int(16)        # 255
+"0x1f".parse_int(0)       # 31 — base 0 reads the 0x/0o/0b prefix of a literal
+"9223372036854775808".parse_int   # nil — past int64, never a lossy float
+"2.5e3".parse_float       # 2500.0
+".5".parse_float          # nil — not a literal either
+"nan".parse_float         # nil
+parse_int(nil)            # type: parse_int expects a string, got nil
+
+port = $PORT?.parse_int ?? raise("PORT must be a number")
+```
+
+Neither raises on what the string says. The errors are a non-string argument, a bad base,
+or a wrong number of arguments: `?.` is the spelling for a value that may be missing, and
+`??` supplies the default.
+
 After `include json` the bare `json(x)` call is the module; the function is only `x.json`.
 
 ## nil and bool receivers

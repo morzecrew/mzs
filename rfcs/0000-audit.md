@@ -44,7 +44,7 @@ four places:
 | L11 | Non-exhaustive `match` is silent | `match 50 { 1 -> "a" }` → `nil` | [0005](0005-enum.md) (for enums) |
 | L12 | Open-ended ranges / slices | `xs[1..]` → `syntax: unexpected ']'` | [0006](0006-open-ended-ranges.md) |
 | L13 | Leaving a nested loop | `outer: for …` → syntax error; no labelled `break` | [0007](0007-labelled-loops.md) |
-| L14 | Strict numeric parsing | `"abc".int` → `0`, `"x".float` → `0.0`, `"0x1f".int` → `0`; no way to parse hex, no way to learn the string was not a number | [0008](0008-strict-number-parsing.md) |
+| L14 | **Landed (#22).** Strict numeric parsing | `"abc".int` → `0`, `"x".float` → `0.0`, `"0x1f".int` → `0`; no way to parse hex, no way to learn the string was not a number | [0008](0008-strict-number-parsing.md) |
 | L15 | **Landed (#20).** Error traces | SPEC §8.11: "errors carry … a short call stack". `*Error.Stack` is filled, but the CLI prints one position and `else (e)` gets `{message, kind, line}` — no file, column or stack | [0009](0009-error-traces.md) |
 | L16 | Contracts on parameters | `fn f(x: int)` → `expected ')' in parameter list, found ':'` | [0010](0010-parameter-contracts.md) |
 | L17 | Integers past 2⁶³ | `2 ** 100` → `1.2676506002282294e+30`; `fact(25)` → a float; `decimal` holds 19 digits | [0018](0018-big-integers.md) |
