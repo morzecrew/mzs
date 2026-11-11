@@ -195,3 +195,42 @@ func TestTraceCallFailuresNameTheCaller(t *testing.T) {
 		t.Errorf("default error at %s:%d, want lib.mzs:2", e.File, e.Line)
 	}
 }
+
+// The frame dropped is the failing call's own, chosen where it is known to be innermost —
+// never by comparing positions, which cannot tell it from the previous level of a
+// recursion written at the same site.
+func TestTraceKeepsEveryLevelOfARecursion(t *testing.T) {
+	in := New(Options{})
+	// g is called from 1:14 at every level, and the last call fails before it has a frame
+	// of its own: the three levels and the top-level call are all still there.
+	v, err := in.Eval(context.Background(), `fn f(n, g) { g(n - 1, n == 1 ? 5 : g) }
+try f(3, f) else (e) { e["stack"].map { "${it["fn"]}@${it["line"]}:${it["col"]}" } }`, nil)
+	if err != nil || v.Inspect() != `["f@1:14","f@1:14","f@1:14","f@2:5"]` {
+		t.Errorf("stack = %s, %v", v.Inspect(), err)
+	}
+	// raise(e) keeps the stack it re-raises exactly, however its frames line up.
+	v, err = in.Eval(context.Background(), `fn f(n, g) { g(n - 1, n == 1 ? 5 : g) }
+a = try f(3, f) else (e) { e["stack"].len }
+b = try (try f(3, f) else (e) { raise(e) }) else (e2) { e2["stack"].len }
+[a, b]`, nil)
+	if err != nil || v.Inspect() != "[4,4]" {
+		t.Errorf("stack lengths before and after raise(e) = %s, %v; want [4,4]", v.Inspect(), err)
+	}
+}
+
+// An async module function binds its defaults under the module's file, and a failure of
+// the call itself is the caller's.
+func TestTraceAsyncDefaultsNameTheModule(t *testing.T) {
+	o := DefaultOptions()
+	o.ModuleLoader = func(from, path string) (string, string, error) {
+		return "lib.mzs", "export async fn job(x = 1 / 0) { x }\nexport async fn two(a, b) { a + b }", nil
+	}
+	e := traceRun(t, o, "include lib from \"./lib.mzs\"\nlib.job().await")
+	if e.File != "lib.mzs" || e.Line != 1 {
+		t.Errorf("default error at %s:%d, want lib.mzs:1", e.File, e.Line)
+	}
+	e = traceRun(t, o, "include lib from \"./lib.mzs\"\n\nlib.two(1)")
+	if e.File != "t.mzs" || e.Line != 3 || len(e.Stack) != 0 {
+		t.Errorf("arity error at %s:%d with %d frames, want t.mzs:3 with none", e.File, e.Line, len(e.Stack))
+	}
+}

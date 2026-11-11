@@ -507,3 +507,17 @@ test.case("awaits") { job().await }
 		t.Errorf("stdout =\n%s", out)
 	}
 }
+
+// `mzs test --no-trace` keeps a file that fails outside a case to its three lines.
+func TestTestNoTrace(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "broken_test.mzs", "include test\nfn f() { raise(\"outside\") }\nf()\n")
+	_, _, errOut := exec([]string{"test", dir}, "")
+	if !strings.Contains(errOut, "in f, called from") {
+		t.Errorf("stderr without the flag =\n%s", errOut)
+	}
+	code, _, errOut := exec([]string{"test", "--no-trace", dir}, "")
+	if code != exitError || strings.Contains(errOut, "called from") || !strings.Contains(errOut, "raise: outside") {
+		t.Errorf("code = %d, stderr with --no-trace =\n%s", code, errOut)
+	}
+}

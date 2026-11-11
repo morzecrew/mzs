@@ -126,7 +126,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (int, i
 			fmt.Fprintf(stderr, "mzs test: %s: exit(%d)\n", path, code)
 			return len(res.Tests), failed, rerr
 		}
-		reportErrTrace(stderr, path, src, rerr, true, opts.loaded)
+		reportErrTrace(stderr, path, src, rerr, !opts.noTrace, opts.loaded)
 		return len(res.Tests), failed, rerr
 	}
 	return len(res.Tests), failed, nil
@@ -285,6 +285,8 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			}
 		case "--io":
 			cfg.opts.ioOn = true
+		case "--no-trace":
+			cfg.opts.noTrace = true
 		case "--no-io":
 			cfg.opts.ioOn = false
 		default:
@@ -317,6 +319,8 @@ Flags:
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility
       --no-io        withhold the io module: no files, no env, no stdin
+      --no-trace     a file that fails outside a case prints its three lines without the
+                     call stack (a failed case still lists the calls inside it)
   -h, --help         this text
 
 Each file is its own Run: its globals, its includes and its budget reach no other file.

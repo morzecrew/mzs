@@ -154,9 +154,14 @@ left open or that the implementation had to make.
 * **No frame repeats the caret.** This is how §2's "none is skipped" reads once builtins and
   stdlib rows push frames too: the innermost frame of a `raise` would be the `raise` call
   itself, at the error's own position — the caret, not a call that led to it. That one frame
-  is dropped, once per error; every call site that led to the failure is still printed. A **limit** error keeps all of its frames: it is raised between
-  steps rather than by a call, and under `MaxDepth` its innermost frame is the previous
-  level of a recursion written at the same site, which is not a repetition.
+  is dropped, and only where it is *known* to be the failing call's: inside a stdlib row
+  positioning its own error, and inside `invoke` for an arity, binding or host failure after
+  the call's own frame was pushed. It is never chosen by comparing positions, which cannot
+  tell the failing call from the previous level of a recursion written at the same site.
+  Every other error — a limit, a call that fails before it has a frame, a `raise(e)` that
+  re-raises a stack it copied — keeps its stack exactly as it was captured. Under `MaxDepth`
+  that is what keeps every level: the innermost frame is the previous level of a recursion
+  written at the very site the next call failed at, not a repetition.
 * **Frame names.** A closure literal is `"{}"`. A stdlib row that called back into the
   script (`map`, `each`, `test.case`) is a frame under its own name, which is the path the
   call really took. There is no extra `"task"` frame: a task's stack already ends with the

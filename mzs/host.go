@@ -271,9 +271,9 @@ func (c *Ctx) ArgErrorf(format string, a ...any) error {
 func (c *Ctx) position(e *Error) *Error {
 	e.At(c.rs.file, c.pos.Line, c.pos.Col)
 	if e.Stack == nil {
-		e.Stack = c.rs.frames()
+		// A row positions its own failure while its own frame is the innermost one.
+		e.Stack = framesOutside(c.rs.frames())
 	}
-	e.trimStack()
 	return e
 }
 

@@ -117,10 +117,10 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 
 	if f.Host != nil {
 		if err := named.reject(fnName(f)); err != nil {
-			return Nil(), e.at(err, pos)
+			return Nil(), e.atCall(err, pos)
 		}
 		if f.Arity >= 0 && len(args) != f.Arity {
-			return Nil(), e.at(argErrorf("%s expects %d argument(s), got %d",
+			return Nil(), e.atCall(argErrorf("%s expects %d argument(s), got %d",
 				fnName(f), f.Arity, len(args)), pos)
 		}
 		restore := e.enterCall(f.Name, pos, args)
@@ -131,7 +131,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		if c, ok := ctrlOf(err); ok && c.kind == ctrlNext {
 			return c.val, nil
 		}
-		return v, e.at(err, pos)
+		return v, e.atCall(err, pos)
 	}
 
 	if f.Async {
@@ -154,7 +154,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		// — an arity or a missing argument — is the call's own failure, and the call is
 		// written in the caller's file.
 		e.rs.file = prev
-		return Nil(), e.at(err, pos)
+		return Nil(), e.atCall(err, pos)
 	}
 	if f.Record != nil {
 		// A record's constructor has no body: the fields it has just bound *are* the

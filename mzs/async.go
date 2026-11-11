@@ -444,9 +444,16 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 	}
 	// The frame is built here, under the caller's lock, because a default argument
 	// (`async fn f(x = g())`) is the *caller's* code and must not run beside it.
+	// Its defaults are the callee's code, so they run with the callee's file current; a
+	// failure of the call itself is the caller's, and is positioned in the caller's file.
+	prev := rs.file
+	if f.file != "" {
+		rs.file = f.file
+	}
 	env, err := e.bindParams(f, args, named)
+	rs.file = prev
 	if err != nil {
-		return Nil(), e.at(err, pos)
+		return Nil(), e.atCall(err, pos)
 	}
 
 	// The task is given a context of its own, derived from the Run's. Deriving it is what

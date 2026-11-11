@@ -187,9 +187,6 @@ type Error struct {
 	Stack   []Frame
 	Data    Value
 	wrapped error
-	// trimmed records that trimStack has run, so positioning an error twice on its way
-	// out cannot drop a second frame.
-	trimmed bool
 }
 
 // Error renders as `<file>:<line>:<col>: <kind>: <message>` (§17).
@@ -296,26 +293,18 @@ func (e *Error) At(file string, line, col int) *Error {
 	return e
 }
 
-// trimStack drops the innermost frame when its call site is the error's own position.
-// That frame is the stdlib row or the function whose call *is* the failure — `raise`
-// itself, `xs.fetch(9)`, `f()` with the wrong arity — and the error's position already
-// names it, so no frame repeats what the caret shows (§8.11). It runs once per error.
-//
-// A limit is never trimmed. It is raised by the interpreter between steps, not by a
-// call, so its innermost frame is a call still in progress — under `MaxDepth`, the
-// previous level of a recursion written at the very site the next call failed at — and
-// dropping it would lose a frame rather than a repetition.
-func (e *Error) trimStack() {
-	if e.trimmed || e.Line == 0 || e.Kind == ErrKindLimit {
-		return
+// framesOutside is the stack for an error raised by the call whose frame is innermost:
+// that frame is the failure itself — `raise`, `xs.fetch(9)`, `f()` with the wrong arity —
+// and the error's position already names it, so no frame repeats what the caret shows
+// (§8.11). It is only ever called where the innermost frame is known to be that call's:
+// inside a stdlib row, and inside invoke after its own enter. Nowhere is it decided by
+// comparing positions, which cannot tell the failing call from the previous level of a
+// recursion written at the same site.
+func framesOutside(fs []Frame) []Frame {
+	if len(fs) == 0 {
+		return fs
 	}
-	e.trimmed = true
-	if len(e.Stack) > 0 {
-		f := e.Stack[0]
-		if f.Line == e.Line && f.Col == e.Col && (f.File == e.File || f.File == "") {
-			e.Stack = e.Stack[1:]
-		}
-	}
+	return fs[1:]
 }
 
 // newError builds a positionless script error; the evaluator positions it with At.

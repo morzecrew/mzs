@@ -38,8 +38,17 @@ func (e ev) at(err error, p token.Pos) error {
 	if x.Stack == nil {
 		x.Stack = e.rs.frames()
 	}
-	x.trimStack()
 	return x
+}
+
+// atCall is at for the failure of a call inside its own frame — the arity, a missing
+// argument, a host function's error — whose frame is innermost and is the failure itself.
+// A stack the error already carries came from deeper down and is kept as it is.
+func (e ev) atCall(err error, p token.Pos) error {
+	if x, ok := err.(*Error); ok && x.Stack == nil {
+		x.Stack = framesOutside(e.rs.frames())
+	}
+	return e.at(err, p)
 }
 
 // ---------------------------------------------------------------------------
