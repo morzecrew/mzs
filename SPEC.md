@@ -2033,7 +2033,9 @@ unlike `m + {…}` and `dup`, which keep the label, and unlike `a + b` between t
 which refuses (§7.8).
 
 **Operands.** `*` takes an Array or a Range, materialised under `Options.MaxCollection`; the
-limit is checked on what the literal or the call lays out, not on what it says. A Seq is
+limit is checked on what the literal or the call lays out — every position, written or
+spread, and every named argument a `**` produces — not on what the source says. A `**`
+also charges one step per entry, as `merge` does. A Seq is
 refused rather than drained, because it may be endless and the limit that would stop it
 cannot be caught: `cannot splat seq: it may be endless; write *s.take(n).array, or
 *s.array for one you know ends`. `**` takes a Dict. Anything else is a `type` error that

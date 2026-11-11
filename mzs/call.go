@@ -626,14 +626,24 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 		}
 		args = append(args, xs...)
 	}
+	// The positions written after a splat count too: the limit is on the list the
+	// callee receives.
+	if err := e.rs.checkCollection(len(args)); err != nil {
+		return nil, nil, err
+	}
 	if len(named) == 0 {
 		return args, nil, nil
 	}
 	out := make(namedArgs, 0, len(named))
+	// A set rather than a scan of out, so a spread of a large dict stays linear in its
+	// size — the arity error it is heading for is reached in time proportional to the
+	// dict, not to its square.
+	seen := make(map[string]struct{}, len(named))
 	add := func(name string, v Value, pos token.Pos) error {
-		if out.index(name) >= 0 {
+		if _, dup := seen[name]; dup {
 			return e.at(argErrorf("argument '%s' is given twice, once through '**'; a spread never overrides", name), pos)
 		}
+		seen[name] = struct{}{}
 		out = append(out, namedArg{Name: name, Val: v})
 		return nil
 	}
@@ -652,6 +662,14 @@ func (e ev) evalSpreadArgs(exprs []ast.Expr, named []ast.NamedArg) ([]Value, nam
 		src := v.odict()
 		if v.Kind() != KDict || src == nil {
 			return nil, nil, e.at(typeErrorf("cannot splat %s as named arguments; '**' takes a dict", v.Kind()), a.NamePos)
+		}
+		// One step per entry, as `merge` charges, and the list it builds is bounded and
+		// paid for like any other.
+		if err := e.rs.step(int64(src.Len())); err != nil {
+			return nil, nil, err
+		}
+		if err := e.rs.allocCollection(len(out)+src.Len(), src.Len()); err != nil {
+			return nil, nil, err
 		}
 		var bad error
 		src.Each(func(k, val Value) bool {

@@ -223,9 +223,36 @@ func TestSpreadOperandErrors(t *testing.T) {
 		`h, *t = 1..9`,
 		`match 1..9 { [h, *t] -> t }`,
 		`{**{a: 1, b: 2}, **{c: 3, d: 4}}`,
+		// The positions written after a splat count toward the list the callee gets.
+		`fn f(*n) { n }; f(*[1, 2, 3], 4)`,
+		// So do the entries a `**` spreads into named arguments.
+		`fn f(a = 0) { a }; f(**{a: 1, b: 2, c: 3, d: 4})`,
 	} {
 		if _, err := spreadEval(t, o, src); !errors.Is(err, ErrBudget) {
 			t.Errorf("%s under MaxCollection 3 = %v, want ErrBudget", src, err)
 		}
+	}
+}
+
+// A spread of a large dict pays a step per entry, so the step budget sees it.
+func TestNamedSpreadChargesSteps(t *testing.T) {
+	steps := func(src string) int64 {
+		t.Helper()
+		in := New(DefaultOptions())
+		p, err := in.Compile("t.mzs", src)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		r, err := in.RunResult(context.Background(), p, nil)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return r.Steps
+	}
+	const setup = "d = {}\n(1..1000).each { d[\"k${it}\"] = it }\nfn f(*a) { a }\n"
+	plain := steps(setup + "f()")
+	spread := steps(setup + "try f(**d) else nil")
+	if spread-plain < 1000 {
+		t.Errorf("f(**d) over 1000 entries cost %d more steps, want at least 1000", spread-plain)
 	}
 }

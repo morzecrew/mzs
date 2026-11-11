@@ -145,5 +145,8 @@ text.
   names a parameter a position already filled is the existing `got two values for parameter`.
 * **A bare `*`** outside a match pattern — `[1, *]`, `f(*)` — is a compile error, not a parse
   error, because the parser reads arrays before it knows they are patterns.
-* **Limits.** A spread array literal checks `MaxCollection` on the laid-out size and charges
-  the new array to `MaxMemory`; a dict spread charges one step per entry, as `merge` does.
+* **Limits.** A spread array literal and a splatting call check `MaxCollection` on the
+  laid-out size — positions written after a splat included — and charge what they build to
+  `MaxMemory`. A `**`, in a dict literal or at a call, charges one step per entry, as
+  `merge` does, and the duplicate-name check at a call is a set, so a large dict costs time
+  linear in its size.
