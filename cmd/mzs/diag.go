@@ -21,6 +21,14 @@ import (
 // about the closing '|'. Errors on other lines are unaffected, so a broken file
 // still lists every place that needs a hand.
 func reportErr(w io.Writer, name, src string, err error) {
+	reportErrTrace(w, name, src, err, true, nil)
+}
+
+// reportErrTrace is reportErr with the call stack of a runtime error printed under its
+// caret (§15), or not: --no-trace keeps the output to the three lines a tool that parses
+// diagnostics expects. A compile error has no stack, so it looks the same either way.
+// loaded is the source of every module the run included, for a caret inside one.
+func reportErrTrace(w io.Writer, name, src string, err error, trace bool, loaded map[string]string) {
 	seen := map[int]bool{}
 	for _, e := range flatten(err) {
 		var me *mzs.Error
@@ -35,8 +43,24 @@ func reportErr(w io.Writer, name, src string, err error) {
 			seen[me.Line] = true
 		}
 		fmt.Fprintln(w, me.Error())
-		writeCaret(w, src, me.Line, me.Col)
+		writeCaret(w, sourceOf(name, src, me.File, loaded), me.Line, me.Col)
+		if trace {
+			for _, line := range mzs.FormatTrace(me.Stack) {
+				fmt.Fprintf(w, "  %s\n", line)
+			}
+		}
 	}
+}
+
+// sourceOf is the text a diagnostic's caret is drawn from. An error raised inside an
+// included module carries the module's resolved name, and its line belongs to that
+// module, not to the program being run: the text is the one the loader read, kept in
+// loaded. A module that is not there gets no caret rather than the wrong file's line.
+func sourceOf(name, src, file string, loaded map[string]string) string {
+	if file == "" || file == name {
+		return src
+	}
+	return loaded[file]
 }
 
 // reportWarnings prints compile-time warnings, which never fail a build unless the

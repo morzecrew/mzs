@@ -1468,3 +1468,70 @@ func TestParseSize(t *testing.T) {
 		}
 	}
 }
+
+// RFC 0009: an uncaught runtime error prints the call sites that led to it, under the
+// three lines editors and CI match (§15).
+func TestTraceUnderTheCaret(t *testing.T) {
+	src := "fn a() { b() }\nfn b() { c() }\nfn c() { raise(\"boom\") }\na()"
+	code, _, errOut := exec([]string{"-e", src}, "")
+	if code != exitError {
+		t.Fatalf("code = %d", code)
+	}
+	want := "-e:3:10: raise: boom\n" +
+		"  fn c() { raise(\"boom\") }\n" +
+		"           ^\n" +
+		"  in c, called from -e:2:10\n" +
+		"  in b, called from -e:1:10\n" +
+		"  in a, called from -e:4:1\n"
+	if errOut != want {
+		t.Errorf("stderr =\n%s\nwant\n%s", errOut, want)
+	}
+
+	// --no-trace keeps the three lines and nothing else.
+	_, _, errOut = exec([]string{"--no-trace", "-e", src}, "")
+	if strings.Contains(errOut, "called from") || !strings.HasPrefix(errOut, "-e:3:10: raise: boom\n") {
+		t.Errorf("--no-trace stderr =\n%s", errOut)
+	}
+
+	// A top-level error looks exactly as it always did.
+	_, _, errOut = exec([]string{"-e", `raise("top")`}, "")
+	if strings.Contains(errOut, "called from") {
+		t.Errorf("top-level stderr has a trace:\n%s", errOut)
+	}
+
+	// A recursion collapses, and a limit has a trace too.
+	_, _, errOut = exec([]string{"-e", "fn f(n) { f(n + 1) }\nf(0)"}, "")
+	if !strings.Contains(errOut, "in f, called from -e:1:11 (×199)\n  in f, called from -e:2:1\n") {
+		t.Errorf("depth-limit stderr =\n%s", errOut)
+	}
+}
+
+// The caret of an error raised inside an included module is drawn from the module.
+func TestTraceCaretFromTheModule(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "lib.mzs", "export fn boom() {\n  raise(\"from lib\")\n}\n")
+	main := writeTestFile(t, dir, "main.mzs", "include lib from \"./lib.mzs\"\nlib.boom()\n")
+	_, _, errOut := exec([]string{main}, "")
+	lines := strings.Split(errOut, "\n")
+	if len(lines) < 4 || !strings.HasSuffix(lines[0], "lib.mzs:2:3: raise: from lib") ||
+		lines[1] != `    raise("from lib")` || !strings.HasSuffix(lines[3], "main.mzs:2:5") {
+		t.Errorf("stderr =\n%s", errOut)
+	}
+}
+
+// The caret of a module's error is the text that was compiled, kept by the loader. A
+// file changed on disk after the include — here by the program itself — does not change
+// what the diagnostic shows, and the CLI never reads a module a second time.
+func TestTraceCaretIsTheCompiledModule(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "lib.mzs", "export fn boom() {\n  raise(\"from lib\")\n}\n")
+	main := writeTestFile(t, dir, "main.mzs", `include io
+include lib from "./lib.mzs"
+io.write("`+filepath.Join(dir, "lib.mzs")+`", "export fn boom() {\n  CHANGED ON DISK\n}\n")
+lib.boom()
+`)
+	_, _, errOut := exec([]string{main}, "")
+	if !strings.Contains(errOut, "\n    raise(\"from lib\")\n") || strings.Contains(errOut, "CHANGED") {
+		t.Errorf("stderr =\n%s", errOut)
+	}
+}

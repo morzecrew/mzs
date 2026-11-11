@@ -175,7 +175,7 @@ func (rs *runState) collect(pending int64) error {
 		sh.memPeak = total
 	}
 	if total > max {
-		return limitErrorf(ErrMemory, "memory budget exceeded (%s live, the limit is %s)",
+		return rs.limitErr(ErrMemory, "memory budget exceeded (%s live, the limit is %s)",
 			byteSize(total), byteSize(max))
 	}
 	sh.mem = total

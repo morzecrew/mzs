@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -60,6 +61,7 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if !c.HasClosure() {
 		return Nil(), c.ArgErrorf("test.case needs a block: test.case(%q) { … }", name)
 	}
+	outer := c.rs.frames()
 	start := time.Now()
 	_, rerr := c.CallClosure()
 	elapsed := time.Since(start)
@@ -74,6 +76,9 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if rerr != nil {
 		writeLine(c, "FAIL "+name)
 		writeLine(c, "     "+errorLine(rerr))
+		for _, line := range FormatTrace(caseFrames(rerr, outer)) {
+			writeLine(c, "       "+line)
+		}
 		return Bool(false), nil
 	}
 	writeLine(c, "ok   "+name)
@@ -89,6 +94,25 @@ func testEq(c *Ctx, args []Value) (Value, error) {
 	}
 	return Nil(), c.position(raiseError(
 		"expected "+args[1].Inspect()+", got "+args[0].Inspect(), Nil()))
+}
+
+// caseFrames is the part of a failure's stack that is inside the case: the frames the
+// case's own block called, without the block itself, `test.case` and whatever called the
+// file. outer is the stack test.case was called under, its own frame included; a stack
+// that ends with outer and the block's frame is cut there. One that does not — the
+// failure of an awaited task carries the task's own stack, which starts at the task — is
+// all inside the case, and is shown whole (§12.18).
+func caseFrames(err error, outer []Frame) []Frame {
+	e := asError(err)
+	if e == nil {
+		return nil
+	}
+	s := e.Stack
+	n := len(s) - len(outer) - 1
+	if n < 0 || !slices.Equal(s[n+1:], outer) {
+		return s
+	}
+	return s[:n]
 }
 
 // errorLine is what a failure says on one line: the message with the position it was

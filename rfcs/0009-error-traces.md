@@ -1,6 +1,6 @@
 # RFC 0009 — Error traces
 
-**Status:** Draft · **Area:** language, CLI · **Depends on:** — · **Audit:** L15, B5
+**Status:** Landed (#20) · **Area:** language, CLI · **Depends on:** — · **Audit:** L15, B5
 
 ## Summary
 
@@ -140,3 +140,40 @@ frame.
 `mzs/errors.go` (`Frame.File`, dict construction in the `else` binder), `mzs/limits.go`
 (`frames()` records the file), `cmd/mzs/diag.go` (rendering), `cmd/mzs/test.go`,
 `docs/language/errors.md`, `docs/cli/diagnostics.md`, SPEC §8.11/§13.5/§15.
+
+## As landed
+
+SPEC §8.11, §13.5, §15 and §15.2 are the normative text; this records the decisions the RFC
+left open or that the implementation had to make.
+
+* **Open question 1 — limit errors print a trace: yes**, as proposed. They also carry the
+  stack in the Go API now: the helpers that raise them capture it (`limitErr`), and
+  `execStmts` positions any error that is still unpositioned at the statement that failed.
+* **Open question 2 — the input line under `-n`:** nothing new. The CLI already prints
+  `mzs: input line N:` before the diagnostic, and the trace follows the caret as usual.
+* **No frame repeats the caret.** This is how §2's "none is skipped" reads once builtins and
+  stdlib rows push frames too: the innermost frame of a `raise` would be the `raise` call
+  itself, at the error's own position — the caret, not a call that led to it. That one frame
+  is dropped, and only where it is *known* to be the failing call's: inside a stdlib row
+  positioning its own error, and inside `invoke` for an arity, binding or host failure after
+  the call's own frame was pushed. It is never chosen by comparing positions, which cannot
+  tell the failing call from the previous level of a recursion written at the same site.
+  Every other error — a limit, a call that fails before it has a frame, a `raise(e)` that
+  re-raises a stack it copied — keeps its stack exactly as it was captured. Under `MaxDepth`
+  that is what keeps every level: the innermost frame is the previous level of a recursion
+  written at the very site the next call failed at, not a repetition.
+* **Frame names.** A closure literal is `"{}"`. A stdlib row that called back into the
+  script (`map`, `each`, `test.case`) is a frame under its own name, which is the path the
+  call really took. There is no extra `"task"` frame: a task's stack already ends with the
+  `async fn`'s own frame at the site it was started, which is the same information.
+* **The module's file.** A function records the file it was compiled in, and a call makes
+  that file current for the body, its defaults included, and restores it on return.
+* **The caret of a module's error** is drawn from the source the CLI's loader read, kept
+  per resolved name, and never from a second read of the disk: that read would bypass the
+  include confinement the first one went through, and could show a line the program never
+  compiled.
+* **`mzs test`** prints the frames inside the case: the failure's stack minus the block's
+  own frame, `test.case` and everything outside it.
+* **`mzs.FormatTrace`** is exported so the CLI and the `test` module share one renderer.
+  Its text is diagnostic output (§21.2).
+

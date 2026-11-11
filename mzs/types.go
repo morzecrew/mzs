@@ -133,6 +133,10 @@ type Func struct {
 	// call does; what differs is that there is no body — the bound parameters *are* the
 	// dict it hands back.
 	Record *RecordType
+	// file is the program or module the function was written in. A call makes it the
+	// current file for the body, so an exported function's errors and frames name the
+	// module rather than whichever file called it (§8.11, §12.8).
+	file string
 	// Frame is the number of local slots one invocation needs, from the compile pass.
 	// It mirrors Body.FrameSize for script functions and is 0 for host functions.
 	Frame int

@@ -41,6 +41,16 @@ func (e ev) at(err error, p token.Pos) error {
 	return x
 }
 
+// atCall is at for the failure of a call inside its own frame — the arity, a missing
+// argument, a host function's error — whose frame is innermost and is the failure itself.
+// A stack the error already carries came from deeper down and is kept as it is.
+func (e ev) atCall(err error, p token.Pos) error {
+	if x, ok := err.(*Error); ok && x.Stack == nil {
+		x.Stack = framesOutside(e.rs.frames())
+	}
+	return e.at(err, p)
+}
+
 // ---------------------------------------------------------------------------
 // Statements
 // ---------------------------------------------------------------------------
@@ -91,7 +101,11 @@ func (e ev) execStmts(stmts []ast.Stmt) (Value, error) {
 		v, err := e.execStmt(s)
 		if err != nil {
 			e.rs.rootReset(m)
-			return Nil(), err
+			// An error nothing positioned yet — a limit raised deep inside the statement,
+			// a cap checked before an allocation — is positioned at the statement that
+			// failed rather than at the start of the program (§8.11). at keeps a position
+			// and a stack that are already set.
+			return Nil(), e.at(err, s.Pos())
 		}
 		last = v
 	}

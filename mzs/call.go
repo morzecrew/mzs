@@ -84,6 +84,7 @@ func (e ev) makeFunc(name string, params []ast.Param, body *ast.BlockStmt, lambd
 		Lambda: lambda,
 		Async:  async,
 		Frame:  frame,
+		file:   e.rs.file,
 	})
 }
 
@@ -116,10 +117,10 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 
 	if f.Host != nil {
 		if err := named.reject(fnName(f)); err != nil {
-			return Nil(), e.at(err, pos)
+			return Nil(), e.atCall(err, pos)
 		}
 		if f.Arity >= 0 && len(args) != f.Arity {
-			return Nil(), e.at(argErrorf("%s expects %d argument(s), got %d",
+			return Nil(), e.atCall(argErrorf("%s expects %d argument(s), got %d",
 				fnName(f), f.Arity, len(args)), pos)
 		}
 		restore := e.enterCall(f.Name, pos, args)
@@ -130,7 +131,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		if c, ok := ctrlOf(err); ok && c.kind == ctrlNext {
 			return c.val, nil
 		}
-		return v, e.at(err, pos)
+		return v, e.atCall(err, pos)
 	}
 
 	if f.Async {
@@ -140,9 +141,20 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		return e.spawnTask(f, args, named, pos)
 	}
 
+	// The frame above was pushed with the caller's file; the body — its defaults
+	// included — is the callee's code and runs with the callee's file current.
+	prev := e.rs.file
+	if f.file != "" && f.file != prev {
+		e.rs.file = f.file
+		defer func() { e.rs.file = prev }()
+	}
 	env, err := e.bindParams(f, args, named)
 	if err != nil {
-		return Nil(), e.at(err, pos)
+		// A default that failed is positioned already, in the callee's file. What is not
+		// — an arity or a missing argument — is the call's own failure, and the call is
+		// written in the caller's file.
+		e.rs.file = prev
+		return Nil(), e.atCall(err, pos)
 	}
 	if f.Record != nil {
 		// A record's constructor has no body: the fields it has just bound *are* the

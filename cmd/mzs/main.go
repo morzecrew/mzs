@@ -93,6 +93,14 @@ type config struct {
 	check  bool
 	repl   bool
 	stats  bool
+	// noTrace is --no-trace: a runtime error prints its three lines and not the call
+	// stack under them (§15).
+	noTrace bool
+	// loaded is the source of every module the loader read, keyed on the resolved name an
+	// error carries as its File. A diagnostic raised inside a module draws its caret from
+	// here: the text that was compiled, read once through the include confinement, and
+	// never the disk a second time (§15).
+	loaded map[string]string
 }
 
 func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
@@ -192,7 +200,7 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return code
 	}
 	if err != nil {
-		reportErr(stderr, name, src, err)
+		reportErrTrace(stderr, name, src, err, !cfg.noTrace, cfg.loaded)
 		return codeFor(err)
 	}
 	if cfg.printVal && !(cfg.printImplied && res.Value.IsNil()) {
@@ -323,7 +331,7 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 			// Which line of the input broke is the one thing the diagnostic below cannot
 			// say: its position is a position in the program, and the program is fine.
 			fmt.Fprintf(stderr, "mzs: input line %d:\n", lines)
-			reportErr(stderr, name, src, err)
+			reportErrTrace(stderr, name, src, err, !cfg.noTrace, cfg.loaded)
 			return codeFor(err)
 		}
 		for k, v := range res.Globals {
@@ -398,7 +406,9 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	if cfg.randOn {
 		o.Rand = rand.New(rand.NewSource(cfg.randSeed))
 	}
-	o.ModuleLoader = fileLoader(cfg.root, libDirs())
+	// options only reads cfg: it is called more than once per config (the REPL's completer
+	// builds Options of its own), so the record of loaded sources is made with the config.
+	o.ModuleLoader = recordSources(fileLoader(cfg.root, libDirs()), cfg.loaded)
 	// The io module (§12.13) is a host capability, and on the command line the host is
 	// the person typing it: a one-liner that cannot read a file is not a shell tool. An
 	// embedder gets none of this unless it installs it, which is the whole point of the
@@ -480,7 +490,7 @@ func lintRegexes(w io.Writer, name, src string) {
 }
 
 func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
-	cfg = &config{vars: map[string]mzs.Value{}, ioOn: true}
+	cfg = &config{vars: map[string]mzs.Value{}, ioOn: true, loaded: map[string]string{}}
 	positional := []string{}
 	endOfFlags := false
 
@@ -619,6 +629,8 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			cfg.enableTime = true
 		case "--stats":
 			cfg.stats = true
+		case "--no-trace":
+			cfg.noTrace = true
 		case "--rand":
 			cfg.randOn = true
 			cfg.randSeed = time.Now().UnixNano()
@@ -814,6 +826,7 @@ Flags:
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility
       --stats        print steps, elapsed time and peak live memory to stderr
+      --no-trace     print an error's three lines without the call stack under them
       --tokens       dump the token stream and exit
       --ast          dump the AST and exit
       --check        compile only; report errors and warnings

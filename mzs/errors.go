@@ -107,15 +107,60 @@ func quoteAll(ss []string) []string {
 	return out
 }
 
-// Frame is one entry of a script call stack, innermost first.
+// Frame is one entry of a script call stack, innermost first. A frame is a call site:
+// Fn was called from File:Line:Col, so the innermost frame names the call that led to
+// the failure and the error's own position names the failure itself (§8.11). Fn is the
+// called function's name, "{}" for a closure literal. File is the program or module the
+// call was written in.
 type Frame struct {
 	Fn   string
+	File string
 	Line int
 	Col  int
 }
 
 func (f Frame) String() string {
 	return f.Fn + " (" + strconv.Itoa(f.Line) + ":" + strconv.Itoa(f.Col) + ")"
+}
+
+// maxTraceLines is how many entries FormatTrace shows before it says how many it left out.
+const maxTraceLines = 8
+
+// FormatTrace renders a stack the way the CLI prints it under a diagnostic (§15): one
+// line per call site, innermost first, `in f, called from file:line:col`. A run of
+// identical frames — a recursion that failed at its bottom — is one line with a count,
+// and after eight lines the rest is summarised. The text is diagnostic output, not a
+// format to parse (§21.2); Frame's fields are what a program should read.
+func FormatTrace(stack []Frame) []string {
+	type run struct {
+		f Frame
+		n int
+	}
+	var runs []run
+	for _, f := range stack {
+		if k := len(runs); k > 0 && runs[k-1].f == f {
+			runs[k-1].n++
+			continue
+		}
+		runs = append(runs, run{f, 1})
+	}
+	out := make([]string, 0, min(len(runs), maxTraceLines+1))
+	for i, r := range runs {
+		if i == maxTraceLines {
+			out = append(out, "… "+strconv.Itoa(len(runs)-i)+" more")
+			break
+		}
+		at := strconv.Itoa(r.f.Line) + ":" + strconv.Itoa(r.f.Col)
+		if r.f.File != "" {
+			at = r.f.File + ":" + at
+		}
+		line := "in " + r.f.Fn + ", called from " + at
+		if r.n > 1 {
+			line += " (×" + strconv.Itoa(r.n) + ")"
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // Warning is a non-fatal diagnostic produced at compile time (§11.5, §17).
@@ -197,15 +242,33 @@ func (e *Error) Catchable() bool {
 // (§8.11). Nothing in the language can read that link — it is not a key, it does not
 // serialise and it does not compare — so the dict is exactly the entries set below.
 func (e *Error) ErrorValue() Value {
-	d := NewOrderedDictCap(4)
+	d := NewOrderedDictCap(7)
 	_ = d.Set(Str("message"), Str(e.Msg))
 	_ = d.Set(Str("kind"), Str(e.Kind))
+	_ = d.Set(Str("file"), Str(e.File))
 	_ = d.Set(Str("line"), Int(int64(e.Line)))
+	_ = d.Set(Str("col"), Int(int64(e.Col)))
+	_ = d.Set(Str("stack"), stackValue(e.Stack))
 	if e.Data.Kind() != KNil {
 		_ = d.Set(Str("data"), e.Data)
 	}
 	d.src = e
 	return dictOf(d)
+}
+
+// stackValue is the `stack` key of the error dict: one `{fn, file, line, col}` per call
+// site, innermost first, and `[]` for an error raised at the top level (§8.11).
+func stackValue(fs []Frame) Value {
+	out := make([]Value, len(fs))
+	for i, f := range fs {
+		d := NewOrderedDictCap(4)
+		_ = d.Set(Str("fn"), Str(f.Fn))
+		_ = d.Set(Str("file"), Str(f.File))
+		_ = d.Set(Str("line"), Int(int64(f.Line)))
+		_ = d.Set(Str("col"), Int(int64(f.Col)))
+		out[i] = dictOf(d)
+	}
+	return arrayOf(out)
 }
 
 // errorSource returns the error a dict was made from by ErrorValue. A dict a script
@@ -228,6 +291,20 @@ func (e *Error) At(file string, line, col int) *Error {
 		e.Col = col
 	}
 	return e
+}
+
+// framesOutside is the stack for an error raised by the call whose frame is innermost:
+// that frame is the failure itself — `raise`, `xs.fetch(9)`, `f()` with the wrong arity —
+// and the error's position already names it, so no frame repeats what the caret shows
+// (§8.11). It is only ever called where the innermost frame is known to be that call's:
+// inside a stdlib row, and inside invoke after its own enter. Nowhere is it decided by
+// comparing positions, which cannot tell the failing call from the previous level of a
+// recursion written at the same site.
+func framesOutside(fs []Frame) []Frame {
+	if len(fs) == 0 {
+		return fs
+	}
+	return fs[1:]
 }
 
 // newError builds a positionless script error; the evaluator positions it with At.

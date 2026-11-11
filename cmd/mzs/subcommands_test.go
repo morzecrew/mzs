@@ -468,3 +468,56 @@ func TestTestHelpExampleRuns(t *testing.T) {
 		t.Errorf("stdout = %q; want both cases to run and pass", out)
 	}
 }
+
+// RFC 0009: a failed case shows the calls inside the case that led to the failure, and
+// nothing of the runner that called the case.
+func TestTestCaseTrace(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "deep_test.mzs", `include test
+fn must(x) { x == nil ? raise("missing") : x }
+fn load() { must(nil) }
+test.case("deep") { load() }
+test.case("shallow") { raise("here") }
+`)
+	_, out, _ := exec([]string{"test", dir}, "")
+	if !strings.Contains(out, "FAIL deep\n     missing (") ||
+		!strings.Contains(out, ":2:25)\n       in must, called from ") ||
+		!strings.Contains(out, "\n       in load, called from ") {
+		t.Errorf("stdout =\n%s", out)
+	}
+	if strings.Contains(out, "in {}") || strings.Contains(out, "in case") {
+		t.Errorf("the trace shows the runner's own frames:\n%s", out)
+	}
+	if i := strings.Index(out, "FAIL shallow"); i < 0 || strings.Contains(out[i:], "called from") {
+		t.Errorf("a failure in the case body itself should have no trace:\n%s", out)
+	}
+}
+
+// The failure of an awaited task carries the task's own stack, which does not end with
+// the case's frames: all of it is inside the case and is shown.
+func TestTestCaseTraceThroughATask(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "task_test.mzs", `include test
+async fn job() { helper() }
+fn helper() { raise("in task") }
+test.case("awaits") { job().await }
+`)
+	_, out, _ := exec([]string{"test", dir}, "")
+	if !strings.Contains(out, "\n       in helper, called from ") || !strings.Contains(out, "\n       in job, called from ") {
+		t.Errorf("stdout =\n%s", out)
+	}
+}
+
+// `mzs test --no-trace` keeps a file that fails outside a case to its three lines.
+func TestTestNoTrace(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "broken_test.mzs", "include test\nfn f() { raise(\"outside\") }\nf()\n")
+	_, _, errOut := exec([]string{"test", dir}, "")
+	if !strings.Contains(errOut, "in f, called from") {
+		t.Errorf("stderr without the flag =\n%s", errOut)
+	}
+	code, _, errOut := exec([]string{"test", "--no-trace", dir}, "")
+	if code != exitError || strings.Contains(errOut, "called from") || !strings.Contains(errOut, "raise: outside") {
+		t.Errorf("code = %d, stderr with --no-trace =\n%s", code, errOut)
+	}
+}

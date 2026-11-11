@@ -36,6 +36,7 @@ page of their own: [tools.md](./tools.md). Everything below is the `mzs` command
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()`; pass a seed for reproducibility |
 | `--stats` | print steps, elapsed time and peak live memory to stderr |
+| `--no-trace` | print a runtime error's three lines without the call stack under them |
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
 | `--check` | compile only; report errors and warnings |

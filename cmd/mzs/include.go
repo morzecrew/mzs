@@ -115,6 +115,21 @@ func fileLoader(root string, libs []string) mzs.ModuleLoader {
 	}
 }
 
+// recordSources wraps a loader so every source it hands the interpreter is kept under the
+// resolved name it was handed with. The CLI's diagnostics draw a module's caret line from
+// this record rather than reading the file again, which would be a second read outside
+// the confinement the first one went through, and could show a line of a file the
+// program never compiled.
+func recordSources(load mzs.ModuleLoader, into map[string]string) mzs.ModuleLoader {
+	return func(from, path string) (string, string, error) {
+		resolved, src, err := load(from, path)
+		if err == nil && into != nil {
+			into[resolved] = src
+		}
+		return resolved, src, err
+	}
+}
+
 // isFileForm reports whether a path names a file next to the including one rather than a
 // library. `./` and `../` are the two marks; `..` alone is the same request spelled
 // shorter. The path is put through filepath.ToSlash first, which is what makes

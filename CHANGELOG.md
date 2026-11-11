@@ -19,6 +19,11 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Error traces.** An uncaught runtime error raised inside a function prints its call
+  sites under the caret — `in c, called from st.mzs:2:10`, innermost first, a recursion
+  collapsed to one line with a count, eight lines at most — and `--no-trace` turns that off.
+  A failed `mzs test` case prints the calls inside the case. `mzs.FormatTrace` is the
+  rendering, for a host that wants the same lines (SPEC §8.11, §15; RFC 0009).
 - **A memory budget.** `Options.MaxMemory` bounds the bytes one Run holds *live* in script
   values (default 64 MiB; negative disables), which the per-operation caps could not: an
   array of a thousand 1 MB strings broke neither and ran until the clock stopped it with
@@ -45,6 +50,21 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **The error dict has `file`, `col` and `stack`** — a deliberate break (SPEC §21.4). `else
+  (e)` binds `message, kind, file, line, col, stack` (and `data`), so `e.len` is 6 where it
+  was 3 and `e.json` and `e.keys` grow to match. `stack` is `[{fn, file, line, col}]`, one
+  call site per entry, `[]` at the top level (SPEC §8.11; RFC 0009).
+- **`mzs.Frame` has a `File` field** — a deliberate break (SPEC §21.4). A frame names the file
+  its call was written in, so frames in an included module are attributable. A positional
+  literal `mzs.Frame{"f", 1, 2}` no longer compiles; a keyed one does (SPEC §13.5).
+- **An error in an included module is positioned in the module.** A function a module
+  exports used to run with the importing file current, so its errors paired a module line
+  with the caller's file name and the CLI drew the caret from the wrong source. It now runs
+  with its own file, and the CLI shows the module's line (SPEC §8.11, §15).
+- **Limit errors carry a stack and a position.** The step budget, the timeout, a cancel,
+  the memory budget and the size caps used to reach the host with an empty `Stack` and,
+  inside a function, positioned at the program's first line. They now carry the frames
+  they were raised under and the position of the statement that ran out (SPEC §8.11).
 - **The zero `Options` now bounds memory** — a deliberate break (SPEC §21.4). A program
   that legitimately holds more than 64 MiB of live values under default options now ends
   with `limit: memory budget exceeded`. Restore the old behaviour with `MaxMemory: -1`

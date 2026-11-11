@@ -191,8 +191,12 @@ func TestErrorValueRemembersItsError(t *testing.T) {
 	if got := errorSource(v); got != e {
 		t.Fatalf("errorSource() = %v; want the error the dict was made from", got)
 	}
-	if got := len(v.odict().Keys()); got != 3 {
-		t.Errorf("the dict has %d keys; want the 3 of §8.11 and nothing else", got)
+	var keys []string
+	for _, k := range v.odict().Keys() {
+		keys = append(keys, k.Str())
+	}
+	if got, want := strings.Join(keys, ","), "message,kind,file,line,col,stack"; got != want {
+		t.Errorf("the dict has keys %s; want the six of §8.11, in order: %s", got, want)
 	}
 	// A copy is a value like any other: provenance does not travel through the language.
 	if got := errorSource(dictOf(v.odict().Clone())); got != nil {

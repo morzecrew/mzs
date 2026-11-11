@@ -350,9 +350,9 @@ func (rs *runState) waitAny(chs []<-chan struct{}) (int, error) {
 // the Run's context ending under it (§14.1).
 func (rs *runState) canceledError() error {
 	if rs.task != nil && rs.task.canceled {
-		return limitErrorf(ErrCanceled, "%s was canceled", rs.task.label())
+		return rs.limitErr(ErrCanceled, "%s was canceled", rs.task.label())
 	}
-	return limitErrorf(ErrCanceled, "canceled")
+	return rs.limitErr(ErrCanceled, "canceled")
 }
 
 // fork is the per-task copy of the Run's state. What it shares is deliberate: the
@@ -444,9 +444,16 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 	}
 	// The frame is built here, under the caller's lock, because a default argument
 	// (`async fn f(x = g())`) is the *caller's* code and must not run beside it.
+	// Its defaults are the callee's code, so they run with the callee's file current; a
+	// failure of the call itself is the caller's, and is positioned in the caller's file.
+	prev := rs.file
+	if f.file != "" {
+		rs.file = f.file
+	}
 	env, err := e.bindParams(f, args, named)
+	rs.file = prev
 	if err != nil {
-		return Nil(), e.at(err, pos)
+		return Nil(), e.atCall(err, pos)
 	}
 
 	// The task is given a context of its own, derived from the Run's. Deriving it is what
@@ -514,6 +521,9 @@ func (e ev) runTaskBody(f *Func, pos token.Pos) (Value, error) {
 	defer e.rs.leave()
 	if f.Body == nil {
 		return Nil(), nil
+	}
+	if f.file != "" {
+		e.rs.file = f.file
 	}
 	v, err := e.execStmts(f.Body.Stmts)
 	if err == nil {

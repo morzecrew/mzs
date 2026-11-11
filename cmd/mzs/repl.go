@@ -115,7 +115,7 @@ func replLoop(cfg *config, stdout, stderr io.Writer, lines lineSource, session *
 			return code
 		}
 		if runErr != nil {
-			reportErr(stderr, "repl", full, runErr)
+			reportErrTrace(stderr, "repl", full, runErr, !cfg.noTrace, cfg.loaded)
 			continue
 		}
 

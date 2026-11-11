@@ -111,7 +111,7 @@ brace turns out to be a block or a dict (§3.12) is a separate question:
 
 ```
 try (1 + "two") else (e) -> e.json
-# {"message":"cannot add string to int","kind":"type","line":1}
+# {"message":"cannot add string to int","kind":"type","file":"-e","line":1,"col":8,"stack":[]}
 
 try { 1 + "two" } else (e) { e["kind"] }         # type
 try raise("x") else (e) {code: 1, m: e["message"]}   # {"code":1,"m":"x"} — a dict fallback
@@ -121,11 +121,42 @@ try raise("x") else (e) {code: 1, m: e["message"]}   # {"code":1,"m":"x"} — a 
 |---|---|
 | `message` | the message, without position or kind |
 | `kind` | the kind string from the table below |
+| `file` | the program or module the error was raised in — `"-e"`, `"cart.mzs"` |
 | `line` | the line the error was raised on |
+| `col` | the column, in runes |
+| `stack` | the call sites that led here, innermost first; `[]` at the top level |
 | `data` | present **only** when the error carries a payload |
 
 ```
-e = try raise("x") else (e) -> e; e.keys         # ["message","kind","line"]
+e = try raise("x") else (e) -> e; e.keys   # ["message","kind","file","line","col","stack"]
+```
+
+### The stack
+
+Each entry of `stack` is `{fn, file, line, col}`: function `fn` was **called from** that
+place. The error's own `line` and `col` already say where it failed, so the call that *is*
+the failure — the `raise`, the `fetch`, the call with the wrong arity — is not repeated:
+
+```
+fn inner() { raise("boom") }
+fn outer() { inner() }
+try outer() else (e) { e["stack"].map { "${it["fn"]} ${it["line"]}:${it["col"]}" } }
+# ["inner 2:14", "outer 3:5"]
+```
+
+A closure literal is `"{}"`, and a stdlib row that called back into the script is an entry of
+its own — `xs.map { must(it) }` failing in `must` has `must`, `{}` and `map`. A function a
+module exports records the module as its file: `e["file"]` is the module, and the entry for
+the call names the file that called it. This is what a long-running handler logs:
+
+```
+"POST /order": { (req) ->
+  try handle(req) else (e) {
+    where = e["stack"].map { "${it["fn"]} ${it["file"]}:${it["line"]}" }.join(" < ")
+    println("${e["file"]}:${e["line"]}: ${e["message"]} (${where})")
+    http.json({error: "internal"}, 500)
+  }
+},
 ```
 
 ## `raise`
@@ -134,7 +165,7 @@ e = try raise("x") else (e) -> e; e.keys         # ["message","kind","line"]
 
 ```
 try raise("boom") else (e) -> e.json
-# {"message":"boom","kind":"raise","line":1}
+# {"message":"boom","kind":"raise","file":"-e","line":1,"col":5,"stack":[]}
 
 try raise("no such order", "user") else (e) -> e["kind"]      # user
 ```
@@ -205,7 +236,7 @@ raise("out of stock")
 
 ```
 try assert(false, "nope") else (e) -> e.json
-# {"message":"nope","kind":"raise","line":1}
+# {"message":"nope","kind":"raise","file":"-e","line":1,"col":5,"stack":[]}
 
 try assert(1 == 2) else (e) -> e["message"]      # assertion failed
 inspect(assert(true, "ok"))                      # nil
@@ -288,7 +319,7 @@ known then:
 
 ```
 fn f(x) { x.upper }; try f(1) else (e) -> e.json
-# {"message":"undefined method 'upper' for int","kind":"name","line":1}
+# {"message":"undefined method 'upper' for int","kind":"name","file":"-e","line":1,"col":13,"stack":[{"fn":"f","file":"-e","line":1,"col":26}]}
 ```
 
 ## Propagating and nesting

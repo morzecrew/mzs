@@ -121,6 +121,11 @@ FAIL суммы
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()` |
 | `--no-io` | withhold the `io` module |
+| `--no-trace` | a file that fails outside a case prints its three lines without the call stack |
+
+A failed case prints, under its message, the calls inside the case that led to the failure —
+`in must, called from money_test.mzs:4:11` — and nothing of the case's own block or the
+runner.
 
 Each file is its own **run**: its globals, its includes and its budget reach no other file,
 so a test that leaves `$state` behind cannot make the next file pass, and the order the
