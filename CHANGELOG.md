@@ -19,6 +19,16 @@ and the release is still ahead of it.
 
 ### Added
 
+- **The `csv` module.** `include csv` reads and writes RFC 4180: `csv.parse(s)` gives arrays
+  of fields, `{header: true}` dicts in the header's order, and `csv.rows(io.lines)` the same
+  records as a seq read one at a time, so a file larger than `MaxCollection` streams
+  through. `csv.str(rows)` writes a document (a header from the first dict's keys) and
+  `csv.line(row)` one record. Options: `sep`, `header` (also an array of names), `strict`,
+  `trim` and `comment`. Every value read is a string; quotes, doubled quotes and line
+  breaks inside quotes are handled, a byte-order mark is dropped, and a field is quoted
+  when written only where it has to be. Malformed input is the new error kind `csv`, with
+  the line and column in the message and in `data`. Like `json` and `url`, it needs no
+  host option (SPEC §12.19, §13.5; RFC 0013).
 - **Record fields across files.** With `Options.CompileIncludes`, which the CLI sets,
   `Compile` reads each `include … from` at the top level of a file through the host's
   loader and learns the fields of the records the module exports: `m.amount`,

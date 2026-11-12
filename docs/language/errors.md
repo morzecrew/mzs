@@ -261,6 +261,8 @@ known set instead of a search through English.
 | `zero-division` | integer `/` or `%` by zero |
 | `regex` | a pattern that does not compile |
 | `json` | `json.parse` on bad input, and a value `json` cannot encode |
+| `decimal` | text that is not a decimal, a result past the width, a division with no exact form |
+| `csv` | CSV that is not well-formed, a bad header, a record of the wrong width — `data` is `{line, col}` |
 | `http` | a transport failure, and a response over the size cap |
 | `io` | a filesystem or stream failure, and a read over the size cap |
 | `raise` | `raise` and `assert` |

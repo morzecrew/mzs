@@ -93,6 +93,7 @@ A module of your own has no function half, so the message stops at the rule:
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | none |
 | `url` | `parse build encode decode query parse_query` | none |
 | `test` | `case eq` | none |
+| `csv` | `parse rows str line` | none |
 
 A module the host did not enable is absent, and the diagnostic names the option instead of
 the symptom:
@@ -119,6 +120,7 @@ A host adds modules of its own with `RegisterModule` and removes built-ins with
 - [./decimal.md](./decimal.md) — exact numbers for money
 - [./crypto.md](./crypto.md) — hex, base64, digests, HMAC, and the comparison that does not leak
 - [./url.md](./url.md) — taking a URL apart and putting one together
+- [./csv.md](./csv.md) — reading and writing CSV, and streaming a file through `csv.rows`
 - [../language/async.md](../language/async.md) — `tasks.all` and `tasks.race`, and the tasks they wait for
 - [./test.md](./test.md) — cases with names, and the runner behind `mzs test`
 - [./custom.md](./custom.md) — `include … from` and `export`

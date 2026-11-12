@@ -104,7 +104,7 @@ host's OOM killer does not return an `error` at the `Run` boundary. → [0011](0
 | # | Gap | Evidence | RFC |
 |---|---|---|---|
 | S1 | **Landed (#21).** No stderr | `eprintln` / `warn` are undefined; `Options.Stderr` exists but only warnings reach it. A filter in a pipeline cannot report without corrupting its output | [0012](0012-stderr.md) |
-| S2 | No CSV | `include csv` → unknown module. `examples/12_csv_report.mzs` carries its own quote-aware scanner — commas and doubled quotes inside quotes — because `split(",")` is wrong for any quoted field; it still cannot read a quoted field that spans lines, and every script that needs CSV has to copy it | [0013](0013-csv-module.md) |
+| S2 | **Landed (#28).** No CSV | `include csv` → unknown module. `examples/12_csv_report.mzs` carries its own quote-aware scanner — commas and doubled quotes inside quotes — because `split(",")` is wrong for any quoted field; it still cannot read a quoted field that spans lines, and every script that needs CSV has to copy it | [0013](0013-csv-module.md) |
 | S3 | `test` has two members | `include test; test.keys` → `["case","eq"]`; `test.raises` is undefined, so an error path cannot be asserted without a hand-written `try` | [0014](0014-test-module.md) |
 | S4 | No path handling; `io` cannot remove, create a directory or stat | `include io; io.keys` → `stdin lines read write append exists ls env`; SPEC §12.13 says so on purpose | [0015](0015-path-and-io.md) |
 | S5 | Uneven collection rows | dict has no `reduce`/`count`/`group_by`; array has no `mean`/`product`/`transpose`; seq has no `zip`/`uniq`/`each_slice`; `trim` takes no cutset | [0016](0016-stdlib-completion.md) |

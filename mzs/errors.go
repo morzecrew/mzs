@@ -42,6 +42,7 @@ const (
 	ErrKindRegex    = "regex"
 	ErrKindJSON     = "json"
 	ErrKindDecimal  = "decimal"
+	ErrKindCSV      = "csv"
 	ErrKindHTTP     = "http"
 	ErrKindIO       = "io"
 	// The two ways a wait ends without the value it waited for (§12.12). Both are the
