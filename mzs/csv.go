@@ -285,6 +285,10 @@ func (r *csvReader) csvErr(c *Ctx, line, col int, format string, a ...any) error
 
 func csvSpace(ch rune) bool { return ch == ' ' || ch == '\t' }
 
+// space is what `trim` takes away: a space or a tab, unless it is the separator — a TSV
+// read with `trim` would otherwise lose its empty fields.
+func (r *csvReader) space(ch rune) bool { return ch != r.o.sep && csvSpace(ch) }
+
 // record reads one record: its fields and the line it started on, or ok == false when
 // the input is over. A blank line is no record (RFC 4180 has none), and a line starting
 // with the comment mark is skipped whole.
@@ -318,7 +322,7 @@ func (r *csvReader) record(c *Ctx) ([]string, int, bool, error) {
 			atStart = false
 		}
 		if r.o.trim {
-			for ok && csvSpace(ch) {
+			for ok && r.space(ch) {
 				if ch, ok, err = r.next(c); err != nil {
 					return nil, 0, false, err
 				}
@@ -358,7 +362,7 @@ func (r *csvReader) unquoted(c *Ctx, b *strings.Builder, ch rune, ok bool) (rune
 		}
 	}
 	if r.o.trim {
-		s := strings.TrimRight(b.String(), " \t")
+		s := strings.TrimRightFunc(b.String(), r.space)
 		b.Reset()
 		b.WriteString(s)
 	}
@@ -380,6 +384,14 @@ func (r *csvReader) quoted(c *Ctx, b *strings.Builder) (rune, bool, error) {
 		}
 		if ch != '"' {
 			b.WriteRune(ch)
+			if ch == '\n' {
+				// A quoted field may span lines, and in `rows` every line is a piece of
+				// its own: the field is bounded as it grows, or an unclosed quote would
+				// pull the rest of the file into one string.
+				if err := c.CheckString(b.Len()); err != nil {
+					return 0, false, err
+				}
+			}
 			continue
 		}
 		if nx, ok := r.peek(); ok && nx == '"' {
@@ -393,7 +405,7 @@ func (r *csvReader) quoted(c *Ctx, b *strings.Builder) (rune, bool, error) {
 			return 0, false, err
 		}
 		if r.o.trim {
-			for ok && csvSpace(ch) {
+			for ok && r.space(ch) {
 				if ch, ok, err = r.next(c); err != nil {
 					return 0, false, err
 				}
@@ -685,6 +697,11 @@ func csvvStr(c *Ctx, args []Value) (Value, error) {
 	names := o.names
 	if dicts && names == nil {
 		names = csvStrKeys(rows[0])
+		// The header a reader would read back: two keys written alike (`1` and "1"), or
+		// an empty one, would make columns it cannot tell apart.
+		if msg := csvNamesProblem(names); msg != "" {
+			return Nil(), c.ArgErrorf("%s: the first row's keys make a header that %s", c.Name(), msg)
+		}
 	}
 	switch {
 	case o.header == 1 && names == nil:
@@ -763,14 +780,22 @@ func csvFields(c *Ctx, o csvOpts, row Value, n int, dicts bool, names []string) 
 	// name its column was given.
 	vals := make(map[string]Value, row.Len())
 	var extra []string
+	var twice string
 	row.odict().Each(func(k, v Value) bool {
 		key := csvKeyText(k)
+		if _, dup := vals[key]; dup {
+			twice = key
+			return false
+		}
 		vals[key] = v
 		if !have[key] {
 			extra = append(extra, key)
 		}
 		return true
 	})
+	if twice != "" {
+		return nil, c.ArgErrorf("%s: row %d has two keys written as the column %s; one of them would be lost", c.Name(), n, quoteString(twice))
+	}
 	if len(extra) > 0 {
 		sort.Strings(extra)
 		return nil, c.ArgErrorf("%s: row %d has %s, which is not a column (%s); writing it would drop it",

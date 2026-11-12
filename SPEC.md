@@ -3452,7 +3452,7 @@ make a semicolon file one column.
 | `sep` | `","` | one character, not a quote or a line break: `"\t"` for TSV, `";"` for the Excel of half of Europe |
 | `header` | `false` | reading: `true` makes the first record the field names, and every later record a dict in that order (D11); an array names the columns of a file that has no header line. Writing: `true` writes a header, `false` none, and unset writes one when the rows are dicts; an array is the column order and the header line |
 | `strict` | `true` | reading: a record whose field count differs from the first record's (or the header's) is an error. Without it, a short record is padded with nil and a long one keeps its extras — under their column index as the key, in a dict. Writing: a dict row missing a column is an error; without it, an empty field |
-| `trim` | `false` | reading: spaces and tabs around an *unquoted* field are dropped, and may stand between a closing quote and the separator; a quoted field is kept as written |
+| `trim` | `false` | reading: spaces and tabs around an *unquoted* field are dropped, and may stand between a closing quote and the separator; a quoted field is kept as written, and a separator that is a space or a tab is never taken for one |
 | `comment` | nil | one character; a line that starts with it is skipped |
 
 **Reading.** A record ends at a line break outside quotes; `"\r\n"` is one line break, and
@@ -3474,7 +3474,9 @@ other dict or array is an `argument` error naming the row and the column; everyt
 goes through `str`. Rows are all arrays or all dicts. Dict rows are written in the key
 order of the first one, or of `header` when it is an array, and a row with a key that order
 does not have is **always** an error naming the row and the key, because writing it would
-drop data.
+drop data. A column is named by its key's text, so two keys written alike — `1` and `"1"` —
+are an error too, as an empty key in the first row is: the header they make could not be
+read back (§12.19, reading).
 
 **Errors.** Malformed input is kind `csv` (§13.5) — a bare quote in an unquoted field, a
 quoted field never closed, text after a closing quote, a header problem, a record of the

@@ -35,6 +35,10 @@ func TestCSVParse(t *testing.T) {
 		{`include csv; csv.parse(" a , b ")`, `[[" a "," b "]]`},
 		{`include csv; csv.parse("# note\na\n#b\n", {comment: "#"})`, `[["a"]]`},
 		{`include csv; csv.parse("a,#b", {comment: "#"})`, `[["a","#b"]]`},
+		// A separator that is a tab or a space is never trimmed away.
+		{`include csv; csv.parse("a\t\tb", {sep: "\t", trim: true})`, `[["a","","b"]]`},
+		{`include csv; csv.parse("\"x\"\tb \t c", {sep: "\t", trim: true})`, `[["x","b","c"]]`},
+		{`include csv; csv.parse("a  b", {sep: " ", trim: true})`, `[["a","","b"]]`},
 		// Without strict, short records are padded with nil and long ones keep their extras.
 		{`include csv; csv.parse("a,b\n1\n1,2,3", {strict: false})`, `[["a","b"],["1",null],["1","2","3"]]`},
 		{`include csv; csv.parse("a,b\n1\n1,2,3", {strict: false, header: true})`, `[{"a":"1","b":null},{"a":"1","b":"2","2":"3"}]`},
@@ -130,6 +134,10 @@ func TestCSVErrors(t *testing.T) {
 		{`include csv; csv.rows([1]).array`, ErrKindType, "csv.rows: a line is a string, got int"},
 		// Writing refuses what would lose data or has no field form.
 		{`include csv; csv.str([{a: 1}, {a: 2, b: 3}])`, ErrKindArgument, "row 2 has \"b\", which is not a column (a); writing it would drop it"},
+		// Two keys written alike would be two columns of one name, and one value lost.
+		{`include csv; csv.str([{1 -> "a", "1" -> "b"}])`, ErrKindArgument, "the first row's keys make a header that names \"1\" twice"},
+		{`include csv; csv.str([{"1" -> "a"}, {1 -> "b", "1" -> "c"}])`, ErrKindArgument, "row 2 has two keys written as the column \"1\""},
+		{`include csv; csv.str([{"" -> 1}])`, ErrKindArgument, "the first row's keys make a header that has an empty name in column 1"},
 		{`include csv; csv.str([{a: 1, b: 2}], {header: ["a"]})`, ErrKindArgument, "row 1 has \"b\", which is not a column (a)"},
 		{`include csv; csv.str([{a: 1, b: 2}, {a: 3}])`, ErrKindArgument, "row 2 has no \"b\"; pass {strict: false}"},
 		{`include csv; csv.str([[1, [2]]])`, ErrKindArgument, "row 1, column 2 is array, which has no CSV form"},
@@ -173,6 +181,13 @@ func TestCSVLimits(t *testing.T) {
 	_, err = New(o).Eval(context.Background(), `include csv; csv.parse("\"`+strings.Repeat("x", 20)+`\"")`, nil)
 	if !errors.Is(err, ErrBudget) || !strings.Contains(err.Error(), "string too large") {
 		t.Errorf("field over MaxStringBytes: %v, want the string limit", err)
+	}
+	// An unclosed quote in a stream of lines is bounded as it grows, not when it ends.
+	o = DefaultOptions()
+	o.MaxStringBytes = 64
+	_, err = New(o).Eval(context.Background(), `include csv; csv.rows(seq { (i) -> i == 0 ? "\"open" : "more text" }).first`, nil)
+	if !errors.Is(err, ErrBudget) || !strings.Contains(err.Error(), "string too large") {
+		t.Errorf("an unclosed quote over lines: %v, want the string limit", err)
 	}
 	o = DefaultOptions()
 	o.StepBudget = 50

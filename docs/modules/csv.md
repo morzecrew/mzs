@@ -40,7 +40,7 @@ One dict, the second argument of every member:
 | `sep` | `","` | one character: `"\t"` for TSV, `";"` for a European Excel |
 | `header` | `false` | read the first record as the field names; or an array naming the columns |
 | `strict` | `true` | every record has the same number of fields |
-| `trim` | `false` | drop spaces around unquoted fields |
+| `trim` | `false` | drop spaces and tabs around unquoted fields — but never the separator |
 | `comment` | `nil` | skip lines that start with this character |
 
 A key the module does not know is an error, with the near miss in it:
@@ -114,7 +114,8 @@ has no CSV form and is an error naming the row and the column.
 
 `{header: false}` leaves the header out, and `{header: ["id", "who"]}` sets the column order
 — which also picks columns out of wider dicts by refusing the rest: a row with a key that
-is not a column is **always** an error, since writing it would drop data. Under `strict` a
+is not a column is **always** an error, since writing it would drop data. So are two keys
+that would make one column (`1` and `"1"`), and an empty key in the first row. Under `strict` a
 row *missing* a column is an error too; `{strict: false}` writes an empty field.
 
 `csv.line(row)` is one record without the line break, for appending to a file as you go:
