@@ -511,7 +511,16 @@ type ArrayPattern struct {
 //
 // HasRest is a written `**`; Rest is its name, or nil for the anonymous `**` a `match`
 // arm may use. Like ArrayPattern, a DictPattern is never evaluated on its own.
+//
+// Record is the name in front of a record shape, `Money {amount}` (RFC 0002): the arm
+// also asks that the subject was built by that `record`. Whether a name is one is the
+// compile pass's to say, because it follows the binding, and `choose {it}` is a call
+// with a trailing closure unless `choose` is a record. For the two shapes that read both
+// ways — `Name {}` and `Name {x}` — Alt holds the call reading, and the compile pass puts
+// it in the pattern's place when the name is not a record. Alt is not walked.
 type DictPattern struct {
+	Record  *Ident
+	Alt     Expr
 	Entries []DictPatternEntry
 	HasRest bool
 	Rest    *Ident
@@ -816,7 +825,12 @@ func (n *AssignExpr) End() token.Pos { return nodeEnd(n.Value) }
 func (n *ArrayPattern) Pos() token.Pos { return n.Start }
 func (n *ArrayPattern) End() token.Pos { return n.Stop }
 
-func (n *DictPattern) Pos() token.Pos { return n.Lbrace }
+func (n *DictPattern) Pos() token.Pos {
+	if n.Record != nil {
+		return n.Record.Start
+	}
+	return n.Lbrace
+}
 func (n *DictPattern) End() token.Pos { return n.Stop }
 
 func (n *DestructureAssign) Pos() token.Pos { return nodePos(n.Pattern) }

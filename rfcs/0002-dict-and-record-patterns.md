@@ -1,6 +1,6 @@
 # RFC 0002 — Dict and record patterns
 
-**Status:** Draft (partially landed, #24) · **Area:** language · **Depends on:** 0001 (for `**rest`) · **Audit:** L4, L5, L6
+**Status:** Landed (#24, #25) · **Area:** language · **Depends on:** 0001 (for `**rest`) · **Audit:** L4, L5, L6
 
 ## Summary
 
@@ -147,12 +147,15 @@ the new binders.
 ## As landed
 
 Part 1 landed in #24: dict patterns on the left of `=` and `:=`, in `match` arms, nested in
-array patterns (and array patterns in them), and patterns as `for` variables. SPEC §4
-(grammar), §5.3 (the arm form) and §8.15 (dict patterns, loop patterns) are the normative
-text. **What remains** is the record shape, `Money {amount, currency: "RUB"} ->`, with its
-compile-time field check and the `mod.Name` form; it waits for a part of its own because
-the reading is decided by name resolution (which `record` a name is, including one an
-include exports, RFC 0003) and it carries its own §21.4 corner, below.
+array patterns (and array patterns in them), and patterns as `for` variables. Part 2 landed
+in #25: the record shape, `Money {amount, currency: "RUB"} ->`, with its compile-time field
+check. SPEC §4 (grammar), §5.3 (the arm forms) and §8.15 (dict patterns, record shapes,
+loop patterns) are the normative text.
+
+The **`mod.Name {…}` form moves to RFC 0003.** Telling `money.Money {amount}` from a method
+call with a trailing closure needs the records an include exports known when the includer
+compiles, and that export table is what RFC 0003 builds (its §2 already shows the arm).
+Until then `mod.Name {…}` keeps the reading it has today.
 
 * **Compatibility — the RFC was wrong about one form.** It said all three forms were syntax
   errors. In assignment and in a `for` header they were. In a `match` arm they were not: a
@@ -200,5 +203,25 @@ include exports, RFC 0003) and it carries its own §21.4 corner, below.
   other three are as the table proposed.
 * **The LSP outline** lists every name a top-level destructuring binds — for the array
   patterns of RFC 0001 too, which it had missed.
+* **The record shape is decided by resolution, as proposed.** `Name {…}` in pattern
+  position parses to a `DictPattern` with `Record` set; for the two shapes a trailing
+  closure also has, `Name {}` and `Name {x}`, the parser keeps the call reading beside it
+  (`Alt`), built exactly as a trailing closure is. The compile pass asks which binding the
+  name resolves to: a `record` declaration (hoisted, so one declared further down counts)
+  makes it a record pattern; anything else — a function, a variable, a `:=` local that
+  shadows a record — puts the call reading back, so `choose {it} ->` means what it meant.
+  A shape no closure has (`f {a, b}`) is a diagnostic when `f` is not a record. The parser
+  only tries the pattern reading for a brace that is empty or holds a dict pattern
+  (`{x}`, `{**…}`, a key before `:` or `,`), so `choose { (x) -> x }` is never read as one.
+* **The shape is asked of the constructor at run time**, as the bare `Money ->` arm does
+  (§7.8); the compile-time resolution decides the reading and checks the field names.
+* **A record shape is a match pattern only.** On the left of `=` it is a diagnostic: a
+  record is a dict, and `{amount} = m` takes it apart.
+* **Formatting.** `Name {x}` is one tree whichever way it is read, so the formatter spells
+  it as a pattern when the file declares a record of that name and as a trailing closure
+  (`choose { it }`) otherwise — a program that does not use records formats as before.
+* **The §21.4 corner** is the one the RFC named: `Money {x} ->` and `Money {} ->` on a record
+  name used to construct a record holding the closure and compare with it, which could
+  never fire; they now ask for the shape. Declared in the CHANGELOG.
 * **Open questions.** Defaults in a target (`{port = 8080} = cfg`) and a scalar binder in
   `match` stay deferred, as the RFC proposed.

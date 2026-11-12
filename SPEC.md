@@ -676,7 +676,8 @@ ArmPattern     = "in" Expr          (* membership *)
                | "if" Expr          (* bare condition *)
                | Expr ;             (* equality; a regex means match, a record the shape *)
 MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]"   (* §8.15; binds *)
-               | DictMatch ;
+               | DictMatch
+               | IDENT DictMatch ;  (* a record shape, when IDENT names a record (§8.15) *)
 MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
                | "*" [ IDENT ]      (* rest: binds the positions between, or skips them; one per level *)
@@ -982,6 +983,7 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 | a literal (`"yes"`, `42`, `true`, `nil`) | `subject == pattern` |
 | a regex literal, or any expression of kind regex | `subject ~ pattern` |
 | a record's name (`Money`) | the subject was built by that `record` declaration (§7.8) |
+| `Money {k: p, …}` | the subject was built by the record constructor the name holds when the arm runs, and fits the dict pattern — a record shape (§8.15) |
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring of a string |
 | `if expr` | `expr` is truthy (the subject is not consulted) |
 | `[p, …]` | the subject is an array (or range) of exactly that length and every position fits — a bare name binds it (§8.15) |
@@ -1179,7 +1181,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `RangeExpr` | `Lo, Hi Expr`, `Exclusive bool` (set by `..<`) |
 | `AssignExpr` | `Target Expr` (`*Ident`, `*GlobalVar`, `*IndexExpr`), `Op token.Kind` (`=`, `:=`, `+=`, …), `Value Expr` |
 | `ArrayPattern` | `Elems []Expr`, `Brackets bool` — one entry per position; a target or a nested pattern on the left of `=`, a binding name or a compared expression in a `match` arm (§8.15) |
-| `DictPattern` | `Entries []DictPatternEntry`, `HasRest bool`, `Rest *Ident` — `{name, age: a, **rest}`; each entry is `Key string` and where its `Value` goes (a target on the left of `=`, a binding name, a nested pattern or a compared expression in an arm), with `In` for `key: in expr` and `Short` for `{name}`; `Rest` is nil for the anonymous `**` of an arm (§8.15) |
+| `DictPattern` | `Record *Ident`, `Alt Expr`, `Entries []DictPatternEntry`, `HasRest bool`, `Rest *Ident` — `{name, age: a, **rest}`, or `Money {amount}` with `Record` set and, for the two shapes a trailing closure also has, `Alt` the call reading; each entry is `Key string` and where its `Value` goes (a target on the left of `=`, a binding name, a nested pattern or a compared expression in an arm), with `In` for `key: in expr` and `Short` for `{name}`; `Rest` is nil for the anonymous `**` of an arm (§8.15) |
 | `DestructureAssign` | `Pattern Expr` (an `ArrayPattern` or a `DictPattern`), `Op token.Kind` (`=` or `:=`), `Value Expr` |
 | `IndexExpr` | `X Expr`, `Index Expr`, `Index2 Expr` (nil unless `a[i, n]`) |
 | `CallExpr` | `Fn Expr`, `Args []Expr`, `Named []NamedArg` (the `name = value` arguments, §8.7) |
@@ -2068,6 +2070,35 @@ match event {
   else                               -> raise("unknown event")
 }
 ```
+
+**A record shape** `Money {amount, currency: "RUB"}` fires when the subject was built by
+that `record` declaration — the question the bare `Money ->` arm asks (§7.8) — and the dict
+pattern after the name fits it. The keys are checked against the declaration at compile
+time, so a misspelt field is a diagnostic and not an arm that never fires:
+
+```
+record Money(amount, currency = "RUB")
+match m {
+  Money {amount, currency: "EUR"} -> "€${amount}"
+  Money {amout} -> …            # syntax: record Money has no field 'amout'; it has amount, currency
+  Money {} -> "some money"      # the shape alone
+}
+```
+
+It stands where a dict pattern does — as an arm, alone in it and with a subject, or nested
+in another pattern — but not on the left of `=`, where a record is taken apart as the dict
+it is: `{amount} = m`.
+
+`Name {…}` is a record shape only when `Name` resolves to a `record` declaration (they
+hoist, §8.2). The shape is asked of the constructor the name holds when the arm runs, as
+for the bare `Money ->` arm; when a `record` in a block rebinds a name an enclosing scope
+declared, which declaration that is depends on the path taken, so the keys of a pattern
+on that name are not checked at compile time and the shape test alone decides. Anything else keeps the reading it always had: `choose {it} ->` is a call with
+a trailing closure, compared as any arm pattern is, and a local variable that shadows a
+record name is not a record. Only `Name {}` and `Name {x}` read both ways; a shape no
+closure has, `f {a, b}`, is a diagnostic when `f` is not a record. A record that an
+included module exports, `money.Money {…}`, is RFC 0003's: it needs the include's records
+known at compile time.
 
 A name binds even when one of that spelling is in scope, as in an array pattern; to compare
 with a variable's value, parenthesise it — `{k: (limit)}`.

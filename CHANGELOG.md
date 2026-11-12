@@ -27,8 +27,15 @@ and the release is still ahead of it.
   fit, a missing key being the next arm; `{age: in 18..65}` asks membership and `**`
   skips the rest. A `for` variable may be a pattern: `for [id, row] in pairs`,
   `for {name} in users`, `for k, {total} in by_user`. The LSP outline lists every name a
-  top-level destructuring binds. The record-shape arm `Money {amount} ->` is not in this
-  change (SPEC §4, §5.3, §8.15; RFC 0002).
+  top-level destructuring binds (SPEC §4, §5.3, §8.15; RFC 0002).
+- **Record shapes in patterns.** `Money {amount, currency: "EUR"} ->` fires when the subject
+  was built by that `record` and fits the dict pattern after the name; it nests, as in
+  `Refund {of: Money {amount}}`. The keys are checked against the declaration at compile
+  time — `Money {amout}` is `syntax: record Money has no field 'amout'; it has amount,
+  currency`. `Name {…}` is a record pattern only when `Name` resolves to a record; any other
+  name keeps the call-with-a-trailing-closure reading it had, so `choose {it} ->` is
+  unchanged. A record an included module exports, `money.Money {…}`, comes with RFC 0003
+  (SPEC §5.3, §8.15; RFC 0002).
 - **Rest elements and spread.** `head, *tail = xs`, `*init, last = xs` and `a, *mid, z = xs`
   bind the positions no other target takes as a new array; in a `match` arm
   `["GET", *path] ->` binds them and `[first, *] ->` skips them. At a call `f(*xs)` passes
@@ -96,6 +103,11 @@ and the release is still ahead of it.
   last; parenthesise both to compare. A brace that is not the whole pattern —
   `{a: 1}.len ->`, `{a: 1} in xs ->` — is the operand it always was (SPEC §5.3, §8.15;
   RFC 0002).
+- **`Money {x} ->` and `Money {} ->` on a record name are record patterns** — a deliberate
+  break (SPEC §21.4). They used to call the constructor with a trailing closure and compare
+  the subject with the record that built — which held that closure, so the arm could never
+  fire. They now ask for the shape; the name of anything that is not a record keeps the
+  old reading (SPEC §8.15; RFC 0002).
 - **A destructuring that does not fit writes nothing.** `a, [b, c] = [1, 2]` used to
   write `a` before failing on the nested pattern; every value is now read before any
   target is written, at every depth, so a nested container a target writes into is read

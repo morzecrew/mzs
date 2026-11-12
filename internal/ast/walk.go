@@ -101,6 +101,9 @@ func Walk(n Node, f func(Node) bool) {
 	case *ArrayPattern:
 		walkExprs(x.Elems, f)
 	case *DictPattern:
+		if x.Record != nil {
+			Walk(x.Record, f)
+		}
 		for _, en := range x.Entries {
 			Walk(en.Value, f)
 		}
@@ -471,7 +474,11 @@ func dump(sb *strings.Builder, n Node, depth int) {
 			child(e)
 		}
 	case *DictPattern:
-		line("DictPattern")
+		if x.Record != nil {
+			line("DictPattern " + x.Record.Name)
+		} else {
+			line("DictPattern")
+		}
 		for _, en := range x.Entries {
 			label := "key " + strconv.Quote(en.Key)
 			if en.In {

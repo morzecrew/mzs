@@ -232,3 +232,87 @@ func TestArmBindingsAreRooted(t *testing.T) {
 		t.Errorf("a guard allocating beside a bound rest: err = %v, want ErrMemory", err)
 	}
 }
+
+// RFC 0002, part 2: `Name {…}` in a pattern asks for the shape a `record` built, then
+// takes the value apart as a dict pattern does.
+func TestRecordPatterns(t *testing.T) {
+	const decls = "record Money(amount, currency = \"RUB\")\nrecord Point(x, y)\n"
+	describe := decls + `fn describe(v) {
+  match v {
+    Money {amount, currency: "EUR"} -> "eur ${amount}"
+    Money {amount} if amount > 100 -> "big ${amount}"
+    Money {} -> "money"
+    Point {x, **rest} -> "x=${x} ${rest.inspect}"
+    {amount} -> "dict ${amount}"
+    else -> "other"
+  }
+}
+`
+	spreadCases(t, [][2]string{
+		{describe + `describe(Money(5, "EUR"))`, `"eur 5"`},
+		{describe + `describe(Money(500))`, `"big 500"`},
+		{describe + `describe(Money(1))`, `"money"`},
+		{describe + `describe(Point(1, 2))`, `"x=1 {\"y\":2}"`},
+		// A plain dict with the same keys is not the shape.
+		{describe + `describe({amount: 3, currency: "EUR"})`, `"dict 3"`},
+		{describe + `describe(7)`, `"other"`},
+		// Nested, both ways round.
+		{decls + `match [Money(2)] { [Money {amount}] -> amount; else -> 0 }`, `2`},
+		{decls + `s = {m: Point(3, 4)}; match s { {m: Point {y}} -> y; else -> 0 }`, `4`},
+		{decls + `match Point(1, 2) { Money {} -> "money"; Point {} -> "point" }`, `"point"`},
+		// A record declared below the match is still one: records hoist (§8.2).
+		{`fn f(v) { match v { Late {a} -> a; else -> 0 } }; record Late(a); f(Late(9))`, `9`},
+		// The shape asked is the constructor's, so a record of another name with the
+		// same fields does not fire.
+		{`record A(x); record B(x); match B(1) { A {x} -> "a"; else -> "not a" }`, `"not a"`},
+		// A record in a block rebinds the enclosing name only if the block runs, so its
+		// keys are not checked statically and the shape test decides.
+		{"record M(a)\nif true { record M(b) }\nmatch M(1) { M {b} -> \"b\"; else -> \"x\" }", `"b"`},
+		{"record M(a)\nold = M(1)\nif false { record M(b) }\nmatch old { M {b} -> \"b\"; M {a} -> \"a\"; else -> \"x\" }", `"a"`},
+		// Two declarations of one name in one scope: a function compiled between them
+		// runs after both, so its keys too are left to the shape test.
+		{"record M(a)\nfn f(v) { match v { M {b} -> \"b\"; else -> \"no\" } }\nrecord M(b)\nf(M(2))", `"b"`},
+		// A brace broken across lines, and a key written as a string.
+		{decls + "match Point(1, 2) {\n  Point {\n    x\n  } -> x\n}", `1`},
+		{decls + `match Money(7) { Money {"amount": a} -> a }`, `7`},
+	})
+}
+
+// A name that is not a record keeps the reading `Name {…}` always had: a call with a
+// trailing closure, compared as an arm pattern is.
+func TestRecordPatternKeepsTheCallReading(t *testing.T) {
+	const choose = "fn choose(f) { 1 }\n"
+	spreadCases(t, [][2]string{
+		{choose + `match 1 { choose {it} -> 7; else -> 0 }`, `7`},
+		{choose + `match 1 { choose {} -> 7; else -> 0 }`, `7`},
+		{choose + `match 1 { choose {}, 2 -> 9; else -> 0 }`, `9`},
+		{choose + `match { choose {it} -> 10; else -> 0 }`, `10`},
+		{choose + `match [1] { [choose {it}] -> 11; else -> 0 }`, `11`},
+		{choose + `s = {k: 1}; match s { {k: choose {it}} -> 12; else -> 0 }`, `12`},
+		{choose + `match 1 { choose { (x) -> x } -> 8; else -> 0 }`, `8`},
+		// A binding that shadows a record is not one: the reading follows the binding.
+		{`record Money(amount); fn f() { Money := { (_) -> 1 }; match 1 { Money {it} -> "call"; else -> "no" } }; f()`, `"call"`},
+		// …and so is a new binding in the record's own scope.
+		{`record M(a); M := { (_) -> 1 }; match 1 { M {it} -> "call"; else -> "no" }`, `"call"`},
+		// A plain `=` writes the record's own binding: still the record reading, and the
+		// shape is asked of what the name holds when the arm runs.
+		{`record M(a); x = M(1); M = 5; match x { M {a} -> "shape"; else -> "no" }`, `"no"`},
+	})
+}
+
+func TestRecordPatternErrors(t *testing.T) {
+	spreadErrors(t, [][3]string{
+		{`record Money(amount, currency); m = Money(1, "x"); match m { Money {amout} -> 1 }`, ErrKindSyntax,
+			"record Money has no field 'amout'; it has amount, currency"},
+		{`record M(a); match M(1) { [M {b}] -> 1; else -> 0 }`, ErrKindSyntax, "record M has no field 'b'; it has a"},
+		{`fn f(x) { x }; match 1 { f {a, b} -> 1; else -> 0 }`, ErrKindSyntax, "'f' is not a record"},
+		// A trailing comma is no closure, so `f {x,}` is not the call it never was.
+		{`fn f(x) { x }; match 1 { f {x,} -> 1; else -> 0 }`, ErrKindSyntax, "'f' is not a record"},
+		{`fn f(x) { x }; match [1] { [f {a: 1}] -> 1; else -> 0 }`, ErrKindSyntax, "'f' is not a record"},
+		{`record M(a); match M(1) { M {a}, 2 -> 1; else -> 0 }`, ErrKindSyntax, "a record pattern must be the only pattern in its arm"},
+		{`record M(a); match { M {a} -> 1; else -> 0 }`, ErrKindSyntax, "a record pattern needs a subject"},
+		{`record M(a); [M {a}] = [M(1)]`, ErrKindSyntax, "a record shape is a match pattern"},
+		// A name bound nowhere is not a record either: the call reading, and its error.
+		{`match 1 { nope {it} -> 1; else -> 0 }`, ErrKindName, "undefined function 'nope'"},
+	})
+}

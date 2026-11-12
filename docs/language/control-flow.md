@@ -106,6 +106,7 @@ top to bottom, the first hit wins, and the value of the `match` is the value of 
 | `if expr` | `expr` is truthy; the subject is not consulted |
 | `[p, …]` | the subject is an array or range of that length; bare names bind |
 | `{k: p, …}` | the subject is a dict with those keys and each value fits; bare names bind ([dict patterns](./destructuring.md#dict-patterns)) |
+| `Money {k: p, …}` | the subject was built by that record and fits the dict pattern ([dict patterns](./destructuring.md#dict-patterns)) |
 | `else` | always; last arm only |
 
 ```

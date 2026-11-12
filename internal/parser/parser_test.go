@@ -153,6 +153,27 @@ Program "t"
 `,
 		},
 		{
+			name: "a record shape keeps its call reading (RFC 0002)",
+			src:  `match m { Money {amount, **} -> amount }`,
+			want: `
+Program "t"
+  ExprStmt
+    Match
+      subject:
+        Ident m
+      arm value
+        pat
+          DictPattern Money
+            key "amount":
+              Ident amount
+            **
+        body
+          Block
+            ExprStmt
+              Ident amount
+`,
+		},
+		{
 			name: "interpolated string",
 			src:  `"a${x+1}b$c"`,
 			want: `
@@ -1506,6 +1527,7 @@ func TestParseErrors(t *testing.T) {
 		{"a dict pattern needs a subject", "match { {a} -> 1 }", "a dict pattern needs a subject: match d { {kind: k} -> … }", 1, 9},
 		{"a loop pattern binds names", "for [a, $g] in xs { }", "a loop pattern binds names: a $var or an index is written in the body", 1, 9},
 		{"a loop variable is a name or a pattern", "for 1 in xs { }", "expected a loop variable, found 1", 1, 5},
+		{"a record shape is a match pattern", "record M(a)\n[M {a}] = xs", "a record shape is a match pattern; a destructuring takes a record apart as a dict: {…} = m", 2, 2},
 		{"** in an array literal", "[**d]", "'**' spreads a dict's entries, into a dict or a call; in an array write '*'", 1, 2},
 		{"* in a dict literal", "{a: 1, *xs}", "'*' spreads an array's elements; in a dict write '**'", 1, 8},
 		{"a stray *", "x = *y", "unexpected '*': a spread stands only in a call, an array literal or a destructuring target", 1, 5},

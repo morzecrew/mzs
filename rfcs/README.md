@@ -13,7 +13,7 @@ points back to, plus the defects that need a fix rather than a design.
 | # | RFC | Area | Size | Priority |
 |---|---|---|---|---|
 | [0001](0001-rest-and-spread.md) | Rest elements and spread: `a, *rest = xs`, `f(*xs)`, `[*a, x]`, `{**d, k: v}` — **landed** (#23) | language | M | P1 |
-| [0002](0002-dict-and-record-patterns.md) | Dict and record patterns in `match`, assignment and `for` — **dict patterns landed** (#24); the record shape remains | language | M | P1 |
+| [0002](0002-dict-and-record-patterns.md) | Dict patterns in assignment, `match` and `for`; record shapes in `match` — **landed** (#24, #25); `mod.Name {…}` moves to 0003 | language | M | P1 |
 | [0003](0003-record-field-assignment.md) | Record fields: `m.amount = 5`, and `.field` across modules | language | S | P1 |
 | [0004](0004-const-bindings.md) | `const` — a binding that cannot be reassigned | language | S | P2 |
 | [0005](0005-enum.md) | `enum` — a closed set of record shapes, and a `match` that is checked | language | M | P2 |
@@ -81,7 +81,6 @@ Status · Area · Depends on
 
 Statuses: **Draft** (written, not agreed) → **Accepted** (agreed, not built) → **Landed**
 (in `SPEC.md`; the RFC then only records the reasoning). Every RFC in this directory is a
-**Draft** except 0011, which has landed (#19) with one piece left, 0002, whose dict
-patterns have landed (#24) with the record shape left, and 0009 (#20), 0012 (#21), 0008
-(#22) and 0001 (#23), which have landed; their *As landed* sections record what the
-implementation decided.
+**Draft** except 0011, which has landed (#19) with one piece left, and 0009 (#20), 0012
+(#21), 0008 (#22), 0001 (#23) and 0002 (#24, #25), which have landed; their *As landed*
+sections record what the implementation decided.

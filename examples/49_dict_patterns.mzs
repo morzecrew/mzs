@@ -103,3 +103,26 @@ for {id, customer: {name: who}, lines} in orders {
 totals = {ann: {total: 3}, bob: {total: 5}}
 for k, {total} in totals { show("totals[${k.inspect}]", total) }
 for [sku, count] in {A: 7, B: 1} { show("stock ${sku}", count) }
+
+# --- record shapes ----------------------------------------------------------------------
+#
+# A record's name in front of the braces asks for that shape too, and the compile step
+# checks the keys against the declaration: `Money {amout}` is a diagnostic, not an arm
+# that never fires.
+
+println("")
+println("=== record shapes ===")
+println("")
+
+record Money(amount, currency = "RUB")
+record Refund(of, reason)
+
+fn ledger(entry) {
+  match entry {
+    Money {amount, currency: "EUR"}  -> "€${amount}"
+    Money {amount, currency}         -> "${amount} ${currency}"
+    Refund {of: Money {amount}, reason} -> "refund of ${amount}: ${reason}"
+    {amount}                         -> "a plain dict, not Money: ${amount}"
+  }
+}
+[Money(30, "EUR"), Money(1500), Refund(Money(5), "late"), {amount: 9}].each { (e) -> show("ledger(${type(e)})", ledger(e)) }

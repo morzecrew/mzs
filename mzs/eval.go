@@ -946,6 +946,17 @@ func (e ev) matchAny(pat ast.Expr, v Value, env *Env) (bool, error) {
 // other expression compares as an arm pattern does (§5.3). A missing key is no match, not
 // an error: an arm is a question.
 func (e ev) matchDict(pat *ast.DictPattern, v Value, env *Env) (bool, error) {
+	if pat.Record != nil {
+		// `Money {amount}` asks for the shape first, exactly as the bare `Money ->`
+		// arm does (§7.8): the constructor the name holds now is the one asked about.
+		ctor, err := e.eval(pat.Record)
+		if err != nil {
+			return false, err
+		}
+		if rt := ctor.recordCtor(); rt == nil || v.recordType() != rt {
+			return false, nil
+		}
+	}
 	if v.Kind() != KDict {
 		return false, nil
 	}
