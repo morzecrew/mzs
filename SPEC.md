@@ -1872,7 +1872,7 @@ so last.
 
 **Kinds.** Every error carries a `kind` from the closed list of §13.5 —
 `syntax`, `name`, `type`, `argument`, `index`, `key`, `zero-division`, `regex`, `json`,
-`decimal`, `http`, `io`, `timeout`, `canceled`, `raise`, `limit`, `exit`, `internal` —
+`decimal`, `csv`, `http`, `io`, `timeout`, `canceled`, `raise`, `limit`, `exit`, `internal` —
 stamped where the failure is born, so a
 handler decides on a value rather than on the wording of a message:
 
@@ -2802,6 +2802,7 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | see §12.16 | no host option |
 | `url` | `parse build encode decode query parse_query` | see §12.17 | no host option |
 | `test` | `case eq` | see §12.18 | no host option |
+| `csv` | `parse rows str line` | see §12.19 | no host option |
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
@@ -3417,6 +3418,76 @@ The module needs nothing from the host — like `json` and `decimal`, the includ
 (§14.3).
 
 ---
+### 12.19 The `csv` module
+
+CSV is the commonest shape of the data a script is handed, and `split(",")` is not a parser
+of it: it breaks on a quoted comma, on a `""` escape and on a line break inside quotes. The
+module reads and writes RFC 4180, and needs nothing from the host — like `json` and `url`,
+the include is all of it (§14.3).
+
+```
+include csv
+
+csv.parse("id,name\n1,Ann\n")                   # [["id","name"],["1","Ann"]]
+csv.parse(text, {header: true})                 # [{"id":"1","name":"Ann"}]
+csv.rows(io.lines, {header: true})              # the same records, one at a time
+  .filter { it["paid"] == "yes" }.count
+csv.str(users)                                  # "id,name\n1,Ann\n" — a header from the keys
+csv.line(["a", "b,c"])                          # "a,\"b,c\"" — one record, for io.append
+```
+
+| Member | Signature | Semantics |
+|---|---|---|
+| `parse` | `(s: string, opts: dict = {}) -> array` | every record of `s`: an array of arrays, or of dicts under `header` |
+| `rows` | `(src: seq \| array \| string, opts: dict = {}) -> seq` | the same records, pulled one at a time (§12.14). `src` is a sequence of **lines**, as `io.lines` gives them, or one string; a quoted field that holds a line break takes as many lines as it spans |
+| `str` | `(rows: array \| seq, opts: dict = {}) -> string` | the document, each record on a line ending in `"\n"`; dict rows write a header first |
+| `line` | `(row: array, opts: dict = {}) -> string` | one record, with no line break |
+
+**Options** are a dict, as `http` takes them; a key the module does not know is an
+`argument` error that names the near miss, because a misspelt `sep` read silently would
+make a semicolon file one column.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sep` | `","` | one character, not a quote or a line break: `"\t"` for TSV, `";"` for the Excel of half of Europe |
+| `header` | `false` | reading: `true` makes the first record the field names, and every later record a dict in that order (D11); an array names the columns of a file that has no header line. Writing: `true` writes a header, `false` none, and unset writes one when the rows are dicts; an array is the column order and the header line |
+| `strict` | `true` | reading: a record whose field count differs from the first record's (or the header's) is an error. Without it, a short record is padded with nil and a long one keeps its extras — under their column index as the key, in a dict. Writing: a dict row missing a column is an error; without it, an empty field |
+| `trim` | `false` | reading: spaces and tabs around an *unquoted* field are dropped, and may stand between a closing quote and the separator; a quoted field is kept as written |
+| `comment` | nil | one character; a line that starts with it is skipped |
+
+**Reading.** A record ends at a line break outside quotes; `"\r\n"` is one line break, and
+inside a quoted field it reads as `"\n"`. A blank line is no record, and a byte-order mark
+at the very start is dropped — Excel writes one, and kept it would sit invisibly inside the
+first header name. **Every value is a string:** a field has no type, and guessing one
+(`"007"`, `"1e3"`, `"NULL"`) is the coercion §9.1 refuses; `int` and `parse_int` (§12.7)
+are the caller's. An empty field is `""`, not nil. A header that names a field twice, or
+leaves one unnamed, is an error before any record is read: two fields cannot share one
+key, and dropping either is data loss.
+
+**Writing.** A field is quoted when the reader could not read it back otherwise: it holds
+the separator, a quote, `"\r"` or `"\n"`, begins or ends with a space or a tab, or begins
+with the `comment` character; a quote inside is doubled. A record of one empty field is
+written `""`, since nothing at all would read back as a blank line. A string is written as
+it is and nil as an empty field; a Decimal is written as `decimal.str` writes it (§12.15),
+because `str` of one is the JSON of its dict and no spreadsheet reads that as money; any
+other dict or array is an `argument` error naming the row and the column; everything else
+goes through `str`. Rows are all arrays or all dicts. Dict rows are written in the key
+order of the first one, or of `header` when it is an array, and a row with a key that order
+does not have is **always** an error naming the row and the key, because writing it would
+drop data.
+
+**Errors.** Malformed input is kind `csv` (§13.5) — a bare quote in an unquoted field, a
+quoted field never closed, text after a closing quote, a header problem, a record of the
+wrong width under `strict` — and the message names the line and the column of the input,
+which `data` carries too: `{line: 2, col: 1}`. Like every kind but `limit` and `exit`, it is
+caught by `try`.
+
+**Limits.** `parse` charges every record and the array of them against `MaxCollection` and
+the memory budget, and every field against `MaxStringBytes`; reading charges the step
+budget by the size of the input. `rows` builds one record at a time, so a file larger than
+any collection limit is readable in a loop, bounded by the step budget and the deadline
+(§14.1).
+
 ## 13. Go API
 
 Import path `mzs` (module root). Everything below is the **normative public surface** for
@@ -3683,7 +3754,7 @@ var (
 
 type Error struct {
     Kind    string // "syntax" | "name" | "type" | "argument" | "index" | "key" |
-                   // "zero-division" | "regex" | "json" | "decimal" | "http" | "io" |
+                   // "zero-division" | "regex" | "json" | "decimal" | "csv" | "http" | "io" |
                    // "timeout" | "canceled" | "raise" | "limit" | "exit" | "internal"
                    // — or a name the script chose, §8.11
     Msg     string
@@ -3736,6 +3807,7 @@ over a known set (§8.11).
 | `regex` | a pattern that does not compile (§12.6) |
 | `json` | `json.parse` on bad input, and a value `json` cannot encode (§12.8) |
 | `decimal` | text that is not a decimal, a result past the width, a division with no exact form (§12.15) |
+| `csv` | input that is not well-formed CSV, a header that names a field twice or not at all, a record of the wrong width (§12.19) |
 | `http` | a transport failure, and a body over the cap (§12.11, §14.2) |
 | `io` | a filesystem or stream failure, and a read over the cap (§12.13, §14.2) |
 | `timeout` | `t.timeout(d)` — the limit the *script* set on a wait ran out (§12.12) |

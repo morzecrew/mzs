@@ -2,11 +2,14 @@
 #
 #   mzs examples/12_csv_report.mzs
 #
-# `split(",")` is not a CSV parser: it breaks on the first quoted comma. So this file
-# writes the six-line scanner that does it properly, then treats the result as records —
-# typed, filtered, grouped, totalled and written back out with the quotes restored.
+# `split(",")` is not a CSV parser: it breaks on the first quoted comma, on a doubled
+# quote and on a line break inside quotes. `include csv` is (§12.19): it reads RFC 4180
+# into records, and this file treats them as data — typed, filtered, grouped, totalled
+# and written back out with the quotes restored.
 
-csv = 'id,customer,city,item,qty,unit_price,paid
+include csv
+
+data = 'id,customer,city,item,qty,unit_price,paid
 1001,"Petrov, Ivan",Moscow,haircut,2,1500,yes
 1002,Anna Smith,Berlin,"colour, full",1,3200,yes
 1003,"O\'Brien, Sean",Dublin,beard,3,800,no
@@ -16,35 +19,14 @@ csv = 'id,customer,city,item,qty,unit_price,paid
 1007,Ivan Petrov,Moscow,colour,1,3200,yes
 1008,Li Ming,Shanghai,"beard, hot towel",2,1100,yes'
 
-# --- the scanner: one pass, three states ---------------------------------------
+# --- reading: one call, and every field is a string --------------------------
 #
-# in_quotes decides whether a comma separates or belongs to the field; a doubled quote
-# inside a quoted field is one literal quote. That is the whole of RFC 4180 that matters.
+# Before the module this file carried its own scanner — an `in_quotes` flag, and a
+# lookahead for the doubled quote — and still could not read a field with a line break
+# in it. `{header: true}` makes every record a dict in the header's order.
 
-fn parse_line(line) {
-  fields = []
-  field = ""
-  in_quotes = false
-  skip_next = false
-  chars = line.chars
-  chars.each_with_index { (c, i) ->
-    if skip_next { skip_next = false; next }     # `next` ends this iteration, not the `if`
-    match {
-      c == "\"" && in_quotes && chars[i + 1] == "\"" -> (field += "\""; skip_next = true)
-      c == "\""                                      -> in_quotes = !in_quotes
-      c == "," && !in_quotes                         -> (fields.push(field); field = "")
-      else                                           -> field += c
-    }
-  }
-  fields.push(field)
-}
-
-lines = csv.lines.reject { it.blank }
-header = parse_line(lines.first)
-rows = lines.drop(1).map { (l) ->
-  values = parse_line(l)
-  header.zip(values).dict
-}
+rows = csv.parse(data, {header: true})
+header = rows.first.keys
 
 println("columns: ${header.json}")
 println("rows:    ${rows.len}")
@@ -95,22 +77,18 @@ println("unpaid orders:   ${orders.reject { it["paid"] }.map { it["id"] }.json}"
 println("cities:          ${orders.map { it["city"] }.uniq.sort.join(", ")}")
 
 # --- writing CSV back out: quote only what needs quoting ----------------------
+#
+# csv.str writes a header from the first row's keys and quotes a field only when it has
+# to: a comma, a quote (doubled), a line break, a space at either end.
 
-fn csv_field(v) {
-  s = str(v)
-  s ~ /[",\n]/ ? "\"" + s.replace("\"", "\"\"") + "\"" : s
-}
-
-fn to_csv(records, columns) {
-  ([columns.join(",")] + records.map { (r) -> columns.map { (c) -> csv_field(r[c]) }.join(",") }).join("\n")
-}
+fn columns(records, keys) { records.map { (r) -> keys.map { [it, r[it]] }.dict } }
 
 println("")
 println("unpaid orders, written back as CSV:")
-println(to_csv(orders.reject { it["paid"] }, ["id", "who", "item", "total"]))
+print(csv.str(columns(orders.reject { it["paid"] }, ["id", "who", "item", "total"])))
 
 # --- a sanity check the program can make about itself -------------------------
 
-reparsed = to_csv(orders, ["id", "who", "item"]).lines.drop(1).map { parse_line(it) }
+reparsed = csv.parse(csv.str(columns(orders, ["id", "who", "item"])), {header: true})
 println("")
-println("round trip preserves every field: ${reparsed.map { it[1] } == orders.map { it["who"] }}")
+println("round trip preserves every field: ${reparsed.map { it["who"] } == orders.map { it["who"] }}")

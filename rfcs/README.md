@@ -24,7 +24,7 @@ points back to, plus the defects that need a fix rather than a design.
 | [0010](0010-parameter-contracts.md) | Parameter and field contracts: `fn f(n: int)` | language | L | P3 |
 | [0011](0011-memory-budget.md) | An aggregate memory budget — **landed** (#19), except `mzs.Opaque` | embedding | M | P1 |
 | [0012](0012-stderr.md) | `eprint` / `eprintln` — a second output stream — **landed** (#21) | stdlib | S | P1 |
-| [0013](0013-csv-module.md) | The `csv` module | stdlib | M | P1 |
+| [0013](0013-csv-module.md) | The `csv` module — **landed** (#28) | stdlib | M | P1 |
 | [0014](0014-test-module.md) | `test` grows up: `raises`, `near`, `skip`, `group`, and runner flags | stdlib, CLI | M | P1 |
 | [0015](0015-path-and-io.md) | The `path` module, and `io.stat` / `rm` / `mkdir` / `mv` / `walk` | stdlib | M | P2 |
 | [0016](0016-stdlib-completion.md) | Standard-library completion: the rows that are conspicuously absent | stdlib | M | P2 |
