@@ -193,7 +193,9 @@ bullet), §8.15 and §13.2 are the normative text; the CLI sets the option.
   are `export record Name(…)` and a bare `export Name` that names a top-level record of the
   module. A record the module keeps private is not learnt. The module's own includes are
   not followed — a record re-exported from a third file is read with `m["k"]` — because a
-  chain of compile-time reads is a chain of loader calls nobody wrote down.
+  chain of compile-time reads is a chain of loader calls nobody wrote down. A name the file
+  includes twice at the top level is not read either: which module a function body sees
+  through it depends on when the body runs, so neither table can be trusted.
 * **The four safety rules hold as written.** A block's include is not read; a read that
   fails (the loader's error, or a source that does not parse) is no error of its own and
   only explains a `.field` nothing resolved; only field names are kept and each Run reads

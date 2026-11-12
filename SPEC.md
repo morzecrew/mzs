@@ -3566,8 +3566,11 @@ For `ModuleLoader`, `from` is the name of the including program and `path` is th
 the script wrote; the loader returns the resolved name — the key the per-Run module cache
 uses, so two spellings of one file load once — and its source.
 
-`CompileIncludes` makes `Compile` call the loader too, once per `include … from` at the top
-level of the file, and parse what it returns for the records the module exports (§7.8).
+`CompileIncludes` makes the compile step call the loader too, once per `include … from` at
+the top level of the file, and parse what it returns for the records the module exports
+(§7.8). A program `Compile` returns from its cache (§13.3) was compiled already and is
+reused as it is, so a cache hit calls nothing. A name the file includes more than once at
+the top level is not read at all: which module it holds depends on when a body runs.
 It is off by default because nothing promises that a loader answers a second read the
 way it answered the first — one may hand out a one-time token, count reads, or fetch from
 somewhere that changes. A host whose loader is a plain file read can turn it on.

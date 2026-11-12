@@ -78,7 +78,7 @@ fn f(e) {
 }
 
 func TestImportedRecordFieldErrors(t *testing.T) {
-	files := map[string]string{"ledger": ledgerLib, "broken": "fn ("}
+	files := map[string]string{"ledger": ledgerLib, "broken": "fn (", "other": "export record Money(total)"}
 	cases := []struct{ code, kind, msg string }{
 		{`include ledger from "ledger"; m = ledger.Money(1); m.amout`, ErrKindName, "undefined method 'amout'; did you mean 'amount'?"},
 		{`include ledger from "ledger"; m = ledger.Money(1); m.amout = 2`, ErrKindSyntax, "cannot assign to '.amout': not a record field; did you mean '.amount'?"},
@@ -93,6 +93,11 @@ func TestImportedRecordFieldErrors(t *testing.T) {
 		{`include gone from "gone"; fn f(m) { m.amount }`, ErrKindName, "undefined method 'amount'; module 'gone' could not be read at compile time: no such module"},
 		{`include broken from "broken"; fn f(m) { m.amount }`, ErrKindName, "module 'broken' could not be read at compile time: it does not parse"},
 		{`include gone from "gone"; match 1 { gone.Money {a, b} -> 1; else -> 0 }`, ErrKindSyntax, "'gone.Money {…}' is not a record pattern: the module could not be read at compile time"},
+		// One name included twice at the top level names whichever ran last when a body
+		// runs, so neither module's records are learnt.
+		{`include m from "ledger"; fn f(e) { match e { m.Money {amount, currency} -> 1; else -> 0 } }; include m from "other"`, ErrKindSyntax,
+			"'m.Money {…}' is not a record pattern: the file includes 'm' more than once"},
+		{`include m from "ledger"; include m from "other"; fn f(e) { e.amount }`, ErrKindName, "undefined method 'amount'"},
 		// At run time the receiver must still be a record that declares the field.
 		{`include ledger from "ledger"; record Mine(amount); m = ledger.private("s"); m.amount = 1`, ErrKindType, "record Private has no field 'amount'; it has secret"},
 	}
@@ -190,6 +195,17 @@ func TestImportsAreReadAgainEachRun(t *testing.T) {
 	if len(src.asked) != 3 {
 		t.Errorf("asked = %v, want one read at compile time and one per Run", src.asked)
 	}
+	// A pattern on a record the module no longer exports by the time it runs asks for a
+	// member that is not there, and the arm does not fire.
+	pat, err := in.Compile("pat", `include ledger from "ledger"; m = {amount: 1}; match m { ledger.Money {amount} -> "money"; else -> "no" }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.files["ledger"] = `export record Coin(amount)`
+	if v, err := in.Run(context.Background(), pat, nil); err != nil || v.Inspect() != `"no"` {
+		t.Errorf("= %v, %v; want \"no\": the module has no Money any more", v.Inspect(), err)
+	}
+	src.files["ledger"] = ledgerLib
 	// A module whose field is gone by the time it runs reaches the field through run-time
 	// dispatch, which answers as for any record without it.
 	src.files["ledger"] = `export record Money(total)`

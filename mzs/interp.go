@@ -152,6 +152,10 @@ type compiler struct {
 	imports        map[string]map[string][]string
 	importedFields map[string]string
 	importFails    []string
+	// twice names a module the file includes more than once at the top level. Which of
+	// the two a function body sees depends on when it runs, so neither one's records are
+	// the compile pass's to check a pattern against.
+	twice map[string]bool
 	// bound is every name the unit binds anywhere: an assignment, a `fn`, a parameter, a
 	// loop or `try` variable. It is what lets a method call compiled before the binding
 	// still try it at run time (§8.7), the way a prefix call reaches it by name.
@@ -235,9 +239,21 @@ func (c *compiler) collectImports(file *ast.Program) {
 	if load == nil {
 		return
 	}
+	seen := map[string]bool{}
+	for _, s := range file.Stmts {
+		if n, ok := s.(*ast.IncludeDecl); ok && n.Name != "" {
+			if seen[n.Name] {
+				if c.twice == nil {
+					c.twice = map[string]bool{}
+				}
+				c.twice[n.Name] = true
+			}
+			seen[n.Name] = true
+		}
+	}
 	for _, s := range file.Stmts {
 		n, ok := s.(*ast.IncludeDecl)
-		if !ok || !n.HasPath || n.Name == "" {
+		if !ok || !n.HasPath || n.Name == "" || c.twice[n.Name] {
 			continue
 		}
 		recs, err := readExports(load, c.file, n.Path)
@@ -1068,6 +1084,8 @@ func (c *compiler) notARecord(dp *ast.DictPattern) ast.Expr {
 			why = fmt.Sprintf("'%s' is not a module this file includes", dp.Module.Name)
 		case !c.in.opts.CompileIncludes:
 			why = "the host compiles without reading includes (Options.CompileIncludes)"
+		case c.twice[dp.Module.Name]:
+			why = fmt.Sprintf("the file includes '%s' more than once, so which module it names depends on when the arm runs", dp.Module.Name)
 		case c.imports[dp.Module.Name] == nil:
 			why = "the module could not be read at compile time"
 		}

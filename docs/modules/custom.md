@@ -110,9 +110,10 @@ match m { money.Money {amount, currency} -> "${amount} ${currency}" }
 
 `export record Name(…)` and a bare `export Name` of a top-level record both count; a record
 the module keeps private teaches the includer nothing. The read happens at compile time
-only to learn names: each run still loads and runs the module, and a module that cannot be
-read is not a compile error — the include fails when it runs, as it always did, and a
-`.field` nothing resolved says why:
+only to learn names: each run still loads and runs the module, and a module the loader
+cannot read then is not a compile error — the include fails when it runs, as it always
+did, and a `.field` nothing resolved says why (a host with no loader at all is another
+matter: there `include … from` is a compile error, as it always was):
 
 ```
 undefined method 'amount'; module 'money' could not be read at compile time: …
