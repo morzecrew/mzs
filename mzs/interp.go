@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -815,11 +816,34 @@ func (c *compiler) assign(n *ast.AssignExpr) {
 		}
 	case *ast.IndexExpr:
 		n.Target = c.expr(t)
+	case *ast.FieldExpr:
+		c.fieldTarget(t)
 	case *ast.GlobalVar:
 		// A $var needs no declaration: writing one inserts into the globals table (§10).
 	default:
 		c.syntaxErrorf(n.OpPos, "cannot assign to this expression")
 	}
+}
+
+// fieldTarget resolves `m.amount = …` (RFC 0003) by the rule that governs the read
+// (§7.8): the name must be a field of some record this unit declares. A write has no
+// UFCS reading to fall back on — `x.len = 3` cannot mean a call — so any other name is
+// the diagnostic, and the spelling that writes a plain dict's entry is the fix.
+func (c *compiler) fieldTarget(t *ast.FieldExpr) {
+	t.X = c.expr(t.X)
+	if c.recordField(t.Name) {
+		return
+	}
+	fields := make([]string, 0, len(c.fields))
+	for f := range c.fields {
+		fields = append(fields, f)
+	}
+	sort.Strings(fields)
+	if s := suggest(t.Name, fields); s != "" {
+		c.syntaxErrorf(t.NamePos, "cannot assign to '.%s': not a record field; did you mean '.%s'?", t.Name, s)
+		return
+	}
+	c.syntaxErrorf(t.NamePos, "cannot assign to '.%s': not a record field (a dict entry is written d[\"%s\"] = …)", t.Name, t.Name)
 }
 
 // targets resolves the left side of a destructuring assignment: the rule a single `=`
@@ -836,6 +860,8 @@ func (c *compiler) targets(x ast.Expr, op token.Kind) {
 				c.target(t, op)
 			case *ast.IndexExpr:
 				en.Value = c.expr(t)
+			case *ast.FieldExpr:
+				c.fieldTarget(t)
 			case *ast.ArrayPattern, *ast.DictPattern:
 				c.targets(t, op)
 			}
@@ -859,6 +885,8 @@ func (c *compiler) arrayTargets(pat *ast.ArrayPattern, op token.Kind) {
 			}
 		case *ast.IndexExpr:
 			pat.Elems[i] = c.expr(t)
+		case *ast.FieldExpr:
+			c.fieldTarget(t)
 		case *ast.GlobalVar:
 			// A $var needs no declaration: writing one inserts into the globals table (§10).
 		}

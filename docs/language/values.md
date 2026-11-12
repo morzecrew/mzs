@@ -236,8 +236,20 @@ type(Money(1500).merge({amount: 900}))           # Money — the with-update
 type(Money(1500).filter { (k, _) -> k == "amount" })   # dict — it may no longer fit
 ```
 
-A record is mutable like any dict: `m["amount"] = 2` writes it in place and the label
-survives.
+A record is mutable like any dict, and a field is written the way it is read:
+
+```
+m = Money(1500)
+m.amount = 2                 # in place; the label survives
+m.amount += 10               # every compound operator, the receiver evaluated once
+m.amount, m.currency = [5, "EUR"]   # a field is a destructuring target too
+```
+
+The name is checked where the file compiles: `m.amout = 2` is `syntax: cannot assign to
+'.amout': not a record field; did you mean '.amount'?`. At run time the receiver must be a
+record whose declaration has that field — a plain dict, or another shape, is a `type`
+error. A field write never **adds** a key, so it cannot grow a shape: `m["note"] = "x"`
+still adds one, to any dict, record or not.
 
 **Two shapes do not add.** `+` on dicts is `merge`, and merging two values of one shape
 keeps the right-hand one of every field — a wrong answer with nothing to see. So `+`
@@ -256,7 +268,7 @@ Money(1500).merge(Money(200))       # still merges: it was asked to
 **Two things to know.** A field may be named after a stdlib method — `record Page(len, …)`
 — and on that shape the field wins, so `p.len` is the field and `len(p)` is still the entry
 count; the compiler warns once, at the declaration. And the `.field` spelling is resolved
-where the file compiles, so a shape declared in an **included module** is read with
+where the file compiles, so a shape declared in an **included module** is read and written with
 `m["field"]`; `type(m)` and `m.is("Money")` work there as they do anywhere, because they
 ride on the value.
 

@@ -464,6 +464,8 @@ func TestAuthorFiles(t *testing.T) {
 					"cart 1043 for ann, 2 line(s)",
 					"cart.total         → 12.00 RUB",
 					"charge takes a Money, got dict",
+					`after the edits    → {"sku":"blade-pro","qty":3,"price":600}`,
+					"on another shape   → type: record Money has no field 'qty'; it has amount, currency",
 					"Page(3, \"abc\").len → 3"}},
 			{"heredoc", "examples/38_heredoc.mzs", nil, "",
 				[]string{" WHERE name = 'Ann'",

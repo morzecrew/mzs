@@ -25,12 +25,16 @@ highs                         # [160,140]
 
 ## Targets
 
-A target is a name, a `$var`, an index, or a nested `[ … ]`.
+A target is a name, a `$var`, an index, a record's field, or a nested `[ … ]`.
 
 ```
 d = {row: 0, col: 0}
 d["row"], d["col"], $sold = [12, 4, true]
 d.json                        # {"row":12,"col":4}
+
+record Point(x, y)
+p = Point(0, 0)
+p.x, p.y = [3, 4]             # a field is written as it is read
 ```
 
 Anything else is rejected at compile time:
@@ -38,7 +42,7 @@ Anything else is rejected at compile time:
 ```
 [3, b] = [1, 2]
 # -e:1:2: syntax: cannot assign to this expression: a destructuring target is a name,
-#         a $var, an index or a nested [ … ]
+#         a $var, an index, a record field or a nested [ … ]
 ```
 
 Because the right side is read exactly once, a target may write into the array being taken

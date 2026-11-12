@@ -61,7 +61,7 @@ does not have it at all.
 | 34 | `34_bits_and_bytes.mzs` | flags and masks with `band`/`bor`/`shl`, an IPv4 subnet test, `bytes`/`pack_bytes`, CRC-32, and why they are functions |
 | 35 | `35_named_args_and_in.mzs` | `name = value` at a call site, defaults skipped rather than shifted, and `in` as an operator over ranges, arrays, dicts and strings |
 | 36 | `36_ensure_and_error_kinds.mzs` | the braced `try { … } else (e) { … } ensure { … }`, a release that runs on every way out that leaves the run alive, and `match e["kind"]` over the runtime's kinds plus the ones a script names |
-| 37 | `37_records.mzs` | `record` — a name for a shape over the dict you already had: fields by name, `type(m)`, a `match` arm on the shape, and what the label does and does not travel with. The one file that prints a warning on purpose |
+| 37 | `37_records.mzs` | `record` — a name for a shape over the dict you already had: fields by name, read and written, `type(m)`, a `match` arm on the shape, and what the label does and does not travel with. The one file that prints a warning on purpose |
 | 38 | `38_heredoc.mzs` | `<<~TAG` — multi-line text with the common indentation shed, the raw `<<~'TAG'`, two on one line, and a template applied per row |
 | 39 | `39_sets.mzs` | `union`, `intersect`, `difference`, `subset` and `to_set` — what tells a set operation from `+` and `-`, and the visited-set a graph walk always needed |
 | 40 | `40_lazy_sequences.mzs` | `seq` — a billion-element range walked in three steps, a generator ended by `nil`, laziness counted rather than promised, and why a seq is not an array |

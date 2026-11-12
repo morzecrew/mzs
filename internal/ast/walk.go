@@ -117,6 +117,8 @@ func Walk(n Node, f func(Node) bool) {
 		Walk(x.X, f)
 		Walk(x.Index, f)
 		Walk(x.Index2, f)
+	case *FieldExpr:
+		Walk(x.X, f)
 	case *CallExpr:
 		Walk(x.Fn, f)
 		walkExprs(x.Args, f)
@@ -238,6 +240,8 @@ func isNilNode(n Node) bool {
 	case *DestructureAssign:
 		return x == nil
 	case *IndexExpr:
+		return x == nil
+	case *FieldExpr:
 		return x == nil
 	case *CallExpr:
 		return x == nil
@@ -496,6 +500,9 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		line("Destructure " + x.Op.String())
 		child(x.Pattern)
 		child(x.Value)
+	case *FieldExpr:
+		line("Field ." + x.Name)
+		child(x.X)
 	case *IndexExpr:
 		line("Index")
 		child(x.X)

@@ -143,6 +143,12 @@ func (p *printer) flatNode(e ast.Expr) (string, bool) {
 			return "", false
 		}
 		return p.flatCall(fn, x.Args, x.Named, p.hasParens(x.Lparen))
+	case *ast.FieldExpr:
+		recv, ok := p.flat(x.X)
+		if !ok {
+			return "", false
+		}
+		return recv + "." + x.Name, true
 	case *ast.MethodCall:
 		recv, ok := p.flat(x.Recv)
 		if !ok {

@@ -216,6 +216,8 @@ func TestFormat(t *testing.T) {
 		{"an empty closure that reads both ways is written as the call", "match x { choose{} -> 1 }", "match x {\n    choose {\n    } -> 1\n}\n"},
 		{"a multi-line closure that reads both ways is written as the call",
 			"match x {\n  choose {\n      it\n  } -> 1\n}\n", "match x {\n    choose {\n        it\n    } -> 1\n}\n"},
+		{"a field target whose receiver breaks", "find {\n  it\n}.x = 1", "find {\n    it\n}.x = 1\n"},
+		{"a field target", "p . x+=1\np.x,p.y=[ 1,2 ]\n{a:p.x}=d", "p.x += 1\np.x, p.y = [1, 2]\n{a: p.x} = d\n"},
 		{"a record pattern with more keys", "record M(a, b)\nmatch m { M{a,b:1,**r} -> a }", "record M(a, b)\nmatch m { M {a, b: 1, **r} -> a }\n"},
 		{"a comment inside a dict pattern stays inside", "{a, # first\n  b} = d", "{a, # first\n  b} = d\n"},
 		{"a comment inside an array pattern stays inside", "[a, # first\n  b] = xs", "[a, # first\n  b] = xs\n"},

@@ -1,6 +1,6 @@
 # RFC 0003 — Record fields: writing them, and reading them across modules
 
-**Status:** Draft · **Area:** language · **Depends on:** — · **Audit:** L7, L8
+**Status:** Draft (partially landed: §1 in #26) · **Area:** language · **Depends on:** — · **Audit:** L7, L8
 
 ## Summary
 
@@ -149,3 +149,37 @@ This RFC also lands the module-qualified **record pattern** of RFC 0002,
 rule — a record pattern only when `money.Money` is an exported record, the method call
 with a trailing closure otherwise — and the parser's `recordShapeAt` extends to
 `IDENT "." IDENT "{"`.
+
+## As landed
+
+**Part 1 landed in #26: §1, `.field` as an assignment target.** `m.amount = v`, every
+compound form and a field as a destructuring target, at any depth of a dict or array
+pattern. SPEC §4 (the `FieldTarget` rule), §7.8 ("Writing a field") and §8.8 are the
+normative text. **What remains is §2** — fields travel with `export`, behind
+`Options.CompileIncludes` — together with the module-qualified record pattern
+`money.Money {…}` that RFC 0002 handed over, and the LSP completion after `.` on a
+module-qualified record.
+
+* **The run-time check asks what the read asks.** The RFC said only that the receiver must
+  be "a dict that has the key". A read, though, reaches a field only on a record whose
+  declaration has it (§7.8; `dispatch` in `mzs/call.go`): `{x: 1}.x` is `undefined method`
+  even where some record declares `x`. A write that worked where the read with the same
+  spelling fails would make `.x` two different questions on the two sides of `=`, so the
+  write asks the same one: a plain dict is a `type` error that names the `d["x"]`
+  spelling, and so is a record of another shape. `.field =` never adds a key, as the RFC
+  says; the one way to get there is a record whose entry was removed, and that is the `key`
+  error. The check runs again right before the write, so a right side that deleted the
+  entry does not get it back.
+* **Open question 1 — a field no declaration of the receiver's label has: a `type` error
+  naming the label**, `record Q has no field 'x'; it has y`, which is the message the
+  record pattern of RFC 0002 gives for the same mistake at compile time. The generic `key`
+  error is kept for the one case that really is about the entry.
+* **Only the bare spelling is a field.** `m.amount()`, a trailing closure and `m?.amount`
+  stay calls and remain `cannot assign to this expression`. A write has no call reading,
+  so a function or a stdlib row of the same name (`record Page(len)`) changes nothing on
+  the left of `=`; on the right the rules of §7.8 stand unchanged.
+* **The AST gains `FieldExpr`**, built by the parser only in target position; a read of the
+  same spelling is still the zero-argument `MethodCall` it always was, so nothing that
+  walks a read changes.
+* Open question 2 belongs to §2 and stays open until it lands.
+

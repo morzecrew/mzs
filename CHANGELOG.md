@@ -19,6 +19,17 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Writing a record field.** `m.amount = 2` writes a field the way `m.amount` reads it, in
+  place, with the label kept; every compound operator works (`m.amount += 10`,
+  `m.note ??= ""`), and a field is a destructuring target (`p.x, p.y = [3, 4]`,
+  `{a: p.x} = d`). The name is checked where the file compiles — `m.amout = 2` is
+  `syntax: cannot assign to '.amout': not a record field; did you mean '.amount'?` — and at
+  run time the receiver must be a record whose declaration has the field: a plain dict, or
+  a record of another shape, is a `type` error. A field write never adds a key, so a
+  removed entry is a `key` error rather than a write that grows the shape back; adding a
+  key stays `d["k"] = v`. Before this, `x.name = …` was a syntax error for every name. The
+  cross-module half, `.field` on a record an included module exports, is still to come
+  (SPEC §4, §7.8, §8.8; RFC 0003).
 - **Dict patterns.** `{name, age: a} = user` takes a dict apart by key, `{"content-type": ct}`
   names a key that is not a word, `{data: {reason}}` and `[id, {name}]` nest, and `**rest`
   binds the entries no key names as a new plain dict. Every key named must be present —
