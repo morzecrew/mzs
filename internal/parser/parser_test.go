@@ -174,6 +174,37 @@ Program "t"
 `,
 		},
 		{
+			name: "a qualified record shape (RFC 0003)",
+			src:  `match m { money.Money {amount, **} -> amount; [money.Money {x}] -> x }`,
+			want: `
+Program "t"
+  ExprStmt
+    Match
+      subject:
+        Ident m
+      arm value
+        pat
+          DictPattern money.Money
+            key "amount":
+              Ident amount
+            **
+        body
+          Block
+            ExprStmt
+              Ident amount
+      arm array
+        pat
+          Pattern
+            DictPattern money.Money
+              key "x":
+                Ident x
+        body
+          Block
+            ExprStmt
+              Ident x
+`,
+		},
+		{
 			name: "a field on the left of '=' is a field target (RFC 0003)",
 			src:  `p.x += 1; a.b.c, d = xs`,
 			want: `

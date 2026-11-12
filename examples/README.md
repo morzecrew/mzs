@@ -73,6 +73,7 @@ does not have it at all.
 | 47 | `47_parsing_numbers.mzs` | `parse_int` and `parse_float` — the conversion that can say no: the same strings through `int` and `parse_int`, bases and literal prefixes, a form validated without a regex, and a CSV column with junk in it |
 | 48 | `48_rest_and_spread.mzs` | `*` and `**` — `head, *tail = xs`, a recursive sum by head and tail, a router with one `match` arm per path shape, `f(*args, **opts)`, and `{**defaults, k: v}` that keeps the order of the defaults |
 | 49 | `49_dict_patterns.mzs` | dict patterns — `{name, age: a} = user`, `**rest`, a webhook handler with one `match` arm per event shape, `{age: in 18..65}`, taking an error dict apart, `for {id, lines} in orders`, and record shapes — `Money {amount, currency: "EUR"} ->`, nested in `Refund {of: Money {amount}}` |
+| 50 | `50_records_across_files.mzs` | a library's records used by their field names (`50_lib_ledger.mzs`): `e.amount`, `e.amount += 50`, `t.entry.currency = "EUR"`, and `ledger.Entry {amount} ->` nested in `ledger.Transfer {entry: …}` — the CLI's compile step reads the include to learn them |
 
 ## Text, patterns and data
 

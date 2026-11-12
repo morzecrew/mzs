@@ -1,6 +1,6 @@
 # RFC 0003 — Record fields: writing them, and reading them across modules
 
-**Status:** Draft (partially landed: §1 in #26) · **Area:** language · **Depends on:** — · **Audit:** L7, L8
+**Status:** Landed (#26, #27) · **Area:** language · **Depends on:** — · **Audit:** L7, L8
 
 ## Summary
 
@@ -182,4 +182,41 @@ module-qualified record.
   same spelling is still the zero-argument `MethodCall` it always was, so nothing that
   walks a read changes.
 * Open question 2 belongs to §2 and stays open until it lands.
+
+**Part 2 landed in #27: §2, fields travel with `export`,** behind `Options.CompileIncludes`
+as designed, together with the module-qualified record pattern `money.Money {…}` that RFC
+0002 handed over. SPEC §4 (the qualified `DictMatch`), §5.3, §7.8 (the cross-module
+bullet), §8.15 and §13.2 are the normative text; the CLI sets the option.
+
+* **What the compile step reads.** Each `include … from` among the file's top-level
+  statements is asked of the loader once and parsed, nothing more: the records it exports
+  are `export record Name(…)` and a bare `export Name` that names a top-level record of the
+  module. A record the module keeps private is not learnt. The module's own includes are
+  not followed — a record re-exported from a third file is read with `m["k"]` — because a
+  chain of compile-time reads is a chain of loader calls nobody wrote down. A name the file
+  includes twice at the top level is not read either: which module a function body sees
+  through it depends on when the body runs, so neither table can be trusted.
+* **The four safety rules hold as written.** A block's include is not read; a read that
+  fails (the loader's error, or a source that does not parse) is no error of its own and
+  only explains a `.field` nothing resolved; only field names are kept and each Run reads
+  and runs the module as before (`TestImportsAreReadAgainEachRun`); a visible function
+  keeps `m.amount` and the overlap is a warning, which `StrictWarnings` promotes.
+* **`money.Money {…}` and its call reading.** The parser reads `IDENT "." IDENT` followed by
+  a record shape as a qualified pattern; for `money.Money {}` and `money.Money {x}` it
+  keeps, as `Alt`, the method call with a trailing closure the same tokens are elsewhere,
+  and the compile pass puts it back when the module exports no record of that name or was
+  not read — so a host without `CompileIncludes` sees no change. Any other shape is then a
+  diagnostic naming which of the three it was. At run time the constructor is the member
+  of the value the qualifier holds, and a qualifier that no longer holds the module has no
+  such member: the arm does not fire, as with any shape that does not fit.
+* **The formatter keeps the call spelling** for a qualified shape that reads both ways
+  (`money.Money { x }`): it cannot see another file's exports, and both spellings are the
+  same tokens.
+* **Open question 2 — no `SkipIncludes`.** `CompileIncludes` is already off by default, so
+  a host that compiles untrusted source eagerly does nothing to keep its loader out of
+  `Compile`.
+* **LSP: no completion across files, on purpose.** The language server's loader reads no
+  file (`cmd/mzs/lsp`: compiling a neighbour would be the editor running code nobody asked
+  it to), so it cannot learn a module's fields and leaves `CompileIncludes` off; the
+  completion the Implementation section mentions needs that read and is not added.
 

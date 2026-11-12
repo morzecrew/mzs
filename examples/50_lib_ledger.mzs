@@ -1,0 +1,15 @@
+# 50 — the library half of 50_records_across_files.mzs: shapes another file uses.
+#
+# `export record` exports the constructor and, to a host that compiles includes (the CLI
+# does), the field names too — so the includer writes `e.amount`, `e.amount += 1` and
+# `ledger.Entry {amount} ->` exactly as it would for a record of its own.
+
+export record Entry(amount, currency = "RUB", note = "")
+record Transfer(from, to, entry)
+export Transfer
+
+# Not exported: a shape the includer cannot name, and whose fields it does not learn.
+record Audit(who, when)
+
+export fn credit(n, note = "") { Entry(n, note = note) }
+export fn move(a, b, n) { Transfer(a, b, Entry(n)) }

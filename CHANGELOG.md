@@ -19,6 +19,16 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Record fields across files.** With `Options.CompileIncludes`, which the CLI sets,
+  `Compile` reads each `include … from` at the top level of a file through the host's
+  loader and learns the fields of the records the module exports: `m.amount`,
+  `m.amount = v` and the record pattern `money.Money {amount} ->` then work on a library's
+  shape as on one of the file's own, with the same compile-time checks. Only names are
+  kept — each run still loads and runs the module — a read that fails is no compile error
+  (the include fails when it runs, as before), an include inside a block is not read, and
+  a function the file can see keeps `m.amount` as its call, with a warning naming the
+  field. The option is off by default, and without it nothing about includes changes
+  (SPEC §7.8, §8.15, §13.2; RFC 0003).
 - **Writing a record field.** `m.amount = 2` writes a field the way `m.amount` reads it, in
   place, with the label kept; every compound operator works (`m.amount += 10`,
   `m.note ??= ""`), and a field is a destructuring target (`p.x, p.y = [3, 4]`,
@@ -27,8 +37,7 @@ and the release is still ahead of it.
   run time the receiver must be a record whose declaration has the field: a plain dict, or
   a record of another shape, is a `type` error. A field write never adds a key, so a
   removed entry is a `key` error rather than a write that grows the shape back; adding a
-  key stays `d["k"] = v`. Before this, `x.name = …` was a syntax error for every name. The
-  cross-module half, `.field` on a record an included module exports, is still to come
+  key stays `d["k"] = v`. Before this, `x.name = …` was a syntax error for every name
   (SPEC §4, §7.8, §8.8; RFC 0003).
 - **Dict patterns.** `{name, age: a} = user` takes a dict apart by key, `{"content-type": ct}`
   names a key that is not a word, `{data: {reason}}` and `[id, {name}]` nest, and `**rest`
@@ -45,8 +54,8 @@ and the release is still ahead of it.
   time — `Money {amout}` is `syntax: record Money has no field 'amout'; it has amount,
   currency`. `Name {…}` is a record pattern only when `Name` resolves to a record; any other
   name keeps the call-with-a-trailing-closure reading it had, so `choose {it} ->` is
-  unchanged. A record an included module exports, `money.Money {…}`, comes with RFC 0003
-  (SPEC §5.3, §8.15; RFC 0002).
+  unchanged. A record an included module exports is matched as `money.Money {…}`
+  (above) (SPEC §5.3, §8.15; RFC 0002).
 - **Rest elements and spread.** `head, *tail = xs`, `*init, last = xs` and `a, *mid, z = xs`
   bind the positions no other target takes as a new array; in a `match` arm
   `["GET", *path] ->` binds them and `[first, *] ->` skips them. At a call `f(*xs)` passes

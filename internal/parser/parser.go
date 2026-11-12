@@ -1447,6 +1447,9 @@ func (p *parser) parsePrimary() ast.Expr {
 		if pat && p.recordShapeAt(p.pos) && p.isElement(p.pos+1) {
 			return p.parseRecordPattern()
 		}
+		if pat && p.qualifiedShapeAt(p.pos) && p.isElement(p.pos+3) {
+			return p.parseQualifiedRecordPattern()
+		}
 		if t.Value == "async" && p.header == 0 && p.arm == 0 && p.arrowFollows(p.pos+1) {
 			// §8.14 puts `async` in front of a `fn` and nowhere else; the arrow form has
 			// no keyword to put it in front of, so it has one spelling and this names it.
@@ -2090,7 +2093,14 @@ func (p *parser) startsPattern() bool {
 // startsShape is startsPattern for the positions a record shape may stand in too — a
 // `match` arm and an element of a pattern: `Money {amount}` (RFC 0002).
 func (p *parser) startsShape() bool {
-	return p.startsPattern() || p.recordShapeAt(p.pos)
+	return p.startsPattern() || p.recordShapeAt(p.pos) || p.qualifiedShapeAt(p.pos)
+}
+
+// qualifiedShapeAt is recordShapeAt for a record another module exports,
+// `money.Money {amount}` (RFC 0003): a name, a '.', and a record shape. The '.' must not be
+// `?.`, which has no shape to ask about.
+func (p *parser) qualifiedShapeAt(i int) bool {
+	return p.kindAt(i) == token.IDENT && p.kindAt(i+1) == token.DOT && p.recordShapeAt(i+2)
 }
 
 // recordShapeAt reports whether a name at i, followed by a brace, has the shape of a
@@ -2169,6 +2179,24 @@ func (p *parser) parseRecordPattern() ast.Expr {
 		Stop:       pat.Stop,
 	}
 	pat.Alt = &ast.CallExpr{Fn: fn, Args: []ast.Expr{fl}, Lparen: fn.Pos(), Stop: fl.End()}
+	return pat
+}
+
+// parseQualifiedRecordPattern reads `mod.Name {…}` in pattern position (RFC 0003). Its
+// call reading, for the shapes a trailing closure also has, is the method call the same
+// tokens make outside a pattern, `mod.Name { it }`, which is what the compile pass puts
+// back when the module exports no record of that name.
+func (p *parser) parseQualifiedRecordPattern() ast.Expr {
+	m := p.advance()
+	p.advance() // '.'
+	t := p.cur()
+	mod := &ast.Ident{Name: m.Value, Slot: -1, Start: m.Pos, Stop: m.End}
+	pat := p.parseRecordPattern().(*ast.DictPattern)
+	pat.Module = mod
+	if call, ok := pat.Alt.(*ast.CallExpr); ok {
+		recv := &ast.Ident{Name: m.Value, Slot: -1, Start: m.Pos, Stop: m.End}
+		pat.Alt = &ast.MethodCall{Recv: recv, Name: t.Value, Args: call.Args, NamePos: t.Pos, Stop: call.Stop}
+	}
 	return pat
 }
 

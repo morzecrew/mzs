@@ -216,6 +216,7 @@ func TestFormat(t *testing.T) {
 		{"an empty closure that reads both ways is written as the call", "match x { choose{} -> 1 }", "match x {\n    choose {\n    } -> 1\n}\n"},
 		{"a multi-line closure that reads both ways is written as the call",
 			"match x {\n  choose {\n      it\n  } -> 1\n}\n", "match x {\n    choose {\n        it\n    } -> 1\n}\n"},
+		{"a qualified record pattern", "match m { money.Money{ a,b } -> a; money.Money{x} -> x }", "match m { money.Money {a, b} -> a; money.Money { x } -> x }\n"},
 		{"a field target whose receiver breaks", "find {\n  it\n}.x = 1", "find {\n    it\n}.x = 1\n"},
 		{"a field target", "p . x+=1\np.x,p.y=[ 1,2 ]\n{a:p.x}=d", "p.x += 1\np.x, p.y = [1, 2]\n{a: p.x} = d\n"},
 		{"a record pattern with more keys", "record M(a, b)\nmatch m { M{a,b:1,**r} -> a }", "record M(a, b)\nmatch m { M {a, b: 1, **r} -> a }\n"},

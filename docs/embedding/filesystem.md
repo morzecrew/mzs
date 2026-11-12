@@ -180,6 +180,13 @@ include m from "../lib/math.mzs"
 v, err := in.Run(ctx, prog, nil)   // v.Inspect() == "\"42 / 10\"", err == nil
 ```
 
+`CompileIncludes: true` lets `Compile` call the loader as well, once per `include … from`
+at the top level of a file, to learn the field names of the records the module exports
+(`m.amount`, `m.amount = v`, `money.Money {amount} ->` across files). Nothing else is kept:
+each `Run` still asks the loader and runs the module. It is off by default because a loader
+need not answer a second read the way it answered the first; turn it on when yours is a
+plain read of something that does not change under it.
+
 Failures are `name` errors that quote what the loader said:
 
 ```

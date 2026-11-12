@@ -1,0 +1,54 @@
+# 50 — records across files: a library's shapes, used by their field names.
+#
+#   mzs examples/50_records_across_files.mzs
+#
+# A record declared in an included module carries its label on the value, so `type(e)`
+# and `e.is("Entry")` always worked across a file boundary. The field names are what the
+# compile step resolves, and the CLI lets it read the top-level includes to learn them:
+#
+#   e.amount                       a field of ledger.Entry
+#   e.amount += 50                 written in place
+#   ledger.Entry {amount} ->       a record pattern on the library's shape
+#
+# An embedder gets this by setting Options.CompileIncludes; without it, a library's field
+# is read with e["amount"], as before.
+
+include ledger from "./50_lib_ledger.mzs"
+
+println("=== reading and writing a library's fields ===")
+println("")
+
+e = ledger.credit(1500, "rent")
+println("ledger.credit(1500, \"rent\") → ${e.json}")
+println("  type(e)                   → ${type(e)}")
+println("  e.amount                  → ${e.amount}")
+e.amount += 50
+e.note = "rent + fee"
+println("  after e.amount += 50      → ${e.json}")
+
+t = ledger.move("ann", "bob", 300)
+t.entry.currency = "EUR"
+println("  t.entry.currency = \"EUR\"  → ${t.json}")
+
+# The names are checked as a record of this file's would be: a misspelling is a
+# diagnostic with the fix in it, not an arm that never fires.
+#
+#   e.amout = 1      syntax: cannot assign to '.amout': not a record field; did you mean '.amount'?
+
+println("")
+println("=== matching on the library's shapes ===")
+println("")
+
+fn describe(x) {
+  match x {
+    ledger.Entry {amount, currency: "EUR"}     -> "€${amount}"
+    ledger.Entry {amount, note}                -> "${amount} RUB (${note})"
+    ledger.Transfer {from, to, entry: ledger.Entry {amount}} -> "${from} → ${to}: ${amount}"
+    {amount}                                   -> "a plain dict with ${amount}"
+    else                                       -> "something else"
+  }
+}
+
+for x in [e, ledger.credit(10).merge({currency: "EUR"}), t, {amount: 1}, 42] {
+  println("  ${describe(x)}")
+}

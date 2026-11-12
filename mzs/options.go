@@ -108,6 +108,15 @@ type Options struct {
 	// an error, because reading source is filesystem access and §14.3 does not hand
 	// that to a script. Built-in modules do not go through it.
 	ModuleLoader ModuleLoader
+	// CompileIncludes lets Compile read, through ModuleLoader, every `include … from` at the
+	// top level of a file, so the fields of the records that module exports are known to
+	// the includer: `m.amount` on a `money.Money`, `m.amount = v`, and the record pattern
+	// `money.Money {amount} ->` (§7.8, RFC 0003). Only field names are kept; each Run still
+	// loads and runs the module exactly as it does without this. false — the default —
+	// means Compile never calls the loader, because a loader is not promised to answer a
+	// second read the way it answered the first; a host whose loader is a file read, as
+	// the CLI's is, sets it.
+	CompileIncludes bool
 	// FS installs the io module (§12.13) and is the whole of a script's filesystem: the
 	// host writes the implementation, so what a path may name is the host's policy, the
 	// way ModuleLoader already is for source. nil — the default — means `include io` is

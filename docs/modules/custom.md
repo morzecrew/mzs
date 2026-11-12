@@ -90,6 +90,42 @@ include money from "./money.mzs"
 itself. A module is never callable: `money(15)` is
 `name: 'money' is a module, not a function: call one of its members`.
 
+## Records across files
+
+A module that exports a record exports its constructor, and the label rides on every value
+it builds, so `type(m)` and `m.is("Money")` work anywhere. The **field names** are what the
+compile step resolves, and the CLI lets it read each `include … from` at the top of the file
+to learn them:
+
+```
+# money.mzs
+export record Money(amount, currency = "RUB")
+
+# main.mzs
+include money from "./money.mzs"
+m = money.Money(1500)
+m.amount += 10                                  # a field of money.Money, written in place
+match m { money.Money {amount, currency} -> "${amount} ${currency}" }
+```
+
+`export record Name(…)` and a bare `export Name` of a top-level record both count; a record
+the module keeps private teaches the includer nothing. The read happens at compile time
+only to learn names: each run still loads and runs the module, and a module the loader
+cannot read then is not a compile error — the include fails when it runs, as it always
+did, and a `.field` nothing resolved says why (a host with no loader at all is another
+matter: there `include … from` is a compile error, as it always was):
+
+```
+undefined method 'amount'; module 'money' could not be read at compile time: …
+```
+
+An include inside a block (`if debug { include trace from "./trace.mzs" }`) is not read: it
+may never run. A function the file can see keeps its name — `m.amount` with
+`fn amount(x)` in scope is still `amount(m)`, with a warning that the module's record has a
+field of that name. An embedder turns this on with `Options.CompileIncludes`
+([embedding](../embedding/filesystem.md#moduleloader)); without it, a module's field is read
+with `m["amount"]`.
+
 ## One file, two roles
 
 Running `money.mzs` directly ignores its `export`s and just runs the file — it prints

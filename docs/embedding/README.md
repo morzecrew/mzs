@@ -96,6 +96,7 @@ not allow network access calls `Unregister("http")`, see
 | `Rand` | `nil` | enables `rand()`, `uuid()`, `sample`, `shuffle` |
 | `EnableTime` | `false` | installs the `time` and `date` modules |
 | `ModuleLoader` | `nil` | enables `include x from "…"` |
+| `CompileIncludes` | `false` | `Compile` reads top-level includes to learn their records' fields |
 | `FS` | `nil` | installs the `io` module |
 | `Stdin` | `nil` | `io.stdin`/`io.lines`/`input()`; nil is empty input |
 | `Env` | `nil` | answers `io.env`; nil means every name is unset |

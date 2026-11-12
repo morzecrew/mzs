@@ -518,7 +518,12 @@ type ArrayPattern struct {
 // with a trailing closure unless `choose` is a record. For the two shapes that read both
 // ways — `Name {}` and `Name {x}` — Alt holds the call reading, and the compile pass puts
 // it in the pattern's place when the name is not a record. Alt is not walked.
+//
+// Module is the qualifier of `money.Money {amount}` (RFC 0003): Record is then the name
+// of a record the module exports, not a binding of this unit, and Alt — when the brace
+// reads both ways — is the method call with a trailing closure the same tokens are.
 type DictPattern struct {
+	Module  *Ident
 	Record  *Ident
 	Alt     Expr
 	Entries []DictPatternEntry
@@ -840,10 +845,22 @@ func (n *ArrayPattern) Pos() token.Pos { return n.Start }
 func (n *ArrayPattern) End() token.Pos { return n.Stop }
 
 func (n *DictPattern) Pos() token.Pos {
+	if n.Module != nil {
+		return n.Module.Start
+	}
 	if n.Record != nil {
 		return n.Record.Start
 	}
 	return n.Lbrace
+}
+
+// RecordName is the record a shape names as it is written, `Money` or `money.Money`. It is
+// asked only of a record shape, one with Record set.
+func (n *DictPattern) RecordName() string {
+	if n.Module != nil {
+		return n.Module.Name + "." + n.Record.Name
+	}
+	return n.Record.Name
 }
 func (n *DictPattern) End() token.Pos { return n.Stop }
 

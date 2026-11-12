@@ -676,6 +676,12 @@ func TestExamples(t *testing.T) {
 			contains: []string{"blinker has period 2:                             true"},
 		},
 		{
+			name: "50 records across files",
+			argv: []string{path("50_records_across_files.mzs")},
+			contains: []string{`after e.amount += 50      → {"amount":1550,"currency":"RUB","note":"rent + fee"}`,
+				"ann → bob: 300", "a plain dict with 1"},
+		},
+		{
 			name:     "27 modules across three files",
 			argv:     []string{path("27_modules_main.mzs")},
 			contains: []string{"INVOICE A-1043", "undefined member 'rate' in module 'money'"},

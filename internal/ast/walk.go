@@ -101,7 +101,11 @@ func Walk(n Node, f func(Node) bool) {
 	case *ArrayPattern:
 		walkExprs(x.Elems, f)
 	case *DictPattern:
-		if x.Record != nil {
+		// A qualified shape's Record names a module's export, not a binding here, so it
+		// is the qualifier that is walked.
+		if x.Module != nil {
+			Walk(x.Module, f)
+		} else if x.Record != nil {
 			Walk(x.Record, f)
 		}
 		for _, en := range x.Entries {
@@ -479,7 +483,7 @@ func dump(sb *strings.Builder, n Node, depth int) {
 		}
 	case *DictPattern:
 		if x.Record != nil {
-			line("DictPattern " + x.Record.Name)
+			line("DictPattern " + x.RecordName())
 		} else {
 			line("DictPattern")
 		}

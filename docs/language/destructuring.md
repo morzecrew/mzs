@@ -195,8 +195,9 @@ match m {
 ```
 
 `Name {…}` is a record pattern only when `Name` is a record; `choose {it} ->` is still a call
-with a trailing closure. A record from an included module, `money.Money {…}`, is not a
-pattern yet.
+with a trailing closure. A record an included module exports is written `money.Money {…}`,
+and is a pattern wherever the module's fields are known at compile time
+([modules](../modules/custom.md#records-across-files)).
 
 `{age: in 18..65}` asks membership; `{age: 18..65}` would compare with a range and is never
 true of an int. `**rest` binds the other entries, and a bare `**` skips them. A name in a
