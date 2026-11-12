@@ -265,6 +265,9 @@ func TestRecordPatterns(t *testing.T) {
 		// The shape asked is the constructor's, so a record of another name with the
 		// same fields does not fire.
 		{`record A(x); record B(x); match B(1) { A {x} -> "a"; else -> "not a" }`, `"not a"`},
+		// A brace broken across lines, and a key written as a string.
+		{decls + "match Point(1, 2) {\n  Point {\n    x\n  } -> x\n}", `1`},
+		{decls + `match Money(7) { Money {"amount": a} -> a }`, `7`},
 	})
 }
 
@@ -295,5 +298,7 @@ func TestRecordPatternErrors(t *testing.T) {
 		{`record M(a); match M(1) { M {a}, 2 -> 1; else -> 0 }`, ErrKindSyntax, "a record pattern must be the only pattern in its arm"},
 		{`record M(a); match { M {a} -> 1; else -> 0 }`, ErrKindSyntax, "a record pattern needs a subject"},
 		{`record M(a); [M {a}] = [M(1)]`, ErrKindSyntax, "a record shape is a match pattern"},
+		// A name bound nowhere is not a record either: the call reading, and its error.
+		{`match 1 { nope {it} -> 1; else -> 0 }`, ErrKindName, "undefined function 'nope'"},
 	})
 }
