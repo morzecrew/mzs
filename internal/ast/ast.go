@@ -474,7 +474,7 @@ type RangeExpr struct {
 }
 
 // AssignExpr covers `=`, `:=` and every compound assignment. Target is an *Ident,
-// *GlobalVar or *IndexExpr; the evaluator evaluates the target exactly once (§6.2).
+// *GlobalVar, *IndexExpr or *FieldExpr; the evaluator evaluates the target exactly once (§6.2).
 type AssignExpr struct {
 	Target Expr
 	Op     token.Kind
@@ -558,6 +558,18 @@ type IndexExpr struct {
 	Index2 Expr
 	Lbrack token.Pos
 	Rbrack token.Pos
+}
+
+// FieldExpr is `m.amount` on the left of an assignment (RFC 0003): a record's field
+// written in place. It is the write `m["amount"] = v` makes, except that it never adds a
+// key, so a name the compile pass accepted cannot grow a shape. On the right of `=` the
+// same spelling is a *MethodCall with no arguments, dispatched at run time (§7.8); the
+// parser builds a FieldExpr only where a value is written.
+type FieldExpr struct {
+	X       Expr
+	Name    string
+	NamePos token.Pos
+	Stop    token.Pos
 }
 
 // CallExpr is `f(...)`. Named holds the `f(c = 5)` arguments, which bind by parameter
@@ -668,6 +680,7 @@ func (*ArrayPattern) node()      {}
 func (*DictPattern) node()       {}
 func (*DestructureAssign) node() {}
 func (*IndexExpr) node()         {}
+func (*FieldExpr) node()         {}
 func (*CallExpr) node()          {}
 func (*MethodCall) node()        {}
 func (*FuncLit) node()           {}
@@ -716,6 +729,7 @@ func (*ArrayPattern) expr()      {}
 func (*DictPattern) expr()       {}
 func (*DestructureAssign) expr() {}
 func (*IndexExpr) expr()         {}
+func (*FieldExpr) expr()         {}
 func (*CallExpr) expr()          {}
 func (*MethodCall) expr()        {}
 func (*FuncLit) expr()           {}
@@ -838,6 +852,9 @@ func (n *DestructureAssign) End() token.Pos { return nodeEnd(n.Value) }
 
 func (n *IndexExpr) Pos() token.Pos { return nodePos(n.X) }
 func (n *IndexExpr) End() token.Pos { return n.Rbrack }
+
+func (n *FieldExpr) Pos() token.Pos { return nodePos(n.X) }
+func (n *FieldExpr) End() token.Pos { return n.Stop }
 
 func (n *CallExpr) Pos() token.Pos { return nodePos(n.Fn) }
 func (n *CallExpr) End() token.Pos { return n.Stop }

@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"mzs/internal/ast"
 	"mzs/internal/lexer"
@@ -693,6 +694,7 @@ func (p *parser) parseAssign() ast.Expr {
 		case *ast.DictPattern:
 			return p.parseDestructureTail(p.targetDict(t), op)
 		}
+		l = p.fieldTarget(l)
 		if !assignable(l) {
 			p.errorAt(op.Pos, "cannot assign to this expression")
 		}
@@ -703,10 +705,25 @@ func (p *parser) parseAssign() ast.Expr {
 
 func assignable(e ast.Expr) bool {
 	switch e.(type) {
-	case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr:
+	case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr, *ast.FieldExpr:
 		return true
 	}
 	return false
+}
+
+// fieldTarget turns `m.amount`, parsed as the zero-argument call it is on the right of
+// `=`, into the field write it is on the left (RFC 0003). Only the bare spelling is a
+// field: `m.amount()` and `m.f { … }` are calls with an argument list, and `m?.amount`
+// has no write to skip, so each of them stays what it is and is not assignable.
+func (p *parser) fieldTarget(x ast.Expr) ast.Expr {
+	mc, ok := x.(*ast.MethodCall)
+	if !ok || mc.Safe || len(mc.Args) != 0 || len(mc.Named) != 0 {
+		return x
+	}
+	if mc.Stop.Offset != mc.NamePos.Offset+utf8.RuneCountInString(mc.Name) {
+		return x // `m.amount()`: the parentheses are an argument list
+	}
+	return &ast.FieldExpr{X: mc.Recv, Name: mc.Name, NamePos: mc.NamePos, Stop: mc.Stop}
 }
 
 // destructureAhead reports whether the statement starting here is `a, b = …`: a target
@@ -843,8 +860,9 @@ func (p *parser) targetPattern(lit *ast.ArrayLit) *ast.ArrayPattern {
 }
 
 func (p *parser) targetElem(x ast.Expr) ast.Expr {
+	x = p.fieldTarget(x)
 	switch t := x.(type) {
-	case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr:
+	case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr, *ast.FieldExpr:
 		return x
 	case *ast.ArrayLit:
 		return p.targetPattern(t)
@@ -858,7 +876,7 @@ func (p *parser) targetElem(x ast.Expr) ast.Expr {
 		}
 		return x
 	}
-	p.errorAt(x.Pos(), "cannot assign to this expression: a destructuring target is a name, a $var, an index or a nested [ … ]")
+	p.errorAt(x.Pos(), "cannot assign to this expression: a destructuring target is a name, a $var, an index, a record field or a nested [ … ]")
 	return x
 }
 
@@ -2305,14 +2323,15 @@ func (p *parser) targetDict(pat *ast.DictPattern) *ast.DictPattern {
 			p.errorAt(en.Value.Pos(), "'in' tests membership, which belongs in a match arm; a destructuring binds")
 			continue
 		}
+		en.Value = p.fieldTarget(en.Value)
 		switch t := en.Value.(type) {
-		case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr:
+		case *ast.Ident, *ast.GlobalVar, *ast.IndexExpr, *ast.FieldExpr:
 		case *ast.ArrayLit:
 			en.Value = p.targetPattern(t)
 		case *ast.DictPattern:
 			en.Value = p.targetDict(t)
 		default:
-			p.errorAt(en.Value.Pos(), "a destructuring target binds, so the value of '%s' goes to a name, a $var, an index or a nested pattern; comparing belongs in a match arm", en.Key)
+			p.errorAt(en.Value.Pos(), "a destructuring target binds, so the value of '%s' goes to a name, a $var, an index, a record field or a nested pattern; comparing belongs in a match arm", en.Key)
 		}
 	}
 	return pat
@@ -2392,8 +2411,8 @@ func (p *parser) loopPattern(x ast.Expr) ast.Expr {
 	}
 	ast.Walk(pat, func(n ast.Node) bool {
 		switch n.(type) {
-		case *ast.GlobalVar, *ast.IndexExpr:
-			p.errorAt(n.Pos(), "a loop pattern binds names: a $var or an index is written in the body")
+		case *ast.GlobalVar, *ast.IndexExpr, *ast.FieldExpr:
+			p.errorAt(n.Pos(), "a loop pattern binds names: a $var, an index or a field is written in the body")
 			return false
 		}
 		return true

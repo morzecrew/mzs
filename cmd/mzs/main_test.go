@@ -734,7 +734,14 @@ func TestExamples(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			code, out, errOut := exec(tt.argv, "")
+			// These cases check what each example prints, not the CLI's default 1s
+			// deadline, which TestCLI covers on its own. Every case runs in parallel, and CI
+			// runs this file instrumented (-race, -covermode=atomic), so the game of life,
+			// ~0.1s on its own, has gone past 1s of wall clock on a shared runner — on main as
+			// well as on a branch. A deadline far above any honest run keeps a runaway
+			// example failing, with exit 3, without making the result depend on the runner.
+			argv := append([]string{"--timeout", "30s"}, tt.argv...)
+			code, out, errOut := exec(argv, "")
 			if code != tt.wantCode {
 				t.Fatalf("exit = %d, want %d (stderr: %s)", code, tt.wantCode, errOut)
 			}

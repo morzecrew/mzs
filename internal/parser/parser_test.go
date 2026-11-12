@@ -174,6 +174,27 @@ Program "t"
 `,
 		},
 		{
+			name: "a field on the left of '=' is a field target (RFC 0003)",
+			src:  `p.x += 1; a.b.c, d = xs`,
+			want: `
+Program "t"
+  ExprStmt
+    Assign +=
+      Field .x
+        Ident p
+      Int 1
+  ExprStmt
+    Destructure =
+      Pattern
+        Field .c
+          MethodCall .b
+            recv:
+              Ident a
+        Ident d
+      Ident xs
+`,
+		},
+		{
 			name: "interpolated string",
 			src:  `"a${x+1}b$c"`,
 			want: `
@@ -1490,7 +1511,7 @@ func TestParseErrors(t *testing.T) {
 		{"a body may not take parameters", "if c { (x) -> x }", "the body of if body cannot declare parameters", 1, 9},
 		{"a rest parameter must be last", "fn f(*a, b) { a }", "a rest parameter must be last", 1, 7},
 		{"destructuring is = or :=", "a, b += xs", "destructuring assigns with '=' or ':=', not '+='", 1, 6},
-		{"a destructuring target is writable", "f(1), b = xs", "cannot assign to this expression: a destructuring target is a name, a $var, an index or a nested [ … ]", 1, 1},
+		{"a destructuring target is writable", "f(1), b = xs", "cannot assign to this expression: a destructuring target is a name, a $var, an index, a record field or a nested [ … ]", 1, 1},
 		{"one array pattern per arm", "match x { 1, [a, b] -> 2 }", "an array pattern must be the only pattern in its arm", 1, 14},
 		// Recovery inside a collection has to consume something: sync stops *at* a `;`
 		// without eating it, and one diagnostic per position means the error budget
@@ -1515,7 +1536,7 @@ func TestParseErrors(t *testing.T) {
 		{"a rest target is a name", "a, *$g = xs", "a rest element is '*' and a name: write *rest", 1, 4},
 		{"a rest target is not an index", "[a, *xs[0]] = ys", "a rest element is '*' and a name: write *rest", 1, 5},
 		{"a rest in a pattern binds or skips", "match x { [a, *[1]] -> 1 }", "a rest element in a pattern is '*' and a name, or a bare '*' to skip", 1, 15},
-		{"a dict target binds", "{a: 1} = d", "a destructuring target binds, so the value of 'a' goes to a name, a $var, an index or a nested pattern; comparing belongs in a match arm", 1, 5},
+		{"a dict target binds", "{a: 1} = d", "a destructuring target binds, so the value of 'a' goes to a name, a $var, an index, a record field or a nested pattern; comparing belongs in a match arm", 1, 5},
 		{"an empty dict target", "{} = d", "an empty dict pattern binds nothing", 1, 1},
 		{"a dict rest target names", "{**} = d", "a rest element in a destructuring is '**' and a name: write **rest", 1, 1},
 		{"a dict rest comes last", "{**r, a} = d", "'**' collects the entries no key names, so it comes last in a dict pattern", 1, 7},
@@ -1525,8 +1546,12 @@ func TestParseErrors(t *testing.T) {
 		{"in is for a match arm", "{a: in xs} = d", "'in' tests membership, which belongs in a match arm; a destructuring binds", 1, 8},
 		{"a dict pattern is alone in its arm", "match d { {a}, {b} -> 1 }", "a dict pattern must be the only pattern in its arm", 1, 11},
 		{"a dict pattern needs a subject", "match { {a} -> 1 }", "a dict pattern needs a subject: match d { {kind: k} -> … }", 1, 9},
-		{"a loop pattern binds names", "for [a, $g] in xs { }", "a loop pattern binds names: a $var or an index is written in the body", 1, 9},
+		{"a loop pattern binds names", "for [a, $g] in xs { }", "a loop pattern binds names: a $var, an index or a field is written in the body", 1, 9},
+		{"a loop pattern binds no field", "for [p.x, y] in xs { }", "a loop pattern binds names: a $var, an index or a field is written in the body", 1, 6},
+		{"a nested loop pattern binds no field", "for {a: p.x} in xs { }", "a loop pattern binds names: a $var, an index or a field is written in the body", 1, 9},
 		{"a loop variable is a name or a pattern", "for 1 in xs { }", "expected a loop variable, found 1", 1, 5},
+		{"a field call is not a field target", "m.x() = 1", "cannot assign to this expression", 1, 7},
+		{"a safe field is not a field target", "m?.x = 1", "cannot assign to this expression", 1, 6},
 		{"a record shape is a match pattern", "record M(a)\n[M {a}] = xs", "a record shape is a match pattern; a destructuring takes a record apart as a dict: {…} = m", 2, 2},
 		{"** in an array literal", "[**d]", "'**' spreads a dict's entries, into a dict or a call; in an array write '*'", 1, 2},
 		{"* in a dict literal", "{a: 1, *xs}", "'*' spreads an array's elements; in a dict write '**'", 1, 8},

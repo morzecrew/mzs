@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"slices"
+	"strings"
 
 	"mzs/internal/ast"
 	"mzs/internal/rx"
@@ -1237,6 +1238,8 @@ func (e ev) evalAssign(n *ast.AssignExpr) (Value, error) {
 		return e.assignGlobal(n, t)
 	case *ast.IndexExpr:
 		return e.assignIndex(n, t)
+	case *ast.FieldExpr:
+		return e.assignField(n, t)
 	}
 	return Nil(), e.at(typeErrorf("cannot assign to %T", n.Target), n.OpPos)
 }
@@ -1399,6 +1402,76 @@ func (e ev) assignIndex(n *ast.AssignExpr, t *ast.IndexExpr) (Value, error) {
 	return v, nil
 }
 
+// assignField is `m.amount = v` and its compound forms (RFC 0003): the write of
+// `m["amount"] = v`, made only where the key already is. The receiver is evaluated once,
+// as an index's is (§8.8).
+func (e ev) assignField(n *ast.AssignExpr, t *ast.FieldExpr) (Value, error) {
+	recv, err := e.eval(t.X)
+	if err != nil {
+		return Nil(), err
+	}
+	key := Str(t.Name)
+	cur := Nil()
+	if n.Op != token.ASSIGN && n.Op != token.DECLARE {
+		if err := e.hasField(recv, t); err != nil {
+			return Nil(), err
+		}
+		cur, _ = recv.odict().Get(key)
+	}
+	v, write, err := e.combine(n.Op, cur, n.Value, n.OpPos)
+	if err != nil {
+		return Nil(), err
+	}
+	if !write {
+		return cur, nil
+	}
+	if err := e.hasField(recv, t); err != nil {
+		return Nil(), err
+	}
+	recv.writeField(key, v)
+	return v, nil
+}
+
+// storeField is the write half of assignField, for destructuring.
+func (e ev) storeField(t *ast.FieldExpr, v Value) error {
+	recv, err := e.eval(t.X)
+	if err != nil {
+		return err
+	}
+	if err := e.hasField(recv, t); err != nil {
+		return err
+	}
+	recv.writeField(Str(t.Name), v)
+	return nil
+}
+
+// writeField replaces the value of an entry hasField has just found. The key is a string
+// already in the dict, so the write can neither fail to hash nor grow the dict, which is
+// why it charges nothing to the memory budget that a new entry would (§14.2).
+func (v Value) writeField(key, val Value) { _ = v.odict().Set(key, val) }
+
+// hasField is the run-time half of `.field =`, and it asks what the read asks (§7.8):
+// the receiver must be a record whose declaration has the field. The compile pass only
+// knows the name is a field of some record; only the value can say whether it is one of
+// this receiver's. A write never adds a key, so a name that slipped past the compile
+// check — two records, one field name — cannot grow a shape. It is checked again right
+// before the write, so a right side that removed the entry does not get it back.
+func (e ev) hasField(recv Value, t *ast.FieldExpr) error {
+	rt := recv.recordType()
+	switch {
+	case recv.Kind() != KDict:
+		return e.at(typeErrorf("cannot assign to '.%s' of %s: a field belongs to a record", t.Name, recv.Kind()), t.NamePos)
+	case rt == nil:
+		return e.at(typeErrorf("cannot assign to '.%s' of a plain dict: a field belongs to a record (an entry is written d[\"%s\"] = …)", t.Name, t.Name), t.NamePos)
+	case !rt.Has(t.Name):
+		return e.at(typeErrorf("record %s has no field '%s'; it has %s", rt.Name, t.Name, strings.Join(rt.Fields, ", ")), t.NamePos)
+	}
+	if !recv.odict().Has(Str(t.Name)) {
+		return e.at(newError(ErrKindKey, "this %s has no '%s' entry any more, and '.%s =' never adds one (write m[\"%s\"] = …)", rt.Name, t.Name, t.Name, t.Name), t.NamePos)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Destructuring (§8.15)
 // ---------------------------------------------------------------------------
@@ -1537,6 +1610,8 @@ func (e ev) write(b binding, op token.Kind) error {
 		e.rs.globals[globalName(t.Name)] = b.val
 	case *ast.IndexExpr:
 		return e.storeIndex(t, b.val)
+	case *ast.FieldExpr:
+		return e.storeField(t, b.val)
 	default:
 		return e.at(typeErrorf("cannot assign to %T", b.target), b.target.Pos())
 	}

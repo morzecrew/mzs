@@ -629,8 +629,9 @@ ExportStmt     = "export" ( FnDecl | RecordDecl | Assignment | IDENT ) ;
 (* ---------- destructuring (§8.15) ---------- *)
 
 Destructure    = Target ( "," Target )+ ( "=" | ":=" ) Expr ;  (* the bare form: statement level only *)
-Target         = IDENT | GVAR | Postfix "[" Expr "]" | TargetPattern
+Target         = IDENT | GVAR | Postfix "[" Expr "]" | FieldTarget | TargetPattern
                | "*" IDENT ;                                 (* rest: at most one per level, §8.15 *)
+FieldTarget    = Postfix "." IDENT ;   (* no "?.", no argument list; IDENT a record field, §7.8 *)
 TargetPattern  = "[" [ Target { "," Target } [ "," ] ] "]"   (* also valid alone: [a, b] = xs *)
                | DictTarget ;                                (* {name, age: a} = user, §8.15 *)
 DictTarget     = "{" DictTargetEntry { "," DictTargetEntry } [ "," "**" IDENT ] [ "," ] "}"
@@ -667,7 +668,7 @@ Field          = IDENT [ "=" Expr ] ;                  (* a Param without "*rest
 IfExpr         = "if" Expr Closure { "else" "if" Expr Closure } [ "else" Closure ] ;
 WhileExpr      = "while" Expr Closure ;
 ForExpr        = "for" ForTarget [ "," ForTarget ] "in" Expr Closure ;
-ForTarget      = IDENT | TargetPattern ;   (* a pattern binds names only: no $var, no index (§8.15) *)
+ForTarget      = IDENT | TargetPattern ;   (* a pattern binds names only: no $var, no index, no field (§8.15) *)
 MatchExpr      = "match" [ Expr ] "{" SEP* MatchArm ( SEP+ MatchArm )* SEP* "}" ;
 MatchArm       = ArmPattern { "," ArmPattern } [ "if" Expr ] "->" ( Expr | Closure )
                | MatchPattern [ "if" Expr ] "->" ( Expr | Closure )
@@ -701,6 +702,7 @@ Block          = "{" StmtList "}" ; (* a body, not a closure: it declares no par
 Expr           = AssignExpr ;
 AssignExpr     = TernaryExpr [ AssignOp AssignExpr ] ;                (* right assoc *)
                (* a TargetPattern on the left of "=" / ":=" destructures, §8.15 *)
+               (* the left side must be a Target; a "." name there is a FieldTarget, §7.8 *)
 AssignOp       = "=" | ":=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**=" | "||=" | "&&=" | "??=" ;
 TernaryExpr    = NilExpr [ "?" Expr ":" TernaryExpr ] | TryExpr ;     (* right assoc *)
 NilExpr        = OrExpr  { "??" OrExpr } ;
@@ -1179,11 +1181,12 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `LogicalExpr` | `Op token.Kind` (`&&`, `\|\|`, `??`), `L, R Expr` — short-circuit |
 | `TernaryExpr` | `Cond, Then, Else Expr` |
 | `RangeExpr` | `Lo, Hi Expr`, `Exclusive bool` (set by `..<`) |
-| `AssignExpr` | `Target Expr` (`*Ident`, `*GlobalVar`, `*IndexExpr`), `Op token.Kind` (`=`, `:=`, `+=`, …), `Value Expr` |
+| `AssignExpr` | `Target Expr` (`*Ident`, `*GlobalVar`, `*IndexExpr`, `*FieldExpr`), `Op token.Kind` (`=`, `:=`, `+=`, …), `Value Expr` |
 | `ArrayPattern` | `Elems []Expr`, `Brackets bool` — one entry per position; a target or a nested pattern on the left of `=`, a binding name or a compared expression in a `match` arm (§8.15) |
 | `DictPattern` | `Record *Ident`, `Alt Expr`, `Entries []DictPatternEntry`, `HasRest bool`, `Rest *Ident` — `{name, age: a, **rest}`, or `Money {amount}` with `Record` set and, for the two shapes a trailing closure also has, `Alt` the call reading; each entry is `Key string` and where its `Value` goes (a target on the left of `=`, a binding name, a nested pattern or a compared expression in an arm), with `In` for `key: in expr` and `Short` for `{name}`; `Rest` is nil for the anonymous `**` of an arm (§8.15) |
 | `DestructureAssign` | `Pattern Expr` (an `ArrayPattern` or a `DictPattern`), `Op token.Kind` (`=` or `:=`), `Value Expr` |
 | `IndexExpr` | `X Expr`, `Index Expr`, `Index2 Expr` (nil unless `a[i, n]`) |
+| `FieldExpr` | `X Expr`, `Name string` — `m.amount` as a target only (§7.8); the same spelling read is a `MethodCall` with no arguments |
 | `CallExpr` | `Fn Expr`, `Args []Expr`, `Named []NamedArg` (the `name = value` arguments, §8.7) |
 | `MethodCall` | `Recv Expr`, `Name string`, `Args []Expr`, `Named []NamedArg`, `Safe bool` (`?.`) |
 | `FuncLit` | `Params []Param`, `Body *BlockStmt`, `ImplicitIt bool` |
@@ -1469,7 +1472,7 @@ happens at run time. Two consequences, both normative:
   makes `p.len` the field. Nothing is lost — UFCS gives every row a prefix spelling, so
   `len(p)` is still the entry count (D18) — and the compile pass emits a warning at the
   declaration saying so (§17).
-* A shape declared in **another module** is read with `m["amount"]`. `type(m)` and
+* A shape declared in **another module** is read and written with `m["amount"]`. `type(m)` and
   `m.is("Money")` still work, because the label rides on the value; the `.field` spelling
   does not, because the name is resolved against this unit's declarations.
 
@@ -1497,6 +1500,29 @@ builds a *different* dict drop it, because what they hand back need not have the
 **Mutability.** A record is an ordinary dict: `m["amount"] = 2` writes it in place and the
 label survives. There is no second model of change and no frozen value (I4 stands: `[ … ]`
 gains no third meaning, and neither does `{ … }`).
+
+**Writing a field.** `m.amount = 2` is that write spelled the way the field is read, and so
+is every compound form (`m.amount += 1`, `m.n ??= 0`) and a field as a destructuring
+target (`p.x, p.y = [1, 2]`). The receiver is evaluated exactly once, and when is what an
+index target's is: in an assignment, before the right side (§8.8); in a destructuring,
+when its position is written, after the whole right side has been read (§8.15), so
+`get().x, y = rhs()` calls `rhs` first. It asks what the read asks, in the same two steps:
+
+* **At compile time** the name must be a field of some `record` declared in the same
+  compilation unit, or the program does not compile — `syntax: cannot assign to '.len':
+  not a record field (a dict entry is written d["len"] = …)`, with a did-you-mean when a
+  field is a near miss. A write has no call reading to fall back on, so a function or a
+  stdlib row of the same name changes nothing here.
+* **At run time** the receiver must be a record whose own declaration has the field: an
+  `int` is a `type` error, a plain dict is a `type` error that names the `d["k"]` spelling,
+  and a record of another shape is `type: record Q has no field 'x'; it has y`.
+
+A field write **never adds a key**. A record built by its constructor has every field, so
+this only bites where an entry was removed (`m.delete("amount")`), and there it is a `key`
+error rather than a write that quietly grows the shape back; adding a key stays
+`m["amount"] = v`. The check is made again right before the write, so a right side that
+removed the entry does not get it back either. Only the bare spelling is a field:
+`m.amount()`, `m.f { … }` and `m?.amount` are calls and cannot be assigned to.
 
 **`a + b` between two labelled dicts is an error.** `+` on dicts is `merge` (§8.3), and
 merge keeps the right-hand value of every key both sides have — which between two values of
@@ -1721,7 +1747,8 @@ Calling a non-function (`5(…)`) is `not a function: int`.
 | Regex | error | error | error |
 | nil | error `cannot index nil` | error | — |
 
-`x[i] += 1` works: the target is evaluated once.
+`x[i] += 1` works: the target is evaluated once. A record's field is also written
+`m.f = v` (§7.8), which is `m["f"] = v` except that it never adds a key.
 
 Indexing `nil` is an error rather than `nil`, because a silently-nil chain hides the real
 failure. Use `?.get(k)` for one nil-safe step or `.dig(k1, k2, …)` for a nil-safe path — the
@@ -1972,8 +1999,8 @@ a, b = [b, a]                    # a swap needs no temporary
   | `a, b = [1, 2, 3]` | `index: destructuring expects 2 values, got 3` |
   | `a, b = [1]` | `index: destructuring expects 2 values, got 1` |
   | `a, b = 1` | `type: cannot destructure int: the right side must be an array` |
-* A target is a name, a `$var`, an index, or a nested pattern; anything else is
-  `cannot assign to this expression` at parse time.
+* A target is a name, a `$var`, an index, a record's field (§7.8), or a nested pattern;
+  anything else is `cannot assign to this expression` at parse time.
 * `=` and `:=` mean per position exactly what they mean alone (§8.2): `=` writes the
   nearest existing binding and creates one here when there is none, `:=` always creates
   or shadows here. No compound operator destructures — `a, b += xs` is a diagnostic.
@@ -2025,8 +2052,8 @@ form JSON wants — the data a program handles is dicts inside arrays inside dic
 * `**rest`, last in the pattern, binds a **new dict** of the entries no key names, in the
   order the source holds them — possibly empty, never a view, and a plain dict even when
   the source is a record, as `{**p}` is (§8.16).
-* A value position is a target exactly as in an array pattern: a name, a `$var`, an index
-  or a nested pattern. A literal there is `a destructuring target binds …` at parse time —
+* A value position is a target exactly as in an array pattern: a name, a `$var`, an index,
+  a field or a nested pattern. A literal there is `a destructuring target binds …` at parse time —
   comparing is what a `match` arm is for — and `{} = d` binds nothing and is refused.
 * Every value is read before the first is written, as in an array pattern, so
   `{a: d["b"], b: x} = d` reads `"b"` as it was.
@@ -2112,7 +2139,7 @@ Either loop variable may be a **pattern** instead of a name, taking each item ap
 the rules of `:=`: `for [id, row] in pairs`, `for {name, age} in users`,
 `for k, {total} in by_user`. The names are fresh for each iteration and live in the loop's
 scope, as a loop variable does, so a loop pattern holds names, rests and nested patterns
-only — a `$var` or an index target is refused. An item of the wrong shape is the error the
+only — a `$var`, an index or a field target is refused. An item of the wrong shape is the error the
 same pattern raises on the left of `:=`.
 
 ### 8.16 Splat and spread

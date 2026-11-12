@@ -93,6 +93,9 @@ func (p *printer) breakExpr(e ast.Expr, ind int) {
 		p.nl()
 		p.tab(ind + 1)
 		p.writeExpr(x.Else, ind+1)
+	case *ast.FieldExpr:
+		p.writeExpr(x.X, ind)
+		p.w("." + x.Name)
 	case *ast.IndexExpr:
 		p.writeExpr(x.X, ind)
 		p.w("[")
