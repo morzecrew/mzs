@@ -135,7 +135,7 @@ line = order.items.first
 line.sku, line.price = ["blade-pro", 600]
 println("after the edits    → ${order.items.first.json}")
 println("  type             → ${type(order.items.first)}   — the label survives")
-println("cart.total         → ${format(order.total)}")
+println("order.total        → ${format(order.total)}")
 
 # The name is checked where the file compiles — `order.custmer = …` is
 #   syntax: cannot assign to '.custmer': not a record field; did you mean '.customer'?

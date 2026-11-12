@@ -25,7 +25,8 @@ highs                         # [160,140]
 
 ## Targets
 
-A target is a name, a `$var`, an index, a record's field, or a nested `[ … ]`.
+A target is a name, a `$var`, an index, a record's field, or a nested `[ … ]` or `{ … }`
+([dict patterns](#dict-patterns)).
 
 ```
 d = {row: 0, col: 0}
