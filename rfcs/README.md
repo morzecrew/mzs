@@ -13,7 +13,7 @@ points back to, plus the defects that need a fix rather than a design.
 | # | RFC | Area | Size | Priority |
 |---|---|---|---|---|
 | [0001](0001-rest-and-spread.md) | Rest elements and spread: `a, *rest = xs`, `f(*xs)`, `[*a, x]`, `{**d, k: v}` — **landed** (#23) | language | M | P1 |
-| [0002](0002-dict-and-record-patterns.md) | Dict and record patterns in `match`, assignment and `for` — **landed** (#24, #25); `mod.Name {…}` moves to 0003 | language | M | P1 |
+| [0002](0002-dict-and-record-patterns.md) | Dict patterns in assignment, `match` and `for`; record shapes in `match` — **landed** (#24, #25); `mod.Name {…}` moves to 0003 | language | M | P1 |
 | [0003](0003-record-field-assignment.md) | Record fields: `m.amount = 5`, and `.field` across modules | language | S | P1 |
 | [0004](0004-const-bindings.md) | `const` — a binding that cannot be reassigned | language | S | P2 |
 | [0005](0005-enum.md) | `enum` — a closed set of record shapes, and a `match` that is checked | language | M | P2 |

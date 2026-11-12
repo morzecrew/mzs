@@ -265,6 +265,10 @@ func TestRecordPatterns(t *testing.T) {
 		// The shape asked is the constructor's, so a record of another name with the
 		// same fields does not fire.
 		{`record A(x); record B(x); match B(1) { A {x} -> "a"; else -> "not a" }`, `"not a"`},
+		// A record in a block rebinds the enclosing name only if the block runs, so its
+		// keys are not checked statically and the shape test decides.
+		{"record M(a)\nif true { record M(b) }\nmatch M(1) { M {b} -> \"b\"; else -> \"x\" }", `"b"`},
+		{"record M(a)\nold = M(1)\nif false { record M(b) }\nmatch old { M {b} -> \"b\"; M {a} -> \"a\"; else -> \"x\" }", `"a"`},
 		// A brace broken across lines, and a key written as a string.
 		{decls + "match Point(1, 2) {\n  Point {\n    x\n  } -> x\n}", `1`},
 		{decls + `match Money(7) { Money {"amount": a} -> a }`, `7`},

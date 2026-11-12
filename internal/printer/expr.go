@@ -49,6 +49,15 @@ func (p *printer) breakExpr(e ast.Expr, ind int) {
 		p.funcLit(x, ind)
 	case *ast.GroupExpr:
 		p.group(x, ind)
+	case *ast.DictPattern:
+		if x.Alt != nil && !p.records[x.Record.Name] {
+			// The call reading of `choose {…}` breaks the way a call does (flatDictPattern
+			// writes it flat when it fits).
+			p.writeExpr(x.Alt, ind)
+			return
+		}
+		p.w(p.text(e))
+		p.skip(e.Pos().Offset, e.End().Offset)
 	case *ast.Splat:
 		p.w(splatOp(x))
 		if x.X != nil {

@@ -983,7 +983,7 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 | a literal (`"yes"`, `42`, `true`, `nil`) | `subject == pattern` |
 | a regex literal, or any expression of kind regex | `subject ~ pattern` |
 | a record's name (`Money`) | the subject was built by that `record` declaration (§7.8) |
-| `Money {k: p, …}` | the subject was built by that `record` and fits the dict pattern — a record shape (§8.15) |
+| `Money {k: p, …}` | the subject was built by the record constructor the name holds when the arm runs, and fits the dict pattern — a record shape (§8.15) |
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring of a string |
 | `if expr` | `expr` is truthy (the subject is not consulted) |
 | `[p, …]` | the subject is an array (or range) of exactly that length and every position fits — a bare name binds it (§8.15) |
@@ -2090,7 +2090,10 @@ in another pattern — but not on the left of `=`, where a record is taken apart
 it is: `{amount} = m`.
 
 `Name {…}` is a record shape only when `Name` resolves to a `record` declaration (they
-hoist, §8.2). Anything else keeps the reading it always had: `choose {it} ->` is a call with
+hoist, §8.2). The shape is asked of the constructor the name holds when the arm runs, as
+for the bare `Money ->` arm; when a `record` in a block rebinds a name an enclosing scope
+declared, which declaration that is depends on the path taken, so the keys of a pattern
+on that name are not checked at compile time and the shape test alone decides. Anything else keeps the reading it always had: `choose {it} ->` is a call with
 a trailing closure, compared as any arm pattern is, and a local variable that shadows a
 record name is not a record. Only `Name {}` and `Name {x}` read both ways; a shape no
 closure has, `f {a, b}`, is a diagnostic when `f` is not a record. A record that an

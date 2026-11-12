@@ -261,16 +261,32 @@ func (c *compiler) missingInclude(name string) bool {
 	return ok
 }
 
-// declareRecord declares a record's name, or marks the one already declared in this
-// scope (a top-level record is declared ahead, to hoist), as that declaration.
+// someRecord stands for "a record, but which one depends on the path taken": the name
+// holds a record constructor, so `Name {…}` is a record pattern, but the fields are not
+// known statically and the shape test at run time is the whole answer.
+var someRecord = &ast.RecordDecl{}
+
+// declareRecord marks the binding a `record` writes as that declaration. Like `=`, the
+// declaration writes the nearest binding of its name when there is one (§8.2) — a top-level
+// record was declared ahead, to hoist — and declares one here otherwise. A record that
+// writes a binding of an enclosing scope does so only if its block runs, so that binding
+// becomes someRecord: still a record, its fields no longer the compile pass's to check.
 func (c *compiler) declareRecord(d *ast.RecordDecl) {
-	if !c.scope.names[d.Name] {
-		c.declare(d.Name)
+	name := d.Name
+	s := c.scope
+	for ; s != nil && !s.names[name]; s = s.parent {
 	}
-	if c.scope.recs == nil {
-		c.scope.recs = map[string]*ast.RecordDecl{}
+	if s == nil {
+		c.declare(name)
+		s = c.scope
 	}
-	c.scope.recs[d.Name] = d
+	if s.recs == nil {
+		s.recs = map[string]*ast.RecordDecl{}
+	}
+	if s != c.scope && s.recs[name] != d {
+		d = someRecord
+	}
+	s.recs[name] = d
 }
 
 // recordDecl is the `record` name resolves to, or nil when the nearest binding of the
@@ -937,7 +953,7 @@ func (c *compiler) bindings(x ast.Expr) {
 		if pat.Record != nil {
 			// The shape is asked of the constructor the name holds when the arm runs,
 			// as the bare `Money ->` arm does (§7.8); the fields are checked now.
-			if d := c.recordDecl(pat.Record.Name); d != nil {
+			if d := c.recordDecl(pat.Record.Name); d != nil && d != someRecord {
 				c.recordFields(pat, d)
 			}
 			if id, ok := c.expr(pat.Record).(*ast.Ident); ok {
