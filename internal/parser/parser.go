@@ -2105,6 +2105,24 @@ func (p *parser) recordShapeAt(i int) bool {
 	return false
 }
 
+// closureShaped reports whether the brace at i is one a trailing closure also has: `{}` or
+// `{x}`, across line breaks, and nothing else — `{x,}` is not, and stays the error it is
+// when the name is not a record.
+func (p *parser) closureShaped(i int) bool {
+	j := i + 1
+	skip := func() {
+		for p.kindAt(j) == token.NEWLINE {
+			j++
+		}
+	}
+	skip()
+	if p.kindAt(j) == token.IDENT {
+		j++
+		skip()
+	}
+	return p.kindAt(j) == token.RBRACE
+}
+
 // parseRecordPattern reads `Name {…}` in pattern position (RFC 0002). For the two shapes a
 // trailing closure also has — `Name {}` and `Name {x}` — it keeps that reading beside the
 // pattern, built as attachClosure builds it, so a name that turns out not to be a record
@@ -2112,9 +2130,10 @@ func (p *parser) recordShapeAt(i int) bool {
 func (p *parser) parseRecordPattern() ast.Expr {
 	t := p.advance()
 	name := &ast.Ident{Name: t.Value, Slot: -1, Start: t.Pos, Stop: t.End}
+	closure := p.closureShaped(p.pos)
 	pat := p.parseDictPattern().(*ast.DictPattern)
 	pat.Record = name
-	if pat.HasRest || len(pat.Entries) > 1 || (len(pat.Entries) == 1 && !pat.Entries[0].Short) {
+	if !closure {
 		return pat
 	}
 	body := &ast.BlockStmt{Start: pat.Lbrace, Stop: pat.Rbrace}

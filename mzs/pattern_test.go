@@ -299,6 +299,8 @@ func TestRecordPatternErrors(t *testing.T) {
 			"record Money has no field 'amout'; it has amount, currency"},
 		{`record M(a); match M(1) { [M {b}] -> 1; else -> 0 }`, ErrKindSyntax, "record M has no field 'b'; it has a"},
 		{`fn f(x) { x }; match 1 { f {a, b} -> 1; else -> 0 }`, ErrKindSyntax, "'f' is not a record"},
+		// A trailing comma is no closure, so `f {x,}` is not the call it never was.
+		{`fn f(x) { x }; match 1 { f {x,} -> 1; else -> 0 }`, ErrKindSyntax, "'f' is not a record"},
 		{`fn f(x) { x }; match [1] { [f {a: 1}] -> 1; else -> 0 }`, ErrKindSyntax, "'f' is not a record"},
 		{`record M(a); match M(1) { M {a}, 2 -> 1; else -> 0 }`, ErrKindSyntax, "a record pattern must be the only pattern in its arm"},
 		{`record M(a); match { M {a} -> 1; else -> 0 }`, ErrKindSyntax, "a record pattern needs a subject"},
