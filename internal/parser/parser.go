@@ -2411,8 +2411,8 @@ func (p *parser) loopPattern(x ast.Expr) ast.Expr {
 	}
 	ast.Walk(pat, func(n ast.Node) bool {
 		switch n.(type) {
-		case *ast.GlobalVar, *ast.IndexExpr:
-			p.errorAt(n.Pos(), "a loop pattern binds names: a $var or an index is written in the body")
+		case *ast.GlobalVar, *ast.IndexExpr, *ast.FieldExpr:
+			p.errorAt(n.Pos(), "a loop pattern binds names: a $var, an index or a field is written in the body")
 			return false
 		}
 		return true

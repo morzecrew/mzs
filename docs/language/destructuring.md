@@ -226,7 +226,7 @@ for k, {total} in {ann: {total: 3}, bob: {total: 5}} { println("${k}=${total}") 
 ```
 
 A loop pattern binds fresh names for each item, so it holds names, rests and nested
-patterns — not a `$var` or an index.
+patterns — not a `$var`, an index or a field.
 
 ## Statement or expression
 

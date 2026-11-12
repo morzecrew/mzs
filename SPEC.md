@@ -668,7 +668,7 @@ Field          = IDENT [ "=" Expr ] ;                  (* a Param without "*rest
 IfExpr         = "if" Expr Closure { "else" "if" Expr Closure } [ "else" Closure ] ;
 WhileExpr      = "while" Expr Closure ;
 ForExpr        = "for" ForTarget [ "," ForTarget ] "in" Expr Closure ;
-ForTarget      = IDENT | TargetPattern ;   (* a pattern binds names only: no $var, no index (§8.15) *)
+ForTarget      = IDENT | TargetPattern ;   (* a pattern binds names only: no $var, no index, no field (§8.15) *)
 MatchExpr      = "match" [ Expr ] "{" SEP* MatchArm ( SEP+ MatchArm )* SEP* "}" ;
 MatchArm       = ArmPattern { "," ArmPattern } [ "if" Expr ] "->" ( Expr | Closure )
                | MatchPattern [ "if" Expr ] "->" ( Expr | Closure )
@@ -1997,8 +1997,8 @@ a, b = [b, a]                    # a swap needs no temporary
   | `a, b = [1, 2, 3]` | `index: destructuring expects 2 values, got 3` |
   | `a, b = [1]` | `index: destructuring expects 2 values, got 1` |
   | `a, b = 1` | `type: cannot destructure int: the right side must be an array` |
-* A target is a name, a `$var`, an index, or a nested pattern; anything else is
-  `cannot assign to this expression` at parse time.
+* A target is a name, a `$var`, an index, a record's field (§7.8), or a nested pattern;
+  anything else is `cannot assign to this expression` at parse time.
 * `=` and `:=` mean per position exactly what they mean alone (§8.2): `=` writes the
   nearest existing binding and creates one here when there is none, `:=` always creates
   or shadows here. No compound operator destructures — `a, b += xs` is a diagnostic.
@@ -2050,8 +2050,8 @@ form JSON wants — the data a program handles is dicts inside arrays inside dic
 * `**rest`, last in the pattern, binds a **new dict** of the entries no key names, in the
   order the source holds them — possibly empty, never a view, and a plain dict even when
   the source is a record, as `{**p}` is (§8.16).
-* A value position is a target exactly as in an array pattern: a name, a `$var`, an index
-  or a nested pattern. A literal there is `a destructuring target binds …` at parse time —
+* A value position is a target exactly as in an array pattern: a name, a `$var`, an index,
+  a field or a nested pattern. A literal there is `a destructuring target binds …` at parse time —
   comparing is what a `match` arm is for — and `{} = d` binds nothing and is refused.
 * Every value is read before the first is written, as in an array pattern, so
   `{a: d["b"], b: x} = d` reads `"b"` as it was.
@@ -2137,7 +2137,7 @@ Either loop variable may be a **pattern** instead of a name, taking each item ap
 the rules of `:=`: `for [id, row] in pairs`, `for {name, age} in users`,
 `for k, {total} in by_user`. The names are fresh for each iteration and live in the loop's
 scope, as a loop variable does, so a loop pattern holds names, rests and nested patterns
-only — a `$var` or an index target is refused. An item of the wrong shape is the error the
+only — a `$var`, an index or a field target is refused. An item of the wrong shape is the error the
 same pattern raises on the left of `:=`.
 
 ### 8.16 Splat and spread
