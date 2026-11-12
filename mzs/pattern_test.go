@@ -285,6 +285,11 @@ func TestRecordPatternKeepsTheCallReading(t *testing.T) {
 		{choose + `match 1 { choose { (x) -> x } -> 8; else -> 0 }`, `8`},
 		// A binding that shadows a record is not one: the reading follows the binding.
 		{`record Money(amount); fn f() { Money := { (_) -> 1 }; match 1 { Money {it} -> "call"; else -> "no" } }; f()`, `"call"`},
+		// …and so is a new binding in the record's own scope.
+		{`record M(a); M := { (_) -> 1 }; match 1 { M {it} -> "call"; else -> "no" }`, `"call"`},
+		// A plain `=` writes the record's own binding: still the record reading, and the
+		// shape is asked of what the name holds when the arm runs.
+		{`record M(a); x = M(1); M = 5; match x { M {a} -> "shape"; else -> "no" }`, `"no"`},
 	})
 }
 

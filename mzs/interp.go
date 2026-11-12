@@ -239,6 +239,9 @@ func (c *compiler) declare(name string) {
 	}
 	c.scope.names[name] = true
 	c.scope.size++
+	// A new binding of the name is not the record any more, even in the record's own
+	// scope: `M := …` after `record M(…)` makes `M {…}` the call it reads as (RFC 0002).
+	delete(c.scope.recs, name)
 }
 
 // known reports whether the name is bound anywhere up the chain, which is what decides
