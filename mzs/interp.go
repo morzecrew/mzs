@@ -283,7 +283,10 @@ func (c *compiler) declareRecord(d *ast.RecordDecl) {
 	if s.recs == nil {
 		s.recs = map[string]*ast.RecordDecl{}
 	}
-	if s != c.scope && s.recs[name] != d {
+	// Two declarations of one name in a scope are both hoisted, and which one the name
+	// holds when a function body runs depends on when it is called — so that name is
+	// someRecord too, as is one a block's record may rewrite.
+	if prev := s.recs[name]; (prev != nil && prev != d) || (s != c.scope && prev != d) {
 		d = someRecord
 	}
 	s.recs[name] = d
