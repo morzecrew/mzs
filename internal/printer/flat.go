@@ -517,7 +517,7 @@ func (p *printer) flatClause(e ast.Expr) (string, bool) {
 // flatDictPattern writes `{name, age: a, "content-type": ct, **rest}` (RFC 0002). A key
 // keeps the spelling it was written with, so a quoted key stays quoted.
 func (p *printer) flatDictPattern(x *ast.DictPattern) (string, bool) {
-	if x.Alt != nil && !p.records[x.Record.Name] {
+	if x.Alt != nil && p.callReading(x) {
 		// `choose {it}` reads as a call with a trailing closure too, and is written as
 		// the formatter has always written that, so a program that is not using records
 		// formats as it did. Both spellings parse to this same tree.
@@ -525,7 +525,7 @@ func (p *printer) flatDictPattern(x *ast.DictPattern) (string, bool) {
 	}
 	prefix := ""
 	if x.Record != nil {
-		prefix = x.Record.Name + " "
+		prefix = x.RecordName() + " "
 	}
 	parts := make([]string, 0, len(x.Entries)+1)
 	for _, en := range x.Entries {
@@ -575,4 +575,12 @@ func (p *printer) loopVars(x *ast.ForExpr) (string, bool) {
 		ok = ok && vok
 	}
 	return vars, ok
+}
+
+// callReading reports whether a shape that reads both ways is written as the call. A
+// bare name is a pattern when the file declares a record of that name; a qualified one,
+// `money.Money {x}`, names another module's export, which the printer cannot see, so it
+// keeps the spelling the call always had (RFC 0003). Both spellings are the same tokens.
+func (p *printer) callReading(x *ast.DictPattern) bool {
+	return x.Module != nil || !p.records[x.Record.Name]
 }

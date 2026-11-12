@@ -171,8 +171,8 @@ println("")
 
 # `type(m)` and `m.is("Money")` ride on the value, so a record built in one file is
 # recognisable in another and a host reading Result.Globals sees the name. The `.field`
-# spelling does not ride along — it is resolved where the file compiles — so a shape
-# declared in an included module is read and written with `m["field"]`, exactly as every
-# dict was before records existed.
+# spelling is resolved where the file compiles: the CLI reads a top-level include to learn
+# the fields of the records it exports (examples/50_records_across_files.mzs), and a host
+# that does not read includes at compile time reads them with `m["field"]`.
 println("type(m)     → ${type(m)}")
 println("m[\"amount\"] → ${m["amount"]}   — always available, wherever the shape was declared")

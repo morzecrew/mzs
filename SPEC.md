@@ -678,7 +678,8 @@ ArmPattern     = "in" Expr          (* membership *)
                | Expr ;             (* equality; a regex means match, a record the shape *)
 MatchPattern   = "[" [ MatchElem { "," MatchElem } [ "," ] ] "]"   (* §8.15; binds *)
                | DictMatch
-               | IDENT DictMatch ;  (* a record shape, when IDENT names a record (§8.15) *)
+               | IDENT DictMatch    (* a record shape, when IDENT names a record (§8.15) *)
+               | IDENT "." IDENT DictMatch ;  (* a record an included module exports (§7.8) *)
 MatchElem      = IDENT              (* binds this position *)
                | MatchPattern       (* nested *)
                | "*" [ IDENT ]      (* rest: binds the positions between, or skips them; one per level *)
@@ -986,6 +987,7 @@ Arms are separated by a newline or `;`, so `match` works on one line.
 | a regex literal, or any expression of kind regex | `subject ~ pattern` |
 | a record's name (`Money`) | the subject was built by that `record` declaration (§7.8) |
 | `Money {k: p, …}` | the subject was built by the record constructor the name holds when the arm runs, and fits the dict pattern — a record shape (§8.15) |
+| `money.Money {k: p, …}` | the same, for a record the included module `money` exports — known only under `Options.CompileIncludes` (§7.8) |
 | `in expr` | `expr.has(subject)` — array, range, dict keys, or substring of a string |
 | `if expr` | `expr` is truthy (the subject is not consulted) |
 | `[p, …]` | the subject is an array (or range) of exactly that length and every position fits — a bare name binds it (§8.15) |
@@ -1183,7 +1185,7 @@ type Stmt interface { Node; stmt() }   // every Expr is also a Stmt via ExprStmt
 | `RangeExpr` | `Lo, Hi Expr`, `Exclusive bool` (set by `..<`) |
 | `AssignExpr` | `Target Expr` (`*Ident`, `*GlobalVar`, `*IndexExpr`, `*FieldExpr`), `Op token.Kind` (`=`, `:=`, `+=`, …), `Value Expr` |
 | `ArrayPattern` | `Elems []Expr`, `Brackets bool` — one entry per position; a target or a nested pattern on the left of `=`, a binding name or a compared expression in a `match` arm (§8.15) |
-| `DictPattern` | `Record *Ident`, `Alt Expr`, `Entries []DictPatternEntry`, `HasRest bool`, `Rest *Ident` — `{name, age: a, **rest}`, or `Money {amount}` with `Record` set and, for the two shapes a trailing closure also has, `Alt` the call reading; each entry is `Key string` and where its `Value` goes (a target on the left of `=`, a binding name, a nested pattern or a compared expression in an arm), with `In` for `key: in expr` and `Short` for `{name}`; `Rest` is nil for the anonymous `**` of an arm (§8.15) |
+| `DictPattern` | `Module *Ident` (the qualifier of `money.Money {…}`, else nil), `Record *Ident`, `Alt Expr`, `Entries []DictPatternEntry`, `HasRest bool`, `Rest *Ident` — `{name, age: a, **rest}`, or `Money {amount}` with `Record` set and, for the two shapes a trailing closure also has, `Alt` the call reading; each entry is `Key string` and where its `Value` goes (a target on the left of `=`, a binding name, a nested pattern or a compared expression in an arm), with `In` for `key: in expr` and `Short` for `{name}`; `Rest` is nil for the anonymous `**` of an arm (§8.15) |
 | `DestructureAssign` | `Pattern Expr` (an `ArrayPattern` or a `DictPattern`), `Op token.Kind` (`=` or `:=`), `Value Expr` |
 | `IndexExpr` | `X Expr`, `Index Expr`, `Index2 Expr` (nil unless `a[i, n]`) |
 | `FieldExpr` | `X Expr`, `Name string` — `m.amount` as a target only (§7.8); the same spelling read is a `MethodCall` with no arguments |
@@ -1472,9 +1474,29 @@ happens at run time. Two consequences, both normative:
   makes `p.len` the field. Nothing is lost — UFCS gives every row a prefix spelling, so
   `len(p)` is still the entry count (D18) — and the compile pass emits a warning at the
   declaration saying so (§17).
-* A shape declared in **another module** is read and written with `m["amount"]`. `type(m)` and
-  `m.is("Money")` still work, because the label rides on the value; the `.field` spelling
-  does not, because the name is resolved against this unit's declarations.
+* A shape declared in **another module** is known by its field names only when the host
+  sets `Options.CompileIncludes` (§13.2), and the CLI does. Then the compile step reads,
+  through `ModuleLoader`, each `include … from` that stands at the **top level** of the
+  file, and the fields of every record the module exports — `export record Name(…)`, or a
+  bare `export Name` of a top-level record — resolve as this unit's own do: `m.amount`,
+  `m.amount = v`, and the record pattern `money.Money {amount} ->` (§8.15). Without it, and
+  for an include inside a block (which may never run, so it is not read), such a field is
+  read and written with `m["amount"]`. `type(m)` and `m.is("Money")` work either way,
+  because the label rides on the value. The rules that keep the reading safe:
+
+  - **A read that fails is not a compile error.** The include fails when it runs, where and
+    how it always did, and `try` catches it there; the failure only explains a `.field`
+    nothing else resolved — `undefined method 'amount'; module 'money' could not be read at
+    compile time: …`.
+  - **Only names are kept.** Each Run calls the loader and runs the module exactly as it
+    does without the option (§12.8), and the field is dispatched at run time anyway, so a
+    module that changed between Runs is the module that runs; a field it no longer has is
+    dispatched as for any record without it — a stdlib row of that name, then UFCS, then
+    `undefined method` (§8.7).
+  - **A function this unit can see keeps its meaning.** `m.amount` with `fn amount(x)` in
+    scope compiles to `amount(m)`, as it always did; an imported field of that name is a
+    warning there (`'amount' is also a field of money.Money; this calls the function`),
+    which `StrictWarnings` promotes like any other.
 
 **Matching.** A bare record name as an arm pattern (§5.3) asks whether the subject was
 built by that declaration. Identity belongs to the **declaration**, not to the name: two
@@ -2123,9 +2145,15 @@ declared, which declaration that is depends on the path taken, so the keys of a 
 on that name are not checked at compile time and the shape test alone decides. Anything else keeps the reading it always had: `choose {it} ->` is a call with
 a trailing closure, compared as any arm pattern is, and a local variable that shadows a
 record name is not a record. Only `Name {}` and `Name {x}` read both ways; a shape no
-closure has, `f {a, b}`, is a diagnostic when `f` is not a record. A record that an
-included module exports, `money.Money {…}`, is RFC 0003's: it needs the include's records
-known at compile time.
+closure has, `f {a, b}`, is a diagnostic when `f` is not a record.
+
+`money.Money {…}` is the same pattern on a record the included module `money` exports,
+checked against the fields the compile step read under `Options.CompileIncludes` (§7.8),
+and asked of the module's member `Money` when the arm runs — a qualifier that no longer
+holds that module has no such member, and the arm does not fire. When the module exports
+no record of that name, or was not read, `money.Money {}` and `money.Money {x}` keep the
+reading they always had — a method call with a trailing closure — and any other shape is
+a diagnostic that says which of the three it was.
 
 A name binds even when one of that spelling is in scope, as in an array pattern; to compare
 with a variable's value, parenthesise it — `{k: (limit)}`.
@@ -3505,6 +3533,7 @@ type Options struct {
     Rand            *rand.Rand       // enables rand()/uuid()/sample/shuffle
     EnableTime      bool             // installs the time/date modules (needs Now for now/today)
     ModuleLoader    ModuleLoader     // enables `include x from "path"` (§12.8); nil => error
+    CompileIncludes bool             // Compile reads top-level includes for their records' fields (§7.8); false => never
     FS              FileSystem       // installs the io module (§12.13); nil => `include io` is an error
     Stdin           io.Reader        // what io.stdin drains, io.lines streams and input() pulls (§12.13, §12.1). nil => ""
     Env             func(string) string // answers io.env. nil => every name is unset
@@ -3536,6 +3565,12 @@ type FileSystem interface {
 For `ModuleLoader`, `from` is the name of the including program and `path` is the string
 the script wrote; the loader returns the resolved name — the key the per-Run module cache
 uses, so two spellings of one file load once — and its source.
+
+`CompileIncludes` makes `Compile` call the loader too, once per `include … from` at the top
+level of the file, and parse what it returns for the records the module exports (§7.8).
+It is off by default because nothing promises that a loader answers a second read the
+way it answered the first — one may hand out a one-time token, count reads, or fetch from
+somewhere that changes. A host whose loader is a plain file read can turn it on.
 
 For `FileSystem`, a name arrives exactly as the script spelled it (§12.13). A missing file
 is an ordinary `error`, which the script sees as a catchable error; `Stat` reports a name
@@ -3980,8 +4015,9 @@ file is `fmt.mzs`, not `fmt`.
 | `--repl` | interactive REPL (line-based, persistent env; `.exit`, `:q`, `exit(code)`, Ctrl-D or Ctrl-C twice to quit) |
 | `--version` | print version |
 
-The CLI installs a `ModuleLoader` (§12.8) that reads a path in one of two forms, told apart
-by the leading `./` or `../`:
+The CLI installs a `ModuleLoader` (§12.8), and sets `CompileIncludes` (§7.8) because that
+loader is a file read. The loader reads a path in one of two forms, told apart by the
+leading `./` or `../`:
 
 | Written | Meaning | Where it is looked for |
 |---|---|---|

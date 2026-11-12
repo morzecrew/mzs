@@ -941,6 +941,25 @@ func (e ev) matchAny(pat ast.Expr, v Value, env *Env) (bool, error) {
 	return false, nil
 }
 
+// recordCtorOf is the constructor a record shape asks about: the binding `Money` holds,
+// or the member `money.Money` of the module the qualifier holds (RFC 0003). Anything but
+// a module there has no such member, and the arm simply does not fire.
+func (e ev) recordCtorOf(pat *ast.DictPattern) (Value, error) {
+	if pat.Module == nil {
+		return e.eval(pat.Record)
+	}
+	mod, err := e.eval(pat.Module)
+	if err != nil {
+		return Nil(), err
+	}
+	if d := mod.odict(); d != nil {
+		if ctor, ok := d.Get(Str(pat.Record.Name)); ok {
+			return ctor, nil
+		}
+	}
+	return Nil(), nil
+}
+
 // matchDict tests v against a dict pattern (RFC 0002). It fires when v is a dict, every
 // key the pattern names is there, and every value position fires by the rule array
 // patterns use: a name binds, a nested pattern recurses, `in` asks membership and any
@@ -950,7 +969,7 @@ func (e ev) matchDict(pat *ast.DictPattern, v Value, env *Env) (bool, error) {
 	if pat.Record != nil {
 		// `Money {amount}` asks for the shape first, exactly as the bare `Money ->`
 		// arm does (§7.8): the constructor the name holds now is the one asked about.
-		ctor, err := e.eval(pat.Record)
+		ctor, err := e.recordCtorOf(pat)
 		if err != nil {
 			return false, err
 		}

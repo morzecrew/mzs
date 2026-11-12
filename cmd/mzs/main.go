@@ -409,6 +409,10 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	// options only reads cfg: it is called more than once per config (the REPL's completer
 	// builds Options of its own), so the record of loaded sources is made with the config.
 	o.ModuleLoader = recordSources(fileLoader(cfg.root, libDirs()), cfg.loaded)
+	// The loader is a file read, and a second read of a file answers as the first did, so
+	// the compile step may read top-level includes to learn the fields of the records they
+	// export (RFC 0003): `m.amount` and `money.Money {amount} ->` on a library's shape.
+	o.CompileIncludes = true
 	// The io module (§12.13) is a host capability, and on the command line the host is
 	// the person typing it: a one-liner that cannot read a file is not a shell tool. An
 	// embedder gets none of this unless it installs it, which is the whole point of the

@@ -268,9 +268,12 @@ Money(1500).merge(Money(200))       # still merges: it was asked to
 **Two things to know.** A field may be named after a stdlib method — `record Page(len, …)`
 — and on that shape the field wins, so `p.len` is the field and `len(p)` is still the entry
 count; the compiler warns once, at the declaration. And the `.field` spelling is resolved
-where the file compiles, so a shape declared in an **included module** is read and written with
-`m["field"]`; `type(m)` and `m.is("Money")` work there as they do anywhere, because they
-ride on the value.
+where the file compiles. A shape an **included module** exports has its fields known there
+when the compile step reads the include, which the CLI does for every `include … from` at
+the top of a file ([modules](../modules/custom.md#records-across-files)); an embedder opts in
+with `Options.CompileIncludes`. Otherwise its fields are read and written with
+`m["field"]`. `type(m)` and `m.is("Money")` work either way, because they ride on the
+value.
 
 What a record deliberately is not: a class. No inheritance, no methods on the type, no
 `self`. Functions over a shape stay free functions and are reached both ways —

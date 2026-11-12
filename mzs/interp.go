@@ -76,6 +76,9 @@ func (in *Interp) Compile(name, src string) (p *Program, err error) {
 func (in *Interp) compilePass(name string, file *ast.Program) ([]Warning, error) {
 	c := &compiler{in: in, file: name}
 	c.collectFields(file)
+	if in.opts.CompileIncludes {
+		c.collectImports(file)
+	}
 	c.collectBound(file)
 	c.push()
 	// Top-level `fn`s and `record`s are hoisted, so a call may appear above its
@@ -142,6 +145,13 @@ type compiler struct {
 	// collected before the walk, because a field may be read above the declaration that
 	// names it — inside a function, or simply further up the file.
 	fields map[string]bool
+	// imports is what CompileIncludes read (RFC 0003): for each top-level include of a
+	// path, the records the module exports and their fields. importedFields is every such
+	// field, with the record that first declares it for the diagnostics, and importFails
+	// says which includes could not be read, so a `.field` nothing resolves can name why.
+	imports        map[string]map[string][]string
+	importedFields map[string]string
+	importFails    []string
 	// bound is every name the unit binds anywhere: an assignment, a `fn`, a parameter, a
 	// loop or `try` variable. It is what lets a method call compiled before the binding
 	// still try it at run time (§8.7), the way a prefix call reaches it by name.
@@ -210,6 +220,94 @@ func (c *compiler) localCandidate(name string) bool {
 
 // recordField reports whether name is a field of some record declared in this unit.
 func (c *compiler) recordField(name string) bool { return c.fields[name] }
+
+// importedField reports whether name is a field of a record a module this unit includes
+// at the top level exports, as CompileIncludes read it (RFC 0003).
+func (c *compiler) importedField(name string) bool { return c.importedFields[name] != "" }
+
+// collectImports reads, through the host's loader, each `include … from` at the top level
+// of the file and keeps the field names of the records the module exports (RFC 0003). An
+// include inside a block is never read here — it may never run — and a read that fails is
+// not an error: the include fails when it runs, where and how it always did, and the
+// failure is kept only to explain a `.field` that nothing else resolves.
+func (c *compiler) collectImports(file *ast.Program) {
+	load := c.in.opts.ModuleLoader
+	if load == nil {
+		return
+	}
+	for _, s := range file.Stmts {
+		n, ok := s.(*ast.IncludeDecl)
+		if !ok || !n.HasPath || n.Name == "" {
+			continue
+		}
+		recs, err := readExports(load, c.file, n.Path)
+		if err != nil {
+			c.importFails = append(c.importFails, fmt.Sprintf("module '%s' could not be read at compile time: %v", n.Name, err))
+			continue
+		}
+		if c.imports == nil {
+			c.imports, c.importedFields = map[string]map[string][]string{}, map[string]string{}
+		}
+		c.imports[n.Name] = recs
+		names := make([]string, 0, len(recs))
+		for r := range recs {
+			names = append(names, r)
+		}
+		sort.Strings(names)
+		for _, r := range names {
+			for _, f := range recs[r] {
+				if c.importedFields[f] == "" {
+					c.importedFields[f] = n.Name + "." + r
+				}
+			}
+		}
+	}
+}
+
+// readExports parses a module's source and lists the records it exports with their
+// fields: `export record Name(…)`, and a bare `export Name` that names a top-level record.
+// Nothing is compiled or run, and nothing is kept but names.
+func readExports(load ModuleLoader, from, path string) (map[string][]string, error) {
+	resolved, src, err := load(from, path)
+	if err != nil {
+		return nil, err
+	}
+	if resolved == "" {
+		resolved = path
+	}
+	file, err := parser.Parse(resolved, src)
+	if err != nil {
+		return nil, fmt.Errorf("it does not parse")
+	}
+	decls := map[string]*ast.RecordDecl{}
+	for _, s := range file.Stmts {
+		switch d := s.(type) {
+		case *ast.RecordDecl:
+			decls[d.Name] = d
+		case *ast.ExportDecl:
+			if r, ok := d.Decl.(*ast.RecordDecl); ok {
+				decls[r.Name] = r
+			}
+		}
+	}
+	recs := map[string][]string{}
+	for _, s := range file.Stmts {
+		d, ok := s.(*ast.ExportDecl)
+		if !ok {
+			continue
+		}
+		for _, name := range d.Names {
+			if r := decls[name]; r != nil {
+				fields := make([]string, len(r.Fields))
+				for i, f := range r.Fields {
+					fields[i] = f.Name
+				}
+				recs[name] = fields
+			}
+		}
+	}
+	return recs, nil
+}
 
 func (c *compiler) push() {
 	c.scope = &cscope{parent: c.scope, names: map[string]bool{}, used: map[string]bool{}, mods: map[string]bool{}}
@@ -291,6 +389,29 @@ func (c *compiler) declareRecord(d *ast.RecordDecl) {
 		d = someRecord
 	}
 	s.recs[name] = d
+}
+
+// patternRecord is the declaration a record shape names, or nil when it names none:
+// `Money {…}` resolves Money in this unit (RFC 0002), `money.Money {…}` asks the exports
+// CompileIncludes read for the module the qualifier still names (RFC 0003). An imported
+// record comes back as a declaration built from its field names, which is all a pattern
+// can be checked against.
+func (c *compiler) patternRecord(dp *ast.DictPattern) *ast.RecordDecl {
+	if dp.Module == nil {
+		return c.recordDecl(dp.Record.Name)
+	}
+	if !c.knownModule(dp.Module.Name) {
+		return nil
+	}
+	fields, ok := c.imports[dp.Module.Name][dp.Record.Name]
+	if !ok {
+		return nil
+	}
+	d := &ast.RecordDecl{Name: dp.RecordName(), Fields: make([]ast.Param, len(fields))}
+	for i, f := range fields {
+		d.Fields[i] = ast.Param{Name: f}
+	}
+	return d
 }
 
 // recordDecl is the `record` name resolves to, or nil when the nearest binding of the
@@ -831,11 +952,14 @@ func (c *compiler) assign(n *ast.AssignExpr) {
 // the diagnostic, and the spelling that writes a plain dict's entry is the fix.
 func (c *compiler) fieldTarget(t *ast.FieldExpr) {
 	t.X = c.expr(t.X)
-	if c.recordField(t.Name) {
+	if c.recordField(t.Name) || c.importedField(t.Name) {
 		return
 	}
-	fields := make([]string, 0, len(c.fields))
+	fields := make([]string, 0, len(c.fields)+len(c.importedFields))
 	for f := range c.fields {
+		fields = append(fields, f)
+	}
+	for f := range c.importedFields {
 		fields = append(fields, f)
 	}
 	sort.Strings(fields)
@@ -915,7 +1039,7 @@ func (c *compiler) recordArm(arm *ast.MatchArm, hasSubject bool) {
 		if !ok || dp.Record == nil {
 			continue
 		}
-		if c.recordDecl(dp.Record.Name) == nil {
+		if c.patternRecord(dp) == nil {
 			arm.Pats[j] = c.notARecord(dp)
 			continue
 		}
@@ -923,7 +1047,7 @@ func (c *compiler) recordArm(arm *ast.MatchArm, hasSubject bool) {
 		case len(arm.Pats) > 1:
 			c.syntaxErrorf(dp.Pos(), "a record pattern must be the only pattern in its arm")
 		case !hasSubject:
-			c.syntaxErrorf(dp.Pos(), "a record pattern needs a subject: match m { %s {…} -> … }", dp.Record.Name)
+			c.syntaxErrorf(dp.Pos(), "a record pattern needs a subject: match m { %s {…} -> … }", dp.RecordName())
 		default:
 			arm.Kind = ast.ArmDict
 		}
@@ -936,6 +1060,19 @@ func (c *compiler) recordArm(arm *ast.MatchArm, hasSubject bool) {
 func (c *compiler) notARecord(dp *ast.DictPattern) ast.Expr {
 	if dp.Alt != nil {
 		return dp.Alt
+	}
+	if dp.Module != nil {
+		why := "it exports no record of that name"
+		switch {
+		case !c.knownModule(dp.Module.Name):
+			why = fmt.Sprintf("'%s' is not a module this file includes", dp.Module.Name)
+		case !c.in.opts.CompileIncludes:
+			why = "the host compiles without reading includes (Options.CompileIncludes)"
+		case c.imports[dp.Module.Name] == nil:
+			why = "the module could not be read at compile time"
+		}
+		c.syntaxErrorf(dp.Pos(), "'%s {…}' is not a record pattern: %s", dp.RecordName(), why)
+		return dp
 	}
 	c.syntaxErrorf(dp.Pos(), "'%s' is not a record, so '%s {…}' is not a pattern: a record pattern takes the name of a record declaration",
 		dp.Record.Name, dp.Record.Name)
@@ -984,10 +1121,15 @@ func (c *compiler) bindings(x ast.Expr) {
 		if pat.Record != nil {
 			// The shape is asked of the constructor the name holds when the arm runs,
 			// as the bare `Money ->` arm does (§7.8); the fields are checked now.
-			if d := c.recordDecl(pat.Record.Name); d != nil && d != someRecord {
+			if d := c.patternRecord(pat); d != nil && d != someRecord {
 				c.recordFields(pat, d)
 			}
-			if id, ok := c.expr(pat.Record).(*ast.Ident); ok {
+			if pat.Module != nil {
+				// The constructor is the module's member, read when the arm runs.
+				if id, ok := c.expr(pat.Module).(*ast.Ident); ok {
+					pat.Module = id
+				}
+			} else if id, ok := c.expr(pat.Record).(*ast.Ident); ok {
 				pat.Record = id
 			}
 		}
@@ -1020,7 +1162,7 @@ func (c *compiler) bindings(x ast.Expr) {
 // a `Name {…}` whose Name is not a record gives way to the call it also reads as, which
 // is then compared like any other value (RFC 0002).
 func (c *compiler) nestedPattern(x ast.Expr) ast.Expr {
-	if dp, ok := x.(*ast.DictPattern); ok && dp.Record != nil && c.recordDecl(dp.Record.Name) == nil {
+	if dp, ok := x.(*ast.DictPattern); ok && dp.Record != nil && c.patternRecord(dp) == nil {
 		if alt := c.notARecord(dp); alt != dp {
 			return c.expr(alt)
 		}
@@ -1160,6 +1302,12 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 		return n
 	}
 	if (c.known(n.Name) && !c.knownModule(n.Name)) || c.hasFunc(n.Name) {
+		if r := c.importedFields[n.Name]; r != "" {
+			// A field another module's record declares never takes a call away from a
+			// function this unit can see (RFC 0003): the call stays what it compiled to
+			// before CompileIncludes, and the overlap is said once, here.
+			c.warnAt(n.NamePos, "'%s' is also a field of %s; this calls the function — read the field with m[\"%s\"]", n.Name, r, n.Name)
+		}
 		if n.Safe {
 			// `?.` must not evaluate anything when the receiver is nil (§4.3), which a
 			// plain call cannot express; the evaluator's UFCS fallback handles it — and
@@ -1181,6 +1329,16 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 		args := make([]ast.Expr, 0, len(n.Args)+1)
 		args = append(append(args, n.Recv), n.Args...)
 		return &ast.CallExpr{Fn: fn, Args: args, Named: n.Named, Lparen: n.NamePos, Stop: n.Stop}
+	}
+	if c.importedField(n.Name) {
+		// A field of a record an included module exports (RFC 0003). Only where nothing
+		// else claimed the name: the dispatch at run time reads the receiver's own shape
+		// first, as for a field this unit declares (§7.8).
+		if c.localCandidate(n.Name) {
+			n.Local = true
+			c.markUsed(n.Name)
+		}
+		return n
 	}
 	c.undefinedMethod(n.Name, n.NamePos)
 	return n
@@ -1205,12 +1363,21 @@ func (c *compiler) undefinedMethod(name string, pos token.Pos) {
 			// one is this diagnostic and its fix belongs in this pool.
 			c.pool = append(c.pool, f)
 		}
+		for f := range c.importedFields {
+			c.pool = append(c.pool, f)
+		}
+	}
+	why := ""
+	if len(c.importFails) > 0 {
+		// A field of a module's record is only known when the module could be read, so
+		// a name nothing resolved may be one: say which include was not (RFC 0003).
+		why = "; " + strings.Join(c.importFails, "; ")
 	}
 	if s := suggest(name, c.pool); s != "" {
-		c.errorf(pos, "undefined method '%s'; did you mean '%s'?", name, s)
+		c.errorf(pos, "undefined method '%s'; did you mean '%s'?%s", name, s, why)
 		return
 	}
-	c.errorf(pos, "undefined method '%s'", name)
+	c.errorf(pos, "undefined method '%s'%s", name, why)
 }
 
 // dispatchKinds is every kind a method may be registered under, plus the universal
