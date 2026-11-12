@@ -1503,8 +1503,10 @@ gains no third meaning, and neither does `{ … }`).
 
 **Writing a field.** `m.amount = 2` is that write spelled the way the field is read, and so
 is every compound form (`m.amount += 1`, `m.n ??= 0`) and a field as a destructuring
-target (`p.x, p.y = [1, 2]`). The receiver is evaluated once, before the right side, as an
-index's is (§8.8). It asks what the read asks, in the same two steps:
+target (`p.x, p.y = [1, 2]`). The receiver is evaluated exactly once, and when is what an
+index target's is: in an assignment, before the right side (§8.8); in a destructuring,
+when its position is written, after the whole right side has been read (§8.15), so
+`get().x, y = rhs()` calls `rhs` first. It asks what the read asks, in the same two steps:
 
 * **At compile time** the name must be a field of some `record` declared in the same
   compilation unit, or the program does not compile — `syntax: cannot assign to '.len':

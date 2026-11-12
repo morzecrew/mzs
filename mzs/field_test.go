@@ -19,6 +19,10 @@ func TestFieldAssignment(t *testing.T) {
 		// The receiver is evaluated once, before the right side, as an index's is (§8.8).
 		{`record P(x); p = P(1); $n = 0; fn get() { $n += 1; p }; get().x += 1; [p.x, $n]`, `[2,1]`},
 		{`record P(x); p = P(1); log = []; fn r() { log.push("r"); p }; fn v() { log.push("v"); 2 }; r().x = v(); log`, `["r","v"]`},
+		// A destructuring reads its whole right side first, then writes each position,
+		// evaluating a field's receiver as it gets there — as an index target does (§8.15).
+		{`record P(x); p = P(1); log = []; fn r() { log.push("r"); p }; fn v() { log.push("v"); [2, 3] }; r().x, y = v(); [log, p.x, y]`, `[["v","r"],2,3]`},
+		{`xs = [0]; log = []; fn r() { log.push("r"); xs }; fn v() { log.push("v"); [2, 3] }; r()[0], y = v(); log`, `["v","r"]`},
 		// A chain: the receiver may be any expression that yields the record.
 		{`record P(x); record Box(p); b = Box(P(1)); b.p.x = 3; b`, `{"p":{"x":3}}`},
 		{`record P(x); ps = [P(1), P(2)]; ps[1].x = 0; ps`, `[{"x":1},{"x":0}]`},
