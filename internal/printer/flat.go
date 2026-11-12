@@ -511,6 +511,16 @@ func (p *printer) flatClause(e ast.Expr) (string, bool) {
 // flatDictPattern writes `{name, age: a, "content-type": ct, **rest}` (RFC 0002). A key
 // keeps the spelling it was written with, so a quoted key stays quoted.
 func (p *printer) flatDictPattern(x *ast.DictPattern) (string, bool) {
+	if x.Alt != nil && !p.records[x.Record.Name] {
+		// `choose {it}` reads as a call with a trailing closure too, and is written as
+		// the formatter has always written that, so a program that is not using records
+		// formats as it did. Both spellings parse to this same tree.
+		return p.flat(x.Alt)
+	}
+	prefix := ""
+	if x.Record != nil {
+		prefix = x.Record.Name + " "
+	}
 	parts := make([]string, 0, len(x.Entries)+1)
 	for _, en := range x.Entries {
 		key := p.slice(en.KeyPos.Offset, en.KeyEnd.Offset)
@@ -534,7 +544,7 @@ func (p *printer) flatDictPattern(x *ast.DictPattern) (string, bool) {
 		}
 		parts = append(parts, rest)
 	}
-	return "{" + strings.Join(parts, ", ") + "}", true
+	return prefix + "{" + strings.Join(parts, ", ") + "}", true
 }
 
 // loopVars writes a `for` header's variables: names, or the patterns that take each item

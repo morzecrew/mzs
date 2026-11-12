@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"mzs/internal/ast"
@@ -86,7 +87,7 @@ func (in *Interp) compilePass(name string, file *ast.Program) ([]Warning, error)
 			}
 		case *ast.RecordDecl:
 			if d.Name != "" {
-				c.declare(d.Name)
+				c.declareRecord(d)
 			}
 		}
 	}
@@ -119,6 +120,10 @@ type cscope struct {
 	// dispatching a method, which is the one thing the evaluator must be told
 	// statically (§8.7, §12.8).
 	mods map[string]bool
+	// recs maps the names a `record` declaration bound in this scope to it, which is what
+	// lets `Money {amount} ->` be told from a call with a trailing closure (RFC 0002).
+	// A later binding of the same name in an inner scope shadows it, as for any name.
+	recs map[string]*ast.RecordDecl
 	size int
 }
 
@@ -251,6 +256,29 @@ func (c *compiler) missingInclude(name string) bool {
 	}
 	_, ok := lookupIncludable(c.in, name)
 	return ok
+}
+
+// declareRecord declares a record's name, or marks the one already declared in this
+// scope (a top-level record is declared ahead, to hoist), as that declaration.
+func (c *compiler) declareRecord(d *ast.RecordDecl) {
+	if !c.scope.names[d.Name] {
+		c.declare(d.Name)
+	}
+	if c.scope.recs == nil {
+		c.scope.recs = map[string]*ast.RecordDecl{}
+	}
+	c.scope.recs[d.Name] = d
+}
+
+// recordDecl is the `record` name resolves to, or nil when the nearest binding of the
+// name is anything else — a variable that shadows a record is not one (RFC 0002).
+func (c *compiler) recordDecl(name string) *ast.RecordDecl {
+	for s := c.scope; s != nil; s = s.parent {
+		if s.names[name] {
+			return s.recs[name]
+		}
+	}
+	return nil
 }
 
 // knownModule reports whether name was introduced by an `include` still in scope.
@@ -446,6 +474,7 @@ func (c *compiler) record(n *ast.RecordDecl) {
 	if !c.known(n.Name) {
 		c.declare(n.Name)
 	}
+	c.declareRecord(n)
 	c.funcScope(n.Fields, nil, false)
 	n.Type = newRecordType(n)
 	for _, f := range n.Fields {
@@ -604,6 +633,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		n.Subject = c.expr(n.Subject)
 		for i := range n.Arms {
 			arm := &n.Arms[i]
+			c.recordArm(arm, n.Subject != nil)
 			if arm.Kind == ast.ArmArray || arm.Kind == ast.ArmDict {
 				c.armPattern(arm)
 				continue
@@ -822,6 +852,62 @@ func (c *compiler) target(t *ast.Ident, op token.Kind) {
 	}
 }
 
+// recordArm settles each `Name {…}` the parser left in a value arm (RFC 0002). When Name
+// is a record the arm is a record shape — a dict pattern that also asks for the shape,
+// alone in its arm and with a subject, as a dict pattern is. When it is not, the pattern
+// gives way to the call it also reads as, `choose {it}`, and the arm means what it meant.
+func (c *compiler) recordArm(arm *ast.MatchArm, hasSubject bool) {
+	if arm.Kind != ast.ArmValue {
+		return
+	}
+	for j, pat := range arm.Pats {
+		dp, ok := pat.(*ast.DictPattern)
+		if !ok || dp.Record == nil {
+			continue
+		}
+		if c.recordDecl(dp.Record.Name) == nil {
+			arm.Pats[j] = c.notARecord(dp)
+			continue
+		}
+		switch {
+		case len(arm.Pats) > 1:
+			c.syntaxErrorf(dp.Pos(), "a record pattern must be the only pattern in its arm")
+		case !hasSubject:
+			c.syntaxErrorf(dp.Pos(), "a record pattern needs a subject: match m { %s {…} -> … }", dp.Record.Name)
+		default:
+			arm.Kind = ast.ArmDict
+		}
+	}
+}
+
+// notARecord is what `Name {…}` becomes when Name is not a record: the call with a
+// trailing closure it also reads as, or — for a shape no closure has, `f {a, b}` — the
+// diagnostic that names the rule.
+func (c *compiler) notARecord(dp *ast.DictPattern) ast.Expr {
+	if dp.Alt != nil {
+		return dp.Alt
+	}
+	c.syntaxErrorf(dp.Pos(), "'%s' is not a record, so '%s {…}' is not a pattern: a record pattern takes the name of a record declaration",
+		dp.Record.Name, dp.Record.Name)
+	return dp
+}
+
+// recordFields checks a record pattern's keys against the declaration (RFC 0002): a field
+// the record does not have is a misspelling, and the pattern could never fire.
+func (c *compiler) recordFields(dp *ast.DictPattern, d *ast.RecordDecl) {
+	have := make(map[string]bool, len(d.Fields))
+	names := make([]string, len(d.Fields))
+	for i, f := range d.Fields {
+		have[f.Name] = true
+		names[i] = f.Name
+	}
+	for _, en := range dp.Entries {
+		if !have[en.Key] {
+			c.syntaxErrorf(en.KeyPos, "record %s has no field '%s'; it has %s", d.Name, en.Key, strings.Join(names, ", "))
+		}
+	}
+}
+
 // armPattern compiles an arm whose pattern binds (§5.3). The names go into a scope of
 // their own — the arm body's — so the guard and the body both see them and nothing after
 // the arm does, which is exactly how a `for` treats its loop variables.
@@ -845,6 +931,16 @@ func (c *compiler) bindings(x ast.Expr) {
 	case *ast.ArrayPattern:
 		c.arrayBindings(pat)
 	case *ast.DictPattern:
+		if pat.Record != nil {
+			// The shape is asked of the constructor the name holds when the arm runs,
+			// as the bare `Money ->` arm does (§7.8); the fields are checked now.
+			if d := c.recordDecl(pat.Record.Name); d != nil {
+				c.recordFields(pat, d)
+			}
+			if id, ok := c.expr(pat.Record).(*ast.Ident); ok {
+				pat.Record = id
+			}
+		}
 		// Left to right, as an array's positions are: a comparison may name what an
 		// earlier key bound.
 		for i := range pat.Entries {
@@ -858,7 +954,7 @@ func (c *compiler) bindings(x ast.Expr) {
 				t.Slot, t.Ref = -1, ast.RefLocal
 				c.declare(t.Name)
 			case *ast.ArrayPattern, *ast.DictPattern:
-				c.bindings(t)
+				en.Value = c.nestedPattern(t)
 			default:
 				en.Value = c.expr(t)
 			}
@@ -870,11 +966,25 @@ func (c *compiler) bindings(x ast.Expr) {
 	}
 }
 
+// nestedPattern compiles a pattern inside another and returns what stands in its place:
+// a `Name {…}` whose Name is not a record gives way to the call it also reads as, which
+// is then compared like any other value (RFC 0002).
+func (c *compiler) nestedPattern(x ast.Expr) ast.Expr {
+	if dp, ok := x.(*ast.DictPattern); ok && dp.Record != nil && c.recordDecl(dp.Record.Name) == nil {
+		if alt := c.notARecord(dp); alt != dp {
+			return c.expr(alt)
+		}
+		return dp
+	}
+	c.bindings(x)
+	return x
+}
+
 func (c *compiler) arrayBindings(pat *ast.ArrayPattern) {
 	for i, el := range pat.Elems {
 		switch t := el.(type) {
 		case *ast.ArrayPattern, *ast.DictPattern:
-			c.bindings(t)
+			pat.Elems[i] = c.nestedPattern(t)
 		case *ast.Ident:
 			t.Slot, t.Ref = -1, ast.RefLocal
 			c.declare(t.Name)

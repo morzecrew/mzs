@@ -114,6 +114,12 @@ func sameTree(name, src, out string, before *ast.Program) error {
 // printer holds the source and the two things the tree does not carry: where the
 // comments were, and where the heredoc bodies are.
 type printer struct {
+	// records is every name a `record` in the file declares. `Name {x}` parses to the
+	// same tree whether it is written as a record pattern or as a call with a trailing
+	// closure (RFC 0002), so the spelling is the formatter's to choose: the pattern's
+	// when the file has a record of that name, the closure's otherwise.
+	records map[string]bool
+
 	rs   []rune
 	cmts []lexer.Comment
 	ci   int
@@ -135,6 +141,15 @@ type span struct{ from, to int }
 
 func (p *printer) run(prog *ast.Program) string {
 	p.collectBlocks(prog)
+	ast.Walk(prog, func(n ast.Node) bool {
+		if d, ok := n.(*ast.RecordDecl); ok {
+			if p.records == nil {
+				p.records = map[string]bool{}
+			}
+			p.records[d.Name] = true
+		}
+		return true
+	})
 	p.stmtList(prog.Stmts, 0, prog.Stop)
 	out := p.b.String()
 	out = strings.TrimLeft(out, "\n")

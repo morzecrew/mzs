@@ -72,7 +72,7 @@ does not have it at all.
 | 46 | `46_error_traces.mzs` | where a failure came from: `e["file"]`, `e["col"]` and `e["stack"]`, the path through a helper called from many places, a one-line report a handler can log, and the trace the CLI prints under an uncaught error |
 | 47 | `47_parsing_numbers.mzs` | `parse_int` and `parse_float` — the conversion that can say no: the same strings through `int` and `parse_int`, bases and literal prefixes, a form validated without a regex, and a CSV column with junk in it |
 | 48 | `48_rest_and_spread.mzs` | `*` and `**` — `head, *tail = xs`, a recursive sum by head and tail, a router with one `match` arm per path shape, `f(*args, **opts)`, and `{**defaults, k: v}` that keeps the order of the defaults |
-| 49 | `49_dict_patterns.mzs` | dict patterns — `{name, age: a} = user`, `**rest`, a webhook handler with one `match` arm per event shape, `{age: in 18..65}`, taking an error dict apart, and `for {id, lines} in orders` |
+| 49 | `49_dict_patterns.mzs` | dict patterns — `{name, age: a} = user`, `**rest`, a webhook handler with one `match` arm per event shape, `{age: in 18..65}`, taking an error dict apart, `for {id, lines} in orders`, and record shapes — `Money {amount, currency: "EUR"} ->`, nested in `Refund {of: Money {amount}}` |
 
 ## Text, patterns and data
 

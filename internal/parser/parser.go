@@ -1426,6 +1426,9 @@ func (p *parser) parsePrimary() ast.Expr {
 		p.advance()
 		return &ast.RegexLit{Pattern: t.Value, Flags: t.Flags, Start: t.Pos, Stop: t.End}
 	case token.IDENT:
+		if pat && p.recordShapeAt(p.pos) && p.isElement(p.pos+1) {
+			return p.parseRecordPattern()
+		}
 		if t.Value == "async" && p.header == 0 && p.arm == 0 && p.arrowFollows(p.pos+1) {
 			// §8.14 puts `async` in front of a `fn` and nowhere else; the arrow form has
 			// no keyword to put it in front of, so it has one spelling and this names it.
@@ -1671,7 +1674,7 @@ func (p *parser) parseArrayBody(lb token.Pos, pat bool) ast.Expr {
 			p.errorAt(p.cur().Pos, "'**' spreads a dict's entries, into a dict or a call; in an array write '*'")
 			p.advance()
 		}
-		p.patNext = pat && p.startsPattern()
+		p.patNext = pat && p.startsShape()
 		elems = append(elems, p.parseElem())
 		p.skipNewlines()
 		if !p.accept(token.COMMA) {
@@ -2066,6 +2069,72 @@ func (p *parser) startsPattern() bool {
 	return k == token.LBRACKET || k == token.LBRACE
 }
 
+// startsShape is startsPattern for the positions a record shape may stand in too — a
+// `match` arm and an element of a pattern: `Money {amount}` (RFC 0002).
+func (p *parser) startsShape() bool {
+	return p.startsPattern() || p.recordShapeAt(p.pos)
+}
+
+// recordShapeAt reports whether a name at i, followed by a brace, has the shape of a
+// record pattern rather than only of a call with a trailing closure: the brace is empty
+// or holds a dict pattern — `{}`, `{x}`, `{**…}`, a key followed by ':' or ',', a string
+// key followed by ':'. Every other brace there is a closure, `choose { (x) -> x }`, and
+// stays one; of these, only `{}` and `{x}` read as a closure too, which the compile pass
+// settles by what the name is (DictPattern.Alt).
+func (p *parser) recordShapeAt(i int) bool {
+	if p.kindAt(i) != token.IDENT || p.kindAt(i+1) != token.LBRACE {
+		return false
+	}
+	j := i + 2
+	for p.kindAt(j) == token.NEWLINE {
+		j++
+	}
+	switch p.kindAt(j) {
+	case token.RBRACE, token.POW:
+		return true
+	case token.IDENT:
+		j++
+		for p.kindAt(j) == token.NEWLINE {
+			j++
+		}
+		k := p.kindAt(j)
+		return k == token.RBRACE || k == token.COMMA || k == token.COLON
+	case token.STR_BEGIN:
+		return p.kindAt(p.skipString(j)) == token.COLON
+	}
+	return false
+}
+
+// parseRecordPattern reads `Name {…}` in pattern position (RFC 0002). For the two shapes a
+// trailing closure also has — `Name {}` and `Name {x}` — it keeps that reading beside the
+// pattern, built as attachClosure builds it, so a name that turns out not to be a record
+// means exactly what it meant before.
+func (p *parser) parseRecordPattern() ast.Expr {
+	t := p.advance()
+	name := &ast.Ident{Name: t.Value, Slot: -1, Start: t.Pos, Stop: t.End}
+	pat := p.parseDictPattern().(*ast.DictPattern)
+	pat.Record = name
+	if pat.HasRest || len(pat.Entries) > 1 || (len(pat.Entries) == 1 && !pat.Entries[0].Short) {
+		return pat
+	}
+	body := &ast.BlockStmt{Start: pat.Lbrace, Stop: pat.Rbrace}
+	if len(pat.Entries) == 1 {
+		en := pat.Entries[0]
+		id := &ast.Ident{Name: en.Key, Slot: -1, Start: en.KeyPos, Stop: en.KeyEnd}
+		body.Stmts = []ast.Stmt{&ast.ExprStmt{X: id}}
+	}
+	fn := &ast.Ident{Name: t.Value, Slot: -1, Start: t.Pos, Stop: t.End}
+	fl := &ast.FuncLit{
+		Params:     []ast.Param{{Name: "it", NamePos: pat.Lbrace, Slot: -1}},
+		Body:       body,
+		ImplicitIt: true,
+		Start:      pat.Lbrace,
+		Stop:       pat.Stop,
+	}
+	pat.Alt = &ast.CallExpr{Fn: fn, Args: []ast.Expr{fl}, Lparen: fn.Pos(), Stop: fl.End()}
+	return pat
+}
+
 // closeOf is the index just past the bracket that closes the one opened at i, read over
 // tokens alone: a string is skipped whole, so a brace inside `"${…}"` never counts.
 func (p *parser) closeOf(i int) int {
@@ -2193,7 +2262,7 @@ func (p *parser) parseDictPatternEntry() (ast.DictPatternEntry, bool) {
 		en.Value = p.parseTernary()
 		return en, true
 	}
-	p.patNext = p.startsPattern()
+	p.patNext = p.startsShape()
 	en.Value = p.parseTernary()
 	return en, true
 }
@@ -2202,6 +2271,9 @@ func (p *parser) parseDictPatternEntry() (ast.DictPatternEntry, bool) {
 // a target — a name, a $var, an index or a nested pattern — because assignment binds; a
 // comparison is what a `match` arm is for.
 func (p *parser) targetDict(pat *ast.DictPattern) *ast.DictPattern {
+	if pat.Record != nil {
+		p.errorAt(pat.Pos(), "a record shape is a match pattern; a destructuring takes a record apart as a dict: {…} = %s", "m")
+	}
 	if len(pat.Entries) == 0 && !pat.HasRest {
 		p.errorAt(pat.Lbrace, "an empty dict pattern binds nothing")
 	}
@@ -2388,7 +2460,7 @@ func (p *parser) parseMatchArm() ast.MatchArm {
 		} else if kind != arm.Kind {
 			p.errorAt(p.cur().Pos, "every pattern in one arm must use the same form")
 		}
-		p.patNext = kind == ast.ArmValue && p.startsPattern()
+		p.patNext = kind == ast.ArmValue && p.startsShape()
 		arm.Pats = append(arm.Pats, p.armExpr())
 		if !p.accept(token.COMMA) {
 			break
@@ -2425,10 +2497,17 @@ func (p *parser) armArrayPattern(arm *ast.MatchArm) {
 	}
 	found, what := -1, ""
 	for i, pat := range arm.Pats {
-		switch pat.(type) {
+		switch t := pat.(type) {
 		case *ast.ArrayLit:
 			found, what = i, "an array pattern"
 		case *ast.DictPattern:
+			if t.Record != nil {
+				// `Name {…}` is a record shape only if Name is a record, which the
+				// compile pass knows and this pass does not. The arm stays a value arm
+				// until then; its nested patterns are converted now all the same.
+				arm.Pats[i] = p.matchDict(t)
+				continue
+			}
 			found, what = i, "a dict pattern"
 		default:
 			continue

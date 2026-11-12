@@ -142,3 +142,10 @@ sets it only for a loader whose reads repeat.
 `internal/parser` (target), `mzs/eval.go` (assign), `mzs/record.go` + `mzs/module.go`
 (export table carries `fields`), `mzs/interp.go` compile pass (load includes), LSP
 completion after `.` on a module-qualified record.
+
+This RFC also lands the module-qualified **record pattern** of RFC 0002,
+`money.Money {amount} ->`: RFC 0002 resolves `Name {…}` against the unit's own records
+(#25), and the `mod.Name` form needs the export table built here. It follows the same
+rule — a record pattern only when `money.Money` is an exported record, the method call
+with a trailing closure otherwise — and the parser's `recordShapeAt` extends to
+`IDENT "." IDENT "{"`.

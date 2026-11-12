@@ -211,6 +211,17 @@ fn describe(x) {
 }
 ```
 
+With braces after the name the arm also takes the record apart, as a
+[dict pattern](./destructuring.md#dict-patterns) does, and the keys are checked against the
+declaration:
+
+```
+match x {
+  Money {amount, currency: "EUR"} -> "€${amount}"
+  Money {amount}                  -> "${amount} in another currency"
+}
+```
+
 Identity belongs to the declaration, not to the spelling: two `record Money(…)` statements
 are two shapes.
 

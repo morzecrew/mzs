@@ -176,6 +176,23 @@ describe({kind: "refund", data: {reason: "late"}})   # refund: late
 describe({kind: "paid", total: 0})                   # some other dict
 ```
 
+A record's name in front of the braces asks for that shape as well — the same question
+the bare `Money ->` arm asks — and its keys are checked against the declaration:
+
+```
+record Money(amount, currency = "RUB")
+match m {
+  Money {amount, currency: "EUR"} -> "€${amount}"
+  Money {amount} if amount > 100   -> "a lot"
+  Money {}                         -> "some money"
+}
+# Money {amout} -> …   syntax: record Money has no field 'amout'; it has amount, currency
+```
+
+`Name {…}` is a record pattern only when `Name` is a record; `choose {it} ->` is still a call
+with a trailing closure. A record from an included module, `money.Money {…}`, is not a
+pattern yet.
+
 `{age: in 18..65}` asks membership; `{age: 18..65}` would compare with a range and is never
 true of an int. `**rest` binds the other entries, and a bare `**` skips them. A name in a
 pattern binds even if one is in scope — write `{k: (limit)}` to compare with its value, and
