@@ -81,6 +81,7 @@ func (in *Interp) compilePass(name string, file *ast.Program) ([]Warning, error)
 		c.collectImports(file)
 	}
 	c.collectBound(file)
+	c.collectRebinds(file)
 	c.push()
 	// Top-level `fn`s and `record`s are hoisted, so a call may appear above its
 	// declaration (§8.2, §7.8).
@@ -160,6 +161,13 @@ type compiler struct {
 	// the two a function body sees depends on when it runs, so neither one's records are
 	// the compile pass's to check a pattern against.
 	twice map[string]bool
+	// rebound is every name the unit binds anywhere other than by including a built-in
+	// module: an assignment, a destructuring, a parameter, a loop, `try` or match-arm
+	// variable, a `fn` or `record`, or an `include … from` a path. A member a host
+	// withholds is only reported at compile time for a module name in none of these,
+	// because a function body compiled before the rebinding may run after it and read
+	// a dict, or a script module, that has the member (§12.13).
+	rebound map[string]bool
 	// bound is every name the unit binds anywhere: an assignment, a `fn`, a parameter, a
 	// loop or `try` variable. It is what lets a method call compiled before the binding
 	// still try it at run time (§8.7), the way a prefix call reaches it by name.
@@ -211,6 +219,68 @@ func (c *compiler) collectBound(file *ast.Program) {
 			c.bound[d.ValVar] = true
 		case *ast.TryExpr:
 			c.bound[d.Var] = true
+		}
+		return true
+	})
+}
+
+// collectRebinds fills c.rebound. It over-approximates — a name that is only compared in
+// a match arm counts too — because the cost of a name it wrongly includes is a diagnostic
+// that arrives at run time instead of compile time, with the same text.
+func (c *compiler) collectRebinds(file *ast.Program) {
+	c.rebound = map[string]bool{}
+	names := func(n ast.Node) {
+		if n == nil {
+			return
+		}
+		ast.Walk(n, func(m ast.Node) bool {
+			if id, ok := m.(*ast.Ident); ok {
+				c.rebound[id.Name] = true
+			}
+			return true
+		})
+	}
+	params := func(ps []ast.Param) {
+		for _, p := range ps {
+			c.rebound[p.Name] = true
+		}
+	}
+	ast.Walk(file, func(n ast.Node) bool {
+		switch d := n.(type) {
+		case *ast.AssignExpr:
+			if id, ok := d.Target.(*ast.Ident); ok {
+				c.rebound[id.Name] = true
+			}
+		case *ast.DestructureAssign:
+			names(d.Pattern)
+		case *ast.IncludeDecl:
+			if d.HasPath {
+				c.rebound[d.Name] = true
+			}
+		case *ast.FnDecl:
+			c.rebound[d.Name] = true
+			params(d.Params)
+		case *ast.FuncLit:
+			params(d.Params)
+		case *ast.RecordDecl:
+			c.rebound[d.Name] = true
+		case *ast.ForExpr:
+			c.rebound[d.KeyVar] = true
+			c.rebound[d.ValVar] = true
+			if d.KeyPat != nil {
+				names(d.KeyPat)
+			}
+			if d.ValPat != nil {
+				names(d.ValPat)
+			}
+		case *ast.TryExpr:
+			c.rebound[d.Var] = true
+		case *ast.MatchExpr:
+			for _, arm := range d.Arms {
+				for _, p := range arm.Pats {
+					names(p)
+				}
+			}
 		}
 		return true
 	})
@@ -1314,7 +1384,7 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 		// A member the module has but the host withholds — io.rm without
 		// Options.FSMutations — is said to be that here, with what is missing, rather
 		// than as an unknown name when the line runs (§12.13).
-		if module && c.builtinModule(id.Name) {
+		if module && !c.rebound[id.Name] && c.builtinModule(id.Name) {
 			if msg := closedMemberMessage(id.Name, n.Name, &c.in.opts); msg != "" {
 				c.errorf(n.NamePos, "%s", msg)
 			}

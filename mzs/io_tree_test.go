@@ -623,3 +623,43 @@ func TestIOWalkIgnoresNamesThatAreNotEntries(t *testing.T) {
 		t.Errorf("walk = %s", got)
 	}
 }
+
+// The compile-time report of a withheld member is for a name that is only ever the
+// built-in module. One the unit rebinds anywhere — an assignment, or a later include of a
+// script module — may hold the member by the time the line runs, and the check waits for
+// run time, where it says the same thing if the member really is missing.
+func TestIOClosedMemberOfAReboundName(t *testing.T) {
+	t.Parallel()
+
+	o := Options{Timeout: 5 * time.Second, FS: sample()}
+	if got := mustEvalIO(t, o, `io = {rm: 1}; io.rm`); got != "1" {
+		t.Errorf("a reassigned io = %s", got)
+	}
+	o.ModuleLoader = func(from, path string) (string, string, error) {
+		return path, `export fn rm(p) { "stub " + p }`, nil
+	}
+	got := mustEvalIO(t, o, "fn probe() { io.rm(\"x\") }\ninclude io from \"./stub.mzs\"\nprobe()")
+	if got != "stub x" {
+		t.Errorf("a function reading the later include = %s", got)
+	}
+	// Called before the replacement, the same function meets the built-in module, and
+	// the run-time check says what the compile pass would have.
+	_, err := evalIO(t, o, "fn probe() { io.rm(\"x\") }\nprobe()\ninclude io from \"./stub.mzs\"")
+	if err == nil || !strings.Contains(err.Error(), "io.rm needs the host to allow structural changes") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// The walk's root is held by the seq for the memory walk, not only by its cursor.
+func TestIOWalkHoldsItsRoot(t *testing.T) {
+	t.Parallel()
+
+	v, err := evalIO(t, treeOpts(sample()), `io.walk("b///")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := v.p.(*Seq)
+	if !ok || len(s.refs) != 1 || s.refs[0].Str() != "b" {
+		t.Errorf("refs = %v", s)
+	}
+}

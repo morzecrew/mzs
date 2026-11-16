@@ -43,7 +43,8 @@ $ mzs -e 'include path; [path.base("a/b/"), path.stem("b.tar.gz"), path.ext("b.t
 ```
 
 A trailing `/` is not an element of its own: `dir("a/b/")` is `"a"` and `base("a/b/")` is
-`"b"`, the same split either way. `stem(p) + ext(p) == base(p)` for every `p`.
+`"b"`, the same split either way. The last element is taken off before anything is
+cleaned, so `dir("a/b/..")` is `"a/b"` — the directory the `..` is written in. `stem(p) + ext(p) == base(p)` for every `p`.
 
 ### The extension of a hidden file
 
@@ -121,8 +122,10 @@ $ mzs -e 'include io; include path; io.walk.filter { path.match("**/*.mzs", it) 
 ["src/a.mzs","src/lib/b.mzs"]
 ```
 
-That is the glob; there is no `io.glob`. A match costs a step per pair of pattern and name
-elements and never backtracks, so a pattern of many `**` is no slower than it looks.
+That is the glob; there is no `io.glob`. A match never backtracks across elements, so a
+pattern of many `**` is no slower than it looks, and it is charged up front for the work
+inside each element too — a pattern built to be slow runs out of step budget before it
+runs.
 
 `match` is a keyword, so it is only ever reached as `path.match(…)`.
 

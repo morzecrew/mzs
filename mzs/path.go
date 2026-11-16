@@ -43,8 +43,11 @@ func pathvJoin(c *Ctx, args []Value) (Value, error) {
 			return Nil(), err
 		}
 		if s != "" {
+			if len(parts) > 0 {
+				size++ // the separator before it
+			}
 			parts = append(parts, s)
-			size += len(s) + 1
+			size += len(s)
 		}
 	}
 	if err := c.CheckString(size); err != nil {
@@ -55,13 +58,17 @@ func pathvJoin(c *Ctx, args []Value) (Value, error) {
 
 // pathvDir is `path.dir(p)`: everything before the last element, cleaned, and "." when
 // there is none. The trailing `/` of a directory name is not an element of its own, so
-// `dir("a/b/")` is "a" — the same element `base` drops.
+// `dir("a/b/")` is "a" — the same element `base` drops — and the last element is taken off
+// *before* the rest is cleaned, so `dir("a/b/..")` is "a/b", the directory `..` is in.
 func pathvDir(c *Ctx, args []Value) (Value, error) {
 	p, err := argStr(c, args[0])
 	if err != nil {
 		return Nil(), err
 	}
-	return Str(path.Dir(path.Clean(p))), nil
+	for len(p) > 1 && strings.HasSuffix(p, "/") {
+		p = p[:len(p)-1]
+	}
+	return Str(path.Dir(p)), nil
 }
 
 // pathvBase is `path.base(p)`: the last element, without trailing `/`s. The base of "" is
@@ -173,6 +180,11 @@ func pathvRel(c *Ctx, args []Value) (Value, error) {
 	if !ok {
 		return Nil(), nil
 	}
+	// Every `..` the answer climbs is three bytes the arguments did not have, so the
+	// result is measured on its own.
+	if err := c.CheckString(len(r)); err != nil {
+		return Nil(), err
+	}
 	return Str(r), nil
 }
 
@@ -237,10 +249,29 @@ func pathvMatch(c *Ctx, args []Value) (Value, error) {
 		}
 	}
 	ne := strings.Split(name, "/")
-	if err := c.Step(int64(len(pe) * len(ne))); err != nil {
+	// The table has len(pe)·len(ne) cells, and a cell is one path.Match of an element
+	// against an element — which, for a `*` followed by a long literal, is as much work
+	// as the two lengths multiplied. Both are paid for up front, so a pattern built to be
+	// slow runs out of budget before it runs at all, rather than inside a Go call the
+	// deadline cannot interrupt.
+	if err := c.Step(globCost(pe, ne)); err != nil {
 		return Nil(), err
 	}
 	return Bool(globElems(pe, ne)), nil
+}
+
+// globCost is what one match is charged: a step per cell of the table, and on top of it
+// the character work of the cells, one step per 64 pairs of pattern and name bytes — the
+// bound path.Match's own retries stay within.
+func globCost(pe, ne []string) int64 {
+	var pb, nb int64
+	for _, e := range pe {
+		pb += int64(len(e))
+	}
+	for _, e := range ne {
+		nb += int64(len(e))
+	}
+	return int64(len(pe))*int64(len(ne)) + pb*nb/64
 }
 
 // globElems matches pattern elements against name elements. It is the table of which

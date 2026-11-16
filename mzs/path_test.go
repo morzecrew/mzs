@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // RFC 0015: the path module is lexical, `/`-only and ungated, so every answer is pinned
@@ -37,6 +38,10 @@ func TestPathMembers(t *testing.T) {
 		{`path.dir("x")`, `"."`},
 		{`path.dir("/x")`, `"/"`},
 		{`path.dir("")`, `"."`},
+		{`path.dir("a/b/..")`, `"a/b"`},
+		{`path.dir("a/b/.")`, `"a/b"`},
+		{`path.dir("../..")`, `".."`},
+		{`path.dir("//")`, `"/"`},
 
 		{`path.base("a/b.txt")`, `"b.txt"`},
 		{`path.base("a/b/")`, `"b"`},
@@ -209,5 +214,53 @@ func TestPathArgumentsAndBounds(t *testing.T) {
 	in = New(Options{MaxCollection: 2})
 	if _, err := in.Eval(context.Background(), `include path; path.split("a/b/c")`, nil); err == nil {
 		t.Error("a split larger than MaxCollection was built")
+	}
+}
+
+// The bounds are on what a member builds: a join exactly at MaxStringBytes is fine, one
+// byte over is not, and a rel whose `..`s make it longer than either argument is measured
+// on its own.
+func TestPathResultLimits(t *testing.T) {
+	t.Parallel()
+
+	in := New(Options{MaxStringBytes: 8})
+	for src, ok := range map[string]bool{
+		`path.join("12345678")`:          true,
+		`path.join("1234", "567")`:       true,
+		`path.join("1234", "", "5678")`:  false,
+		`path.rel("a/a", "b")`:           true,
+		`path.rel("a/a/a/a", "b/b/b/b")`: false,
+	} {
+		_, err := in.Eval(context.Background(), "include path; "+src, nil)
+		if ok && err != nil {
+			t.Errorf("%s: %v", src, err)
+		}
+		if !ok && (err == nil || !strings.Contains(err.Error(), "limit")) {
+			t.Errorf("%s: err = %v; want the string limit", src, err)
+		}
+	}
+}
+
+// A pattern built to make one element match slow — a `*` before a long literal, against
+// a long name — is charged for that work before it starts, so it ends on the budget
+// rather than inside a Go call the deadline cannot reach.
+func TestPathMatchChargesTheCharacterWork(t *testing.T) {
+	t.Parallel()
+
+	in := New(Options{Timeout: 10 * time.Second})
+	pat := "*" + strings.Repeat("a", 100_000) + "b"
+	name := strings.Repeat("a", 100_000)
+	start := time.Now()
+	_, err := in.Eval(context.Background(), fmt.Sprintf("include path\npath.match(%q, %q)", pat, name), nil)
+	if err == nil || !strings.Contains(err.Error(), "step budget") {
+		t.Errorf("err = %v; want the step budget", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %v", d)
+	}
+	// An ordinary match costs little.
+	in = New(Options{StepBudget: 200})
+	if _, err := in.Eval(context.Background(), `include path; path.match("src/**/*.mzs", "src/lib/deep/a.mzs")`, nil); err != nil {
+		t.Errorf("an ordinary match: %v", err)
 	}
 }

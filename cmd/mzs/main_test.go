@@ -648,6 +648,12 @@ func TestExamples(t *testing.T) {
 	t.Parallel()
 
 	path := func(name string) string { return filepath.Join("..", "..", "examples", name) }
+	// 51 builds a tree and removes it again; it gets a directory of its own, so a run
+	// never meets another's tree, and the leftover check below has something to find.
+	scratch := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(scratch, "busy", "mzs_example_51"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name     string
@@ -739,7 +745,7 @@ func TestExamples(t *testing.T) {
 		},
 		{
 			name: "51 file tree: path, walk, mkdir, mv and rm",
-			argv: []string{path("51_file_tree.mzs")},
+			argv: []string{"-v", "dir=" + scratch, path("51_file_tree.mzs")},
 			contains: []string{
 				`path.stem(name) + path.ext(name)      → q3.summary + .csv`,
 				`path.rel("/etc", "reports")           → nil   (no relative path says it)`,
@@ -753,6 +759,12 @@ func TestExamples(t *testing.T) {
 				`the whole tree          → 8 names removed`,
 				`root exists             → false`,
 			},
+		},
+		{
+			name:     "51 file tree stops at a tree it did not make",
+			argv:     []string{"-v", "dir=" + filepath.Join(scratch, "busy"), path("51_file_tree.mzs")},
+			wantCode: exitError,
+			errHas:   []string{"mzs_example_51 is already there; remove it"},
 		},
 		{
 			name:     "51 file tree under --read-only is refused before it runs",

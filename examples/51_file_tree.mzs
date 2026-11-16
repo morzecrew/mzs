@@ -1,6 +1,7 @@
 # 51 — a directory tree: the path module, io.walk, and the half of io that changes things.
 #
 #   mzs examples/51_file_tree.mzs
+#   mzs -v dir=/some/scratch examples/51_file_tree.mzs   # somewhere other than $TMPDIR
 #   mzs --read-only examples/51_file_tree.mzs     # refused before it runs, and says why
 #
 # `path` is pure: it takes names apart and puts them together, always with `/`, and never
@@ -9,7 +10,10 @@
 # the host both can do them and said yes (Options.FSMutations): the CLI says yes because
 # the person typing already owns the machine, and --read-only is that person saying no.
 #
-# Everything below happens under $TMPDIR/mzs_example_51 and is removed again at the end.
+# Everything below happens under $TMPDIR/mzs_example_51 — or $dir/mzs_example_51 — and is
+# removed again at the end. A directory of that name that is already there is somebody's,
+# perhaps a run that failed halfway: the script stops rather than delete what it did not
+# make.
 
 include io
 include path
@@ -33,7 +37,7 @@ println("  path.match(\"*.csv\", name)             → ${path.match("*.csv", nam
 
 # --- a tree to work on ----------------------------------------------------------
 
-root = path.join(io.env("TMPDIR", "/tmp"), "mzs_example_51")
+root = path.join($dir ?? io.env("TMPDIR", "/tmp"), "mzs_example_51")
 
 # The names below are relative to root, which is what a reader wants to see; io.walk
 # yields them with root in front, and a directory with a trailing `/`, which path.rel
@@ -44,11 +48,8 @@ fn shown(p) {
 }
 
 # A tree is removed deepest first, one name at a time: io.rm is not recursive, so the
-# script says what it deletes. A run that failed halfway left its tree, and this clears it.
+# script says what it deletes — and it deletes only the tree it made below.
 fn remove_tree(dir) {
-  if !io.exists(dir) {
-    return 0
-  }
   n = 0
   for p in io.walk(dir).array.reverse {
     io.rm(p)
@@ -57,7 +58,10 @@ fn remove_tree(dir) {
   io.rm(dir)
   n + 1
 }
-remove_tree(root)
+if io.exists(root) {
+  eprintln("${root} is already there; remove it, or pass -v dir=<another directory>")
+  exit(1)
+}
 
 io.mkdir(path.join(root, "in/2025"))
 io.mkdir(path.join(root, "in/2026"))

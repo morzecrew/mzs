@@ -206,13 +206,20 @@ settled as follows.
   for that.
 * **`io.stat`** follows links, because it is `FileSystem.Stat`; the link-aware view is
   `io.walk`'s.
-* **`path` edges.** `dir` cleans first, so `dir("a/b/")` is `"a"` — the element `base`
-  drops. `ext` of `a.` is `"."`, of `.` and `..` is `""`. `split` of a rooted path starts
+* **`path` edges.** `dir` strips trailing `/`s and then takes the last element off before
+  cleaning, so `dir("a/b/")` is `"a"` — the element `base` drops — and `dir("a/b/..")` is
+  `"a/b"`. `ext` of `a.` is `"."`, of `.` and `..` is `""`. `split` of a rooted path starts
   with the element `"/"`, so `join(*split(p)) == clean(p)`, and `split(".")` is `[]`.
   `join()` and `join("", "")` are `""`. `rel` is `nil` when one side is rooted and the other
   is not, or when `base` climbs with `..` past what `p` shares with it.
 * **`path.match`** matches the name as written, not cleaned, so a directory from `io.walk`
   (`src/lib/`) ends in an empty element that `**` matches and `*.mzs` does not. A malformed
   pattern is an `argument` error whatever the name. The match is a table over pattern and
-  name elements, never backtracking, and costs one step per cell.
+  name elements, never backtracking, and is charged before it starts: a step per cell, plus
+  one per 64 pairs of pattern and name bytes, because Go's `path.Match` of a `*` before a
+  long literal is quadratic inside one element and cannot be interrupted.
+* **The compile-time report of a withheld member** is made only for a name the file binds
+  in no other way. A name it also assigns, destructures, takes as a parameter or loop
+  variable, or includes from a path may hold a dict or a script module by the time a
+  function body runs, so the check waits for run time there, with the same message.
 

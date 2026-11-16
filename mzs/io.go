@@ -603,7 +603,10 @@ func iovWalk(c *Ctx, args []Value) (Value, error) {
 	for len(dir) > 1 && strings.HasSuffix(dir, "/") {
 		dir = dir[:len(dir)-1]
 	}
-	return seqOf(walkSeq(fs, ls, dir)), nil
+	// The root lives in the cursor's closure, so it is recorded on the seq as well: the
+	// memory walk counts what the seq holds through refs, and a long root kept alive in a
+	// walk nobody has finished must be counted like any other string (§14.2).
+	return seqOf(walkSeq(fs, ls, dir).with(Str(dir))), nil
 }
 
 // walkFrame is one directory of a walk in progress: its path, and its sorted entries once

@@ -2001,7 +2001,7 @@
    },
    "dir": {
     "sig": "`(p: string) -> string`",
-    "sem": "everything before the last element, cleaned; `\".\"` when there is none",
+    "sem": "everything before the last element, cleaned; `\".\"` when there is none. The last element goes first, so `dir(\"a/b/..\")` is `\"a/b\"`",
     "ex": "`path.dir(\"a/b.txt\")`"
    },
    "ext": {

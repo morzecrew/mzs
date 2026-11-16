@@ -2985,7 +2985,10 @@ file and asks about names.
 first eight do not. Each of the other four is backed by an optional interface the host's
 `FileSystem` may implement (§13.2) — `FileSystem` itself never grows, so no host breaks —
 and **a member whose interface is missing is absent**: using it is a compile error that
-names what is missing, as `include io` is without an `FS`. The three that change the
+names what is missing, as `include io` is without an `FS`. (For a name the file also binds
+some other way — an assignment, a parameter, a later `include io from "…"` — the check
+waits for the line to run, since what the name holds then may have the member; the
+message is the same.) The three that change the
 shape of a tree, `rm`, `mkdir` and `mv`, need **`Options.FSMutations` as well**. Go
 interfaces are satisfied implicitly, so a `FileSystem` that already had a `Remove` method
 for reasons of its own must not hand scripts `io.rm` on upgrade; the field is the host's
@@ -3603,7 +3606,7 @@ path.stem("a/b.tar.gz")          # "b.tar"
 | Member | Signature | Semantics | Example |
 |---|---|---|---|
 | `join` | `(*parts: string) -> string` | joined with `/` and cleaned; empty parts are dropped, and joining nothing is `""` | `path.join("a", "b")` |
-| `dir` | `(p: string) -> string` | everything before the last element, cleaned; `"."` when there is none | `path.dir("a/b.txt")` |
+| `dir` | `(p: string) -> string` | everything before the last element, cleaned; `"."` when there is none. The last element goes first, so `dir("a/b/..")` is `"a/b"` | `path.dir("a/b.txt")` |
 | `base` | `(p: string) -> string` | the last element, without trailing `/`s; `"."` for `""` and `"/"` for `"/"` | `path.base("a/b.txt")` |
 | `ext` | `(p: string) -> string` | the last `.suffix` of `base`, with the dot; `""` when there is none or the name's only dot is its first character (`.gitignore`) | `path.ext("b.tar.gz")` |
 | `stem` | `(p: string) -> string` | `base` without `ext`, so `stem(p) + ext(p) == base(p)` | `path.stem("b.tar.gz")` |
@@ -3618,8 +3621,9 @@ classes and `\` escapes, as in Go's `path.Match`; an element that is exactly `**
 any number of elements, none included, so `**/*.mzs` matches `a.mzs` and `src/lib/a.mzs`.
 The name is matched as written, not cleaned: a directory `io.walk` yields as `src/lib/`
 ends in an empty element, which `**` matches and `*.mzs` does not. A malformed pattern is
-an `argument` error whatever the name is, and the match costs one step per pair of pattern
-and name elements — it never backtracks. Because `match` is a keyword it is only ever
+an `argument` error whatever the name is. The match never backtracks across elements, and
+it is charged before it starts: a step per pair of pattern and name elements, plus one per
+64 pairs of pattern and name bytes for the work inside an element. Because `match` is a keyword it is only ever
 reached as `path.match(…)`, which `MethodName` admits (§4).
 
 `io.walk(dir).filter { path.match("**/*.mzs", it) }` is the glob, lazily; there is no

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,14 +127,20 @@ func TestCLIReadOnly(t *testing.T) {
 	if code != 0 || strings.TrimSpace(out) != `["a",7,true]` {
 		t.Errorf("reads under --read-only = %q (exit %d: %s)", out, code, errOut)
 	}
-	// mzs test takes the flag too.
+	// mzs test takes the flag too. The write aims at a directory that is writable, so
+	// only --read-only can make it fail, and the file must not be there afterwards.
 	file := filepath.Join(root, "ro_test.mzs")
-	if err := os.WriteFile(file, []byte("include io\ninclude test\ntest.case(\"w\") { test.raises(\"io\") { io.write(\"/nonexistent/x\", \"x\") } }\n"), 0o644); err != nil {
+	victim := filepath.Join(root, "written_by_test.txt")
+	src := fmt.Sprintf("include io\ninclude test\ntest.case(\"w\") {\n  e = test.raises(\"io\") { io.write(%q, \"x\") }\n  test.eq(e[\"message\"].has(\"read-only\"), true)\n}\n", victim)
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, out, errOut = exec([]string{"test", "--read-only", file}, "")
 	if code != 0 {
 		t.Errorf("mzs test --read-only: exit %d: %s %s", code, out, errOut)
+	}
+	if _, err := os.Stat(victim); !os.IsNotExist(err) {
+		t.Errorf("mzs test --read-only let the write through: %v", err)
 	}
 }
 
