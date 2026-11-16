@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"runtime/debug"
 	"sort"
@@ -1593,6 +1594,9 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 		// `test.skip` outside every case: the file chose to stop, and that is a result,
 		// not a failure (§12.18).
 		rs.sh.tests = append(rs.sh.tests, fileSkipped(s))
+		if !rs.opts.Test.Quiet {
+			_, _ = io.WriteString(rs.opts.out(), "skip (rest of file)  ("+s.reason+")\n")
+		}
 		res.Value = Nil()
 		return res, nil
 	}

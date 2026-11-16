@@ -588,3 +588,36 @@ test.case("other") { __skipwait(skipme) }
 		t.Errorf("Tests = %+v, want only the worker's failure", res.Tests)
 	}
 }
+
+// Review of #29: a skip in a task nobody awaits skipped nothing, and the report does
+// not say the rest of the file was skipped; an awaited one does reach the file.
+func TestSkipInATask(t *testing.T) {
+	var errOut strings.Builder
+	res, out, err := runTests(t, `
+include test
+async fn later() { test.skip("not configured") }
+later()
+test.case("after") { assert(true) }
+`, Options{Stderr: &errOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "rest of file") || len(res.Tests) != 1 {
+		t.Errorf("an unawaited skip was reported as the file's:\nTests = %+v\n%s", res.Tests, out)
+	}
+	if !strings.Contains(errOut.String(), "never awaited") || !strings.Contains(errOut.String(), "not configured") {
+		t.Errorf("the unawaited skip was not reported:\n%s", errOut.String())
+	}
+	res, out, err = runTests(t, `
+include test
+async fn later() { test.skip("not configured") }
+later().await
+test.case("never") { assert(false) }
+`, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "skip (rest of file)  (not configured)") || len(res.Tests) != 1 || !res.Tests[0].RestOfFile {
+		t.Errorf("an awaited skip did not skip the file:\nTests = %+v\n%s", res.Tests, out)
+	}
+}

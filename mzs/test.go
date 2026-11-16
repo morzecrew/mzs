@@ -279,9 +279,9 @@ func testSkip(c *Ctx, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	if c.rs.testDepth == 0 {
-		reportLine(c, "skip (rest of file)  ("+reason+")")
-	}
+	// Outside a case the line `skip (rest of file)` is printed where the skip is recorded,
+	// when it reaches the end of the Run (RunResult): a skip in a task nobody awaits never
+	// gets there, and a report must not say the file was skipped when it was not.
 	return Nil(), &testSignal{skip: true, reason: reason, line: c.pos.Line, col: c.pos.Col}
 }
 
