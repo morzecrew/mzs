@@ -49,12 +49,12 @@ func pathvJoin(c *Ctx, args []Value) (Value, error) {
 			return Nil(), err
 		}
 	}
-	// Every part a script builds is already under the limit, but a host's value need not
-	// be. A part over it is cleaned on its own first — one copy no longer than a string that
-	// already exists, never a concatenation — and refused if it is still over, before it is
-	// joined to anything; one that cleans down joins as usual. So each Join below combines
-	// two strings under the limit.
-	limit := c.rs.opts.MaxStringBytes
+	// What one step allocates is the running result, under the limit, plus one part that
+	// already exists — a host may hand over a part longer than the limit, and the step then
+	// costs a copy of it, as any member does that reads such a string. A part is never
+	// cleaned on its own first: cleaning is only the same as cleaning the join when it sees
+	// what the part is joined to — `join("y", "/../a/../x")` is "x", and the part alone
+	// cleans to "/x".
 	joined := ""
 	for _, a := range args {
 		s := a.Str()
@@ -63,12 +63,6 @@ func pathvJoin(c *Ctx, args []Value) (Value, error) {
 		}
 		if err := c.Step(int64(len(joined)+len(s))/64 + 1); err != nil {
 			return Nil(), err
-		}
-		if len(s) > limit {
-			s = path.Clean(s)
-			if err := c.CheckString(len(s)); err != nil {
-				return Nil(), err
-			}
 		}
 		if joined == "" {
 			joined = path.Clean(s)

@@ -230,6 +230,7 @@ func TestPathResultLimits(t *testing.T) {
 		`path.join("1234", "", "5678")`:  false,
 		`path.join("/", "1234567")`:      true,
 		`path.join("a/..", "12345678")`:  true,
+		`path.join("a", "../1234567")`:   true,
 		`path.rel("a/a", "b")`:           true,
 		`path.rel("a/a/a/a", "b/b/b/b")`: false,
 	} {
@@ -300,8 +301,9 @@ path.join(*([big] * 1000))`, nil)
 }
 
 // A host may hand over a string longer than MaxStringBytes. As a part of a join it is
-// cleaned on its own before it meets anything else: one that cleans down joins, one that
-// does not is refused, and neither is first concatenated with the rest.
+// cleaned with what it is joined to, never on its own — which would give a different
+// answer — and the result is held to the limit: one that cleans down joins, one that does
+// not is refused.
 func TestPathJoinOfAnOversizedHostPart(t *testing.T) {
 	t.Parallel()
 
@@ -311,7 +313,7 @@ func TestPathJoinOfAnOversizedHostPart(t *testing.T) {
 	for _, tc := range []struct {
 		v    string
 		want string
-	}{{big, `"y/x"`}, {huge, ""}} {
+	}{{big, `"y/x"`}, {huge, ""}, {"/../a/../x", `"x"`}} {
 		v, err := in.Eval(context.Background(), `include path; path.join("y", $big)`, map[string]Value{"$big": Str(tc.v)})
 		switch {
 		case tc.want == "" && (err == nil || !strings.Contains(err.Error(), "limit")):
