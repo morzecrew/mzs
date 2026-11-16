@@ -49,6 +49,12 @@ func pathvJoin(c *Ctx, args []Value) (Value, error) {
 			return Nil(), err
 		}
 	}
+	// Every part a script builds is already under the limit, but a host's value need not
+	// be. A part over it is cleaned on its own first — one copy no longer than a string that
+	// already exists, never a concatenation — and refused if it is still over, before it is
+	// joined to anything; one that cleans down joins as usual. So each Join below combines
+	// two strings under the limit.
+	limit := c.rs.opts.MaxStringBytes
 	joined := ""
 	for _, a := range args {
 		s := a.Str()
@@ -57,6 +63,12 @@ func pathvJoin(c *Ctx, args []Value) (Value, error) {
 		}
 		if err := c.Step(int64(len(joined)+len(s))/64 + 1); err != nil {
 			return Nil(), err
+		}
+		if len(s) > limit {
+			s = path.Clean(s)
+			if err := c.CheckString(len(s)); err != nil {
+				return Nil(), err
+			}
 		}
 		if joined == "" {
 			joined = path.Clean(s)

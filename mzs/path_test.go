@@ -298,3 +298,26 @@ path.join(*([big] * 1000))`, nil)
 		}
 	}
 }
+
+// A host may hand over a string longer than MaxStringBytes. As a part of a join it is
+// cleaned on its own before it meets anything else: one that cleans down joins, one that
+// does not is refused, and neither is first concatenated with the rest.
+func TestPathJoinOfAnOversizedHostPart(t *testing.T) {
+	t.Parallel()
+
+	in := New(Options{MaxStringBytes: 1 << 10, Timeout: 10 * time.Second})
+	big := strings.Repeat("a/../", 100_000) + "x" // ~500 KB that cleans to "x"
+	huge := strings.Repeat("b", 10<<20)           // 10 MB that cleans to itself
+	for _, tc := range []struct {
+		v    string
+		want string
+	}{{big, `"y/x"`}, {huge, ""}} {
+		v, err := in.Eval(context.Background(), `include path; path.join("y", $big)`, map[string]Value{"$big": Str(tc.v)})
+		switch {
+		case tc.want == "" && (err == nil || !strings.Contains(err.Error(), "limit")):
+			t.Errorf("an oversized part that does not clean down: err = %v", err)
+		case tc.want != "" && (err != nil || v.Inspect() != tc.want):
+			t.Errorf("an oversized part that cleans down = %v, %v", v, err)
+		}
+	}
+}
