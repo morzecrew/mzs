@@ -88,12 +88,13 @@ A module of your own has no function half, so the message stops at the rule:
 | `tasks` | `all race` | none |
 | `time` | `now parse at` | `EnableTime`; `Now` for `time.now` — `mzs --time` |
 | `date` | `today parse` | `EnableTime`; `Now` for `date.today` — `mzs --time` |
-| `io` | `stdin lines read write append exists ls env` | `Options.FS` — the CLI installs one, `--no-io` takes it back |
+| `io` | `stdin lines read write append exists ls env stat walk rm mkdir mv` | `Options.FS` — the CLI installs one, `--no-io` takes it back; `walk rm mkdir mv` need more of the host, and `--read-only` takes `rm mkdir mv` back |
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | none |
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | none |
 | `url` | `parse build encode decode query parse_query` | none |
 | `test` | `case eq ne near raises skip group` | none |
 | `csv` | `parse rows str line` | none |
+| `path` | `join dir base ext stem clean split rel is_abs match` | none |
 
 A module the host did not enable is absent, and the diagnostic names the option instead of
 the symptom:
@@ -121,6 +122,7 @@ A host adds modules of its own with `RegisterModule` and removes built-ins with
 - [./crypto.md](./crypto.md) — hex, base64, digests, HMAC, and the comparison that does not leak
 - [./url.md](./url.md) — taking a URL apart and putting one together
 - [./csv.md](./csv.md) — reading and writing CSV, and streaming a file through `csv.rows`
+- [./path.md](./path.md) — file names taken apart and put together, lexically and always with `/`
 - [../language/async.md](../language/async.md) — `tasks.all` and `tasks.race`, and the tasks they wait for
 - [./test.md](./test.md) — cases with names, and the runner behind `mzs test`
 - [./custom.md](./custom.md) — `include … from` and `export`

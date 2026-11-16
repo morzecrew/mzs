@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 
@@ -59,6 +60,49 @@ func (osFS) List(dir string) ([]string, error) {
 	return out, nil
 }
 
+// Lstat answers io.walk, which must see a link as a link: os.Stat follows it.
+func (osFS) Lstat(name string) (bool, int64, bool, bool, error) {
+	fi, err := os.Lstat(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, 0, false, false, nil
+		}
+		return false, 0, false, false, err
+	}
+	return true, fi.Size(), fi.IsDir(), fi.Mode()&os.ModeSymlink != 0, nil
+}
+
+// The three structural operations (§12.13), each the os call a shell command would make:
+// rm on one name (never recursive), mkdir -p, mv. They exist for scripts because the CLI
+// sets Options.FSMutations — the person typing the command already owns the machine — and
+// --read-only is how that person takes them back for one command.
+func (osFS) Remove(name string) error     { return os.Remove(name) }
+func (osFS) MkdirAll(name string) error   { return os.MkdirAll(name, 0o777) }
+func (osFS) Rename(from, to string) error { return os.Rename(from, to) }
+
+// readOnlyFS is the filesystem under --read-only: everything that reads, and nothing that
+// writes. It does not implement FileRemover, DirMaker or FileMover, so io.rm, io.mkdir and
+// io.mv are absent even before Options.FSMutations is consulted; io.write and io.append
+// are part of FileSystem itself and exist, and fail when called.
+type readOnlyFS struct{ fs osFS }
+
+var errReadOnly = errors.New("the filesystem is read-only (mzs --read-only)")
+
+func (r readOnlyFS) Open(name string) (io.ReadCloser, error)     { return r.fs.Open(name) }
+func (readOnlyFS) Create(string) (io.WriteCloser, error)         { return nil, errReadOnly }
+func (readOnlyFS) Append(string) (io.WriteCloser, error)         { return nil, errReadOnly }
+func (r readOnlyFS) Stat(name string) (bool, int64, bool, error) { return r.fs.Stat(name) }
+func (r readOnlyFS) List(dir string) ([]string, error)           { return r.fs.List(dir) }
+func (r readOnlyFS) Lstat(name string) (bool, int64, bool, bool, error) {
+	return r.fs.Lstat(name)
+}
+
 // hostFS is what options() installs. It is a function rather than a value so the flag
-// that turns the module off (`--no-io`) has one place to return nil from.
-func hostFS() mzs.FileSystem { return osFS{} }
+// that turns the module off (`--no-io`) has one place to return nil from, and the flag
+// that takes writing away (`--read-only`) one place to choose the filesystem that cannot.
+func hostFS(readOnly bool) mzs.FileSystem {
+	if readOnly {
+		return readOnlyFS{}
+	}
+	return osFS{}
+}

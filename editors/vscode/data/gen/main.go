@@ -38,7 +38,7 @@ func main() {
 	full := mzs.DefaultOptions()
 	full.EnableTime = true
 	full.Now, full.Rand = time.Now, rand.New(rand.NewSource(1))
-	full.FS = probeFS{}
+	full.FS, full.FSMutations = probeFS{}, true
 
 	modules := map[string][]string{}
 	gates := map[string]string{}
@@ -96,9 +96,17 @@ func gateOf(name string) string {
 	return "?"
 }
 
-// probeFS exists to be non-nil. Nothing here is ever called: LookupModule only asks
-// whether the field was filled in.
+// probeFS exists to be non-nil, and to implement every optional interface so the io
+// members they back (§12.13) are listed too. Nothing here is ever called: LookupModule
+// only asks whether the field was filled in and what it implements.
 type probeFS struct{}
+
+func (probeFS) Lstat(string) (bool, int64, bool, bool, error) {
+	return false, 0, false, false, errNotUsed
+}
+func (probeFS) Remove(string) error         { return errNotUsed }
+func (probeFS) MkdirAll(string) error       { return errNotUsed }
+func (probeFS) Rename(string, string) error { return errNotUsed }
 
 func (probeFS) Open(string) (io.ReadCloser, error)     { return nil, errNotUsed }
 func (probeFS) Create(string) (io.WriteCloser, error)  { return nil, errNotUsed }

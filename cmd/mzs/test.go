@@ -434,6 +434,8 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			cfg.opts.noTrace = true
 		case "--no-io":
 			cfg.opts.ioOn = false
+		case "--read-only":
+			cfg.opts.readOnly = true
 		case "--filter":
 			v, err := need()
 			if err != nil {
@@ -495,6 +497,7 @@ Flags:
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility
       --no-io        withhold the io module: no files, no env, no stdin
+      --read-only    io reads but cannot write, append, rm, mkdir or mv
       --no-trace     a file that fails outside a case prints its three lines without the
                      call stack (a failed case still lists the calls inside it)
       --now <t>      --time with a fixed clock at t, an RFC 3339 time: date logic that

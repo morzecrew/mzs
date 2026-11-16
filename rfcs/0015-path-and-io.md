@@ -1,6 +1,6 @@
 # RFC 0015 — The `path` module, and the rest of `io`
 
-**Status:** Draft · **Area:** stdlib, embedding · **Depends on:** — · **Audit:** S4
+**Status:** Landed (#30) · **Area:** stdlib, embedding · **Depends on:** — · **Audit:** S4
 
 ## Summary
 
@@ -157,3 +157,62 @@ Additive: a new module, new members, optional Go interfaces. The contradicted se
 `mzs/path.go` (over Go's `path`, not `path/filepath`), `mzs/io.go`, `mzs/options.go`
 (three interfaces), `cmd/mzs/fs.go` (implement them; `--read-only`), SPEC §12.13 + a new
 `path` section, §13.2, §14.3, `docs/modules/io.md`, `docs/embedding/filesystem.md`.
+
+## As landed
+
+Everything in the Design landed in one PR (#30): `mzs/path.go`, the five `io` members in
+`mzs/io.go`, the four interfaces and `Options.FSMutations` in `mzs/options.go`, per-member
+gates in the module registry (`mzs/methods.go`), the CLI's `Lstat`/`Remove`/`MkdirAll`/
+`Rename` and `--read-only` (`cmd/mzs/fs.go`), SPEC §12.13, §12.20 (the new `path` section;
+§12.19 was taken by `csv`), §13.2, §14.3 and §15, the docs, and
+`examples/51_file_tree.mzs`. The open questions and the points the Design left open were
+settled as follows.
+
+* **Open question 1 — an `ls` that returns stat dicts:** no. `io.ls` + `io.stat`, or
+  `io.walk`, which already tells a directory by its trailing `/`, is enough; a second
+  listing member would be a second spelling (D17).
+* **Open question 2 — `path.native`:** no. The module is `/`-only, and a Windows host
+  converts in its `FileSystem`, where every other name already passes.
+* **Open question 3 — temp files:** deferred, as proposed.
+* **How a gated member is absent.** A member gate sits beside the module gate: the module's
+  dict under given `Options` leaves out every member whose gate is closed, and is cached per
+  combination so it is still one shared read-only dict. The compile pass reports a closed
+  member of a built-in `include` where it is used, with what is missing — `io.rm needs the
+  host to allow structural changes: Options.FSMutations is off and Options.FS does not
+  implement FileRemover (mzs without --read-only)` — naming only the halves that are
+  actually missing. A script module that took the name `io` is not told this: its missing
+  member is the ordinary `undefined member`.
+* **The gate is checked again at run time.** A host that copies `io.rm` into a module of its
+  own with `RegisterModule` has bypassed the gate; the member itself still refuses without
+  `Options.FSMutations`.
+* **`--read-only`** installs a filesystem whose `Create` and `Append` fail with `the
+  filesystem is read-only (mzs --read-only)` and which implements none of the three mutating
+  interfaces, and leaves `FSMutations` off. `io.write` and `io.append` are part of
+  `FileSystem` itself, so they exist and fail when called rather than being absent — making
+  them absent would need an `Options` field of their own, which nothing else asks for.
+  `walk`, `stat` and every read are untouched. `mzs test` takes the flag too.
+* **`io.walk`'s root.** Trailing `/`s are stripped (`/` stays `/`) and nothing else is
+  touched. A root that is a link is an `io` error (`is a symbolic link, and walk does not
+  follow links`) rather than an empty walk, and so is a root that is missing or not a
+  directory. Under the default root `.` the paths are bare relative names, the names
+  `io.ls` gives; under any other root they carry it, `src/a.mzs`.
+* **`io.walk`'s entries.** An entry that `List` named and `Lstat` no longer finds is not
+  yielded. A name `List` returns that is `""`, `.`, `..` or contains a `/` is skipped: it is
+  a way back into or above the directory, not an entry of it, and would otherwise send the
+  walk round a loop only the step budget ends. Each `List` and each `Lstat` costs 1000 steps
+  (`ioStepCost`), and one directory's entries are bounded by `MaxCollection`.
+* **`io.rm`** answers `false` when `Remove`'s error satisfies `errors.Is(err,
+  fs.ErrNotExist)`, so no `Stat` races the removal; the documentation of `FileRemover` asks
+  for that.
+* **`io.stat`** follows links, because it is `FileSystem.Stat`; the link-aware view is
+  `io.walk`'s.
+* **`path` edges.** `dir` cleans first, so `dir("a/b/")` is `"a"` — the element `base`
+  drops. `ext` of `a.` is `"."`, of `.` and `..` is `""`. `split` of a rooted path starts
+  with the element `"/"`, so `join(*split(p)) == clean(p)`, and `split(".")` is `[]`.
+  `join()` and `join("", "")` are `""`. `rel` is `nil` when one side is rooted and the other
+  is not, or when `base` climbs with `..` past what `p` shares with it.
+* **`path.match`** matches the name as written, not cleaned, so a directory from `io.walk`
+  (`src/lib/`) ends in an empty element that `**` matches and `*.mzs` does not. A malformed
+  pattern is an `argument` error whatever the name. The match is a table over pattern and
+  name elements, never backtracking, and costs one step per cell.
+

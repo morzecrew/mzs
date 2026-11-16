@@ -2797,12 +2797,13 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `date` | `parse` | `(s: string) -> time` | |
 | `http` | `serve stop json text get post request` | see §12.11 | no host option |
 | `tasks` | `all race` | see §12.12 | no host option |
-| `io` | `stdin lines read write append exists ls env` | see §12.13 | requires `Options.FS` |
+| `io` | `stdin lines read write append exists ls env stat walk rm mkdir mv` | see §12.13 | requires `Options.FS`; `walk rm mkdir mv` need optional interfaces, and `rm mkdir mv` `Options.FSMutations` |
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | see §12.15 | no host option |
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | see §12.16 | no host option |
 | `url` | `parse build encode decode query parse_query` | see §12.17 | no host option |
-| `test` | `case eq` | see §12.18 | no host option |
+| `test` | `case eq ne near raises skip group` | see §12.18 | no host option |
 | `csv` | `parse rows str line` | see §12.19 | no host option |
+| `path` | `join dir base ext stem clean split rel is_abs match` | see §12.20 | no host option |
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
@@ -2971,10 +2972,48 @@ $ mzs -e 'include io'      # inside a host that installed no FS
 | `exists` | `(path: string) -> bool` | a name that is not there is `false`; a filesystem that cannot answer raises | `io.exists("a.txt")` |
 | `ls` | `(dir: string = ".") -> array` | the entry names of a directory, sorted (§8.13) | `io.ls(".").len` |
 | `env` | `(name: string, default: any = nil) -> string \| nil` | an unset **or empty** name is the default | `io.env("HOME", "/tmp")` |
+| `stat` | `(path: string) -> dict \| nil` | `{size: int, dir: bool}`, or `nil` when absent; follows links, as `FileSystem.Stat` does | `io.stat("a.txt")["size"]` |
+| `walk` | `(dir: string = ".") -> seq` | every path under `dir`, depth-first, each directory's entries sorted (§8.13), lazily (§12.14): a directory with a trailing `/`, a link as a name and never entered. Needs `LinkStater` | `io.walk("src").array` |
+| `rm` | `(path: string) -> bool` | removes a file, an empty directory or a link; `false` when it was not there. Not recursive. Needs `FileRemover` | `io.rm("tmp.txt")` |
+| `mkdir` | `(path: string) -> nil` | creates the directory and its parents; one that exists is fine. Needs `DirMaker` | `io.mkdir("out/2026")` |
+| `mv` | `(from: string, to: string) -> nil` | renames within the filesystem, replacing a file at `to`. Needs `FileMover` | `io.mv("a.tmp", "a.txt")` |
 
-There is no `io.rm`, no `io.mkdir` and no `io.open`: the members above are the whole
-module. A script reads a file, writes a file and lists a directory; anything structural is
-the host's to do, or the shell's.
+There is no `io.open`, and no member that takes a handle: a script reads a file, writes a
+file and asks about names.
+
+**The last five rows are optional, and some need consent.** `io.stat` needs nothing the
+first eight do not. Each of the other four is backed by an optional interface the host's
+`FileSystem` may implement (§13.2) — `FileSystem` itself never grows, so no host breaks —
+and **a member whose interface is missing is absent**: using it is a compile error that
+names what is missing, as `include io` is without an `FS`. The three that change the
+shape of a tree, `rm`, `mkdir` and `mv`, need **`Options.FSMutations` as well**. Go
+interfaces are satisfied implicitly, so a `FileSystem` that already had a `Remove` method
+for reasons of its own must not hand scripts `io.rm` on upgrade; the field is the host's
+deliberate act:
+
+```
+$ mzs --read-only -e 'include io; io.rm("x")'
+-e:1:16: name: io.rm needs the host to allow structural changes: Options.FSMutations is off and Options.FS does not implement FileRemover (mzs without --read-only)
+```
+
+`io.rm` is not recursive and has no option that makes it so. A tree is removed by walking
+it, deepest first — `for p in io.walk(d).array.reverse { io.rm(p) }`, then `io.rm(d)` —
+where the script has to spell out what it deletes.
+
+**`io.walk`.** A directory is yielded with a trailing `/` and then entered; a symbolic link
+is yielded as a name and **never entered**, whatever it names, so a walk of a tree that does
+not change while it runs cannot follow a link out of the tree or round a cycle of links.
+Paths are the root joined with what is under it — `io.walk("src")` yields `src/a.mzs` — and
+under the default root `.` they are bare relative names, the ones `io.ls` answers. The root
+is the path the script named with its trailing `/`s removed (`/` stays `/`), because
+`link/` would ask the host for the directory the link names; nothing else about it is
+touched, and `..` in it reaches the host unresolved. A root that is a link, is not a
+directory or does not exist is a catchable `io` error. An entry listed and gone before it
+is looked at is not yielded. Telling a link from a directory without following it is what
+`LinkStater` is for; what happens when a directory is replaced by a link *while* the walk
+runs is up to the host's `List` (§13.2). Each `List` and each `Lstat` costs 1000 steps,
+like every other filesystem operation, and one directory's entries are bounded by
+`MaxCollection`.
 
 **The host resolves paths.** Nothing in the module joins, cleans or judges a name: what a
 script writes reaches `Options.FS` verbatim, and whether `"../../etc/shadow"` is allowed is
@@ -3542,6 +3581,46 @@ budget by the size of the input. `rows` builds one record at a time, so a file l
 any collection limit is readable in a loop, bounded by the step budget and the deadline
 (§14.1).
 
+### 12.20 The `path` module
+
+`path` takes file names apart and puts them together. It is **purely lexical and always
+`/`**: no member looks at a filesystem, the working directory or the platform, so every
+answer depends on the arguments alone (D15), and the module needs no host option. How a
+`/` name becomes the platform's own, and which names a script may reach at all, is the
+`FileSystem`'s business (§12.13).
+
+```
+include path
+path.join("in", name)            # "in/report.json" — one separator, cleaned
+path.ext("a/b.tar.gz")           # ".gz"
+path.stem("a/b.tar.gz")          # "b.tar"
+```
+
+| Member | Signature | Semantics | Example |
+|---|---|---|---|
+| `join` | `(*parts: string) -> string` | joined with `/` and cleaned; empty parts are dropped, and joining nothing is `""` | `path.join("a", "b")` |
+| `dir` | `(p: string) -> string` | everything before the last element, cleaned; `"."` when there is none | `path.dir("a/b.txt")` |
+| `base` | `(p: string) -> string` | the last element, without trailing `/`s; `"."` for `""` and `"/"` for `"/"` | `path.base("a/b.txt")` |
+| `ext` | `(p: string) -> string` | the last `.suffix` of `base`, with the dot; `""` when there is none or the name's only dot is its first character (`.gitignore`) | `path.ext("b.tar.gz")` |
+| `stem` | `(p: string) -> string` | `base` without `ext`, so `stem(p) + ext(p) == base(p)` | `path.stem("b.tar.gz")` |
+| `clean` | `(p: string) -> string` | `.`, `..` and doubled separators resolved lexically; `"."` for `""` | `path.clean("a//b/../c")` |
+| `split` | `(p: string) -> array` | the elements of `clean(p)`: `"a/b/c"` → `["a","b","c"]`, `"/a"` → `["/","a"]`, `"."` → `[]` | `path.split("a/b")` |
+| `rel` | `(p: string, base: string) -> string \| nil` | `p` relative to `base`, so `join(base, rel(p, base)) == clean(p)`; `nil` when one is rooted and the other is not, or `base` climbs further with `..` than `p` does | `path.rel("a/b/c", "a")` |
+| `is_abs` | `(p: string) -> bool` | starts with `/` | `path.is_abs("/etc")` |
+| `match` | `(pattern: string, name: string) -> bool` | a shell glob over one name: `*`, `?` and `[a-z]` within an element, an element `**` across any number of them | `path.match("**/*.mzs", p)` |
+
+**`match`.** `*` and `?` match within one element, `[a-z]` and `[^a-z]` are character
+classes and `\` escapes, as in Go's `path.Match`; an element that is exactly `**` matches
+any number of elements, none included, so `**/*.mzs` matches `a.mzs` and `src/lib/a.mzs`.
+The name is matched as written, not cleaned: a directory `io.walk` yields as `src/lib/`
+ends in an empty element, which `**` matches and `*.mzs` does not. A malformed pattern is
+an `argument` error whatever the name is, and the match costs one step per pair of pattern
+and name elements — it never backtracks. Because `match` is a keyword it is only ever
+reached as `path.match(…)`, which `MethodName` admits (§4).
+
+`io.walk(dir).filter { path.match("**/*.mzs", it) }` is the glob, lazily; there is no
+`io.glob`.
+
 ## 13. Go API
 
 Import path `mzs` (module root). Everything below is the **normative public surface** for
@@ -3660,6 +3739,7 @@ type Options struct {
     ModuleLoader    ModuleLoader     // enables `include x from "path"` (§12.8); nil => error
     CompileIncludes bool             // Compile reads top-level includes for their records' fields (§7.8); false => never
     FS              FileSystem       // installs the io module (§12.13); nil => `include io` is an error
+    FSMutations     bool             // lets io.rm/io.mkdir/io.mv exist when FS can do them (§12.13); false => absent
     Stdin           io.Reader        // what io.stdin drains, io.lines streams and input() pulls (§12.13, §12.1). nil => ""
     Env             func(string) string // answers io.env. nil => every name is unset
     Location        *time.Location   // default zone for in_time_zone/strftime. Default time.UTC.
@@ -3694,6 +3774,15 @@ type FileSystem interface {
     Stat(name string) (exists bool, size int64, dir bool, err error)
     List(dir string) ([]string, error)
 }
+
+// Optional. Each backs one io member, which exists only when FS implements it — and, for
+// the first three, only when FSMutations is also true (§12.13).
+type FileRemover interface { Remove(name string) error }          // io.rm: a file, an EMPTY directory or a link
+type DirMaker    interface { MkdirAll(name string) error }        // io.mkdir: and its parents; existing is fine
+type FileMover   interface { Rename(from, to string) error }      // io.mv: replaces a file at to
+type LinkStater  interface {                                      // io.walk
+    Lstat(name string) (exists bool, size int64, dir, link bool, err error)
+}
 ```
 
 For `ModuleLoader`, `from` is the name of the including program and `path` is the string
@@ -3713,6 +3802,27 @@ For `FileSystem`, a name arrives exactly as the script spelled it (§12.13). A m
 is an ordinary `error`, which the script sees as a catchable error; `Stat` reports a name
 that is not there as `(false, 0, false, nil)`, because not being there is an answer and not
 a failure.
+
+The four optional interfaces never change `FileSystem`, so an implementation written
+against it compiles unchanged and gains nothing it did not opt into. `Remove` reports a
+name that is not there as an error for which `errors.Is(err, fs.ErrNotExist)` holds, as
+`os.Remove` does, and `io.rm` answers `false` for it. `Lstat` is `Stat` for the name itself:
+`link` is true when the name is a symbolic link, and then `dir` and `size` describe the
+link, not its target. `io.walk` never descends into a name `Lstat` reported as a link, which
+is the whole guarantee on a tree that does not change while the walk runs. A directory
+replaced by a link between `Lstat` and `List` can still be entered if `List` follows links;
+a host that must hold the rule against concurrent changes needs a `List` that follows no
+link in **any** component of the path. `O_NOFOLLOW` covers the last component only, and an
+`os.Root` confines a walk to its tree but still follows links that stay inside it, so
+neither is enough alone; on Linux it means opening each component in turn with
+`openat(…, O_NOFOLLOW | O_DIRECTORY)` from the one before, or `openat2` with
+`RESOLVE_NO_SYMLINKS`. Other cycles — a bind mount of an ancestor — are not links, and are
+the host's to bound.
+
+`FSMutations` is separate from the interfaces on purpose: Go interfaces are satisfied
+implicitly, and a `FileSystem` that has a `Remove` method for reasons of its own must not
+hand scripts `io.rm` on upgrade. The field is the deliberate act, and false is the zero
+value.
 
 Network access is the one thing with no switch at all: `http` (§12.11) is installed
 unconditionally, which is the one thing the zero `Options` grants beyond pure computation.
@@ -4081,6 +4191,12 @@ repository is the CLI's, where the host is the person typing the command line. T
 `mzs -e 'include io; io.read("/etc/hostname")'` works while the same program inside a bot
 that evaluates stored conditions cannot even name the module.
 
+Changing the **shape** of a filesystem is one step further again. `io.rm`, `io.mkdir`
+and `io.mv` need the host's `FileSystem` to implement the interface behind each one *and*
+`Options.FSMutations`, so a host that handed over a filesystem to read and write files has
+not, by that alone, let a script delete one (§12.13). A host that wants a script to read
+and nothing else implements `Create` and `Append` to fail, as `mzs --read-only` does.
+
 `Options.Env` is the same shape one step smaller: a `func(string) string`, usually
 `os.Getenv`, and `nil` means every name is unset rather than an error.
 
@@ -4144,6 +4260,7 @@ file is `fmt.mzs`, not `fmt`.
 | `-l` | `-n`, and print each line's value when it is not `nil` |
 | `--in <path>` | read the data stream from a file instead of stdin |
 | `--io` / `--no-io` | install the `io` module (§12.13) or withhold it; **on** by default |
+| `--read-only` | the `io` module reads but cannot change anything: `io.write` and `io.append` fail, and `io.rm`, `io.mkdir` and `io.mv` are absent |
 | `-v k=v` | set `$k` to the string `v`; repeatable |
 | `--vars <json>` | set all `$vars` from a JSON object (values may be any JSON type) |
 | `--vars-file <path>` | same, from a file |
@@ -4208,6 +4325,14 @@ being typed by the person running the command. An embedder gets neither unless i
 them itself. `--no-io` withholds all of it for one command — no `FS`, no `Env`, no `Stdin` —
 which is how the person typing runs somebody else's script and sees it the way an embedder
 would: `include io` becomes the compile error of §12.13.
+
+The CLI's filesystem implements all four optional interfaces of §13.2 and sets
+`FSMutations`, so `io.walk`, `io.rm`, `io.mkdir` and `io.mv` are there too, each the `os`
+call a shell command would make — `os.Remove`, `os.MkdirAll`, `os.Rename`, `os.Lstat`. The
+person typing is the person who would have been asked. `--read-only` is the flag that
+answers no for one command: the filesystem still reads, walk included, but `io.write` and
+`io.append` fail with `the filesystem is read-only (mzs --read-only)` and the three
+structural members are absent.
 
 `--no-io` does **not** withhold the module loader, and that is deliberate: `include … from`
 is its own capability (§12.8, the `ModuleLoader` row of §13.2), and it is not a way to read a
@@ -4350,8 +4475,8 @@ mzs test money_test.mzs   one file, whatever it is called
 Each file is its own **Run** (§10): its globals, its includes and its budget reach no other
 file, so a test that leaves `$state` behind cannot make the next file pass and the order the
 files run in is not something anybody has to know. The per-file limits are the ordinary ones
-— `-t`, `--steps`, `--tasks` — and so are the capability flags, `--time`, `--rand` and
-`--no-io`: a test file is a script and the host is still the person typing.
+— `-t`, `--steps`, `--tasks` — and so are the capability flags, `--time`, `--rand`,
+`--no-io` and `--read-only`: a test file is a script and the host is still the person typing.
 
 The report is `Result.Tests` (§12.18, §13.3), counted per file and once at the end:
 

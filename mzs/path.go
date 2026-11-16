@@ -1,0 +1,272 @@
+package mzs
+
+import (
+	"path"
+	"strings"
+)
+
+// The `path` module (§12.20) — taking file names apart and putting them together.
+//
+//	include path
+//	path.join("in", name)            # "in/report.json" — one separator, cleaned
+//	path.ext("a/b.tar.gz")           # ".gz"
+//	path.stem("a/b.tar.gz")          # "b.tar"
+//
+// It is **purely lexical and always `/`**: no member looks at a filesystem, the working
+// directory or the platform, so every answer depends on the arguments alone (D15) and the
+// module needs no gate. Which names a script may reach, and how a `/` name becomes the
+// platform's own, is the FileSystem implementation's business, as path policy already is
+// (§12.13). That is why this is written over Go's `path` and never `path/filepath`.
+
+func init() {
+	// Registration order is `path.keys` order (§8.13).
+	RegisterModuleFunc("path", "join", 0, -1, pathvJoin)
+	RegisterModuleFunc("path", "dir", 1, 1, pathvDir)
+	RegisterModuleFunc("path", "base", 1, 1, pathvBase)
+	RegisterModuleFunc("path", "ext", 1, 1, pathvExt)
+	RegisterModuleFunc("path", "stem", 1, 1, pathvStem)
+	RegisterModuleFunc("path", "clean", 1, 1, pathvClean)
+	RegisterModuleFunc("path", "split", 1, 1, pathvSplit)
+	RegisterModuleFunc("path", "rel", 2, 2, pathvRel)
+	RegisterModuleFunc("path", "is_abs", 1, 1, pathvIsAbs)
+	RegisterModuleFunc("path", "match", 2, 2, pathvMatch)
+}
+
+// pathvJoin is `path.join(*parts)`: the parts joined with `/` and cleaned, empty parts
+// dropped. Joining nothing, or only empty parts, is "" — there is no name to clean.
+func pathvJoin(c *Ctx, args []Value) (Value, error) {
+	parts := make([]string, 0, len(args))
+	size := 0
+	for _, a := range args {
+		s, err := argStr(c, a)
+		if err != nil {
+			return Nil(), err
+		}
+		if s != "" {
+			parts = append(parts, s)
+			size += len(s) + 1
+		}
+	}
+	if err := c.CheckString(size); err != nil {
+		return Nil(), err
+	}
+	return Str(path.Join(parts...)), nil
+}
+
+// pathvDir is `path.dir(p)`: everything before the last element, cleaned, and "." when
+// there is none. The trailing `/` of a directory name is not an element of its own, so
+// `dir("a/b/")` is "a" — the same element `base` drops.
+func pathvDir(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	return Str(path.Dir(path.Clean(p))), nil
+}
+
+// pathvBase is `path.base(p)`: the last element, without trailing `/`s. The base of "" is
+// "." and of "/" is "/", as Go's path.Base has it.
+func pathvBase(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	return Str(path.Base(p)), nil
+}
+
+// pathExt is the last `.suffix` of the base, with its dot. A name whose only dot is its
+// first character — `.gitignore` — has no extension: the dot names a hidden file, not a
+// type. Neither do `.` and `..`.
+func pathExt(p string) string {
+	b := path.Base(p)
+	if b == "." || b == ".." || b == "/" {
+		return ""
+	}
+	i := strings.LastIndexByte(b, '.')
+	if i <= 0 {
+		return ""
+	}
+	return b[i:]
+}
+
+// pathvExt is `path.ext(p)`.
+func pathvExt(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	return Str(pathExt(p)), nil
+}
+
+// pathvStem is `path.stem(p)`: the base without its extension, so
+// `stem(p) + ext(p) == base(p)` for every p.
+func pathvStem(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	b := path.Base(p)
+	return Str(strings.TrimSuffix(b, pathExt(p))), nil
+}
+
+// pathvClean is `path.clean(p)`: `.` and `..` resolved and doubled separators collapsed,
+// lexically — `..` is taken back against the element before it, which may be a link on a
+// real filesystem; this module never asks. The clean of "" is ".".
+func pathvClean(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	return Str(path.Clean(p)), nil
+}
+
+// pathElems are the elements of the cleaned p. A rooted path starts with the element "/",
+// so `join(*split(p))` gives back `clean(p)`; "." has no elements at all.
+func pathElems(p string) []string {
+	p = path.Clean(p)
+	if p == "." {
+		return nil
+	}
+	var out []string
+	if strings.HasPrefix(p, "/") {
+		out = append(out, "/")
+		p = p[1:]
+		if p == "" {
+			return out
+		}
+	}
+	return append(out, strings.Split(p, "/")...)
+}
+
+// pathvSplit is `path.split(p)`: the elements of the cleaned path — `"a/b/c"` is
+// `["a", "b", "c"]` and `"/a/b"` is `["/", "a", "b"]`.
+func pathvSplit(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	elems := pathElems(p)
+	if err := c.CheckCollection(len(elems)); err != nil {
+		return Nil(), err
+	}
+	out := make([]Value, len(elems))
+	for i, e := range elems {
+		out[i] = Str(e)
+	}
+	return arrayOf(out), nil
+}
+
+// pathvRel is `path.rel(p, base)`: p relative to base, so that `join(base, rel(p, base))`
+// is `clean(p)`, lexically. It is `nil` when no relative path says it: one of the two is
+// rooted and the other is not, or base climbs out with `..` further than p does, where
+// the answer would need the name of a directory the arguments do not contain.
+func pathvRel(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	base, err := argStr(c, args[1])
+	if err != nil {
+		return Nil(), err
+	}
+	r, ok := pathRel(p, base)
+	if !ok {
+		return Nil(), nil
+	}
+	return Str(r), nil
+}
+
+func pathRel(p, base string) (string, bool) {
+	pe, be := pathElems(p), pathElems(base)
+	if path.IsAbs(path.Clean(p)) != path.IsAbs(path.Clean(base)) {
+		return "", false
+	}
+	i := 0
+	for i < len(pe) && i < len(be) && pe[i] == be[i] {
+		i++
+	}
+	up := be[i:]
+	for _, e := range up {
+		if e == ".." {
+			return "", false
+		}
+	}
+	out := make([]string, 0, len(up)+len(pe)-i)
+	for range up {
+		out = append(out, "..")
+	}
+	out = append(out, pe[i:]...)
+	if len(out) == 0 {
+		return ".", true
+	}
+	return strings.Join(out, "/"), true
+}
+
+// pathvIsAbs is `path.is_abs(p)`: whether p starts with `/`.
+func pathvIsAbs(c *Ctx, args []Value) (Value, error) {
+	p, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	return Bool(strings.HasPrefix(p, "/")), nil
+}
+
+// pathvMatch is `path.match(pattern, name)`: a shell glob against one name. `*` and `?`
+// match within an element, `[a-z]` and `[^a-z]` are character classes, `\` escapes, and
+// an element that is exactly `**` matches any number of elements, none included — so
+// `**/*.mzs` matches `a.mzs` and `src/lib/a.mzs`. The name is matched as written, not
+// cleaned: a directory io.walk yields as `src/lib/` ends in an empty element, which `**`
+// matches and `*.mzs` does not. A malformed pattern is an argument error, whatever the
+// name.
+func pathvMatch(c *Ctx, args []Value) (Value, error) {
+	pattern, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	name, err := argStr(c, args[1])
+	if err != nil {
+		return Nil(), err
+	}
+	pe := strings.Split(pattern, "/")
+	for _, e := range pe {
+		if e == "**" {
+			continue
+		}
+		if _, err := path.Match(e, ""); err != nil {
+			return Nil(), c.ArgErrorf("path.match: malformed pattern %s", quoteString(pattern))
+		}
+	}
+	ne := strings.Split(name, "/")
+	if err := c.Step(int64(len(pe) * len(ne))); err != nil {
+		return Nil(), err
+	}
+	return Bool(globElems(pe, ne)), nil
+}
+
+// globElems matches pattern elements against name elements. It is the table of which
+// suffixes of the name each suffix of the pattern can match, filled from the end, so a
+// pattern of many `**` costs len(pattern)·len(name) and never backtracks.
+func globElems(pe, ne []string) bool {
+	// ok[j] is whether pe[i:] matches ne[j:], for the i of the current row.
+	ok := make([]bool, len(ne)+1)
+	ok[len(ne)] = true // the empty pattern matches the empty name
+	for i := len(pe) - 1; i >= 0; i-- {
+		next := make([]bool, len(ne)+1)
+		if pe[i] == "**" {
+			// `**` here and then pe[i+1:] at any later position.
+			next[len(ne)] = ok[len(ne)]
+			for j := len(ne) - 1; j >= 0; j-- {
+				next[j] = ok[j] || next[j+1]
+			}
+		} else {
+			for j := len(ne) - 1; j >= 0; j-- {
+				if ok[j+1] {
+					m, _ := path.Match(pe[i], ne[j])
+					next[j] = m
+				}
+			}
+		}
+		ok = next
+	}
+	return ok[0]
+}

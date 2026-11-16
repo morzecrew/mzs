@@ -121,6 +121,7 @@ FAIL суммы
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()` |
 | `--no-io` | withhold the `io` module |
+| `--read-only` | `io` reads, and cannot write, append, `rm`, `mkdir` or `mv` |
 | `--no-trace` | a file that fails outside a case prints its three lines without the call stack |
 | `--now <t>` | `--time` with a fixed clock at `t`, an RFC 3339 time such as `2026-01-31T09:00:00Z` |
 | `--filter <re>` | run only the cases whose full name (`group › case`) matches the regular expression |

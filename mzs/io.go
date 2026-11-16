@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	iofs "io/fs"
 	"sort"
 	"strings"
 )
@@ -38,6 +39,14 @@ import (
 // are two ways of asking that one reader — the whole text, or a line at a time — and the
 // order they are asked in decides what the second one can still have.
 //
+// Five members reach the shape of the tree rather than one file: io.stat answers what
+// io.exists already fetched, io.walk lists a tree, and io.rm, io.mkdir and io.mv change one.
+// FileSystem never grew for them. Each of the last four is backed by an optional interface
+// the host's filesystem may implement (LinkStater, FileRemover, DirMaker, FileMover), and
+// the three that change a tree also need Options.FSMutations — the host saying so, since a
+// FileSystem may satisfy an interface by accident. A member whose gate is closed is absent
+// from the module, and naming it is a compile error that says which half is missing.
+//
 // The third way of asking is `input` (§12.1), which is a global rather than a member of
 // this module and is implemented here anyway, because it reads the same reader and there
 // is only ever one implementation of a thing (D17).
@@ -52,6 +61,23 @@ func init() {
 	RegisterModuleFunc("io", "exists", 1, 1, iovExists)
 	RegisterModuleFunc("io", "ls", 0, 1, iovLs)
 	RegisterModuleFunc("io", "env", 1, 2, iovEnv)
+	RegisterModuleFunc("io", "stat", 1, 1, iovStat)
+	RegisterModuleFunc("io", "walk", 0, 1, iovWalk)
+	RegisterModuleFunc("io", "rm", 1, 1, iovRm)
+	RegisterModuleFunc("io", "mkdir", 1, 1, iovMkdir)
+	RegisterModuleFunc("io", "mv", 2, 2, iovMv)
+
+	// io.walk reads, so it needs only a filesystem that can tell a link from a directory;
+	// the three members that change a tree need the host's explicit consent on top.
+	setMemberGate("io", "walk", func(o *Options) string {
+		if _, ok := o.FS.(LinkStater); ok {
+			return ""
+		}
+		return "io.walk needs a filesystem that can tell a link from a directory: Options.FS does not implement LinkStater"
+	})
+	setMemberGate("io", "rm", mutationGate("io.rm", "FileRemover", func(fs FileSystem) bool { _, ok := fs.(FileRemover); return ok }))
+	setMemberGate("io", "mkdir", mutationGate("io.mkdir", "DirMaker", func(fs FileSystem) bool { _, ok := fs.(DirMaker); return ok }))
+	setMemberGate("io", "mv", mutationGate("io.mv", "FileMover", func(fs FileSystem) bool { _, ok := fs.(FileMover); return ok }))
 
 	// `input` is a §12.1 global and not a member of this module — see bivInput for why
 	// the console's reading half needs no include when its writing half never did.
@@ -486,6 +512,300 @@ func iovLs(c *Ctx, args []Value) (Value, error) {
 		out[i] = Str(n)
 	}
 	return arrayOf(out), nil
+}
+
+// iovStat is `io.stat(path)`: `{size: int, dir: bool}` for a name that exists and `nil`
+// for one that does not, from the same FileSystem.Stat io.exists asks — which already
+// fetched both and threw them away. It follows links, as Stat does.
+func iovStat(c *Ctx, args []Value) (Value, error) {
+	fs, path, err := ioTarget(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	var (
+		ok   bool
+		size int64
+		dir  bool
+		serr error
+	)
+	c.blocking(func() { ok, size, dir, serr = fs.Stat(path) })
+	if serr != nil {
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.stat %s: %v", quoteString(path), serr)
+	}
+	if !ok {
+		return Nil(), nil
+	}
+	d := NewOrderedDict()
+	_ = d.Set(Str("size"), Int(size))
+	_ = d.Set(Str("dir"), Bool(dir))
+	return dictOf(d), nil
+}
+
+// ---------------------------------------------------------------------------
+// Structure: walk, rm, mkdir, mv
+// ---------------------------------------------------------------------------
+
+// mutationGate is the member gate of a member that changes the shape of a tree: it needs
+// Options.FSMutations, which is the host saying so, and an FS that can do it (§12.13).
+// The sentence names whichever of the two is missing, because they are fixed in
+// different places.
+func mutationGate(member, iface string, has func(FileSystem) bool) func(*Options) string {
+	return func(o *Options) string {
+		var missing []string
+		if !o.FSMutations {
+			missing = append(missing, "Options.FSMutations is off")
+		}
+		if !has(o.FS) {
+			missing = append(missing, "Options.FS does not implement "+iface)
+		}
+		if len(missing) == 0 {
+			return ""
+		}
+		// The CLI grants both unless it was told --read-only, so that is the one thing a
+		// person at a command line can change; an embedder reads the field names.
+		return member + " needs the host to allow structural changes: " + strings.Join(missing, " and ") + " (mzs without --read-only)"
+	}
+}
+
+// iovWalk is `io.walk(dir = ".")`: every path under dir, depth-first, each directory's
+// entries in sorted order (§8.13), as a lazy seq (§12.14) — a tree is listed one
+// directory at a time, as far as the script reads it, and a second traversal walks it
+// again.
+//
+// A directory is yielded with a trailing `/` and then entered; a symbolic link is yielded
+// as a name and never entered, whatever it points to, so a walk of a tree that does not
+// change while it runs cannot follow a link out of the tree or round a cycle of them.
+// What happens under concurrent changes is the host's List to settle (LinkStater). The
+// root is the path the script named with its trailing `/`s removed — `link/` would ask the
+// host for the directory the link names — and nothing else about it is touched: `..` in
+// it is not resolved, because `missing/../x` must fail on the host exactly as it would
+// anywhere else. A root that is a link is an error rather than an empty walk.
+//
+// The paths are the root joined with what is under it, so `io.walk("src")` yields
+// `src/a.mzs`; under the default root `.` they are the bare relative names `a.mzs`, the
+// names io.ls answers. Each List and each Lstat is one filesystem operation and is charged
+// as one (ioStepCost).
+func iovWalk(c *Ctx, args []Value) (Value, error) {
+	root := Str(".")
+	if len(args) > 0 && !args[0].IsNil() {
+		root = args[0]
+	}
+	fs, dir, err := ioTarget(c, root)
+	if err != nil {
+		return Nil(), err
+	}
+	ls, ok := fs.(LinkStater)
+	if !ok {
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.walk: Options.FS does not implement LinkStater")
+	}
+	for len(dir) > 1 && strings.HasSuffix(dir, "/") {
+		dir = dir[:len(dir)-1]
+	}
+	return seqOf(walkSeq(fs, ls, dir)), nil
+}
+
+// walkFrame is one directory of a walk in progress: its path, and its sorted entries once
+// it has been listed.
+type walkFrame struct {
+	dir    string
+	listed bool
+	names  []string
+	at     int
+}
+
+func walkSeq(fs FileSystem, ls LinkStater, root string) *Seq {
+	return seqSource(func() func(*Ctx) (Value, bool, error) {
+		var (
+			stack   []*walkFrame
+			started bool
+			done    bool
+		)
+		fail := func(err error) (Value, bool, error) {
+			done = true
+			return Nil(), false, err
+		}
+		return func(c *Ctx) (Value, bool, error) {
+			if done {
+				return Nil(), false, nil
+			}
+			if !started {
+				started = true
+				if err := c.Step(ioStepCost); err != nil {
+					return fail(err)
+				}
+				var (
+					ok, dir, link bool
+					lerr          error
+				)
+				c.blocking(func() { ok, _, dir, link, lerr = ls.Lstat(root) })
+				switch {
+				case lerr != nil:
+					return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: %v", quoteString(root), lerr))
+				case !ok:
+					return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: no such directory", quoteString(root)))
+				case link:
+					return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: is a symbolic link, and walk does not follow links", quoteString(root)))
+				case !dir:
+					return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: not a directory", quoteString(root)))
+				}
+				stack = append(stack, &walkFrame{dir: root})
+			}
+			for len(stack) > 0 {
+				top := stack[len(stack)-1]
+				if !top.listed {
+					top.listed = true
+					if err := c.Step(ioStepCost); err != nil {
+						return fail(err)
+					}
+					var (
+						names []string
+						lerr  error
+					)
+					c.blocking(func() { names, lerr = fs.List(top.dir) })
+					if lerr != nil {
+						return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: %v", quoteString(top.dir), lerr))
+					}
+					if err := c.CheckCollection(len(names)); err != nil {
+						return fail(err)
+					}
+					sort.Strings(names)
+					top.names = names
+				}
+				if top.at >= len(top.names) {
+					stack = stack[:len(stack)-1]
+					continue
+				}
+				name := top.names[top.at]
+				top.at++
+				if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
+					// Not an entry of the directory but a way back into it or above it:
+					// a List that answered one would otherwise send the walk round in a
+					// circle the step budget is the only end of.
+					continue
+				}
+				p := walkJoin(top.dir, name)
+				if err := c.Step(ioStepCost); err != nil {
+					return fail(err)
+				}
+				var (
+					ok, dir, link bool
+					lerr          error
+				)
+				c.blocking(func() { ok, _, dir, link, lerr = ls.Lstat(p) })
+				switch {
+				case lerr != nil:
+					return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: %v", quoteString(p), lerr))
+				case !ok:
+					// Listed and gone by the time it was looked at: a walk reports what
+					// is there, and this no longer is.
+					continue
+				case link:
+					return Str(p), true, nil
+				case dir:
+					stack = append(stack, &walkFrame{dir: p})
+					return Str(p + "/"), true, nil
+				default:
+					return Str(p), true, nil
+				}
+			}
+			done = true
+			return Nil(), false, nil
+		}
+	})
+}
+
+// walkJoin puts an entry under the directory it was listed from. Under the root `.` the
+// entry is its own path, the way io.ls names it; under `/` there is no second separator.
+func walkJoin(dir, name string) string {
+	switch {
+	case dir == ".":
+		return name
+	case strings.HasSuffix(dir, "/"):
+		return dir + name
+	}
+	return dir + "/" + name
+}
+
+// iovRm is `io.rm(path)`: remove a file, an empty directory or a link, and answer whether
+// there was one to remove — `false` for a name that was not there, as io.exists answers
+// for it. It is not recursive and there is no flag that makes it so: a tree is removed by
+// walking it, where the script has to spell out what it is deleting.
+func iovRm(c *Ctx, args []Value) (Value, error) {
+	fs, path, err := ioTarget(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	rm, err := ioMutator[FileRemover](c, fs)
+	if err != nil {
+		return Nil(), err
+	}
+	var rerr error
+	c.blocking(func() { rerr = rm.Remove(path) })
+	switch {
+	case rerr == nil:
+		return Bool(true), nil
+	case errors.Is(rerr, iofs.ErrNotExist):
+		return Bool(false), nil
+	}
+	return Nil(), c.ErrorfKind(ErrKindIO, "io.rm %s: %v", quoteString(path), rerr)
+}
+
+// iovMkdir is `io.mkdir(path)`: the directory and every missing parent. One that is
+// already there is not an error — the script asked for a directory, and there is one.
+func iovMkdir(c *Ctx, args []Value) (Value, error) {
+	fs, path, err := ioTarget(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	mk, err := ioMutator[DirMaker](c, fs)
+	if err != nil {
+		return Nil(), err
+	}
+	var merr error
+	c.blocking(func() { merr = mk.MkdirAll(path) })
+	if merr != nil {
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.mkdir %s: %v", quoteString(path), merr)
+	}
+	return Nil(), nil
+}
+
+// iovMv is `io.mv(from, to)`: a rename within the filesystem, replacing a file at to.
+func iovMv(c *Ctx, args []Value) (Value, error) {
+	fs, from, err := ioTarget(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	to, err := argStr(c, args[1])
+	if err != nil {
+		return Nil(), err
+	}
+	mv, err := ioMutator[FileMover](c, fs)
+	if err != nil {
+		return Nil(), err
+	}
+	var merr error
+	c.blocking(func() { merr = mv.Rename(from, to) })
+	if merr != nil {
+		return Nil(), c.ErrorfKind(ErrKindIO, "io.mv %s %s: %v", quoteString(from), quoteString(to), merr)
+	}
+	return Nil(), nil
+}
+
+// ioMutator is the run-time half of a mutation member's gate. Through `include io` it
+// cannot fail — the gate is what installs the member — but a host that builds the members
+// into a module of its own with RegisterModule has bypassed the gate, and the check that
+// a script cannot change a tree without Options.FSMutations must not depend on how the
+// member was reached.
+func ioMutator[T any](c *Ctx, fs FileSystem) (T, error) {
+	var zero T
+	if !c.rs.opts.FSMutations {
+		return zero, c.ErrorfKind(ErrKindIO, "%s: the host did not set Options.FSMutations", c.Name())
+	}
+	m, ok := fs.(T)
+	if !ok {
+		return zero, c.ErrorfKind(ErrKindIO, "%s: Options.FS cannot do this", c.Name())
+	}
+	return m, nil
 }
 
 // ---------------------------------------------------------------------------

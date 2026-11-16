@@ -9,9 +9,10 @@
 # already owns the machine. Inside a bot that evaluates conditions out of a store, the same
 # line is a compile error naming the missing field — which is the whole design (§12.13).
 #
-# Everything written below goes into the system temp directory and is left there: there is
-# no io.rm, and there is not going to be one. A script reads a file, writes a file and
-# lists a directory; anything structural belongs to the host or to the shell.
+# Everything written below goes into the system temp directory, and the file is removed
+# again at the end. That last step is io.rm, which — like io.mkdir and io.mv — exists only
+# where the host can do it *and* said yes with Options.FSMutations; the CLI says yes, and
+# 51_file_tree.mzs is the tour of that half of the module (§12.13).
 
 include io
 
@@ -98,6 +99,12 @@ println("  the message ${reason}")
 # Options.FS verbatim. Whether "../../etc/shadow" is allowed is the policy of the code
 # that implemented the interface — here, the CLI, which allows what the shell allows.
 
+# --- cleaning up ----------------------------------------------------------------
+#
+# io.rm answers whether there was something to remove, so the second call is false rather
+# than an error — the same answer io.exists would give.
+
 println("")
-println("  the module has eight members and no ninth:")
-println("    io.stdin  io.lines  io.read  io.write  io.append  io.exists  io.ls  io.env")
+println("  rm          ${io.rm(path)}, and again ${io.rm(path)}   (exists → ${io.exists(path)})")
+println("")
+println("  the members: ${io.keys.join("  ")}")

@@ -19,6 +19,20 @@ and the release is still ahead of it.
 
 ### Added
 
+- **The `path` module, and the rest of `io`.** `include path` takes file names apart and
+  puts them together — `join`, `dir`, `base`, `ext`, `stem`, `clean`, `split`, `rel`,
+  `is_abs` and `match`, a shell glob whose `**` crosses directories. It is lexical and
+  always `/`, never looks at a disk, and needs no host option. `io` gains `stat` (`{size,
+  dir}` or `nil`), `walk` (every path under a directory as a lazy seq, depth-first and
+  sorted, never entering a symbolic link), and `rm` (one name, never recursive; `false`
+  when it was not there), `mkdir` (with parents) and `mv`. For embedders: `FileSystem`
+  is unchanged, and the four new members are backed by optional interfaces —
+  `LinkStater` for `walk`, `FileRemover`, `DirMaker` and `FileMover` for the other three —
+  of which the last three also need the new `Options.FSMutations`, so no existing host
+  hands scripts `io.rm` on upgrade. A member the host did not grant is absent and a compile
+  error that names what is missing. The CLI grants all of them; the new `--read-only`
+  (on `mzs` and `mzs test`) takes back `write`, `append`, `rm`, `mkdir` and `mv` for one
+  command (SPEC §12.13, §12.20, §13.2, §14.3, §15; RFC 0015).
 - **`test` grows up.** Five members join `case` and `eq`: `test.ne`; `test.near(a, b, eps)`
   for floats (`1e-9` by default; NaN is near nothing); `test.raises(kind) { … }`, which
   fails unless the block raises — an error of that kind, when named — and answers the

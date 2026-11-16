@@ -45,6 +45,53 @@ type FileSystem interface {
 	List(dir string) ([]string, error)
 }
 
+// The four interfaces below are optional: a FileSystem may implement any of them, and the
+// io member each one backs exists only when it does (§12.13). FileSystem itself never
+// grows, so every implementation written against it still compiles.
+//
+// The three that change the shape of a filesystem — FileRemover, DirMaker, FileMover —
+// install their member only when Options.FSMutations is also true. Go interfaces are
+// satisfied implicitly, and a FileSystem that already had a Remove method for reasons of
+// its own must not hand scripts io.rm on upgrade: the field is the deliberate act.
+
+// FileRemover backs io.rm. Remove deletes a file, an empty directory or a link (not what
+// it points to). A name that does not exist is an error for which
+// errors.Is(err, fs.ErrNotExist) holds — os.Remove's errors do — and io.rm answers false
+// for it rather than raising.
+type FileRemover interface {
+	Remove(name string) error
+}
+
+// DirMaker backs io.mkdir. MkdirAll creates a directory and every missing parent, and a
+// directory that already exists is not an error, as os.MkdirAll has it.
+type DirMaker interface {
+	MkdirAll(name string) error
+}
+
+// FileMover backs io.mv. Rename moves within the filesystem and replaces a file at to, as
+// os.Rename does.
+type FileMover interface {
+	Rename(from, to string) error
+}
+
+// LinkStater backs io.walk, which needs to tell a symbolic link from what it names
+// without following it — FileSystem.Stat follows links. Lstat is Stat for the name itself:
+// link is true when the name is a symbolic link, and then dir and size describe the link,
+// not its target. A name that does not exist is (false, 0, false, false, nil).
+//
+// io.walk yields a link as a name and never descends into one it has seen as a link, so a
+// walk of a tree that does not change while it runs cannot enter a linked directory or a
+// cycle of links. A directory replaced by a link between Lstat and List can still be
+// entered if List follows links. A host that must hold the rule against concurrent changes
+// needs a List that follows no link in any component of the path, not only the last one:
+// O_NOFOLLOW covers the final component alone, and an os.Root confines a walk to its tree
+// but still follows links that stay inside it, so os.Root on its own is not enough. On
+// Linux that means opening each component in turn with openat(…, O_NOFOLLOW|O_DIRECTORY)
+// from the one before, or openat2 with RESOLVE_NO_SYMLINKS.
+type LinkStater interface {
+	Lstat(name string) (exists bool, size int64, dir, link bool, err error)
+}
+
 // Options configures an *Interp. Every capability is off by default, so a script that
 // is handed nothing can compute and nothing else: no clock, no randomness, no output,
 // no filesystem, no process (§14.3). One field grants one capability and nothing more —
@@ -122,6 +169,11 @@ type Options struct {
 	// way ModuleLoader already is for source. nil — the default — means `include io` is
 	// an error that says so.
 	FS FileSystem
+	// FSMutations lets io.rm, io.mkdir and io.mv exist, each when FS also implements the
+	// interface behind it (FileRemover, DirMaker, FileMover). false — the default — means
+	// a script can read and write files but not remove, create or move one, whatever
+	// methods FS happens to have (§12.13).
+	FSMutations bool
 	// Stdin is what io.stdin and io.lines read. The reader gives its bytes away once, so
 	// the two members share it: io.stdin drains and caches it, io.lines pulls a line at a
 	// time, and whichever is asked for first decides what the other can still have

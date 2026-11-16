@@ -125,6 +125,9 @@ type cscope struct {
 	// dispatching a method, which is the one thing the evaluator must be told
 	// statically (§8.7, §12.8).
 	mods map[string]bool
+	// builtin marks which of mods are built-in modules rather than script modules, so a
+	// member a host capability withholds can be named as such where it is used (§12.13).
+	builtin map[string]bool
 	// recs maps the names a `record` declaration bound in this scope to it, which is what
 	// lets `Money {amount} ->` be told from a call with a trailing closure (RFC 0002).
 	// A later binding of the same name in an inner scope shadows it, as for any name.
@@ -443,6 +446,21 @@ func (c *compiler) recordDecl(name string) *ast.RecordDecl {
 }
 
 // knownModule reports whether name was introduced by an `include` still in scope.
+// builtinModule reports whether name, where it is used, is the binding a built-in
+// `include` made — not a script module of the same name, and not a host module that
+// replaced the built-in one.
+func (c *compiler) builtinModule(name string) bool {
+	if _, ok := c.in.hostModule(name); ok {
+		return false
+	}
+	for s := c.scope; s != nil; s = s.parent {
+		if s.names[name] {
+			return s.mods[name] && s.builtin[name]
+		}
+	}
+	return false
+}
+
 func (c *compiler) knownModule(name string) bool {
 	for s := c.scope; s != nil; s = s.parent {
 		if s.names[name] {
@@ -909,6 +927,14 @@ func (c *compiler) include(n *ast.IncludeDecl) {
 		c.warnAt(n.NamePos, "'%s' is already bound; the include replaces it", n.Name)
 	}
 	c.declareModule(n.Name)
+	if n.HasPath {
+		delete(c.scope.builtin, n.Name)
+	} else {
+		if c.scope.builtin == nil {
+			c.scope.builtin = map[string]bool{}
+		}
+		c.scope.builtin[n.Name] = true
+	}
 }
 
 // export compiles the declaration an `export` wraps and checks the bare form names a
@@ -1285,6 +1311,14 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 	if id, ok := n.Recv.(*ast.Ident); ok {
 		c.ident(id)
 		module = id.Ref == ast.RefModule
+		// A member the module has but the host withholds — io.rm without
+		// Options.FSMutations — is said to be that here, with what is missing, rather
+		// than as an unknown name when the line runs (§12.13).
+		if module && c.builtinModule(id.Name) {
+			if msg := closedMemberMessage(id.Name, n.Name, &c.in.opts); msg != "" {
+				c.errorf(n.NamePos, "%s", msg)
+			}
+		}
 		// `json.parse(s)` without `include json` used to work by ambience and now must
 		// not. The name still resolves — `json` is also the §12.1 function — so say the
 		// one useful thing instead of letting it fail as `undefined method` (§12.8).

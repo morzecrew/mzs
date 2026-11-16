@@ -1858,15 +1858,40 @@
     "sem": "the entry names of a directory, sorted (§8.13)",
     "ex": "`io.ls(\".\").len`"
    },
+   "mkdir": {
+    "sig": "`(path: string) -> nil`",
+    "sem": "creates the directory and its parents; one that exists is fine. Needs `DirMaker`",
+    "ex": "`io.mkdir(\"out/2026\")`"
+   },
+   "mv": {
+    "sig": "`(from: string, to: string) -> nil`",
+    "sem": "renames within the filesystem, replacing a file at `to`. Needs `FileMover`",
+    "ex": "`io.mv(\"a.tmp\", \"a.txt\")`"
+   },
    "read": {
     "sig": "`(path: string) -> string`",
     "sem": "the file as a string",
     "ex": "`io.read(\"a.txt\")`"
    },
+   "rm": {
+    "sig": "`(path: string) -> bool`",
+    "sem": "removes a file, an empty directory or a link; `false` when it was not there. Not recursive. Needs `FileRemover`",
+    "ex": "`io.rm(\"tmp.txt\")`"
+   },
+   "stat": {
+    "sig": "`(path: string) -> dict | nil`",
+    "sem": "`{size: int, dir: bool}`, or `nil` when absent; follows links, as `FileSystem.Stat` does",
+    "ex": "`io.stat(\"a.txt\")[\"size\"]`"
+   },
    "stdin": {
     "sig": "`-> string`",
     "sem": "the whole of `Options.Stdin`, read once per Run and kept for the rest of it. No reader is `\"\"`, not an error",
     "ex": "`io.stdin.trim`"
+   },
+   "walk": {
+    "sig": "`(dir: string = \".\") -> seq`",
+    "sem": "every path under `dir`, depth-first, each directory's entries sorted (§8.13), lazily (§12.14): a directory with a trailing `/`, a link as a name and never entered. Needs `LinkStater`",
+    "ex": "`io.walk(\"src\").array`"
    },
    "write": {
     "sig": "`(path: string, s: string) -> int`",
@@ -1961,6 +1986,58 @@
     "sig": "`(…) -> float`",
     "sem": "",
     "ex": ""
+   }
+  },
+  "path": {
+   "base": {
+    "sig": "`(p: string) -> string`",
+    "sem": "the last element, without trailing `/`s; `\".\"` for `\"\"` and `\"/\"` for `\"/\"`",
+    "ex": "`path.base(\"a/b.txt\")`"
+   },
+   "clean": {
+    "sig": "`(p: string) -> string`",
+    "sem": "`.`, `..` and doubled separators resolved lexically; `\".\"` for `\"\"`",
+    "ex": "`path.clean(\"a//b/../c\")`"
+   },
+   "dir": {
+    "sig": "`(p: string) -> string`",
+    "sem": "everything before the last element, cleaned; `\".\"` when there is none",
+    "ex": "`path.dir(\"a/b.txt\")`"
+   },
+   "ext": {
+    "sig": "`(p: string) -> string`",
+    "sem": "the last `.suffix` of `base`, with the dot; `\"\"` when there is none or the name's only dot is its first character (`.gitignore`)",
+    "ex": "`path.ext(\"b.tar.gz\")`"
+   },
+   "is_abs": {
+    "sig": "`(p: string) -> bool`",
+    "sem": "starts with `/`",
+    "ex": "`path.is_abs(\"/etc\")`"
+   },
+   "join": {
+    "sig": "`(*parts: string) -> string`",
+    "sem": "joined with `/` and cleaned; empty parts are dropped, and joining nothing is `\"\"`",
+    "ex": "`path.join(\"a\", \"b\")`"
+   },
+   "match": {
+    "sig": "`(pattern: string, name: string) -> bool`",
+    "sem": "a shell glob over one name: `*`, `?` and `[a-z]` within an element, an element `**` across any number of them",
+    "ex": "`path.match(\"**/*.mzs\", p)`"
+   },
+   "rel": {
+    "sig": "`(p: string, base: string) -> string | nil`",
+    "sem": "`p` relative to `base`, so `join(base, rel(p, base)) == clean(p)`; `nil` when one is rooted and the other is not, or `base` climbs further with `..` than `p` does",
+    "ex": "`path.rel(\"a/b/c\", \"a\")`"
+   },
+   "split": {
+    "sig": "`(p: string) -> array`",
+    "sem": "the elements of `clean(p)`: `\"a/b/c\"` → `[\"a\",\"b\",\"c\"]`, `\"/a\"` → `[\"/\",\"a\"]`, `\".\"` → `[]`",
+    "ex": "`path.split(\"a/b\")`"
+   },
+   "stem": {
+    "sig": "`(p: string) -> string`",
+    "sem": "`base` without `ext`, so `stem(p) + ext(p) == base(p)`",
+    "ex": "`path.stem(\"b.tar.gz\")`"
    }
   },
   "tasks": {
@@ -2071,6 +2148,7 @@
   "io": "",
   "json": "",
   "math": "",
+  "path": "",
   "tasks": "",
   "test": "",
   "time": "--time",

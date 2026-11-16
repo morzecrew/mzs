@@ -796,6 +796,9 @@ func (e ev) moduleCall(mod Value, modName, name string, args []Value, named name
 		}
 		return e.invokeMethod(m, name, mod, args, pos)
 	}
+	if msg := closedMemberMessage(modName, name, e.rs.opts); msg != "" && isBuiltinModuleDict(modName, mod) {
+		return Nil(), nameErrorf("%s", msg)
+	}
 	return Nil(), undefinedMemberError(modName, name, mod.Keys())
 }
 

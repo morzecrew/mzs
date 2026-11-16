@@ -91,6 +91,8 @@ $ mzs -e 'include json; json.pretty({a: 1})'
 | `include url; url.parse("https://e.com:8443/x?a=1")["port"]` | `8443` |
 | `include url; url.query({q: "a b", tag: ["x","y"]})` | `q=a%20b&tag=x&tag=y` |
 | `include url; url.parse_query("q=a+b")["q"]` | `a b` |
+| `include path; path.join("in", "x.json")` | `in/x.json` |
+| `include path; [path.stem("b.tar.gz"), path.ext("b.tar.gz")]` | `["b.tar",".gz"]` |
 
 ## Regex
 
@@ -118,6 +120,8 @@ the values differ.
 | `include io; io.exists("/no/such")` | `false` |
 | `include io; io.env("HOME").starts_with("/")` | `true` |
 | `include io; io.lines.filter { it.has("ERROR") }.take(10).array` | the first ten matching lines, streamed |
+| `include io; include path; io.walk("src").filter { path.match("**/*.mzs", it) }.array` | every `.mzs` under `src/` |
+| `include io; io.mkdir("out/2026"); io.rm("old.txt")` | `true` — or `false` when there was no `old.txt` |
 
 The CLI grants `io` by default; `--no-io` withholds it, and an embedding host has to supply a
 filesystem before any of these names exist.
