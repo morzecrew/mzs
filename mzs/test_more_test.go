@@ -1,8 +1,10 @@
 package mzs
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -437,5 +439,40 @@ assert(false, "later error")
 `, Options{Test: TestOptions{FailFast: true}})
 	if !errors.Is(err, ErrFailFast) {
 		t.Fatalf("await: err = %v, want ErrFailFast", err)
+	}
+}
+
+// Review of #29: a host call through Ctx.Blocking gives the lock up too, and the program
+// returning from it does not run on after a task failed under fail-fast meanwhile.
+func TestFailFastStopsTheProgramAfterABlockingCall(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	var out strings.Builder
+	in := New(Options{Stdout: &out, Test: TestOptions{FailFast: true}})
+	in.Register("__wait", 0, func(c *Ctx, _ []Value) (Value, error) {
+		c.Blocking(func() { <-release })
+		return Nil(), nil
+	})
+	in.Register("__release", 0, func(c *Ctx, _ []Value) (Value, error) {
+		once.Do(func() { close(release) })
+		return Nil(), nil
+	})
+	prog, err := in.Compile("t_test.mzs", `
+include test
+async fn bad() { test.case("worker") { __release(); assert(false) } }
+bad()
+__wait()
+println("still running")
+assert(false, "later error")
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = in.RunResult(context.Background(), prog, nil)
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast and not the later error", err)
+	}
+	if strings.Contains(out.String(), "still running") {
+		t.Errorf("the program ran on past the blocking call:\n%s", out.String())
 	}
 }

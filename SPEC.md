@@ -3459,7 +3459,8 @@ every case under `Verbose` — is then printed under its report line). A task st
 case prints into that case, and two cases running in two tasks keep their own output; what a
 task prints after its case has ended goes to the case around it, or to Stdout. A case that
 fails in a task under `FailFast` stops the Run too: no later case starts, code resuming from a
-wait (`sleep`, `await`, `tasks.all`) stops there, and the Run ends with `ErrFailFast` even
+wait (`sleep`, `await`, `tasks.all`) or from a host call that gave the lock up stops before
+its next statement, and the Run ends with `ErrFailFast` even
 when nothing awaits the task. The zero value is the module as
 described above.
 

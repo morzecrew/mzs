@@ -233,8 +233,9 @@ func (rs *runState) waitFor(ch <-chan struct{}) error {
 }
 
 // A wait is also where a case that failed under fail-fast in another task reaches this
-// one (§12.18): the lock is released only for a wait, so a failure elsewhere can only
-// happen during one, and the code that resumes from it stops instead of going on.
+// one (§12.18): the code that resumes from it stops instead of going on. A host call
+// through Ctx.Blocking, which cannot answer an error of its own, is stopped at the next
+// statement instead (execStmts).
 //
 // waitLimited is waitFor with a limit of the caller's own on top of the Run's: `sleep`
 // waits for nothing with one, `t.timeout(d)` waits for a task with one. It answers
