@@ -554,3 +554,37 @@ raise("the file broke first")
 		t.Fatalf("err = %v, want the program's own error", err)
 	}
 }
+
+// Review of #29: a skip that a host callback answers after a fail-fast stop is as late as
+// any other answer, and the case around it records nothing.
+func TestFailFastIsNotHiddenByALateSkip(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	in := New(Options{Test: TestOptions{FailFast: true}})
+	in.Register("__skipwait", 1, func(c *Ctx, args []Value) (Value, error) {
+		v, err := c.Call(args[0])
+		c.Blocking(func() { <-release })
+		return v, err
+	})
+	in.Register("__release", 0, func(c *Ctx, _ []Value) (Value, error) {
+		once.Do(func() { close(release) })
+		return Nil(), nil
+	})
+	prog, err := in.Compile("t_test.mzs", `
+include test
+fn skipme() { test.skip("skip") }
+async fn bad() { test.case("worker") { __release(); assert(false) } }
+bad()
+test.case("other") { __skipwait(skipme) }
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := in.RunResult(context.Background(), prog, nil)
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast", err)
+	}
+	if len(res.Tests) != 1 || res.Tests[0].Name != "worker" {
+		t.Errorf("Tests = %+v, want only the worker's failure", res.Tests)
+	}
+}

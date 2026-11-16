@@ -188,6 +188,12 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 		tc.Output = out.b.String()
 	}
 
+	if c.rs.sh.failedFast {
+		// A case failed under fail-fast in another task while this block had the lock
+		// given up. Whatever this case came to, it came to it after the stop, and the
+		// report holds only what happened before it (§12.18).
+		return Nil(), &testSignal{}
+	}
 	if s, ok := testSignalOf(rerr); ok {
 		if !s.skip {
 			// A case nested in this one failed under fail-fast: it is recorded already,

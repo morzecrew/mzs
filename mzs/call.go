@@ -132,7 +132,9 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		v, err := f.Host(e.cx, args)
 		restore()
 		if e.rs.sh.failedFast {
-			if _, ok := testSignalOf(err); !ok {
+			// Only the stop itself passes: a skip that comes back from a callback the host
+			// function made is as late as any other answer.
+			if s, ok := testSignalOf(err); !ok || s.skip {
 				// A host call may give the lock up (Ctx.Blocking, a wait), and a case may
 				// have failed under fail-fast in another task meanwhile. Whatever the call
 				// answered, value or error, came after the stop: no `try` gets to handle
