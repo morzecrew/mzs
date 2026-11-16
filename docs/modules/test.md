@@ -219,7 +219,7 @@ for _, c := range res.Tests {
 ```
 
 Each entry also has the case's `Group`, the `Line` and `Col` of its `test.case`, and, when
-the host asked for it, its `Output`. An entry with an empty `Name` is the rest of a file
+the host asked for it, its `Output`. An entry with `RestOfFile` set is the rest of a file
 skipped. `Tests` is empty for a program that never included the module, which is every
 program but a test file.
 

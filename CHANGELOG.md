@@ -30,8 +30,8 @@ and the release is still ahead of it.
   goes to stderr), `--now <rfc3339>` (`--time` with a fixed clock) and `-v`. A case's
   output is now held until it is over and printed under it when it fails, or always under
   `-v`, instead of being interleaved; the summary counts skips, which do not fail a run.
-  For embedders: `TestCase` gains `Status`, `Group`, `Reason`, `Line`, `Col`, `Output` and
-  `FullName()`, and `Options.Test` (`Filter`, `FailFast`, `Quiet`, `Capture`, `Verbose`)
+  For embedders: `TestCase` gains `Status`, `Group`, `Reason`, `Line`, `Col`, `Output`,
+  `RestOfFile` and `FullName()`, and `Options.Test` (`Filter`, `FailFast`, `Quiet`, `Capture`, `Verbose`)
   asks for what the CLI does; `ErrFailFast` is what a fail-fast Run ends with. The zero
   `Options.Test` is the module as before (SPEC §12.18, §13.2, §15.2; RFC 0014).
 - **The `csv` module.** `include csv` reads and writes RFC 4180: `csv.parse(s)` gives arrays

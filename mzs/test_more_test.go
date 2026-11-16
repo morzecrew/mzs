@@ -143,7 +143,7 @@ test.case("never") { assert(false) }
 	if err != nil {
 		t.Fatalf("a skipped file is an error: %v", err)
 	}
-	if len(res.Tests) != 2 || res.Tests[1].Name != "" || res.Tests[1].Status != TestSkip ||
+	if len(res.Tests) != 2 || !res.Tests[1].RestOfFile || res.Tests[1].Name != "" || res.Tests[1].Status != TestSkip ||
 		res.Tests[1].Reason != "needs a database" || res.Tests[1].Line != 4 {
 		t.Fatalf("Tests = %+v, want the case and then the skipped rest of the file", res.Tests)
 	}

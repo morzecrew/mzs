@@ -61,8 +61,8 @@ var ErrFailFast = errors.New("mzs: a test case failed under fail-fast")
 // TestCase is one `test.case` of a Run, in the order the cases ran (§12.18). Err is nil
 // when the case passed or was skipped, and holds what it raised when it failed.
 //
-// An entry with an empty Name is the rest of a file skipped: `test.skip` called outside
-// any case, at Line and Col.
+// An entry with RestOfFile set is not a case: it is the rest of a file skipped, by a
+// `test.skip` called outside any case at Line and Col.
 type TestCase struct {
 	Name    string
 	Err     error
@@ -77,6 +77,10 @@ type TestCase struct {
 	Line, Col int
 	// Output is what the case printed, under Options.Test.Capture.
 	Output string
+	// RestOfFile marks the entry a `test.skip` outside every case leaves: the cases after
+	// it were not run. Its Name is empty and its Status is TestSkip. A case may be named
+	// "" too, so this field, not the name, is what tells the two apart.
+	RestOfFile bool
 }
 
 // Passed reports whether the case passed. A skipped case did not fail, and counts as
@@ -138,7 +142,7 @@ func isTestSkip(err error) bool {
 // rest of the file did not run, and the report says so instead of reading as a file that
 // ended with fewer cases (§12.18).
 func fileSkipped(s *testSignal) TestCase {
-	return TestCase{Status: TestSkip, Reason: s.reason, Line: s.line, Col: s.col}
+	return TestCase{Status: TestSkip, Reason: s.reason, Line: s.line, Col: s.col, RestOfFile: true}
 }
 
 // testCase runs one case. The block is the trailing `{ … }` of §4.2 — which the

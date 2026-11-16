@@ -697,3 +697,17 @@ func TestTestCountsAnUnnamedFailure(t *testing.T) {
 		t.Errorf("code = %d\n%s", code, out)
 	}
 }
+
+// Review of #29: a case named "" that skips is a skipped case, not the rest of a file.
+func TestTestCountsAnUnnamedSkip(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", "include test\ntest.case(\"\") { test.skip(\"later\") }\ntest.case(\"after\") { assert(true) }\n")
+	code, out, _ := exec([]string{"test", dir}, "")
+	if code != exitOK || !strings.Contains(out, "1 file, 2 cases, 0 failed, 1 skipped") || strings.Contains(out, "rest of file") {
+		t.Errorf("code = %d\n%s", code, out)
+	}
+	_, out, _ = exec([]string{"test", "--json", dir}, "")
+	if !strings.Contains(out, `"name":"","status":"skip"`) {
+		t.Errorf("--json gave the unnamed case a null name:\n%s", out)
+	}
+}

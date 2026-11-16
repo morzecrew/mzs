@@ -163,7 +163,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 		if cfg.json {
 			writeJSON(stdout, caseJSON(path, t))
 		}
-		if t.Name == "" && t.Status == mzs.TestSkip {
+		if t.RestOfFile {
 			continue // the rest of the file skipped: a line in the report, not a case
 		}
 		tally.cases++
@@ -208,7 +208,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 // declared; a failure's own position is in its message, as it is in the human report.
 func caseJSON(path string, t mzs.TestCase) map[string]any {
 	var name, msg any
-	if t.Name != "" {
+	if !t.RestOfFile {
 		name = t.Name
 	}
 	switch {

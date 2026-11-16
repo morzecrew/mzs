@@ -3438,7 +3438,8 @@ exactly as it would without the group.
 what an embedder reads to run its own scripts' tests. Each entry carries the case's `Name`,
 its `Group`, its `Status` (`"pass"`, `"fail"` or `"skip"`), the `Err` it failed with, the
 skip's `Reason`, the `Line` and `Col` of the `test.case` call and its `Elapsed` time; an
-entry with an empty `Name` is the rest of a file skipped. The lines on stdout are for the
+entry with `RestOfFile` set is not a case but the rest of a file skipped (a case may itself be
+named `""`, so the name does not tell). The lines on stdout are for the
 person watching:
 
 ```
@@ -3745,7 +3746,7 @@ type Result struct {
 }
 
 type TestCase struct {
-    Name      string        // "" for the rest of a file skipped by test.skip outside a case
+    Name      string        // "" for the rest of a file skipped (see RestOfFile)
     Err       error         // nil when the case passed or was skipped
     Elapsed   time.Duration
     Status    string        // TestPass, TestFail or TestSkip: "pass", "fail", "skip"
@@ -3753,6 +3754,7 @@ type TestCase struct {
     Reason    string        // what test.skip said
     Line, Col int           // where test.case was called; for the rest of a file skipped, where test.skip was
     Output    string        // what the case printed, under TestOptions.Capture
+    RestOfFile bool         // not a case: the rest of a file skipped by test.skip outside every case
 }
 
 func (t TestCase) Passed() bool    // not failed: a skipped case counts as passed
