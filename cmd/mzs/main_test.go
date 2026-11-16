@@ -1696,7 +1696,7 @@ func TestCLIFlagAfterScriptHint(t *testing.T) {
 	if code != exitUsage {
 		t.Fatalf("exit = %d, want %d", code, exitUsage)
 	}
-	if strings.Count(errOut, "mzs: note:") != 1 || !strings.Contains(errOut, "--json after the script path") {
+	if strings.Count(errOut, "mzs: note:") != 1 || !strings.Contains(errOut, "mzs: note: --json after the script path is the script's argument, not mzs's; put mzs flags before the script path\n") {
 		t.Errorf("stderr = %q, want one note about --json", errOut)
 	}
 	for _, argv := range [][]string{

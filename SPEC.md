@@ -3698,8 +3698,8 @@ value given to `--no-x`, an absent required flag, or a positional count outside
 ends the Run with `exit(2)`; `--help` writes the usage to stdout and ends it with
 `exit(0)`. Those are the CLI's own statuses (§15), so a script's usage errors read like
 mzs's own. With `{exit: false}`, `parse` writes nothing and raises an `argument` error
-instead, whose `data` is `{flag, reason}`. `flag` is the flag as typed, or `nil` for a
-positional count. `reason` is one of `unknown`, `bad_value`, `needs_value`,
+instead, whose `data` is `{flag, reason}`. `flag` is the flag as typed, the long spelling
+(`--out`) of a required flag that was not given, or `nil` for a positional count. `reason` is one of `unknown`, `bad_value`, `needs_value`,
 `takes_no_value`, `required`, `too_few`, `too_many` and `help`, so a host or a test can
 tell them apart.
 
@@ -4496,7 +4496,7 @@ are no arguments.
 While the change is new, a script that exits with status 2 while one of its arguments
 spells a long mzs flag (`--json`, `--timeout=5`, …) gets one line on stderr after it,
 `mzs: note: --json after the script path is the script's argument, not mzs's; put mzs
-flags before the script`. A short flag does not count, because `-v` or `-n` is as likely
+flags before the script path`. A short flag does not count, because `-v` or `-n` is as likely
 the script's own, and neither does an argument after the script's own `--`.
 
 Exit code: `0` success;

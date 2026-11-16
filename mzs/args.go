@@ -103,6 +103,9 @@ func argsvParse(c *Ctx, args []Value) (Value, error) {
 		return Nil(), c.position(e)
 	}
 	text := sp.text()
+	if err := c.CheckString(len(text)); err != nil {
+		return Nil(), err
+	}
 	if perr.reason == "help" {
 		if err := writeOut(c, c.Out(), text); err != nil {
 			return Nil(), err
@@ -371,6 +374,12 @@ type argProblem struct {
 // parse walks the arguments. Flags and positionals may be mixed; `--` ends the flags.
 func (sp *argSpec) parse(c *Ctx) (Value, *argProblem, error) {
 	if err := c.Step(int64(len(sp.argv)) + 1); err != nil {
+		return Nil(), nil, err
+	}
+	// The positionals and a repeated flag's values are each at most the whole argument
+	// list, so bounding that once bounds every array the result holds. A host may bind a
+	// $ARGV longer than a script could have built.
+	if err := c.CheckCollection(len(sp.argv)); err != nil {
 		return Nil(), nil, err
 	}
 	p := &argParse{vals: map[*argFlag]Value{}, lists: map[*argFlag][]Value{}, seen: map[*argFlag]bool{}}

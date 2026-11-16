@@ -121,8 +121,8 @@ By default `args.parse` writes the message and the usage to stderr and ends the 
 statuses mzs itself uses, so a shell script calling yours can branch on them.
 
 With `{exit: false}` nothing is written. `args.parse` raises an `argument` error instead,
-with data `{flag, reason}`, where `flag` is the flag as typed (or `nil` for a positional
-count). `reason` is one of `unknown`, `bad_value`, `needs_value`, `takes_no_value`,
+with data `{flag, reason}`. `flag` is the flag as typed, the long spelling of a required
+flag that was not given, or `nil` for a positional count. `reason` is one of `unknown`, `bad_value`, `needs_value`, `takes_no_value`,
 `required`, `too_few`, `too_many` and `help`. Together with `argv`, this is how a test
 checks a script's command line without starting a process:
 
@@ -139,7 +139,7 @@ after it, and mzs leaves those alone:
 ```sh
 $ head -1 examples/52_args.mzs
 #!/usr/bin/env mzs
-$ chmod +x examples/52_args.mzs && examples/52_args.mzs --width 640 photo.png
+$ chmod +x examples/52_args.mzs && examples/52_args.mzs --width 640 photo.png | head -2
 would resize 1 file(s) to 640px, quality 0.85
   photo.png → photo_640.png
 ```

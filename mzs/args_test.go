@@ -347,3 +347,27 @@ func TestArgsIsUngated(t *testing.T) {
 		t.Errorf("args.keys = %v, %v", v, err)
 	}
 }
+
+// A host may bind a $ARGV longer than a script could build; the arrays the result holds
+// are bounded by MaxCollection like any other, and the usage text by MaxStringBytes on the
+// exit path as well as in args.usage.
+func TestArgsBounds(t *testing.T) {
+	t.Parallel()
+
+	elems := make([]Value, 50)
+	for i := range elems {
+		elems[i] = Str("x")
+	}
+	in := New(Options{MaxCollection: 10})
+	_, err := in.Eval(context.Background(), "include args\nargs.parse({})", map[string]Value{"$ARGV": Array(elems...)})
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Errorf("50 arguments under MaxCollection 10: err = %v", err)
+	}
+	var errOut bytes.Buffer
+	in = New(Options{MaxStringBytes: 1000, Stderr: &errOut})
+	spec := `{a: {help: "` + strings.Repeat("h", 400) + `"}, b: {help: "` + strings.Repeat("h", 400) + `"}, c: {help: "` + strings.Repeat("h", 400) + `"}}`
+	_, err = in.Eval(context.Background(), "include args\nargs.parse("+spec+")", map[string]Value{"$ARGV": Array(Str("--nope"))})
+	if _, exited := ExitCode(err); exited || err == nil || !strings.Contains(err.Error(), "limit") || errOut.Len() != 0 {
+		t.Errorf("a usage text over MaxStringBytes: err = %v, stderr %d bytes", err, errOut.Len())
+	}
+}

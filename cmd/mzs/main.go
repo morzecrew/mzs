@@ -759,7 +759,7 @@ func flagHint(stderr io.Writer, code int, args []string) {
 		}
 		name, _, _ := splitFlag(a)
 		if slices.Contains(mzsLongFlags, name) {
-			fmt.Fprintf(stderr, "mzs: note: %s after the script path is the script's argument, not mzs's; put mzs flags before the script (mzs %s script.mzs)\n", name, name)
+			fmt.Fprintf(stderr, "mzs: note: %s after the script path is the script's argument, not mzs's; put mzs flags before the script path\n", name)
 			return
 		}
 	}
