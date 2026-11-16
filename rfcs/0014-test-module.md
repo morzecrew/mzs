@@ -131,9 +131,12 @@ normative text, `docs/modules/test.md` and `docs/cli/tools.md` the guides, and
 * **Equal values are near whatever `eps` is.** That is what makes an infinity near itself,
   where `abs(inf - inf)` is NaN. NaN is near nothing, itself included, and a negative or NaN
   `eps` is an `argument` error.
-* **A skip runs `ensure`; fail-fast does not.** A skip leaves its block the way `return`
-  does, so what the case acquired is released. Fail-fast ends the Run, which, like a limit,
-  runs no more script code. Neither is catchable by `try`.
+* **A skip runs `ensure`; the fail-fast stop does not.** A skip leaves its block the way
+  `return` does, so what the case acquired is released. The stop that fail-fast starts once
+  a failure is recorded ends the Run and, like a limit, runs no more script code. The
+  failure itself is an ordinary error, so an `ensure` inside the case around the failing
+  line runs before the case is recorded, as for any error. Neither signal is catchable by
+  `try`.
 * **A filtered-out case answers `nil`**, not `true` or `false`: it has neither passed nor
   failed.
 * **`line` and `col` in `--json` are the case's declaration**, as the RFC's example shows;

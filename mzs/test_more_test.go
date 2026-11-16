@@ -675,3 +675,50 @@ $t.await
 		t.Errorf("Stdout = %q, case Output = %q: the late write went to the closed capture", out.String(), res.Tests[0].Output)
 	}
 }
+
+// Review of #29: a writer kept from outside every case still reaches a case's capture
+// when it is written to inside one.
+func TestAnOutWriterKeptFromOutsideACase(t *testing.T) {
+	var out strings.Builder
+	var kept io.Writer
+	in := New(Options{Stdout: &out, Test: TestOptions{Capture: true}})
+	in.Register("__keep", 0, func(c *Ctx, _ []Value) (Value, error) {
+		kept = c.Out()
+		return Nil(), nil
+	})
+	in.Register("__write", 0, func(c *Ctx, _ []Value) (Value, error) {
+		_, err := io.WriteString(kept, "kept write\n")
+		return Nil(), err
+	})
+	prog, err := in.Compile("t_test.mzs", `
+include test
+__keep()
+test.case("writes") { __write() }
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := in.RunResult(context.Background(), prog, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Tests[0].Output != "kept write\n" || strings.Contains(out.String(), "kept write") {
+		t.Errorf("Output = %q, Stdout = %q: the kept writer bypassed the capture", res.Tests[0].Output, out.String())
+	}
+}
+
+// Review of #29: under fail-fast, an `ensure` inside the failing case runs — the failure is
+// an ordinary error — and nothing after the recorded failure does.
+func TestFailFastRunsTheFailingCasesOwnEnsure(t *testing.T) {
+	_, out, err := runTests(t, `
+include test
+test.case("fails") { try { assert(false) } ensure { println("released") } }
+println("after the stop")
+`, Options{Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast", err)
+	}
+	if !strings.Contains(out.String(), "released") || strings.Contains(out.String(), "after the stop") {
+		t.Errorf("report:\n%s", out)
+	}
+}

@@ -201,7 +201,7 @@ func (c *Ctx) allocCollection(total, added int) error { return c.rs.allocCollect
 // Write, not when Out was called, so a host function that keeps it past the end of its
 // case still reaches the case around it, or Stdout (§12.18).
 func (c *Ctx) Out() io.Writer {
-	if c.rs.testOut == nil {
+	if !c.rs.opts.Test.Capture {
 		return c.rs.opts.out()
 	}
 	return caseWriter{c.rs}

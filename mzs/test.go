@@ -102,7 +102,10 @@ func testFullName(group []string, name string) string {
 // error a script can catch (§8.11): a skip that a `try` swallowed would be a case that
 // went on running after it said it would not, and a fail-fast that a `try` swallowed would
 // not stop anything. An `ensure` does run on the way out of a skip, which is an ordinary
-// way out of a block; under fail-fast the Run ends, so it does not.
+// way out of a block. The stop of fail-fast runs none: it starts once the failure is
+// recorded, and from there no script code runs. The failure itself is an ordinary error,
+// so an `ensure` inside the case around the failing line has run by then, as for any
+// error — the case releases what it took before it is recorded as failed.
 type testSignal struct {
 	skip      bool
 	reason    string
