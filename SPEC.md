@@ -3605,7 +3605,7 @@ path.stem("a/b.tar.gz")          # "b.tar"
 
 | Member | Signature | Semantics | Example |
 |---|---|---|---|
-| `join` | `(*parts: string) -> string` | joined with `/` and cleaned; empty parts are dropped, and joining nothing is `""` | `path.join("a", "b")` |
+| `join` | `(*parts: string) -> string` | joined with `/` and cleaned; empty parts are dropped, and joining nothing is `""`. Built a part at a time, and refused as soon as the cleaned result so far passes `MaxStringBytes` | `path.join("a", "b")` |
 | `dir` | `(p: string) -> string` | everything before the last element, cleaned; `"."` when there is none. The last element goes first, so `dir("a/b/..")` is `"a/b"` | `path.dir("a/b.txt")` |
 | `base` | `(p: string) -> string` | the last element, without trailing `/`s; `"."` for `""` and `"/"` for `"/"` | `path.base("a/b.txt")` |
 | `ext` | `(p: string) -> string` | the last `.suffix` of `base`, with the dot; `""` when there is none or the name's only dot is its first character (`.gitignore`) | `path.ext("b.tar.gz")` |

@@ -266,3 +266,35 @@ func TestPathMatchChargesTheCharacterWork(t *testing.T) {
 		t.Errorf("an ordinary match: %v", err)
 	}
 }
+
+// A join is bounded on the way, not only at the end: a splat of many references to one
+// long string is refused once the running result passes the limit, without first
+// building their whole concatenation.
+func TestPathJoinBoundsTheIntermediate(t *testing.T) {
+	t.Parallel()
+
+	in := New(Options{MaxStringBytes: 1 << 20, Timeout: 10 * time.Second})
+	start := time.Now()
+	_, err := in.Eval(context.Background(), `include path
+big = "a" * 600_000
+path.join(*([big] * 1000))`, nil)
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Errorf("err = %v; want the string limit", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %v", d)
+	}
+	// Parts that clean away keep the running result small, so many of them still join.
+	got, err := evalPath(t, `path.join(*(["a/b", ".."] * 500), "c")`)
+	if want := `"` + strings.Repeat("a/", 500) + `c"`; err != nil || got != want {
+		t.Errorf("join of parts that clean away = %.40s… (%v)", got, err)
+	}
+	// Joining one part at a time gives what one join of them all gives.
+	for _, parts := range []string{`"a", "b/../c", "./d"`, `"/", "x", "..", "..", "y"`, `"../a", "../../b"`, `"a/", "", "/b/"`} {
+		one, err1 := evalPath(t, "path.join("+parts+")")
+		all, err2 := evalPath(t, "path.clean(["+parts+"].filter { it != \"\" }.join(\"/\"))")
+		if err1 != nil || err2 != nil || one != all {
+			t.Errorf("join(%s) = %s, clean of the joined parts = %s (%v %v)", parts, one, all, err1, err2)
+		}
+	}
+}

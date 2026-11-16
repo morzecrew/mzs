@@ -210,7 +210,10 @@ settled as follows.
   cleaning, so `dir("a/b/")` is `"a"` — the element `base` drops — and `dir("a/b/..")` is
   `"a/b"`. `ext` of `a.` is `"."`, of `.` and `..` is `""`. `split` of a rooted path starts
   with the element `"/"`, so `join(*split(p)) == clean(p)`, and `split(".")` is `[]`.
-  `join()` and `join("", "")` are `""`. `rel` is `nil` when one side is rooted and the other
+  `join()` and `join("", "")` are `""`. `join` cleans as it goes, one part at a time, and
+  holds the running result to `MaxStringBytes`, so a splat of many references to one long
+  string is refused without first building their whole concatenation; a result that
+  passes the limit midway is refused even if a later `..` would have shortened it. `rel` is `nil` when one side is rooted and the other
   is not, or when `base` climbs with `..` past what `p` shares with it.
 * **`path.match`** matches the name as written, not cleaned, so a directory from `io.walk`
   (`src/lib/`) ends in an empty element that `**` matches and `*.mzs` does not. A malformed

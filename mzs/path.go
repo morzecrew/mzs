@@ -35,22 +35,37 @@ func init() {
 // pathvJoin is `path.join(*parts)`: the parts joined with `/` and cleaned, empty parts
 // dropped. Joining nothing, or only empty parts, is "" — there is no name to clean.
 func pathvJoin(c *Ctx, args []Value) (Value, error) {
-	parts := make([]string, 0, len(args))
+	// The parts are joined one at a time, cleaning as it goes — Clean(Clean(a/b)/c) is
+	// Clean(a/b/c), so the answer is the same — and the running result is held to
+	// MaxStringBytes after each step. That bounds every intermediate by two strings under
+	// the limit, where joining all the parts at once would first build their whole
+	// concatenation: a thousand splatted references to one large string would allocate a
+	// thousand times its size before any check could run. Each step is charged for the
+	// bytes it copies. The limit is on the cleaned result, so a doubled `/` cleaning removes
+	// does not count against it; a running result over the limit is refused even if a
+	// later `..` would have brought it back under.
 	for _, a := range args {
-		s, err := argStr(c, a)
-		if err != nil {
+		if _, err := argStr(c, a); err != nil {
 			return Nil(), err
 		}
-		if s != "" {
-			parts = append(parts, s)
-		}
 	}
-	// The limit is on what the script gets back, which is the cleaned join: a doubled `/`
-	// or a `..` that cleaning removes is not part of it. The concatenation along the way is
-	// bounded by the arguments, each already a string under the limit.
-	joined := path.Join(parts...)
-	if err := c.CheckString(len(joined)); err != nil {
-		return Nil(), err
+	joined := ""
+	for _, a := range args {
+		s := a.Str()
+		if s == "" {
+			continue
+		}
+		if err := c.Step(int64(len(joined)+len(s))/64 + 1); err != nil {
+			return Nil(), err
+		}
+		if joined == "" {
+			joined = path.Clean(s)
+		} else {
+			joined = path.Join(joined, s)
+		}
+		if err := c.CheckString(len(joined)); err != nil {
+			return Nil(), err
+		}
 	}
 	return Str(joined), nil
 }

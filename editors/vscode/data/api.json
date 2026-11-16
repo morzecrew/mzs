@@ -2016,7 +2016,7 @@
    },
    "join": {
     "sig": "`(*parts: string) -> string`",
-    "sem": "joined with `/` and cleaned; empty parts are dropped, and joining nothing is `\"\"`",
+    "sem": "joined with `/` and cleaned; empty parts are dropped, and joining nothing is `\"\"`. Built a part at a time, and refused as soon as the cleaned result so far passes `MaxStringBytes`",
     "ex": "`path.join(\"a\", \"b\")`"
    },
    "match": {
