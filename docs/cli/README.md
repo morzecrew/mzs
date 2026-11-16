@@ -4,7 +4,7 @@ Every flag the `mzs` binary accepts, what it prints, and what it exits with.
 
 ```sh
 mzs [flags] script.mzs [args...]
-mzs [flags] -e '<source>' ...
+mzs [flags] -e '<source>' [args...]
 cat script.mzs | mzs -
 cat data | mzs -n -e '<source>'
 mzs                      # REPL, when stdin is a terminal
@@ -17,7 +17,7 @@ page of their own: [tools.md](./tools.md). Everything below is the `mzs` command
 
 | Flag | Meaning |
 |---|---|
-| `-e, --eval <src>` | evaluate `<src>`; repeatable, joined with newlines; excludes a script file |
+| `-e, --eval <src>` | evaluate `<src>`; repeatable, joined with newlines; the first positional after it starts `$ARGV` instead of naming a file |
 | `-p, --print` | print the last expression's value (already the default with `-e`) |
 | `--no-print` | never print the value |
 | `--json` | print the value as JSON instead of `str` |
@@ -111,7 +111,8 @@ mzs -e 'exit(7)'; echo $?          # 7
 
 ## `$ARGV`
 
-Positional arguments after a script file arrive as an array of strings.
+mzs reads its own flags only **before** the script path. Every argument after the script
+path is the script's, flags included, and arrives as an array of strings.
 
 ```sh
 $ cat argv.mzs
@@ -124,7 +125,25 @@ count: 2
 ```
 
 `$ARGV` is unbound — and so `nil` — when there are no arguments; `($ARGV ?? []).len` is the
-safe spelling. Use `--` to pass an argument that starts with `-`.
+safe spelling.
+
+```sh
+mzs resize.mzs --width 800 in.png       # $ARGV == ["--width", "800", "in.png"]
+mzs --json report.mzs                   # --json is mzs's: it comes before the script
+mzs report.mzs --json                   # --json is the script's
+mzs -e '$ARGV' --json a b               # with -e, the first positional starts $ARGV
+```
+
+A `--` **right after** the script path is dropped, so command lines written when mzs still
+read flags anywhere keep working: `mzs s.mzs -- --width 800` gives `["--width", "800"]`. A
+`--` anywhere later reaches the script, where it ends the script's own flags:
+`mzs s.mzs a -- b` gives `["a", "--", "b"]`. The [`args`](../modules/args.md) module turns
+`$ARGV` into typed flags with a `--help` of their own.
+
+If a script exits with status 2 while an argument after it spells a long mzs flag, the
+CLI adds one line saying where that flag went: `mzs: note: --json after the script path is
+the script's argument, not mzs's; …`. It marks command lines written for the old
+behaviour.
 
 ## Worked examples
 

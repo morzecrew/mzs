@@ -28,7 +28,7 @@ points back to, plus the defects that need a fix rather than a design.
 | [0014](0014-test-module.md) | `test` grows up: `raises`, `near`, `skip`, `group`, and runner flags — **landed** (#29) | stdlib, CLI | M | P1 |
 | [0015](0015-path-and-io.md) | The `path` module, and `io.stat` / `rm` / `mkdir` / `mv` / `walk` — **landed** (#30) | stdlib | M | P2 |
 | [0016](0016-stdlib-completion.md) | Standard-library completion: the rows that are conspicuously absent | stdlib | M | P2 |
-| [0017](0017-args-module.md) | The `args` module: declared command-line flags | stdlib | S | P2 |
+| [0017](0017-args-module.md) | The `args` module: declared command-line flags — **landed** (#31) | stdlib | S | P2 |
 | [0018](0018-big-integers.md) | `big` — integers past 2⁶³ | stdlib | M | P3 |
 | [0019](0019-tooling.md) | Tooling: lint, doc comments, coverage, profile, and the rest of the LSP | tools | L | P2 |
 | [0020](0020-library-manifest.md) | A library manifest and `mzs get` | tools | L | P3 |
@@ -82,5 +82,6 @@ Status · Area · Depends on
 Statuses: **Draft** (written, not agreed) → **Accepted** (agreed, not built) → **Landed**
 (in `SPEC.md`; the RFC then only records the reasoning). Every RFC in this directory is a
 **Draft** except 0011, which has landed (#19) with one piece left, and 0009 (#20), 0012
-(#21), 0008 (#22), 0001 (#23) and 0002 (#24, #25), which have landed; their *As landed*
-sections record what the implementation decided.
+(#21), 0008 (#22), 0001 (#23), 0002 (#24, #25), 0003 (#26, #27), 0013 (#28), 0014 (#29),
+0015 (#30) and 0017 (#31), which have landed; their *As landed* sections record what the
+implementation decided.

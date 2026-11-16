@@ -19,6 +19,15 @@ and the release is still ahead of it.
 
 ### Added
 
+- **The `args` module.** `include args` gives a script command-line flags of its own,
+  declared in one dict: `args.parse({width: 800, force: {default: false, short: "f"}})`.
+  The kind of each default decides the conversion: int, float, string, bool with
+  `--no-x`, an array for a repeated flag, or `nil` for an optional string. Short flags
+  combine, `--` ends the flags, and `--help` prints a usage built from the same dict, which
+  `args.usage` also returns. A usage error writes the message, with the near miss, and the
+  usage to stderr and exits 2. With `{exit: false}` it raises an `argument` error with
+  `data: {flag, reason}` instead. The module reads `$ARGV` and needs no host option (SPEC
+  §12.21, RFC 0017).
 - **The `path` module, and the rest of `io`.** `include path` takes file names apart and
   puts them together — `join`, `dir`, `base`, `ext`, `stem`, `clean`, `split`, `rel`,
   `is_abs` and `match`, a shell glob whose `**` crosses directories. It is lexical and
@@ -158,6 +167,16 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **Everything after the script path is the script's** — a deliberate break (SPEC §21.4).
+  `mzs` used to read its own flags anywhere on the command line, so `mzs resize.mzs --width
+  800` failed with `unknown flag --width` and `mzs s.mzs --json` turned on mzs's `--json`.
+  Now mzs reads flags only before the script path, and everything after it reaches the
+  script as `$ARGV`, as in every other interpreter. With `-e`, the first positional starts
+  `$ARGV` instead of being refused as a script file. A `--` right after the script path is
+  still dropped, so `mzs s.mzs -- --width 800` gives the script what it gave before. A `--`
+  further along now reaches the script: `mzs s.mzs a -- b` gives `["a", "--", "b"]`. A
+  script that exits 2 while an argument after it spells a long mzs flag gets a one-line
+  note saying where the flag went. Put mzs's flags before the script: `mzs --json s.mzs`.
 - **A CLI flag that takes no value refuses one** — a deliberate break (SPEC §21.4). `mzs` and
   `mzs test` used to accept `--no-io=false` or `--fail-fast=no` and act on the flag,
   ignoring what followed the `=`, which is the opposite of what was typed. Such a command is

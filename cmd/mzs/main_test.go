@@ -780,6 +780,29 @@ func TestExamples(t *testing.T) {
 			errHas:   []string{"io.rm needs the host to allow structural changes", "(mzs without --read-only)"},
 		},
 		{
+			name: "52 args: the script's own flags",
+			argv: []string{path("52_args.mzs"), "--width", "640", "-fq", "0.5", "--tag", "web", "photo.png"},
+			contains: []string{
+				"would resize 1 file(s) to 640px, quality 0.5",
+				"photo.png → photo_640.png (overwriting)  tags: web",
+				"--width=1_024 --no-dry-run a.png     → width 1024, dry run false",
+				`-q fast a.png                        → bad_value: flag -q is a number, got "fast"`,
+				"--widht 9 a.png                      → unknown: unknown flag --widht (did you mean --width?)",
+				"(nothing)                            → too_few: expected at least 1 argument, got 0",
+			},
+		},
+		{
+			name:     "52 args: --help is the usage on stdout",
+			argv:     []string{path("52_args.mzs"), "--help"},
+			contains: []string{"usage: 52_args.mzs [flags] <image>…", "      --[no-]dry-run      only say what would happen (default true)"},
+		},
+		{
+			name:     "52 args: a typo is a usage error, with the near miss",
+			argv:     []string{path("52_args.mzs"), "--widht", "640", "photo.png"},
+			wantCode: exitUsage,
+			errHas:   []string{"52_args.mzs: unknown flag --widht (did you mean --width?)", "usage: 52_args.mzs [flags] <image>…"},
+		},
+		{
 			name:     "--net is gone and says so",
 			argv:     []string{"--net", "--check", path("30_http_service.mzs")},
 			wantCode: exitUsage,

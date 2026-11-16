@@ -1,6 +1,6 @@
 # RFC 0017 — The `args` module: declared command-line flags
 
-**Status:** Draft · **Area:** stdlib, CLI · **Depends on:** 0012 (usage errors go to stderr) · **Audit:** S9, B8
+**Status:** Landed (#31) · **Area:** stdlib, CLI · **Depends on:** 0012 (usage errors go to stderr) · **Audit:** S9, B8
 
 ## Summary
 
@@ -140,3 +140,56 @@ receives what it was always meant to.
 `mzs/args.go`, registration in `mzs/module.go`, SPEC §12.8 table, a new §12.x, §15,
 `docs/modules/args.md`, `docs/cli/README.md`, apidoc, and an example script with a
 shebang.
+
+## As landed
+
+Both halves landed in one PR (#31):
+- the CLI boundary in `cmd/mzs/main.go`;
+- the module in `mzs/args.go`;
+- SPEC §12.8, a new §12.21 and §15;
+- `docs/modules/args.md` and the CLI page;
+- apidoc;
+- `examples/52_args.mzs`, which has a shebang line.
+
+The open questions, and the points the Design left open, were settled as follows.
+
+* **Open question 1, environment fallbacks:** deferred. `{env: "WIDTH"}` would couple
+  `args` to `Options.Env`, and a module that reads only `$ARGV` needs no gate. A script
+  that wants one writes `opt["width"] ?? …` after `include io`.
+* **Open question 2, a record result:** no, as proposed. The result is a plain dict in spec
+  order with `rest` last, so `{width, out} = opt` (RFC 0002) takes it apart.
+* **The program name.** An error line starts with `name:`. `name` is an option, and it
+  defaults to the first word of `usage`. With neither, the message stands alone. The
+  module cannot see the script's file name, because `$ARGV` is all it reads.
+* **The usage text** is the synopsis, then `flags:` and one aligned row per flag,
+  `-h, --help` first:
+  - the placeholder is `<int>`, `<number>` or `<string>`;
+  - a bool whose default is `true` shows as `--[no-]x`;
+  - the default is noted when it says something: not for `false`, `nil` or `""`.
+
+  A usage error prints all of it to stderr after the message, as Go's `flag` package does.
+* **Mixing positionals and flags** is allowed: `resize a.png --width 640 b.png`. A
+  non-bool flag takes the next argument whatever it looks like, so `--width -5` works. A
+  positional that starts with `-` goes after `--`.
+* **Short clusters.** Every short but the last is a bool. The last may take a value:
+  - attached, `-q0.5`;
+  - attached with `=`, `-q=0.5`;
+  - as the next argument, `-fq 0.5`.
+* **A flag given twice** keeps the last value. An array-default flag collects every value,
+  and its default is used only when the flag never appears.
+* **Spec keys** are letters, digits and `_`, starting with a letter. `rest` and `help` are
+  refused, and so is `short: "h"`. A mistake in the spec or the options is an ordinary
+  `argument` or `type` error whatever `exit` says, because nobody at the command line can
+  fix it.
+* **`{exit: false}`** raises kind `argument` with data `{flag, reason}`. `reason` is one
+  of `unknown`, `bad_value`, `needs_value`, `takes_no_value`, `required`, `too_few`,
+  `too_many` and `help`, and `--help` raises too, with reason `help`. Nothing is written in
+  this mode.
+* **The near miss** for an unknown long flag comes from the spec keys at edit distance 1,
+  the same search §17 uses. The rename table is not consulted, because `--size` suggesting
+  `--len` would be nonsense.
+* **The transition hint** counts only long flags. `-v` and `-n` are as likely the script's
+  own as mzs's, and a hint for them would misfire on every script that exits 2 for its own
+  reasons. An argument after the script's own `--` does not count either.
+* **`-e` and a script file** are no longer "mutually exclusive". After `-e`, the first
+  positional starts `$ARGV`, so that error cannot be reached and is gone.

@@ -2804,6 +2804,7 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `test` | `case eq ne near raises skip group` | see §12.18 | no host option |
 | `csv` | `parse rows str line` | see §12.19 | no host option |
 | `path` | `join dir base ext stem clean split rel is_abs match` | see §12.20 | no host option |
+| `args` | `parse usage` | see §12.21 | no host option; reads `$ARGV` |
 
 Encoding to JSON is the §12.1 function, written `x.json` wherever the module is included,
 so `json.parse` and `x.json` are the two halves of the pair and no `generate` member is
@@ -3632,6 +3633,82 @@ reached as `path.match(…)`, which `MethodName` admits (§4).
 `io.walk(dir).filter { path.match("**/*.mzs", it) }` is the glob, lazily; there is no
 `io.glob`.
 
+### 12.21 The `args` module
+
+`args` turns `$ARGV` (§15) into a dict of typed flags, from one dict that declares them,
+and prints `--help` from the same dict. It reads `$ARGV` and nothing else, so it needs no
+host option. A host that binds no `$ARGV` gets the defaults back.
+
+```
+include args
+opt = args.parse({
+  width:   {default: 800, help: "target width in pixels"},
+  quality: {default: 0.85, short: "q"},
+  force:   {default: false, short: "f"},
+  tag:     [],
+}, {usage: "resize [flags] <file>…", min: 1})
+opt["width"]            # 800, or what --width said, as an int
+opt["rest"]             # the positionals
+```
+
+| Member | Signature | Semantics | Example |
+|---|---|---|---|
+| `parse` | `(spec: dict, opts: dict = {}) -> dict` | parses `$ARGV`, or `opts["argv"]`, against `spec`. The result has every flag by its spec key, in spec order, then `rest`, the positionals | `args.parse({n: 1})["n"]` |
+| `usage` | `(spec: dict, opts: dict = {}) -> string` | the text `--help` prints | `eprint(args.usage(spec))` |
+
+**The spec.** Each key is a flag, letters, digits and `_` starting with a letter. On the
+command line `_` is written `-`, so `dry_run` is `--dry-run`. `rest` and `help` cannot be
+flags. The value is the flag's entry, a dict with any of `default`, `help` (a string),
+`short` (one letter or digit, not `h`) and `required` (a bool). Any other value is
+shorthand for `{default: value}`, so `{width: 800, force: false}` is a whole spec. The
+**kind of the default decides the conversion**:
+
+| Default | On the command line | Value |
+|---|---|---|
+| `false` / `true` | `--force`, `--no-force`, `--force=true`, `--force=false` | bool |
+| an int | `--width 800`, `--width=800` | int, read as `parse_int` reads it (§12.7) |
+| a float | `--quality 0.5` | float, read as `parse_float` reads it |
+| a string | `--name x` | string |
+| an array of strings | `--tag a --tag b`, each occurrence appended | array of strings; the default when the flag is absent |
+| `nil`, or no default | `--out x` | string, or `nil` when absent |
+
+A `required` flag has no default, takes a string, and its absence is a usage error. Any
+other default kind is a `type` error. A mistake in the spec or the options, such as an
+unknown key, a duplicate `short` or a bad kind, is an ordinary error of the script's,
+`argument` or `type`. The person at the command line cannot fix it, so `exit` (below) does
+not apply to it.
+
+**The command line.** Flags and positionals may be mixed, and `--` ends the flags. A
+non-bool flag takes the next argument as its value whatever it looks like, so
+`--width -5` and `--out --x` work. A positional that starts with `-` is written after
+`--`. A short bool combines with the ones after it (`-fv`); the last short in a cluster
+may take a value, attached (`-q0.5`, `-q=0.5`) or as the next argument. A flag given twice
+keeps the last value, except a repeated flag, which collects them all. `-h` and `--help`
+are always there.
+
+**The options.** `argv` (an array of strings, in place of `$ARGV`), `usage` (the synopsis
+after `usage: `), `name` (the program name that starts an error line; by default the first
+word of `usage`), `min` and `max` (how many positionals), and `exit` (default `true`). An
+unknown option is an `argument` error with the near miss, as in csv (§12.19).
+
+**Failure.** A usage error is an unknown flag (with the near miss: `unknown flag --widht
+(did you mean --width?)`), a value that does not convert, a flag missing its value, a
+value given to `--no-x`, an absent required flag, or a positional count outside
+`min`..`max`. By default `parse` writes `name: message`, then the usage, to stderr and
+ends the Run with `exit(2)`; `--help` writes the usage to stdout and ends it with
+`exit(0)`. Those are the CLI's own statuses (§15), so a script's usage errors read like
+mzs's own. With `{exit: false}`, `parse` writes nothing and raises an `argument` error
+instead, whose `data` is `{flag, reason}`. `flag` is the flag as typed, or `nil` for a
+positional count. `reason` is one of `unknown`, `bad_value`, `needs_value`,
+`takes_no_value`, `required`, `too_few`, `too_many` and `help`, so a host or a test can
+tell them apart.
+
+**The usage text** is the synopsis (`usage: <usage>`, or `usage: <name> [flags]` when
+only a name is known), then `flags:` and one aligned row per flag, `-h, --help` first. A
+row shows the short, the long spelling with `<int>`, `<number>` or `<string>` for a flag
+that takes a value, `--[no-]x` for a bool whose default is `true`, and then the help text
+and the default.
+
 ## 13. Go API
 
 Import path `mzs` (module root). Everything below is the **normative public surface** for
@@ -4257,7 +4334,7 @@ on the AST node (inline cache keyed by receiver kind).
 
 ```
 mzs [flags] [file.mzs] [args...]
-mzs -e '<source>'
+mzs [flags] -e '<source>' [args...]
 cat script.mzs | mzs -
 cat data | mzs -n -e '<source>'
 
@@ -4272,7 +4349,7 @@ file is `fmt.mzs`, not `fmt`.
 
 | Flag | Meaning |
 |---|---|
-| `-e <src>` | evaluate `<src>`; may be repeated (joined with `\n`); mutually exclusive with a file |
+| `-e <src>` | evaluate `<src>`; may be repeated (joined with `\n`); the first positional after it starts `$ARGV` rather than naming a file |
 | `-p` | print the value of the last expression (default **on** for `-e`, off for a file) |
 | `--json` | print the result as JSON instead of `str`; a `seq` is the one value with no JSON form, and the CLI says so and exits 1 (§12.14) |
 | `-n` | run the program once per line of the data stream; the line is `$_` |
@@ -4401,7 +4478,28 @@ mzs -n --in access.log --bool -e '$_ ~ /ERROR/' && notify
   there is nothing left to read, and `--in` is the answer. So is `-n` with no program at
   all — there is no REPL to fall back to when the flag says "run this for every line".
 
-`args...` are exposed to the script as the array `$ARGV` (strings). Exit code: `0` success;
+**Everything after the script path is the script's.** mzs reads its own flags only
+before the first positional argument. That argument is the script path, a file or `-` for
+stdin, and every argument after it reaches the script untouched as the array `$ARGV`
+(strings), flags included: `mzs resize.mzs --width 800 in.png` gives
+`["--width", "800", "in.png"]`, and `mzs s.mzs --json` hands `--json` to the script. With
+`-e` there is no script path, so the first positional starts `$ARGV`, except a lone `-`,
+which is still the script path and is dropped. A `--` before the script path ends mzs's
+flags, as usual. A `--` **immediately** after the script path is dropped, because that is
+how a script that takes flags was invoked when mzs still read flags anywhere: `mzs s.mzs --
+--width 800` gives `["--width", "800"]`. It is dropped only when no `--` before the script
+path already ended mzs's flags, so `mzs -- s.mzs -- --width` gives `["--", "--width"]`. A
+`--` further along reaches the script, which is what the `args` module (§12.21) needs:
+`mzs s.mzs foo -- bar` gives `["foo", "--", "bar"]`. `$ARGV` is unbound, so `nil`, when there
+are no arguments.
+
+While the change is new, a script that exits with status 2 while one of its arguments
+spells a long mzs flag (`--json`, `--timeout=5`, …) gets one line on stderr after it,
+`mzs: note: --json after the script path is the script's argument, not mzs's; put mzs
+flags before the script`. A short flag does not count, because `-v` or `-n` is as likely
+the script's own, and neither does an argument after the script's own `--`.
+
+Exit code: `0` success;
 `1` script error or `--check` failure; `2` CLI usage error; `3` timeout/budget. A script
 that calls `exit(n)` (§12.1) sets the status itself: the CLI prints nothing for it, and in
 `-n` mode the lines after it are never read.
