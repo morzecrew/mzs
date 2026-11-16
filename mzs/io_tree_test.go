@@ -119,8 +119,11 @@ func (t *treeFS) Lstat(name string) (bool, int64, bool, bool, error) {
 
 // Create puts a new file in its directory's listing, as a real one would.
 func (t *treeFS) Create(name string) (io.WriteCloser, error) {
-	t.addEntry(name)
-	return t.memFS.Create(name)
+	w, err := t.memFS.Create(name)
+	if err == nil {
+		t.addEntry(name)
+	}
+	return w, err
 }
 
 func (t *treeFS) Remove(name string) error {
@@ -154,10 +157,14 @@ func (t *treeFS) MkdirAll(name string) error {
 	if t.fail != nil {
 		return t.fail
 	}
-	if hasKey(t.files, name) {
-		return errors.New("not a directory")
-	}
+	// Every prefix must be a directory or nothing, as on a real filesystem: a file in
+	// the way of any of them is ENOTDIR, before anything is created.
 	parts := strings.Split(name, "/")
+	for i := range parts {
+		if hasKey(t.files, strings.Join(parts[:i+1], "/")) {
+			return errors.New("not a directory")
+		}
+	}
 	for i := range parts {
 		t.dir(strings.Join(parts[:i+1], "/"))
 	}
@@ -502,6 +509,9 @@ func TestIOMkdirAndMv(t *testing.T) {
 	if got := mustEvalIO(t, o, `try io.mkdir("a.txt") else (e) -> e["message"]`); got != `io.mkdir "a.txt": not a directory` {
 		t.Errorf("mkdir over a file = %s", got)
 	}
+	if got := mustEvalIO(t, o, `try io.mkdir("a.txt/child") else (e) -> e["message"]`); got != `io.mkdir "a.txt/child": not a directory` {
+		t.Errorf("mkdir under a file = %s", got)
+	}
 	if got := mustEvalIO(t, o, `try io.mv("nope", "x") else (e) -> e["message"]`); !strings.HasPrefix(got, `io.mv "nope" "x": rename nope`) {
 		t.Errorf("mv of nothing = %s", got)
 	}
@@ -693,5 +703,22 @@ func TestIOWalkPathsAreBounded(t *testing.T) {
 	o.MaxStringBytes = 5
 	if _, err := evalIO(t, o, `io.walk.array.len`); err == nil || !strings.Contains(err.Error(), "exceeds the 5 byte limit") {
 		t.Errorf("a directory one byte over with its slash: err = %v", err)
+	}
+}
+
+// The names a walk holds are bounded down the whole branch it is in, not per directory:
+// every ancestor keeps its listing while the walk is below it.
+func TestIOWalkBoundsTheNamesItHolds(t *testing.T) {
+	t.Parallel()
+
+	fs := newTreeFS().dir("a").file("a/1", "").file("a/2", "").dir("a/b").file("a/b/3", "").file("a/b/4", "")
+	o := treeOpts(fs)
+	o.MaxCollection = 4 // "." holds 1, a/ holds 3, a/b/ would make it 6
+	if _, err := evalIO(t, o, `io.walk.array.len`); err == nil {
+		t.Error("a branch holding more names than MaxCollection was walked")
+	}
+	o.MaxCollection = 6
+	if got := mustEvalIO(t, o, `io.walk.array.len`); got != "6" {
+		t.Errorf("walk under a bound it fits = %s", got)
 	}
 }

@@ -334,3 +334,29 @@ func TestExportOutsideAModuleIsHarmless(t *testing.T) {
 		t.Fatalf("got %q; want 7", v.Str())
 	}
 }
+
+// A module is a dict a script may write to, and the table behind a built-in one is shared
+// by every interpreter in the process, as a host module is by every Run of its Interp.
+// Each include gets a copy, so a write stays in the Run that made it.
+func TestModuleWritesStayInTheirRun(t *testing.T) {
+	t.Parallel()
+
+	if _, err := New(Options{}).Eval(context.Background(), `include json; json["parse"] = 1; 0`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := New(Options{}).Eval(context.Background(), `include json; json.parse("[1]").len`, nil); err != nil || v.Inspect() != "1" {
+		t.Errorf("another interpreter after the write: %v %v", v, err)
+	}
+	in := New(Options{})
+	in.RegisterModule("cfg", map[string]Value{"mode": Str("prod")})
+	if _, err := in.Eval(context.Background(), `include cfg; cfg["mode"] = "hacked"; 0`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := in.Eval(context.Background(), `include cfg; cfg.mode`, nil); err != nil || v.Inspect() != `"prod"` {
+		t.Errorf("the next Run of the same Interp: %v %v", v, err)
+	}
+	// Within one Run the write is the script's own to see.
+	if v, err := New(Options{}).Eval(context.Background(), `include json; json["x"] = 2; json["x"]`, nil); err != nil || v.Inspect() != "2" {
+		t.Errorf("the writing Run: %v %v", v, err)
+	}
+}

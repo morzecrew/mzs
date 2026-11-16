@@ -148,6 +148,14 @@ and the release is still ahead of it.
   checks that `mzs --version`, the newest version section here and every version README and
   `docs/` print are one string.
 
+### Fixed
+
+- **A write into a module stays in the Run that made it.** A module is a dict a script may
+  write to, and `include` handed every interpreter in the process the same built-in table:
+  `json["parse"] = 1` in one Run broke `json.parse` in every interpreter after it, and a
+  write into a host module (`RegisterModule`) stayed for the next Run of that `Interp`.
+  Each `include` now gets its own copy (SPEC §14.3).
+
 ### Changed
 
 - **A CLI flag that takes no value refuses one** — a deliberate break (SPEC §21.4). `mzs` and

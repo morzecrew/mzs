@@ -4223,6 +4223,11 @@ A host that evaluates expressions it did not write — a condition out of a dial
 (§19) — calls `Unregister("http")`, and then a script cannot even name it. Every other
 sandbox rule, and every limit in §14.1–14.2, applies to `http` unchanged.
 
+A module is a dict, and a script may write into it — `json["parse"] = 1` — but never into
+anyone else's: each `include` binds a copy of its own, of a built-in module and of one a
+host registered alike, so what one Run writes is gone for every other Run and every other
+interpreter in the process.
+
 There is no `eval` builtin: a script cannot compile new source at runtime.
 
 ### 14.4 Performance targets

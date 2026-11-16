@@ -252,9 +252,9 @@ type moduleDef struct {
 	memberGates map[string]func(o *Options) string
 	gateOrder   []string
 
-	// variants caches the dict for each combination of closed member gates, so a module
-	// with member gates is still one shared, read-only dict per combination — and so the
-	// evaluator can tell the built-in module from a script module that took its name.
+	// variants caches the members for each combination of closed member gates, so the
+	// filtering is done once per combination. What a script gets is always a copy
+	// (LookupModule).
 	mu       sync.Mutex
 	variants map[uint64]*OrderedDict
 }
@@ -348,20 +348,7 @@ func isBuiltinModuleDict(module string, v Value) bool {
 		return false
 	}
 	od, ok := v.p.(*OrderedDict)
-	if !ok {
-		return false
-	}
-	if od == d.members {
-		return true
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, m := range d.variants {
-		if m == od {
-			return true
-		}
-	}
-	return false
+	return ok && od != nil && od.module == d.name
 }
 
 // membersUnder is the module's dict under o: every member, less those whose gate is
@@ -428,7 +415,13 @@ func LookupModule(name string, o *Options) (Value, bool) {
 	if d.gate.NeedsFS && o.FS == nil {
 		return Nil(), false
 	}
-	return dictOf(d.membersUnder(o)), true
+	// Every include gets a copy of its own. The table behind it is shared by every
+	// interpreter in the process, and a module is a dict a script can write to: handing
+	// the table itself over let `json["parse"] = 1` in one Run break json.parse in every
+	// other interpreter that came after it (§14.3).
+	m := d.membersUnder(o).Clone()
+	m.module = name
+	return dictOf(m), true
 }
 
 // ModuleNames lists the built-in modules available under o, sorted.

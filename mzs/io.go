@@ -624,6 +624,10 @@ func walkSeq(fs FileSystem, ls LinkStater, root string) *Seq {
 			stack   []*walkFrame
 			started bool
 			done    bool
+			// held is how many names the open directories hold between them. A walk
+			// keeps each ancestor's listing while it is inside a child, so the bound that
+			// matters is the sum down the current branch, not one directory's count.
+			held int
 		)
 		fail := func(err error) (Value, bool, error) {
 			done = true
@@ -670,13 +674,15 @@ func walkSeq(fs FileSystem, ls LinkStater, root string) *Seq {
 					if lerr != nil {
 						return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: %v", quoteString(top.dir), lerr))
 					}
-					if err := c.CheckCollection(len(names)); err != nil {
+					if err := c.CheckCollection(held + len(names)); err != nil {
 						return fail(err)
 					}
+					held += len(names)
 					sort.Strings(names)
 					top.names = names
 				}
 				if top.at >= len(top.names) {
+					held -= len(top.names)
 					stack = stack[:len(stack)-1]
 					continue
 				}

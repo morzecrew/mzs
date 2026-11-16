@@ -59,7 +59,8 @@ $ mzs -e 'include path; [path.ext(".gitignore"), path.ext("a/.profile.bak")]' --
 ### split and join
 
 `split` is the elements of the cleaned path, with a rooted path starting at `"/"`, so
-`path.join(*path.split(p))` is `path.clean(p)`:
+`path.join(*path.split(p))` is `path.clean(p)` — for every `p` but `.`, whose split is `[]`
+and whose join of nothing is `""`:
 
 ```sh
 $ mzs -e 'include path; path.split("/usr/local/bin")' --json

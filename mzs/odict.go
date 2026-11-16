@@ -59,6 +59,12 @@ type OrderedDict struct {
 	// hand and one bound by a handler are the same value with the same behaviour.
 	src *Error
 
+	// module names the built-in module this dict is the copy of, on the dict LookupModule
+	// hands out and on no other. Like src it is provenance: Clone does not carry it, so a
+	// script's `{**io}` is a plain dict, and only the evaluator reads it — to tell the
+	// built-in module from a script module that took its name (§12.13).
+	module string
+
 	// rec is the record this dict was built by (§7.8), or nil for an ordinary dict. It
 	// is a label rather than an entry, so equality, hashing, JSON, `keys` and iteration
 	// all go on seeing a plain dict; `type(m)`, `m.field` and a `match Money ->` arm are

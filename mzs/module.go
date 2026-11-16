@@ -188,6 +188,11 @@ func lookupIncludable(in *Interp, name string) (Value, bool) {
 		return Nil(), false
 	}
 	if mv, ok := in.hostModule(name); ok {
+		// A host module outlives the Run, so it is copied for the same reason a built-in
+		// one is: what one Run writes into it must not be there for the next.
+		if od, ok := mv.p.(*OrderedDict); ok {
+			return dictOf(od.Clone()), true
+		}
 		return mv, true
 	}
 	return LookupModule(name, &in.opts)
