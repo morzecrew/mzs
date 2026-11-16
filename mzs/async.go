@@ -423,6 +423,11 @@ func (rs *runState) reportUnawaited() {
 		if x := asError(t.err); x != nil && x.Kind == ErrKindLimit {
 			continue
 		}
+		if _, ok := testSignalOf(t.err); ok {
+			// A task stopped by fail-fast, or one that skipped the rest of the file, did
+			// not fail: the report already says why it ended (§12.18).
+			continue
+		}
 		fmt.Fprintf(rs.opts.errOut(), "mzs: task '%s' failed and was never awaited: %v\n",
 			t.name, t.err)
 	}

@@ -368,3 +368,24 @@ func TestNearComparesIntsExactly(t *testing.T) {
 		}
 	}
 }
+
+// Review of #29: a task still running when fail-fast stops the Run is drained, but it
+// starts no case, and its being stopped is not reported as a failure.
+func TestFailFastStopsADrainingTask(t *testing.T) {
+	var errOut strings.Builder
+	res, _, err := runTests(t, `
+include test
+async fn later() { sleep(0.02); test.case("from a draining task") { println("ran") } }
+later()
+test.case("fails") { assert(false) }
+`, Options{Stderr: &errOut, Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast", err)
+	}
+	if len(res.Tests) != 1 || res.Tests[0].Name != "fails" {
+		t.Errorf("Tests = %+v, want only the failure", res.Tests)
+	}
+	if strings.Contains(errOut.String(), "never awaited") {
+		t.Errorf("a task stopped by fail-fast was reported as failed:\n%s", errOut.String())
+	}
+}
