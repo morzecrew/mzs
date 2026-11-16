@@ -313,6 +313,11 @@ type caseOut struct {
 // write keeps what fits under the limit, cut at a rune boundary, and reports the whole
 // write as done: a print that overflows a capture is not the script's error.
 func (w *caseOut) write(p []byte) (int, error) {
+	if w.truncated {
+		// Once something was dropped, nothing after it is kept: the capture stays a
+		// prefix of what the case printed, not a prefix with later scraps in the gap.
+		return len(p), nil
+	}
 	room := w.limit - w.b.Len()
 	if len(p) <= room {
 		return w.b.Write(p)
@@ -327,12 +332,27 @@ func (w *caseOut) write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// lastRuneStart is the index of the byte the last rune of s starts at, or -1.
+func lastRuneStart(s string) int {
+	for i := len(s) - 1; i >= 0 && i >= len(s)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(s[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
 // text is the captured output, with a note at the end when some of it was dropped.
 func (w *caseOut) text() string {
 	if !w.truncated {
 		return w.b.String()
 	}
 	s := w.b.String()
+	// A rune whose bytes came in two writes may have been cut between them; what is kept
+	// ends on a whole rune, so Output is valid UTF-8 whatever the writes were.
+	if i := lastRuneStart(s); i >= 0 && !utf8.FullRuneInString(s[i:]) {
+		s = s[:i]
+	}
 	if s != "" && !strings.HasSuffix(s, "\n") {
 		s += "\n"
 	}

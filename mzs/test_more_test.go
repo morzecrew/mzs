@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // RFC 0014: the members a test file reaches for after `case` and `eq`, and the options a
@@ -742,5 +743,30 @@ test.case("loud") { for i in 1..1000 { println("0123456789") }; assert(false) }
 	}
 	if !strings.Contains(out.String(), "     | … (output truncated at 64 bytes)") {
 		t.Errorf("report:\n%s", out)
+	}
+}
+
+// Review of #29: a capture that was cut keeps a prefix of what was printed — nothing
+// after the first drop — and ends on a whole rune even when a rune's bytes came in two
+// writes.
+func TestCaptureCutKeepsAValidPrefix(t *testing.T) {
+	ascii := strings.Repeat("a", 63)
+	for name, writes := range map[string][]string{
+		"a later write that fits":  {ascii, "é", "!"},
+		"a rune split over writes": {ascii, "\xc3", "\xa9"},
+	} {
+		w := &caseOut{limit: 64}
+		var all string
+		for _, s := range writes {
+			if n, err := w.write([]byte(s)); n != len(s) || err != nil {
+				t.Fatalf("%s: write(%q) = %d, %v", name, s, n, err)
+			}
+			all += s
+		}
+		got := strings.TrimSuffix(w.text(), "… (output truncated at 64 bytes)\n")
+		got = strings.TrimSuffix(got, "\n")
+		if !strings.HasPrefix(all, got) || !utf8.ValidString(got) || got != ascii {
+			t.Errorf("%s: kept %q, want the 63-byte prefix %q", name, got, ascii)
+		}
 	}
 }
