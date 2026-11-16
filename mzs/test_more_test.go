@@ -476,3 +476,43 @@ assert(false, "later error")
 		t.Errorf("the program ran on past the blocking call:\n%s", out.String())
 	}
 }
+
+// Review of #29: a blocking host call that fails after a task failed under fail-fast
+// does not hide the stop behind its own error.
+func TestFailFastIsNotHiddenByAFailingBlockingCall(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	in := New(Options{Test: TestOptions{FailFast: true}})
+	in.Register("__wait", 0, func(c *Ctx, _ []Value) (Value, error) {
+		c.Blocking(func() { <-release })
+		return Nil(), errors.New("host failed")
+	})
+	in.Register("__release", 0, func(c *Ctx, _ []Value) (Value, error) {
+		once.Do(func() { close(release) })
+		return Nil(), nil
+	})
+	prog, err := in.Compile("t_test.mzs", `
+include test
+async fn bad() { test.case("worker") { __release(); assert(false) } }
+bad()
+__wait()
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = in.RunResult(context.Background(), prog, nil); !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast", err)
+	}
+	// A program that failed on its own before any case did keeps its own error, even
+	// when a task still draining fails a case afterwards.
+	in2 := New(Options{Test: TestOptions{FailFast: true}})
+	prog, _ = in2.Compile("t_test.mzs", `
+include test
+async fn later() { sleep(0.01); test.case("late") { assert(false) } }
+later()
+raise("the file broke first")
+`)
+	if _, err = in2.RunResult(context.Background(), prog, nil); err == nil || !strings.Contains(err.Error(), "the file broke first") {
+		t.Fatalf("err = %v, want the program's own error", err)
+	}
+}

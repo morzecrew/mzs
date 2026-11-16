@@ -1580,6 +1580,15 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	e := ev{rs: rs, cx: newCtx(rs), env: newEnv(nil, p.frameSize)}
 	v, rerr := e.runProgram(p.tree())
 	res.Value = v
+	if rerr != nil && rs.sh.failedFast {
+		if _, ok := testSignalOf(rerr); !ok {
+			// A case failed under fail-fast while this program had the lock given up —
+			// in a host call that then failed on its own, say — so its error came after
+			// the stop it would hide (§12.18). The flag is read with the lock held: it
+			// was set before the program returned, not by a task draining after it.
+			rerr = &testSignal{}
+		}
+	}
 	if s, ok := testSignalOf(rerr); ok && s.skip {
 		// `test.skip` outside every case: the file chose to stop, and that is a result,
 		// not a failure (§12.18).
