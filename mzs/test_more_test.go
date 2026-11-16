@@ -407,3 +407,35 @@ func TestRaisesWithAnEmptyKind(t *testing.T) {
 		t.Errorf("raises(\"\") = %q", got)
 	}
 }
+
+// Review of #29: the program that resumes from a wait after a task failed under
+// fail-fast stops there, rather than running on to statements of its own.
+func TestFailFastStopsTheProgramAtItsNextWait(t *testing.T) {
+	_, out, err := runTests(t, `
+include test
+async fn bad() { test.case("worker") { assert(false) } }
+bad()
+sleep(0.02)
+println("still running")
+assert(false, "later error")
+`, Options{Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast and not the later error", err)
+	}
+	if strings.Contains(out.String(), "still running") {
+		t.Errorf("the program ran on past its wait:\n%s", out)
+	}
+	// tasks.all and await stop the same way.
+	_, _, err = runTests(t, `
+include test
+async fn bad() { test.case("worker") { assert(false) } }
+async fn ok() { sleep(0.05); 1 }
+t = ok()
+bad()
+t.await
+assert(false, "later error")
+`, Options{Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("await: err = %v, want ErrFailFast", err)
+	}
+}

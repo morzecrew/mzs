@@ -232,6 +232,10 @@ func (rs *runState) waitFor(ch <-chan struct{}) error {
 	return err
 }
 
+// A wait is also where a case that failed under fail-fast in another task reaches this
+// one (§12.18): the lock is released only for a wait, so a failure elsewhere can only
+// happen during one, and the code that resumes from it stops instead of going on.
+//
 // waitLimited is waitFor with a limit of the caller's own on top of the Run's: `sleep`
 // waits for nothing with one, `t.timeout(d)` waits for a task with one. It answers
 // whether ch fired — false with a nil error is the caller's limit running out, which is
@@ -281,6 +285,9 @@ func (rs *runState) waitLimited(ch <-chan struct{}, limit time.Duration, hasLimi
 		}
 	}()
 
+	if rs.sh.failedFast {
+		return false, &testSignal{}
+	}
 	switch outcome {
 	case expired:
 		return false, nil
@@ -340,6 +347,9 @@ func (rs *runState) waitAny(chs []<-chan struct{}) (int, error) {
 		}
 	}()
 
+	if rs.sh.failedFast {
+		return -1, &testSignal{}
+	}
 	switch chosen {
 	case stopped:
 		return -1, rs.canceledError()

@@ -3457,8 +3457,9 @@ its `Output` instead of printed as it happens (`Capture`; the output of a failed
 every case under `Verbose` — is then printed under its report line). A task started inside a
 case prints into that case, and two cases running in two tasks keep their own output; what a
 task prints after its case has ended goes to the case around it, or to Stdout. A case that
-fails in a task under `FailFast` stops the Run too: no later case starts, and the Run ends
-with `ErrFailFast` even when nothing awaits the task. The zero value is the module as
+fails in a task under `FailFast` stops the Run too: no later case starts, code resuming from a
+wait (`sleep`, `await`, `tasks.all`) stops there, and the Run ends with `ErrFailFast` even
+when nothing awaits the task. The zero value is the module as
 described above.
 
 The module needs nothing from the host — like `json` and `decimal`, the include is all of it
