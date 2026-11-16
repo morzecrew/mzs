@@ -689,6 +689,17 @@ func walkSeq(fs FileSystem, ls LinkStater, root string) *Seq {
 					continue
 				}
 				p := walkJoin(top.dir, name)
+				// A yielded path is a string the script gets, and a deep enough tree makes
+				// one longer than MaxStringBytes (a directory's with its `/`). Like a read
+				// that size, it is the world's doing rather than the script's, so it is a
+				// catchable io error naming the root, not a limit — and it is checked before
+				// the host is asked anything about a name the walk could not hand over.
+				tooLong := func() (Value, bool, error) {
+					return fail(c.ErrorfKind(ErrKindIO, "io.walk %s: a path under it exceeds the %d byte limit", quoteString(root), c.rs.opts.MaxStringBytes))
+				}
+				if len(p) > c.rs.opts.MaxStringBytes {
+					return tooLong()
+				}
 				if err := c.Step(ioStepCost); err != nil {
 					return fail(err)
 				}
@@ -707,6 +718,9 @@ func walkSeq(fs FileSystem, ls LinkStater, root string) *Seq {
 				case link:
 					return Str(p), true, nil
 				case dir:
+					if len(p)+1 > c.rs.opts.MaxStringBytes {
+						return tooLong()
+					}
 					stack = append(stack, &walkFrame{dir: p})
 					return Str(p + "/"), true, nil
 				default:

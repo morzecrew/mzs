@@ -663,3 +663,35 @@ func TestIOWalkHoldsItsRoot(t *testing.T) {
 		t.Errorf("refs = %v", s)
 	}
 }
+
+// A yielded path is held to MaxStringBytes, a directory's trailing `/` included, and one
+// over it is a catchable io error naming the root rather than a longer string.
+func TestIOWalkPathsAreBounded(t *testing.T) {
+	t.Parallel()
+
+	fs := newTreeFS().dir("a").dir("a/bb").file("a/bb/c", "x")
+	o := treeOpts(fs)
+	o.MaxStringBytes = 4
+	// The script's own strings must fit too, so the error is read from Go.
+	_, err := evalIO(t, o, `io.walk.array`)
+	if err == nil || !strings.Contains(err.Error(), `io: io.walk ".": a path under it exceeds the 4 byte limit`) {
+		t.Errorf("walk under a small string limit: err = %v", err)
+	}
+	if fs.asked = nil; true {
+		_, _ = evalIO(t, o, `io.walk.array`)
+		for _, a := range fs.asked {
+			if strings.Contains(a, "a/bb/c") {
+				t.Errorf("the host was asked about %q, a name the walk could not hand over", a)
+			}
+		}
+	}
+	// At 6 bytes every path fits, the file's exactly; the directory "a/bb" needs its `/`.
+	o.MaxStringBytes = 6
+	if got := mustEvalIO(t, o, `w = io.walk.array; [w.len, w[2] == "a/bb/c", w[1] == "a/bb/"]`); got != "[3,true,true]" {
+		t.Errorf("walk at the limit = %s", got)
+	}
+	o.MaxStringBytes = 5
+	if _, err := evalIO(t, o, `io.walk.array.len`); err == nil || !strings.Contains(err.Error(), "exceeds the 5 byte limit") {
+		t.Errorf("a directory one byte over with its slash: err = %v", err)
+	}
+}

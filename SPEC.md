@@ -3018,7 +3018,9 @@ it, because which names a script may reach is the host's path policy (above), no
 walk's. An entry listed and gone before it
 is looked at is not yielded. Telling a link from a directory without following it is what
 `LinkStater` is for; what happens when a directory is replaced by a link *while* the walk
-runs is up to the host's `List` (§13.2). Each `List` and each `Lstat` costs 1000 steps,
+runs is up to the host's `List` (§13.2). A path longer than `MaxStringBytes`, a
+directory's `/` included, is a catchable `io` error naming the root rather than a string
+the script could not have built. Each `List` and each `Lstat` costs 1000 steps,
 like every other filesystem operation, and one directory's entries are bounded by
 `MaxCollection`.
 
