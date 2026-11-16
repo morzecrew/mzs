@@ -128,3 +128,14 @@ func TestCLIReadOnly(t *testing.T) {
 		t.Errorf("mzs test --read-only: exit %d: %s %s", code, out, errOut)
 	}
 }
+
+// "Cannot tell" is not "not there": a name the OS refuses to look at is an error.
+func TestCLILstatFailureIsAnError(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("x", 300)
+	code, _, errOut := exec([]string{"-v", "p=" + long, "-e", `include io; io.walk($p).array`}, "")
+	if code == 0 || !strings.Contains(errOut, "io.walk") || strings.Contains(errOut, "no such directory") {
+		t.Errorf("exit %d: %s", code, errOut)
+	}
+}

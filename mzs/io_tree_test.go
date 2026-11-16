@@ -530,3 +530,96 @@ func TestIOStructuralArguments(t *testing.T) {
 		}
 	}
 }
+
+// A program compiled where io.rm was granted and run where it is not reaches the member at
+// run time, and is told the same thing the compile pass would have said.
+func TestIOClosedMemberAtRunTime(t *testing.T) {
+	t.Parallel()
+
+	prog, err := New(treeOpts(sample())).Compile("t", "include io\nio.rm(\"a.txt\")")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := sample()
+	_, err = New(Options{Timeout: 5 * time.Second, FS: fs}).Run(context.Background(), prog, nil)
+	if err == nil || !strings.Contains(err.Error(), "io.rm needs the host to allow structural changes: Options.FSMutations is off") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := fs.files["a.txt"]; !ok {
+		t.Fatal("the file was removed")
+	}
+}
+
+// With consent but no interface, a member reached around the gate still cannot act.
+func TestIOMutatorWithoutTheInterface(t *testing.T) {
+	t.Parallel()
+
+	full := treeOpts(sample())
+	mod, _ := LookupModule("io", &full)
+	in := New(Options{Timeout: 5 * time.Second, FS: newMemFS(nil), FSMutations: true})
+	in.RegisterModule("files", map[string]Value{"mkdir": mod.Get(Str("mkdir")), "mv": mod.Get(Str("mv"))})
+	for _, src := range []string{`files.mkdir("x")`, `files.mv("a", "b")`} {
+		_, err := in.Eval(context.Background(), "include files\n"+src, nil)
+		if err == nil || !strings.Contains(err.Error(), "Options.FS cannot do this") {
+			t.Errorf("%s: err = %v", src, err)
+		}
+	}
+}
+
+// Every host failure is a catchable io error naming the path.
+func TestIOStructuralHostFailures(t *testing.T) {
+	t.Parallel()
+
+	fs := sample()
+	fs.fail = errors.New("disk on fire")
+	o := treeOpts(fs)
+	for src, want := range map[string]string{
+		`io.mkdir("x")`:      `io: io.mkdir "x": disk on fire`,
+		`io.mv("a", "b")`:    `io: io.mv "a" "b": disk on fire`,
+		`io.rm("a.txt")`:     `io: io.rm "a.txt": disk on fire`,
+		`io.walk.array`:      `io: io.walk ".": disk on fire`,
+		`io.walk("b").array`: `io: io.walk "b": disk on fire`,
+	} {
+		got := mustEvalIO(t, o, fmt.Sprintf(`try %s else (e) -> e["kind"] + ": " + e["message"]`, src))
+		if got != want {
+			t.Errorf("%s = %s, want %s", src, got, want)
+		}
+	}
+	// An entry the host cannot look at fails the pull that reached it, after the ones before.
+	got := mustEvalIO(t, treeOpts(&lstatFails{treeFS: sample(), name: "b"}), `
+		seen = []
+		r = try { for p in io.walk { seen.push(p) } } else (e) -> e["message"]
+		seen.join(" ") + " | " + r`)
+	if got != `a.txt | io.walk "b": cannot look` {
+		t.Errorf("a failed Lstat = %s", got)
+	}
+	// io.mv checks its second argument too.
+	if _, err := evalIO(t, o, `io.mv("a", nil)`); err == nil || !strings.Contains(err.Error(), "type") {
+		t.Errorf("mv to nil: %v", err)
+	}
+}
+
+// lstatFails is a tree whose Lstat fails for one name.
+type lstatFails struct {
+	*treeFS
+	name string
+}
+
+func (l *lstatFails) Lstat(name string) (bool, int64, bool, bool, error) {
+	if name == l.name {
+		return false, 0, false, false, errors.New("cannot look")
+	}
+	return l.treeFS.Lstat(name)
+}
+
+// A List that answers names that are not entries — a way back into the directory or above
+// it — does not send the walk round in a circle.
+func TestIOWalkIgnoresNamesThatAreNotEntries(t *testing.T) {
+	t.Parallel()
+
+	fs := sample()
+	fs.dirs["b/d"] = append(fs.dirs["b/d"], "", ".", "..", "x/y")
+	if got := mustEvalIO(t, treeOpts(fs), `io.walk("b/d").array.join(" ")`); got != "b/d/e.mzs" {
+		t.Errorf("walk = %s", got)
+	}
+}

@@ -187,3 +187,27 @@ func TestPathMatchIsCharged(t *testing.T) {
 		t.Errorf("err = %v; want the step budget", err)
 	}
 }
+
+// Every member checks its arguments, and the two that build something are bounded.
+func TestPathArgumentsAndBounds(t *testing.T) {
+	t.Parallel()
+
+	for _, m := range []string{"dir", "base", "ext", "stem", "clean", "split", "is_abs"} {
+		if _, err := evalPath(t, fmt.Sprintf("path.%s(1)", m)); err == nil || !strings.Contains(err.Error(), "type") {
+			t.Errorf("path.%s(1): err = %v", m, err)
+		}
+	}
+	for _, src := range []string{`path.rel(1, "a")`, `path.match("a", 1)`} {
+		if _, err := evalPath(t, src); err == nil || !strings.Contains(err.Error(), "type") {
+			t.Errorf("%s: err = %v", src, err)
+		}
+	}
+	in := New(Options{MaxStringBytes: 16})
+	if _, err := in.Eval(context.Background(), `include path; path.join("aaaaaaaa", "bbbbbbbb", "c")`, nil); err == nil {
+		t.Error("a join longer than MaxStringBytes was built")
+	}
+	in = New(Options{MaxCollection: 2})
+	if _, err := in.Eval(context.Background(), `include path; path.split("a/b/c")`, nil); err == nil {
+		t.Error("a split larger than MaxCollection was built")
+	}
+}
