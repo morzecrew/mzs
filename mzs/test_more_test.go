@@ -3,9 +3,11 @@ package mzs
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // RFC 0014: the members a test file reaches for after `case` and `eq`, and the options a
@@ -619,5 +621,57 @@ test.case("never") { assert(false) }
 	}
 	if !strings.Contains(out.String(), "skip (rest of file)  (not configured)") || len(res.Tests) != 1 || !res.Tests[0].RestOfFile {
 		t.Errorf("an awaited skip did not skip the file:\nTests = %+v\n%s", res.Tests, out)
+	}
+}
+
+// Review of #29: a fail-fast stop wakes a program blocked in a long wait.
+func TestFailFastWakesALongWait(t *testing.T) {
+	start := time.Now()
+	_, _, err := runTests(t, `
+include test
+async fn bad() { test.case("worker") { assert(false) } }
+bad()
+sleep(3600)
+`, Options{Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("the Run took %s: the stop did not wake the sleep", d)
+	}
+}
+
+// Review of #29: a writer a host function kept past the end of its case reaches the
+// case around it or Stdout, not the closed capture.
+func TestARetainedOutWriterFollowsTheCapture(t *testing.T) {
+	release := make(chan struct{})
+	var out strings.Builder
+	in := New(Options{Stdout: &out, Test: TestOptions{Capture: true}})
+	in.Register("__hold", 0, func(c *Ctx, _ []Value) (Value, error) {
+		w := c.Out()
+		c.Blocking(func() { <-release })
+		_, err := io.WriteString(w, "late write\n")
+		return Nil(), err
+	})
+	in.Register("__release", 0, func(c *Ctx, _ []Value) (Value, error) {
+		close(release)
+		return Nil(), nil
+	})
+	prog, err := in.Compile("t_test.mzs", `
+include test
+async fn worker() { __hold() }
+test.case("starts it") { $t = worker(); sleep(0.01) }
+__release()
+$t.await
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := in.RunResult(context.Background(), prog, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "late write") || strings.Contains(res.Tests[0].Output, "late write") {
+		t.Errorf("Stdout = %q, case Output = %q: the late write went to the closed capture", out.String(), res.Tests[0].Output)
 	}
 }

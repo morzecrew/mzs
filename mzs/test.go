@@ -224,6 +224,11 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 		reportOutput(c, tc, true)
 		if o.FailFast {
 			c.rs.sh.failedFast = true
+			// Wake every wait at once: a program sleeping for an hour stops now, not in
+			// an hour. Each wait answers the stop when it sees the flag (waitLimited).
+			if c.rs.sh.cancel != nil {
+				c.rs.sh.cancel()
+			}
 			return Nil(), &testSignal{}
 		}
 		return Bool(false), nil
