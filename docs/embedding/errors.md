@@ -48,6 +48,7 @@ module while the frame of the call names the caller.
 | `regex` | `ErrKindRegex` | a pattern that will not compile |
 | `json` | `ErrKindJSON` | `json.parse` on bad input, a value that will not encode |
 | `decimal` | `ErrKindDecimal` | text that is not a decimal, a result past the width, a division with no exact form |
+| `csv` | `ErrKindCSV` | input that is not well-formed CSV, a bad header, a record of the wrong width; `data` is `{line, col}` |
 | `http` | `ErrKindHTTP` | a transport failure, a response over `MaxStringBytes` |
 | `io` | `ErrKindIO` | a filesystem or stream failure, a read over `MaxStringBytes` |
 | `raise` | `ErrKindRaise` | the `raise` builtin, and host `c.Errorf` |

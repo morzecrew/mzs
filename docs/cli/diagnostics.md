@@ -74,7 +74,7 @@ same either way. A script that catches the error reads the same stack from `e["s
 | `key` | a dict key that is not there — `fetch` |
 | `zero-division` | `1/0`, `1%0` |
 | `regex` | a pattern that does not compile |
-| `json` `http` `io` `decimal` | the module that failed: bad JSON, a refused connection, a missing file; text that is not a decimal, a result past its width or its 18 places, a division with no exact form |
+| `json` `http` `io` `decimal` `csv` | the module that failed: bad JSON, a refused connection, a missing file; text that is not a decimal, a result past its width or its 18 places, a division with no exact form; CSV that is not well-formed, with its line and column |
 | `raise` | `raise(...)` from the script — or the kind the script named itself |
 | `limit` | timeout, step budget, call depth, tasks — exit 3 |
 | `exit` | `exit(code)` — the status the script asked for, and not a failure |

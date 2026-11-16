@@ -1,6 +1,6 @@
 # RFC 0013 — The `csv` module
 
-**Status:** Draft · **Area:** stdlib · **Depends on:** — · **Audit:** S2
+**Status:** Landed (#28) · **Area:** stdlib · **Depends on:** — · **Audit:** S2
 
 ## Summary
 
@@ -108,3 +108,40 @@ lines to an `io.Reader`), registration in `mzs/module.go`, error kind in `mzs/er
 SPEC §12.8 table + a new §12.19, `docs/modules/csv.md`, apidoc, and
 `examples/12_csv_report.mzs` rewritten to use it (keeping the hand scanner as a comment on
 why the module exists).
+
+## As landed
+
+Landed in #28 as designed: `csv.parse`, `csv.rows`, `csv.str` and `csv.line`, the five
+options, the new error kind `csv`, and `examples/12_csv_report.mzs` rewritten around the
+module. SPEC §12.19 (with the §12.8 table, §8.11 and §13.5 kind lists) is the normative
+text, and `docs/modules/csv.md` the guide.
+
+* **Open question 1 — the lazy member is `rows`.** `csv.seq` would shadow the core `seq`
+  inside the module's namespace, and what the member hands back is the file's rows.
+* **Open question 2 — a leading byte-order mark is dropped**, at the very start of the
+  input only, as proposed: Excel writes one, and kept it would be an invisible character
+  in the first header name.
+* **Open question 3 — `header` takes an array.** Reading, it names the columns of a file
+  with no header line; writing, it is the column order and the header line, and a dict row
+  with a key it does not name is the error the RFC already gives for a key the first row
+  lacks. The names are checked like a read header: no empty name, none twice.
+* **The reader is the module's own, not encoding/csv's.** The Implementation section
+  proposed a thin layer over Go's package. Three parts of the Design rule that out: `trim`
+  strips spaces around *unquoted* fields only (Go's `TrimLeadingSpace` does neither half of
+  that), spaces may follow a closing quote under `trim` (Go reports a bare quote), and
+  `rows` reads a sequence of lines one record at a time, keeping the line numbers of the
+  input. Go's *writer* does not quote a field with a trailing space, which the Design
+  quotes so that `trim` reads it back. Both halves are a few hundred lines with no
+  dependency; nothing about the behaviour depends on the choice.
+* **Without `strict`, a long record keeps its extra fields in a dict under their column
+  index** (an int key, 0-based), which is what "keeps extras under their index" says; an
+  array row simply keeps them. A short record is padded with nil to the first record's
+  width (or the header's).
+* **Writing also quotes a field that starts with the `comment` character**, when one is
+  given, so that the document reads back with the same options.
+* **A record of one empty field is written `""`.** Written as nothing, it would be a blank
+  line, which the reader skips.
+* **Errors name the member** (`csv.parse: line 2, column 1: …`), as every other module's
+  do, and an error raised while a `csv.rows` seq is pulled still names `csv.rows`, not the
+  terminal row that pulled it.
+

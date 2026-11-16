@@ -1689,6 +1689,28 @@
     "ex": ""
    }
   },
+  "csv": {
+   "line": {
+    "sig": "`(row: array, opts: dict = {}) -> string`",
+    "sem": "one record, with no line break",
+    "ex": ""
+   },
+   "parse": {
+    "sig": "`(s: string, opts: dict = {}) -> array`",
+    "sem": "every record of `s`: an array of arrays, or of dicts under `header`",
+    "ex": ""
+   },
+   "rows": {
+    "sig": "`(src: seq | array | string, opts: dict = {}) -> seq`",
+    "sem": "the same records, pulled one at a time (§12.14). `src` is a sequence of **lines**, as `io.lines` gives them, or one string; a quoted field that holds a line break takes as many lines as it spans",
+    "ex": ""
+   },
+   "str": {
+    "sig": "`(rows: array | seq, opts: dict = {}) -> string`",
+    "sem": "the document, each record on a line ending in `\"\\n\"`; dict rows write a header first",
+    "ex": ""
+   }
+  },
   "date": {
    "parse": {
     "sig": "`(s: string) -> time`",
@@ -2017,6 +2039,7 @@
  },
  "gates": {
   "crypto": "",
+  "csv": "",
   "date": "--time",
   "decimal": "",
   "http": "",

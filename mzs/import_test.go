@@ -196,14 +196,19 @@ func TestImportsAreReadAgainEachRun(t *testing.T) {
 		t.Errorf("asked = %v, want one read at compile time and one per Run", src.asked)
 	}
 	// A pattern on a record the module no longer exports by the time it runs asks for a
-	// member that is not there, and the arm does not fire.
-	pat, err := in.Compile("pat", `include ledger from "ledger"; m = {amount: 1}; match m { ledger.Money {amount} -> "money"; else -> "no" }`)
+	// member that is not there, and the arm stops firing — on a subject the module still
+	// builds with that very record.
+	src.files["ledger"] = `export record Money(amount); export fn one() { Money(1) }`
+	pat, err := in.Compile("pat", `include ledger from "ledger"; match ledger.one() { ledger.Money {amount} -> "money"; else -> "no" }`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src.files["ledger"] = `export record Coin(amount)`
+	if v, err := in.Run(context.Background(), pat, nil); err != nil || v.Inspect() != `"money"` {
+		t.Errorf("= %v, %v; want \"money\" while the module exports Money", v.Inspect(), err)
+	}
+	src.files["ledger"] = `record Money(amount); export fn one() { Money(1) }`
 	if v, err := in.Run(context.Background(), pat, nil); err != nil || v.Inspect() != `"no"` {
-		t.Errorf("= %v, %v; want \"no\": the module has no Money any more", v.Inspect(), err)
+		t.Errorf("= %v, %v; want \"no\": the module keeps Money private now", v.Inspect(), err)
 	}
 	src.files["ledger"] = ledgerLib
 	// A module whose field is gone by the time it runs reaches the field through run-time
@@ -238,5 +243,27 @@ func TestImportedFieldShadowedByAFunctionWarns(t *testing.T) {
 	prog, err = plain.Compile("main", code)
 	if err != nil || len(prog.Warnings()) != 0 {
 		t.Errorf("CompileIncludes off: %v, %v; want no warning", prog.Warnings(), err)
+	}
+}
+
+// A field named like a stdlib row is dispatched at run time, where a record's own field
+// wins (§7.8), whatever the compile step knows: the function of that name the includer
+// declares does not take it, and nothing warns that it would.
+func TestImportedFieldNamedLikeAStdlibRow(t *testing.T) {
+	files := map[string]string{"pages": `export record Page(len, text)`}
+	code := `include pages from "pages"; fn len(x) { "fn" }; p = pages.Page(3, "abc"); [p.len, len(p)]`
+	for _, on := range []bool{false, true} {
+		in, _ := importInterp(on, files)
+		prog, err := in.Compile("main", code)
+		if err != nil {
+			t.Fatalf("CompileIncludes=%v: %v", on, err)
+		}
+		if w := prog.Warnings(); len(w) != 0 {
+			t.Errorf("CompileIncludes=%v: warnings %v, want none", on, w)
+		}
+		v, err := in.Run(context.Background(), prog, nil)
+		if err != nil || v.Inspect() != `[3,"fn"]` {
+			t.Errorf("CompileIncludes=%v: %v, %v; want [3,\"fn\"]", on, v.Inspect(), err)
+		}
 	}
 }

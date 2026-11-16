@@ -81,7 +81,7 @@ does not have it at all.
 |---|---|---|
 | 10 | `10_regex_toolkit.mzs` | `~`, captures with named groups, `matches`, `replace` by closure, flags, `\b`, lookaround, a tokenizer |
 | 11 | `11_log_parser.mzs` | access logs → error rate, latency percentiles, per-endpoint table, the client to block; unparsable lines reported on stderr with `eprintln` |
-| 12 | `12_csv_report.mzs` | a real CSV scanner (quoted fields, doubled quotes), typed records, a totalled report, CSV back out |
+| 12 | `12_csv_report.mzs` | `include csv` — quoted fields and doubled quotes read into dicts, typed records, a totalled report, and `csv.str` writing CSV back out |
 | 13 | `13_word_frequency.mzs` | tokenising two scripts at once, stop words, bigrams, hapax legomena, a concordance |
 | 14 | `14_text_layout.mzs` | word wrap, full justification, boxes, self-measuring tables, sparklines |
 | 15 | `15_json_shaping.mzs` | parse a nested payload, `dig` past what is missing, reshape it, emit compact and pretty |
