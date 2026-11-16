@@ -75,7 +75,9 @@ type TestCase struct {
 	Reason string
 	// Line and Col are where `test.case` was called.
 	Line, Col int
-	// Output is what the case printed, under Options.Test.Capture.
+	// Output is what the case printed, under Options.Test.Capture: always for a failed
+	// case, and for a passing or skipped one only under Verbose. It holds at most
+	// MaxStringBytes, and ends with a note when output past that was dropped.
 	Output string
 	// RestOfFile marks the entry a `test.skip` outside every case leaves: the cases after
 	// it were not run. Its Name is empty and its Status is TestSkip. A case may be named
@@ -176,7 +178,7 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 
 	var out *caseOut
 	if o.Capture {
-		out = &caseOut{parent: c.rs.testOut}
+		out = &caseOut{parent: c.rs.testOut, limit: c.rs.opts.MaxStringBytes}
 		c.rs.testOut = out
 	}
 	outer := c.rs.frames()
@@ -188,7 +190,7 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if o.Capture {
 		out.done = true
 		c.rs.testOut = out.parent
-		tc.Output = out.b.String()
+		tc.Output = out.text()
 	}
 
 	if c.rs.sh.failedFast {
@@ -204,9 +206,9 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 			return Nil(), rerr
 		}
 		tc.Status, tc.Reason = TestSkip, s.reason
-		c.rs.sh.tests = append(c.rs.sh.tests, tc)
 		reportLine(c, "skip "+tc.FullName()+"  ("+s.reason+")")
 		reportOutput(c, tc, false)
+		c.rs.sh.tests = append(c.rs.sh.tests, keptOutput(o, tc))
 		return Bool(true), nil
 	}
 	if _, ok := catchableError(rerr); rerr != nil && !ok {
@@ -237,10 +239,21 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 		return Bool(false), nil
 	}
 	tc.Status = TestPass
-	c.rs.sh.tests = append(c.rs.sh.tests, tc)
 	reportLine(c, "ok   "+tc.FullName())
 	reportOutput(c, tc, false)
+	c.rs.sh.tests = append(c.rs.sh.tests, keptOutput(o, tc))
 	return Bool(true), nil
+}
+
+// keptOutput is the record of a case that did not fail: its captured output is kept only
+// under Verbose, where it is shown. A run of a thousand passing cases that each print a
+// page would otherwise hold a thousand pages nobody asked to see; a failed case keeps
+// its output always, because that is when it is evidence.
+func keptOutput(o TestOptions, tc TestCase) TestCase {
+	if !o.Verbose {
+		tc.Output = ""
+	}
+	return tc
 }
 
 // reportOutput prints a case's captured output under its report line: always for a case

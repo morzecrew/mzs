@@ -230,7 +230,7 @@ program but a test file.
 | `Filter func(name string) bool` | run only the cases whose full name (`group › case`) it accepts; the others are not run or recorded |
 | `FailFast bool` | end the run at the first failed case; `RunResult` answers an error that wraps `mzs.ErrFailFast` |
 | `Quiet bool` | no report lines on `Stdout` |
-| `Capture bool` | a case's output goes to its `Output`, and is printed under its report line when it failed |
+| `Capture bool` | a case's output goes to its `Output` — kept for a failed case, and for every case under `Verbose` — and is printed under its report line when it failed; each case's capture holds at most `MaxStringBytes` and says when it was cut |
 | `Verbose bool` | with `Capture`, print a passing case's output too |
 
 The zero value is the module as a script sees it on its own.

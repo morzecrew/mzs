@@ -213,7 +213,7 @@ type caseWriter struct{ rs *runState }
 func (o caseWriter) Write(p []byte) (int, error) {
 	for w := o.rs.testOut; w != nil; w = w.parent {
 		if !w.done {
-			return w.b.Write(p)
+			return w.write(p)
 		}
 	}
 	return o.rs.opts.out().Write(p)

@@ -3455,7 +3455,9 @@ is how a host such as `mzs test` asks for a subset of cases (`Filter`, given the
 first failure (`FailFast`: the Run ends with an error that wraps `ErrFailFast`, which nothing
 catches), for no report lines on stdout (`Quiet`), and for what a case prints to be kept in
 its `Output` instead of printed as it happens (`Capture`; the output of a failed case — of
-every case under `Verbose` — is then printed under its report line). A task started inside a
+every case under `Verbose` — is then printed under its report line; a passing case keeps its
+`Output` only under `Verbose`, and each case's capture holds at most `MaxStringBytes`, ending
+with `… (output truncated at N bytes)` when more was printed). A task started inside a
 case prints into that case, and two cases running in two tasks keep their own output; what a
 task prints after its case has ended goes to the case around it, or to Stdout. A case that
 fails in a task under `FailFast` stops the Run too: no later case starts, code resuming from a
@@ -3668,7 +3670,7 @@ type TestOptions struct {
     Filter   func(name string) bool // run only the cases whose full name it accepts; nil => every case
     FailFast bool                   // end the Run at the first failed case, with an error wrapping ErrFailFast
     Quiet    bool                   // no report lines on Stdout; Result.Tests is the report
-    Capture  bool                   // keep what a case prints in TestCase.Output, not on Stdout
+    Capture  bool                   // keep what a case prints in TestCase.Output (at most MaxStringBytes), not on Stdout
     Verbose  bool                   // under Capture, print a passing case's output under it too
 }
 
@@ -3754,7 +3756,7 @@ type TestCase struct {
     Group     []string      // the test.group names around the case, outermost first
     Reason    string        // what test.skip said
     Line, Col int           // where test.case was called; for the rest of a file skipped, where test.skip was
-    Output    string        // what the case printed, under TestOptions.Capture
+    Output    string        // what the case printed, under Capture: a failed case's always, others' under Verbose; at most MaxStringBytes
     RestOfFile bool         // not a case: the rest of a file skipped by test.skip outside every case
 }
 

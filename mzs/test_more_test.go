@@ -259,7 +259,9 @@ test.case("loud fail") { println("evidence"); assert(false) }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Tests[0].Output != "pass output\n" || res.Tests[1].Output != "evidence\n" {
+	// A passing case's output is kept only under Verbose, where it is shown; a failed
+	// case's always is.
+	if res.Tests[0].Output != "" || res.Tests[1].Output != "evidence\n" {
 		t.Errorf("Output = %q, %q", res.Tests[0].Output, res.Tests[1].Output)
 	}
 	report := out.String()
@@ -681,7 +683,7 @@ $t.await
 func TestAnOutWriterKeptFromOutsideACase(t *testing.T) {
 	var out strings.Builder
 	var kept io.Writer
-	in := New(Options{Stdout: &out, Test: TestOptions{Capture: true}})
+	in := New(Options{Stdout: &out, Test: TestOptions{Capture: true, Verbose: true}})
 	in.Register("__keep", 0, func(c *Ctx, _ []Value) (Value, error) {
 		kept = c.Out()
 		return Nil(), nil
@@ -702,7 +704,9 @@ test.case("writes") { __write() }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Tests[0].Output != "kept write\n" || strings.Contains(out.String(), "kept write") {
+	// Under Verbose the report prints it under the case as "     | kept write"; a bare
+	// line would be the write having bypassed the capture.
+	if res.Tests[0].Output != "kept write\n" || strings.Contains("\n"+out.String(), "\nkept write\n") {
 		t.Errorf("Output = %q, Stdout = %q: the kept writer bypassed the capture", res.Tests[0].Output, out.String())
 	}
 }
@@ -719,6 +723,24 @@ println("after the stop")
 		t.Fatalf("err = %v, want ErrFailFast", err)
 	}
 	if !strings.Contains(out.String(), "released") || strings.Contains(out.String(), "after the stop") {
+		t.Errorf("report:\n%s", out)
+	}
+}
+
+// Review of #29: a case's capture is bounded by MaxStringBytes, and says it was cut.
+func TestCaptureIsBounded(t *testing.T) {
+	res, out, err := runTests(t, `
+include test
+test.case("loud") { for i in 1..1000 { println("0123456789") }; assert(false) }
+`, Options{MaxStringBytes: 64, Test: TestOptions{Capture: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := res.Tests[0].Output
+	if !strings.HasSuffix(o, "… (output truncated at 64 bytes)\n") || len(o) > 64+64 {
+		t.Errorf("Output = %q (%d bytes), want at most 64 bytes and the truncation note", o, len(o))
+	}
+	if !strings.Contains(out.String(), "     | … (output truncated at 64 bytes)") {
 		t.Errorf("report:\n%s", out)
 	}
 }

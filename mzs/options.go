@@ -156,7 +156,9 @@ type TestOptions struct {
 	Quiet bool
 	// Capture keeps what a case prints out of Stdout and in its TestCase.Output. Unless
 	// Quiet, the output of a case that failed is printed under its report line, and so is
-	// every case's under Verbose.
+	// every case's under Verbose. A passing case's Output is kept only under Verbose, and
+	// each case's capture holds at most MaxStringBytes, so a run that prints without end
+	// stays inside the Run's limits (§14.1).
 	Capture bool
 	// Verbose prints a passing case's captured output too. Without Capture it changes
 	// nothing: the output was printed as it happened.
