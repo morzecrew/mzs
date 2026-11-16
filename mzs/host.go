@@ -196,7 +196,12 @@ func (c *Ctx) allocCollection(total, added int) error { return c.rs.allocCollect
 // ---------------------------------------------------------------------------
 
 // Out is the sink for print/println/debug; never nil.
-func (c *Ctx) Out() io.Writer { return c.rs.opts.out() }
+func (c *Ctx) Out() io.Writer {
+	if w := c.rs.sh.testOut; w != nil {
+		return w
+	}
+	return c.rs.opts.out()
+}
 
 // Now returns the host clock, or an error when the host did not install one. Time is a
 // capability, not a given (§14.3, D15).

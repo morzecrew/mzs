@@ -134,6 +134,33 @@ type Options struct {
 	Env func(name string) string
 	// Location is the default zone for strftime and in_time_zone. nil means UTC.
 	Location *time.Location
+	// Test is how a host that runs test files wants the `test` module to report
+	// (§12.18). The zero value is the module as a script sees it on its own: every case
+	// runs, and what it prints and its report line go to Stdout as they happen.
+	Test TestOptions
+}
+
+// TestOptions configures the `test` module for a runner such as `mzs test` (§12.18,
+// §15.2). None of it changes what a case does — only which cases run, where their output
+// goes, and whether the Run goes on after a failure.
+type TestOptions struct {
+	// Filter, when set, decides which cases run, given a case's full name: its
+	// enclosing groups and its own name joined with " › ". A case it refuses is neither
+	// run nor recorded, and its test.case answers nil.
+	Filter func(name string) bool
+	// FailFast ends the Run at the first case that fails, after recording it, with an
+	// error that wraps ErrFailFast. Nothing catches that error: the point is to stop.
+	FailFast bool
+	// Quiet keeps the report lines off Stdout. Result.Tests is the whole report then,
+	// which is how a host that writes its own (the CLI's --json) reads it.
+	Quiet bool
+	// Capture keeps what a case prints out of Stdout and in its TestCase.Output. Unless
+	// Quiet, the output of a case that failed is printed under its report line, and so is
+	// every case's under Verbose.
+	Capture bool
+	// Verbose prints a passing case's captured output too. Without Capture it changes
+	// nothing: the output was printed as it happened.
+	Verbose bool
 }
 
 // DefaultOptions returns the documented defaults: one second, five million steps, no

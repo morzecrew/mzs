@@ -1574,6 +1574,13 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	e := ev{rs: rs, cx: newCtx(rs), env: newEnv(nil, p.frameSize)}
 	v, rerr := e.runProgram(p.tree())
 	res.Value = v
+	if s, ok := testSignalOf(rerr); ok && s.skip {
+		// `test.skip` outside every case: the file chose to stop, and that is a result,
+		// not a failure (§12.18).
+		rs.sh.tests = append(rs.sh.tests, fileSkipped(s))
+		res.Value = Nil()
+		return res, nil
+	}
 	if rerr != nil {
 		res.Value = Nil()
 		return res, e.at(rerr, p.tree().Start)

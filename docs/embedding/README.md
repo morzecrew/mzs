@@ -46,10 +46,14 @@ host run its own scripts' tests the way `mzs test` runs them:
 ```go
 for _, c := range res.Tests {
 	if !c.Passed() {
-		log.Printf("%s failed: %v (%s)", c.Name, c.Err, c.Elapsed)
+		log.Printf("%s failed: %v (%s)", c.FullName(), c.Err, c.Elapsed)
 	}
 }
 ```
+
+`Options.Test` asks for what `mzs test` does — a filter on case names, stopping at the first
+failure, a case's output kept in `TestCase.Output` — see the
+[module page](../modules/test.md#reading-the-report-from-go).
 
 ## Eval and the program cache
 

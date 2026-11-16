@@ -1,8 +1,11 @@
 package mzs
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -36,18 +39,107 @@ import (
 func init() {
 	RegisterModuleFunc("test", "case", 1, 2, testCase)
 	RegisterModuleFunc("test", "eq", 2, 2, testEq)
+	RegisterModuleFunc("test", "ne", 2, 2, testNe)
+	RegisterModuleFunc("test", "near", 2, 3, testNear)
+	RegisterModuleFunc("test", "raises", 0, 2, testRaises)
+	RegisterModuleFunc("test", "skip", 1, 1, testSkip)
+	RegisterModuleFunc("test", "group", 1, 2, testGroup)
 }
 
+// The three values of TestCase.Status (§12.18).
+const (
+	TestPass = "pass"
+	TestFail = "fail"
+	TestSkip = "skip"
+)
+
+// ErrFailFast is what a Run under Options.Test.FailFast ends with once a case has
+// failed (§12.18). The failure itself is in Result.Tests; this only says why the Run
+// stopped there.
+var ErrFailFast = errors.New("mzs: a test case failed under fail-fast")
+
 // TestCase is one `test.case` of a Run, in the order the cases ran (§12.18). Err is nil
-// when the case passed and holds what it raised when it did not.
+// when the case passed or was skipped, and holds what it raised when it failed.
+//
+// An entry with an empty Name is the rest of a file skipped: `test.skip` called outside
+// any case, at Line and Col.
 type TestCase struct {
 	Name    string
 	Err     error
 	Elapsed time.Duration
+	// Status is TestPass, TestFail or TestSkip.
+	Status string
+	// Group is the `test.group` names the case was declared in, outermost first.
+	Group []string
+	// Reason is what `test.skip` said, for a skipped case.
+	Reason string
+	// Line and Col are where `test.case` was called.
+	Line, Col int
+	// Output is what the case printed, under Options.Test.Capture.
+	Output string
 }
 
-// Passed reports whether the case passed.
-func (t TestCase) Passed() bool { return t.Err == nil }
+// Passed reports whether the case passed. A skipped case did not fail, and counts as
+// passed: skips do not make a run red.
+func (t TestCase) Passed() bool { return t.Status != TestFail && t.Err == nil }
+
+// FullName is the case's name under its groups, as a report prints it and as
+// Options.Test.Filter sees it: `rounding › half up`.
+func (t TestCase) FullName() string { return testFullName(t.Group, t.Name) }
+
+func testFullName(group []string, name string) string {
+	if len(group) == 0 {
+		return name
+	}
+	return strings.Join(append(slices.Clip(group), name), " › ")
+}
+
+// testSignal is how `test.skip` and fail-fast leave the code they are in. It is not an
+// error a script can catch (§8.11): a skip that a `try` swallowed would be a case that
+// went on running after it said it would not, and a fail-fast that a `try` swallowed would
+// not stop anything. An `ensure` does run on the way out of a skip, which is an ordinary
+// way out of a block; under fail-fast the Run ends, so it does not.
+type testSignal struct {
+	skip      bool
+	reason    string
+	line, col int
+}
+
+func (s *testSignal) Error() string {
+	if s.skip {
+		return "test.skip: " + s.reason
+	}
+	return ErrFailFast.Error()
+}
+
+func (s *testSignal) Unwrap() error {
+	if s.skip {
+		return nil
+	}
+	return ErrFailFast
+}
+
+// testSignalOf finds the signal in an error chain.
+func testSignalOf(err error) (*testSignal, bool) {
+	var s *testSignal
+	if err != nil && errors.As(err, &s) {
+		return s, true
+	}
+	return nil, false
+}
+
+// isTestSkip reports a `test.skip` travelling out of a block.
+func isTestSkip(err error) bool {
+	s, ok := testSignalOf(err)
+	return ok && s.skip
+}
+
+// fileSkipped is the entry a `test.skip` outside every case leaves in Result.Tests: the
+// rest of the file did not run, and the report says so instead of reading as a file that
+// ended with fewer cases (§12.18).
+func fileSkipped(s *testSignal) TestCase {
+	return TestCase{Status: TestSkip, Reason: s.reason, Line: s.line, Col: s.col}
+}
 
 // testCase runs one case. The block is the trailing `{ … }` of §4.2 — which the
 // evaluator hands over as the last argument *and* as the Ctx's closure — so
@@ -61,28 +153,190 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if !c.HasClosure() {
 		return Nil(), c.ArgErrorf("test.case needs a block: test.case(%q) { … }", name)
 	}
+	o := c.rs.opts.Test
+	group := slices.Clone(c.rs.testGroups)
+	if o.Filter != nil && !o.Filter(testFullName(group, name)) {
+		// Not run, not counted: a filter narrows the file to the cases asked for, and a
+		// case left out has neither passed nor failed.
+		return Nil(), nil
+	}
+	tc := TestCase{Name: name, Group: group, Line: c.pos.Line, Col: c.pos.Col}
+
+	var out, prev *strings.Builder
+	if o.Capture {
+		prev, out = c.rs.sh.testOut, &strings.Builder{}
+		c.rs.sh.testOut = out
+	}
 	outer := c.rs.frames()
+	c.rs.testDepth++
 	start := time.Now()
 	_, rerr := c.CallClosure()
-	elapsed := time.Since(start)
+	tc.Elapsed = time.Since(start)
+	c.rs.testDepth--
+	if o.Capture {
+		c.rs.sh.testOut = prev
+		tc.Output = out.String()
+	}
 
+	if s, ok := testSignalOf(rerr); ok {
+		if !s.skip {
+			// A case nested in this one failed under fail-fast: it is recorded already,
+			// and this one has not finished.
+			return Nil(), rerr
+		}
+		tc.Status, tc.Reason = TestSkip, s.reason
+		c.rs.sh.tests = append(c.rs.sh.tests, tc)
+		reportLine(c, "skip "+tc.FullName()+"  ("+s.reason+")")
+		reportOutput(c, tc, false)
+		return Bool(true), nil
+	}
 	if _, ok := catchableError(rerr); rerr != nil && !ok {
 		// A timeout, a budget or `exit` is the Run ending, not a case failing (§8.11).
 		// Recording it as a failure would report a red test where there is a stopped
 		// process, and swallowing it would hide the stop.
 		return Nil(), rerr
 	}
-	c.rs.sh.tests = append(c.rs.sh.tests, TestCase{Name: name, Err: rerr, Elapsed: elapsed})
+	tc.Err = rerr
 	if rerr != nil {
-		writeLine(c, "FAIL "+name)
-		writeLine(c, "     "+errorLine(rerr))
+		tc.Status = TestFail
+		c.rs.sh.tests = append(c.rs.sh.tests, tc)
+		reportLine(c, "FAIL "+tc.FullName())
+		reportLine(c, "     "+errorLine(rerr))
 		for _, line := range FormatTrace(caseFrames(rerr, outer)) {
-			writeLine(c, "       "+line)
+			reportLine(c, "       "+line)
+		}
+		reportOutput(c, tc, true)
+		if o.FailFast {
+			return Nil(), &testSignal{}
 		}
 		return Bool(false), nil
 	}
-	writeLine(c, "ok   "+name)
+	tc.Status = TestPass
+	c.rs.sh.tests = append(c.rs.sh.tests, tc)
+	reportLine(c, "ok   "+tc.FullName())
+	reportOutput(c, tc, false)
 	return Bool(true), nil
+}
+
+// reportOutput prints a case's captured output under its report line: always for a case
+// that failed, which is when the output is evidence, and for every case under Verbose.
+func reportOutput(c *Ctx, tc TestCase, failed bool) {
+	o := c.rs.opts.Test
+	if tc.Output == "" || !(failed || o.Verbose) {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(tc.Output, "\n"), "\n") {
+		reportLine(c, "     | "+line)
+	}
+}
+
+// testGroup names the cases declared in its block: they are reported as
+// `name › case`, and groups nest. It is naming and nothing else — no setup, no
+// isolation, no catching: a failure in the block outside any case ends the file as it
+// would without the group (§12.18).
+func testGroup(c *Ctx, args []Value) (Value, error) {
+	name, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if !c.HasClosure() {
+		return Nil(), c.ArgErrorf("test.group needs a block: test.group(%q) { … }", name)
+	}
+	saved := c.rs.testGroups
+	// Clip first, so the append never writes into a backing array a task started
+	// earlier still reads its own groups from.
+	c.rs.testGroups = append(slices.Clip(saved), name)
+	_, rerr := c.CallClosure()
+	c.rs.testGroups = saved
+	if rerr != nil {
+		return Nil(), rerr
+	}
+	return Nil(), nil
+}
+
+// testSkip ends the current case as skipped. Outside a case it ends the file, whose
+// remaining cases are then not run: a test file that needs a capability the host did not
+// give it says so once, at the top, instead of failing every case for the same reason.
+func testSkip(c *Ctx, args []Value) (Value, error) {
+	reason, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if c.rs.testDepth == 0 {
+		reportLine(c, "skip (rest of file)  ("+reason+")")
+	}
+	return Nil(), &testSignal{skip: true, reason: reason, line: c.pos.Line, col: c.pos.Col}
+}
+
+// testNe is eq's negation, with the value it did not want in the message.
+func testNe(c *Ctx, args []Value) (Value, error) {
+	if !args[0].Equal(args[1]) {
+		return Nil(), nil
+	}
+	return Nil(), c.position(raiseError("expected a value other than "+args[1].Inspect(), Nil()))
+}
+
+// testNear compares two numbers with a tolerance, because `0.1 + 0.2 == 0.3` is false
+// in every language with IEEE floats and a test that wants the arithmetic right needs to
+// say how right. Equal values are near whatever eps is — that is how infinity is near
+// itself — and NaN is near nothing, itself included. A Decimal is not a number here:
+// Decimal arithmetic is exact, so `test.eq` is the comparison for it.
+func testNear(c *Ctx, args []Value) (Value, error) {
+	a, err := argNum(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	b, err := argNum(c, args[1])
+	if err != nil {
+		return Nil(), err
+	}
+	eps := Float(1e-9)
+	if len(args) > 2 {
+		if eps, err = argNum(c, args[2]); err != nil {
+			return Nil(), err
+		}
+		if e := eps.Float(); math.IsNaN(e) || e < 0 {
+			return Nil(), c.ArgErrorf("test.near wants a tolerance of 0 or more, got %s", eps.Inspect())
+		}
+	}
+	x, y := a.Float(), b.Float()
+	if x == y || math.Abs(x-y) <= eps.Float() {
+		return Nil(), nil
+	}
+	return Nil(), c.position(raiseError(
+		"expected "+b.Inspect()+" within "+eps.Inspect()+", got "+a.Inspect(), Nil()))
+}
+
+// testRaises runs its block and wants it to fail. It answers the error dict a `try`
+// handler would bind (§8.11), so the test goes on to the message and the data instead of
+// stopping at "it raised". It catches what `try` catches and nothing more: a limit or
+// `exit` inside the block still ends the Run.
+func testRaises(c *Ctx, args []Value) (Value, error) {
+	if !c.HasClosure() {
+		return Nil(), c.ArgErrorf(`test.raises needs a block: test.raises("kind") { … }`)
+	}
+	args = args[:len(args)-1] // the last argument is the block
+	kind := ""
+	if len(args) > 0 && !args[0].IsNil() {
+		k, err := argStr(c, args[0])
+		if err != nil {
+			return Nil(), err
+		}
+		kind = k
+	}
+	v, rerr := c.CallClosure()
+	if rerr == nil {
+		return Nil(), c.position(raiseError("expected an error, got "+v.Inspect(), Nil()))
+	}
+	x, ok := catchableError(rerr)
+	if !ok {
+		return Nil(), rerr
+	}
+	if kind != "" && x.Kind != kind {
+		return Nil(), c.position(raiseError(
+			fmt.Sprintf("expected kind %q, got %q: %s", kind, x.Kind, x.Msg), Nil()))
+	}
+	return x.ErrorValue(), nil
 }
 
 // testEq is the comparison whose failure is worth reading. Equality is the language's
@@ -131,7 +385,11 @@ func errorLine(err error) string {
 	return e.Msg
 }
 
-func writeLine(c *Ctx, s string) {
+// reportLine writes one line of the human report, unless the host asked for none.
+func reportLine(c *Ctx, s string) {
+	if c.rs.opts.Test.Quiet {
+		return
+	}
 	w := c.Out()
 	if w == nil {
 		return

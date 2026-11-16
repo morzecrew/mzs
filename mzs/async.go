@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +69,10 @@ type runShared struct {
 	// ran (§12.18). It lives here for the reason stdin does: a case may be written inside
 	// a task, and one report per Run is the only reading of "the tests this Run ran".
 	tests []TestCase
+	// testOut is where print writes while a case runs under Options.Test.Capture, or
+	// nil (§12.18). It is shared because stdout is: what a task prints while a case runs
+	// is printed while that case runs.
+	testOut *strings.Builder
 
 	// cancel ends the context every task derives from. RunResult calls it before joining,
 	// so a task blocked on the network or on another task stops instead of holding the

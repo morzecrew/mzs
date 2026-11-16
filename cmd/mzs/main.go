@@ -65,6 +65,10 @@ type config struct {
 	tasksSet   bool
 
 	enableTime bool
+	// now is a fixed clock (`mzs test --now`): when nowSet, the script's now() answers
+	// this instant every time it asks (§15.2).
+	now    time.Time
+	nowSet bool
 	// stdinIsSource records that stdin was consumed as the program text — a piped script,
 	// an explicit `-`, or the REPL's console. When it was not, stdin is free to be *data*
 	// and goes to Options.Stdin for io.stdin/io.lines (§12.13).
@@ -402,6 +406,10 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	}
 	if cfg.enableTime {
 		o.Now = time.Now
+	}
+	if cfg.nowSet {
+		fixed := cfg.now
+		o.Now = func() time.Time { return fixed }
 	}
 	if cfg.randOn {
 		o.Rand = rand.New(rand.NewSource(cfg.randSeed))

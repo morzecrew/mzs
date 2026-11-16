@@ -1182,6 +1182,10 @@ func ensureRuns(err error) bool {
 	if _, ok := ctrlOf(err); ok {
 		return true
 	}
+	if isTestSkip(err) {
+		// A skip leaves the block the ordinary way: the case is over, the Run is not.
+		return true
+	}
 	_, ok := catchableError(err)
 	return ok
 }

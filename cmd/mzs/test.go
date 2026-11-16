@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +30,20 @@ import (
 type testConfig struct {
 	paths []string
 	opts  config
+
+	// filter is --filter: the cases to run, matched against `group › case`.
+	filter *regexp.Regexp
+	// failFast is --fail-fast: the first failed case ends the whole command.
+	failFast bool
+	// json is --json: one object per case on stdout and nothing else there.
+	json bool
+	// verbose is -v: a passing case's output is printed under it too.
+	verbose bool
+}
+
+// testTally is what the summary line counts.
+type testTally struct {
+	cases, failed, skipped int
 }
 
 func runTest(argv []string, stdout, stderr io.Writer) int {
@@ -52,42 +69,61 @@ func runTest(argv []string, stdout, stderr io.Writer) int {
 	}
 
 	var (
-		cases  int
-		failed int
+		total  testTally
 		broken int
+		ran    int
 	)
 	start := time.Now()
 	for i, path := range files {
-		if i > 0 {
-			fmt.Fprintln(stdout)
+		if !cfg.json {
+			if i > 0 {
+				fmt.Fprintln(stdout)
+			}
+			fmt.Fprintln(stdout, path)
 		}
-		fmt.Fprintln(stdout, path)
-		ran, bad, err := runTestFile(cfg, path, stdout, stderr)
-		cases += ran
-		failed += bad
-		if err != nil {
+		t, err := runTestFile(cfg, path, stdout, stderr)
+		ran++
+		total.cases += t.cases
+		total.failed += t.failed
+		total.skipped += t.skipped
+		if err != nil && !errors.Is(err, mzs.ErrFailFast) {
 			broken++
+		}
+		if cfg.failFast && (t.failed > 0 || err != nil) {
+			// --fail-fast stops at the first red thing, a broken file included: the files
+			// after it are not run, and the summary counts what was.
+			break
 		}
 	}
 
-	fmt.Fprintf(stdout, "\n%s, %s, %d failed%s  (%s)\n",
-		plural(len(files), "file"), plural(cases, "case"), failed,
-		brokenNote(broken), time.Since(start).Round(time.Millisecond))
-	if failed > 0 || broken > 0 {
+	elapsed := time.Since(start)
+	if cfg.json {
+		writeJSON(stdout, map[string]any{
+			"summary": true, "files": ran, "cases": total.cases, "failed": total.failed,
+			"skipped": total.skipped, "broken": broken, "ms": elapsed.Milliseconds(),
+		})
+	} else {
+		fmt.Fprintf(stdout, "\n%s, %s, %d failed%s%s  (%s)\n",
+			plural(ran, "file"), plural(total.cases, "case"), total.failed,
+			skippedNote(total.skipped), brokenNote(broken), elapsed.Round(time.Millisecond))
+	}
+	if total.failed > 0 || broken > 0 {
 		return exitError
 	}
 	return exitOK
 }
 
-// runTestFile runs one file and returns how many cases it ran, how many failed, and the
-// error that ended it early. A file that raises outside a case — a typo, an `include`
-// that is not there — is a broken file rather than a failed case, and the two are counted
-// apart because the fixes are different.
-func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (int, int, error) {
+// runTestFile runs one file and returns what its cases came to, and the error that ended
+// it early. A file that raises outside a case — a typo, an `include` that is not there —
+// is a broken file rather than a failed case, and the two are counted apart because the
+// fixes are different.
+func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTally, error) {
+	var tally testTally
 	b, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "mzs test: %v\n", err)
-		return 0, 0, err
+		cfg.jsonError(stdout, path, err)
+		return tally, err
 	}
 	src := string(b)
 
@@ -96,40 +132,142 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (int, i
 	// Each file is its own Run (§15.2), and keeps its own record of what it included.
 	opts.loaded = map[string]string{}
 	opts.root = includeRoot(&opts)
-	in := mzs.New(options(&opts, stdout, stderr, nil))
+	out := stdout
+	if cfg.json {
+		// stdout is the JSON stream, and a line a script printed in the middle of it
+		// would break every reader of it; what the script prints goes to stderr instead,
+		// as it happens.
+		out = stderr
+	}
+	o := options(&opts, out, stderr, nil)
+	o.Test = mzs.TestOptions{
+		FailFast: cfg.failFast,
+		Quiet:    cfg.json,
+		Capture:  !cfg.json,
+		Verbose:  cfg.verbose,
+	}
+	if re := cfg.filter; re != nil {
+		o.Test.Filter = re.MatchString
+	}
+	in := mzs.New(o)
 	prog, err := in.Compile(path, src)
 	if err != nil {
 		reportErr(stderr, path, src, err)
-		return 0, 0, err
+		cfg.jsonError(stdout, path, err)
+		return tally, err
 	}
 	reportWarnings(stderr, path, src, prog.Warnings())
 
 	res, rerr := in.RunResult(context.Background(), prog, nil)
-	failed := 0
 	for _, t := range res.Tests {
-		if !t.Passed() {
-			failed++
+		if cfg.json {
+			writeJSON(stdout, caseJSON(path, t))
+		}
+		if t.Name == "" {
+			continue // the rest of the file skipped: a line in the report, not a case
+		}
+		tally.cases++
+		switch t.Status {
+		case mzs.TestFail:
+			tally.failed++
+		case mzs.TestSkip:
+			tally.skipped++
 		}
 	}
-	if len(res.Tests) == 0 && rerr == nil {
-		fmt.Fprintln(stdout, "     (no cases)")
+	if len(res.Tests) == 0 && rerr == nil && !cfg.json {
+		if cfg.filter != nil {
+			fmt.Fprintln(stdout, "     (no cases match the filter)")
+		} else {
+			fmt.Fprintln(stdout, "     (no cases)")
+		}
 	}
 	if rerr != nil {
+		if errors.Is(rerr, mzs.ErrFailFast) {
+			return tally, rerr
+		}
 		if code, ok := mzs.ExitCode(rerr); ok {
 			// `exit(0)` inside a test file is the file saying it is done early: the cases
 			// it ran up to there still count and nothing is wrong. Any other code is the
 			// file reporting a failure of its own, and a runner that answered 0 to it
 			// would be hiding the one thing `exit(n)` exists to say (§12.1).
 			if code == 0 {
-				return len(res.Tests), failed, nil
+				return tally, nil
 			}
 			fmt.Fprintf(stderr, "mzs test: %s: exit(%d)\n", path, code)
-			return len(res.Tests), failed, rerr
+			cfg.jsonError(stdout, path, rerr)
+			return tally, rerr
 		}
 		reportErrTrace(stderr, path, src, rerr, !opts.noTrace, opts.loaded)
-		return len(res.Tests), failed, rerr
+		cfg.jsonError(stdout, path, rerr)
+		return tally, rerr
 	}
-	return len(res.Tests), failed, nil
+	return tally, nil
+}
+
+// caseJSON is one case as --json writes it (§15.2). line and col are where the case was
+// declared; a failure's own position is in its message, as it is in the human report.
+func caseJSON(path string, t mzs.TestCase) map[string]any {
+	var name, msg any
+	if t.Name != "" {
+		name = t.Name
+	}
+	switch {
+	case t.Status == mzs.TestFail && t.Err != nil:
+		msg = failureLine(t.Err)
+	case t.Status == mzs.TestSkip:
+		msg = t.Reason
+	}
+	group := t.Group
+	if group == nil {
+		group = []string{}
+	}
+	return map[string]any{
+		"file": path, "name": name, "group": group, "status": t.Status,
+		"message": msg, "line": t.Line, "col": t.Col, "ms": t.Elapsed.Milliseconds(),
+	}
+}
+
+// jsonError is a file that did not finish, under --json: status "error", no case name,
+// and the position the error was raised at.
+func (cfg *testConfig) jsonError(w io.Writer, path string, err error) {
+	if !cfg.json {
+		return
+	}
+	line, col := 0, 0
+	var e *mzs.Error
+	if errors.As(err, &e) {
+		line, col = e.Line, e.Col
+	}
+	writeJSON(w, map[string]any{
+		"file": path, "name": nil, "group": []string{}, "status": "error",
+		"message": failureLine(err), "line": line, "col": col, "ms": 0,
+	})
+}
+
+// failureLine is the message of a failure with the position it was raised at, as the
+// line under FAIL spells it.
+func failureLine(err error) string {
+	var e *mzs.Error
+	if !errors.As(err, &e) {
+		return err.Error()
+	}
+	switch {
+	case e.Line > 0 && e.File != "":
+		return fmt.Sprintf("%s (%s:%d:%d)", e.Msg, e.File, e.Line, e.Col)
+	case e.Line > 0:
+		return fmt.Sprintf("%s (%d:%d)", e.Msg, e.Line, e.Col)
+	}
+	return e.Msg
+}
+
+// writeJSON writes one object on one line. The keys are sorted, which is what
+// encoding/json does with a map, so the stream is the same from one run to the next.
+func writeJSON(w io.Writer, v map[string]any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		b = []byte(fmt.Sprintf(`{"status":"error","message":%q}`, err.Error()))
+	}
+	_, _ = w.Write(append(b, '\n'))
 }
 
 // testFiles expands the arguments into the `*_test.mzs` files to run, in a stable order.
@@ -185,6 +323,13 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return strconv.Itoa(n) + " " + word + "s"
+}
+
+func skippedNote(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %d skipped", n)
 }
 
 func brokenNote(n int) string {
@@ -289,6 +434,34 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			cfg.opts.noTrace = true
 		case "--no-io":
 			cfg.opts.ioOn = false
+		case "--filter":
+			v, err := need()
+			if err != nil {
+				return nil, err
+			}
+			re, rerr := regexp.Compile(v)
+			if rerr != nil {
+				return nil, fmt.Errorf("--filter wants a regular expression: %v", rerr)
+			}
+			cfg.filter = re
+		case "--fail-fast":
+			cfg.failFast = true
+		case "--json":
+			cfg.json = true
+		case "-v", "--verbose":
+			cfg.verbose = true
+		case "--now":
+			v, err := need()
+			if err != nil {
+				return nil, err
+			}
+			t, perr := time.Parse(time.RFC3339, v)
+			if perr != nil {
+				return nil, fmt.Errorf("--now wants an RFC 3339 time such as 2026-01-31T09:00:00Z, got %q", v)
+			}
+			// A fixed clock is still a clock: --now implies --time (D15).
+			cfg.opts.enableTime = true
+			cfg.opts.now, cfg.opts.nowSet = t, true
 		default:
 			return nil, fmt.Errorf("unknown flag %s", name)
 		}
@@ -310,6 +483,9 @@ A test file includes the module and names its cases:
   include decimal
   test.case("нормализация") { assert("  ДА ".lower.trim == "да") }
   test.case("деньги")       { test.eq(decimal.times(decimal.of("10.00"), 3), decimal.of("30.00")) }
+  test.group("ошибки") {
+    test.case("не число")   { test.raises("decimal") { decimal.of("десять") } }
+  }
 
 Flags:
   -t, --timeout <d>  wall clock per file (default 1s; 0 disables)
@@ -321,9 +497,18 @@ Flags:
       --no-io        withhold the io module: no files, no env, no stdin
       --no-trace     a file that fails outside a case prints its three lines without the
                      call stack (a failed case still lists the calls inside it)
+      --now <t>      --time with a fixed clock at t, an RFC 3339 time: date logic that
+                     reads the same answer every run
+      --filter <re>  run only the cases whose full name (group › case) matches re
+      --fail-fast    stop at the first failed case
+      --json         one JSON object per case on stdout, then a summary; what the
+                     scripts print goes to stderr
+  -v, --verbose      print what each case printed under it (a failed case's always is)
   -h, --help         this text
 
 Each file is its own Run: its globals, its includes and its budget reach no other file.
+The module also has ne, near and skip: see docs/modules/test.md.
 
-Exit codes: 0 every case passed, 1 a case failed or a file did not finish, 2 usage.
+Exit codes: 0 every case passed (skipped ones count as passed), 1 a case failed or a
+file did not finish, 2 usage.
 `

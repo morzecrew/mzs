@@ -19,6 +19,21 @@ and the release is still ahead of it.
 
 ### Added
 
+- **`test` grows up.** Five members join `case` and `eq`: `test.ne`; `test.near(a, b, eps)`
+  for floats (`1e-9` by default; NaN is near nothing); `test.raises(kind) { … }`, which
+  fails unless the block raises — an error of that kind, when named — and answers the
+  error dict, so a case goes on to its message and data; `test.skip(reason)`, which ends a
+  case as skipped (not failed, not catchable, `ensure` runs) or, outside a case, the rest
+  of the file; and `test.group(name) { … }`, which reports its cases as `name › case`.
+  `mzs test` gains `--filter <regex>` (on the full name; a case left out is not run),
+  `--fail-fast`, `--json` (one object per case, then a summary; the scripts' own output
+  goes to stderr), `--now <rfc3339>` (`--time` with a fixed clock) and `-v`. A case's
+  output is now held until it is over and printed under it when it fails, or always under
+  `-v`, instead of being interleaved; the summary counts skips, which do not fail a run.
+  For embedders: `TestCase` gains `Status`, `Group`, `Reason`, `Line`, `Col`, `Output` and
+  `FullName()`, and `Options.Test` (`Filter`, `FailFast`, `Quiet`, `Capture`, `Verbose`)
+  asks for what the CLI does; `ErrFailFast` is what a fail-fast Run ends with. The zero
+  `Options.Test` is the module as before (SPEC §12.18, §13.2, §15.2; RFC 0014).
 - **The `csv` module.** `include csv` reads and writes RFC 4180: `csv.parse(s)` gives arrays
   of fields, `{header: true}` dicts in the header's order, and `csv.rows(io.lines)` the same
   records as a seq read one at a time, so a file larger than `MaxCollection` streams

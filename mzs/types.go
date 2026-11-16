@@ -277,6 +277,14 @@ type runState struct {
 	// script. It is pushed and popped like the call stack, and a task starts with none.
 	roots []memRoot
 	held  []Value
+
+	// testGroups is the `test.group` names around the code running now, outermost
+	// first, and testDepth is how many `test.case` blocks it is inside (§12.18). They are
+	// per state rather than shared because they are the shape of the code a state is
+	// running: a task started inside a group is inside it too, and one started elsewhere
+	// is not.
+	testGroups []string
+	testDepth  int
 }
 
 // newRunState builds the per-Run state with the budget already armed.

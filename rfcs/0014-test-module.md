@@ -1,6 +1,6 @@
 # RFC 0014 — `test` grows up
 
-**Status:** Draft · **Area:** stdlib, CLI · **Depends on:** 0009 (trace under a failure) · **Audit:** S3, T5
+**Status:** Landed (#29) · **Area:** stdlib, CLI · **Depends on:** 0009 (trace under a failure) · **Audit:** S3, T5
 
 ## Summary
 
@@ -113,3 +113,40 @@ text is not stable anyway (§21.2). `test.case` still returns a bool — `true` 
 `mzs/test.go` (members, status, groups on the Run), `cmd/mzs/test.go` (flags, JSON
 reporter, filter passed through `Options`), SPEC §12.18 and §15.2, `docs/modules/test.md`,
 `docs/cli/tools.md`, apidoc, and fixing the `--help` example (audit B2) while there.
+
+## As landed
+
+Landed in #29 as designed: the five members, the four runner flags and `-v`, and the
+richer `Result.Tests`. SPEC §12.18 and §15.2 (with §13.2 and §13.5 for the Go API) are the
+normative text, `docs/modules/test.md` and `docs/cli/tools.md` the guides, and
+`examples/27_lib_money_test.mzs` uses a group and `test.raises`.
+
+* **Open question 1 — `--filter` matches case names only.** Files are chosen by the paths on
+  the command line, which already select a directory or a single file; a pattern that
+  matched both would make `--filter money` mean two different things at once.
+* **Open question 2 — `near` takes numbers only.** A Decimal is refused with the ordinary
+  type error: Decimal arithmetic is exact, so `eq` is its comparison. Arrays of floats are
+  left until there is demand; `for` over pairs with `near` covers them today.
+* **Open question 3 — coverage** stays with RFC 0019, as the RFC says.
+* **Equal values are near whatever `eps` is.** That is what makes an infinity near itself,
+  where `abs(inf - inf)` is NaN. NaN is near nothing, itself included, and a negative or NaN
+  `eps` is an `argument` error.
+* **A skip runs `ensure`; fail-fast does not.** A skip leaves its block the way `return`
+  does, so what the case acquired is released. Fail-fast ends the Run, which, like a limit,
+  runs no more script code. Neither is catchable by `try`.
+* **A filtered-out case answers `nil`**, not `true` or `false`: it has neither passed nor
+  failed.
+* **`line` and `col` in `--json` are the case's declaration**, as the RFC's example shows;
+  a failure's own position is in `message`, exactly as the human report prints it.
+* **Under `--json` the scripts' own output goes to stderr**, as it happens, rather than
+  being dropped: stdout is the stream, and nothing a script prints is lost.
+* **Output capture is the CLI's default.** The `-v` row says a case's output is printed
+  under it; without `-v`, a failed case's output is still printed under it — it is the
+  evidence — and a passing case's is not. Output outside every case is printed as it
+  happens. For an embedder, all of this is opt-in through `Options.Test.Capture`.
+* **`--fail-fast` also stops at a file that did not finish**, which is as red as a failed
+  case.
+* **Exit codes are unchanged**, including that a limit ending a file is `1`, as it was
+  before this RFC; the `3` in the Design table is not a code `mzs test` has used.
+* **B2 (the `--help` example)** was fixed in #17; the example now also shows a group and
+  `test.raises`, and still runs as a test.

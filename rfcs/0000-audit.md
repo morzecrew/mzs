@@ -105,7 +105,7 @@ host's OOM killer does not return an `error` at the `Run` boundary. → [0011](0
 |---|---|---|---|
 | S1 | **Landed (#21).** No stderr | `eprintln` / `warn` are undefined; `Options.Stderr` exists but only warnings reach it. A filter in a pipeline cannot report without corrupting its output | [0012](0012-stderr.md) |
 | S2 | **Landed (#28).** No CSV | `include csv` → unknown module. `examples/12_csv_report.mzs` carries its own quote-aware scanner — commas and doubled quotes inside quotes — because `split(",")` is wrong for any quoted field; it still cannot read a quoted field that spans lines, and every script that needs CSV has to copy it | [0013](0013-csv-module.md) |
-| S3 | `test` has two members | `include test; test.keys` → `["case","eq"]`; `test.raises` is undefined, so an error path cannot be asserted without a hand-written `try` | [0014](0014-test-module.md) |
+| S3 | **Landed (#29).** `test` has two members | `include test; test.keys` → `["case","eq"]`; `test.raises` is undefined, so an error path cannot be asserted without a hand-written `try` | [0014](0014-test-module.md) |
 | S4 | No path handling; `io` cannot remove, create a directory or stat | `include io; io.keys` → `stdin lines read write append exists ls env`; SPEC §12.13 says so on purpose | [0015](0015-path-and-io.md) |
 | S5 | Uneven collection rows | dict has no `reduce`/`count`/`group_by`; array has no `mean`/`product`/`transpose`; seq has no `zip`/`uniq`/`each_slice`; `trim` takes no cutset | [0016](0016-stdlib-completion.md) |
 | S6 | `math` stops at `atan` | no `asin acos sinh cosh tanh`, no `gcd`, no NaN/Inf test | [0016](0016-stdlib-completion.md) |
@@ -124,7 +124,7 @@ standard library has no NFC/NFD tables, so it would mean bundling them or breaki
 | T2 | LSP stops at five requests | hover, definition, completion, documentSymbol, formatting. No references, rename, signature help or code actions — although every diagnostic already carries a fix-it | [0019](0019-tooling.md) |
 | T3 | No doc comments | nothing a hover or a generated page can show for a user's own `fn` | [0019](0019-tooling.md) |
 | T4 | No coverage, no profile | `--stats` prints one step count for the whole run | [0019](0019-tooling.md) |
-| T5 | `mzs test` has no filter, no machine output | flags are the run limits and nothing else | [0014](0014-test-module.md) |
+| T5 | **Landed (#29).** `mzs test` has no filter, no machine output | flags are the run limits and nothing else | [0014](0014-test-module.md) |
 | T6 | A library has a search path but no manifest | `$MZSPATH` (T19) finds a library; nothing records which one, or fetches it | [0020](0020-library-manifest.md) |
 | T7 | No release | `CHANGELOG.md`: "no tag has been cut yet"; install is `git clone` + a Go toolchain | — (process, not design) |
 

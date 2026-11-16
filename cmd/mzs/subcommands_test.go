@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -375,6 +376,14 @@ func TestTestFlags(t *testing.T) {
 		{"a bad seed", []string{"test", "--rand=soon", dir}, exitUsage},
 		{"a flag with no value", []string{"test", "-t"}, exitUsage},
 		{"an unknown flag", []string{"test", "--nope", dir}, exitUsage},
+		{"a filter", []string{"test", "--filter", "on", dir}, exitOK},
+		{"a bad filter", []string{"test", "--filter", "(", dir}, exitUsage},
+		{"a filter with no value", []string{"test", "--filter"}, exitUsage},
+		{"fail-fast", []string{"test", "--fail-fast", dir}, exitOK},
+		{"json", []string{"test", "--json", dir}, exitOK},
+		{"verbose", []string{"test", "-v", dir}, exitOK},
+		{"a fixed clock", []string{"test", "--now", "2026-01-31T09:00:00Z", dir}, exitOK},
+		{"a bad fixed clock", []string{"test", "--now", "tomorrow", dir}, exitUsage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errOut := exec(tc.argv, "")
@@ -464,8 +473,8 @@ func TestTestHelpExampleRuns(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("the --help example fails: code = %d\nstdout:\n%s\nstderr:\n%s\nsource:\n%s", code, out, errOut, src.String())
 	}
-	if !strings.Contains(out, "2 cases, 0 failed") {
-		t.Errorf("stdout = %q; want both cases to run and pass", out)
+	if !strings.Contains(out, "3 cases, 0 failed") {
+		t.Errorf("stdout = %q; want every case to run and pass", out)
 	}
 }
 
@@ -529,5 +538,152 @@ func TestTestPassesStderrThrough(t *testing.T) {
 	code, out, errOut := exec([]string{"test", dir}, "")
 	if code != exitOK || !strings.Contains(errOut, "a note\n") || strings.Contains(out, "a note") {
 		t.Errorf("code = %d\nstdout =\n%s\nstderr =\n%s", code, out, errOut)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// mzs test: the RFC 0014 runner flags
+// ---------------------------------------------------------------------------
+
+const rfc14File = `include test
+test.group("money") {
+  test.case("sums") { println("summing"); assert(true) }
+  test.case("rounds") { println("evidence"); test.eq(29.99, 30) }
+}
+test.case("later") { test.skip("not yet") }
+`
+
+func TestTestCountsSkips(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", rfc14File)
+	code, out, _ := exec([]string{"test", dir}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	for _, want := range []string{
+		"ok   money › sums", "FAIL money › rounds", "     | evidence",
+		"skip later  (not yet)", "1 file, 3 cases, 1 failed, 1 skipped",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout does not contain %q:\n%s", want, out)
+		}
+	}
+	// A passing case's output is shown under -v only.
+	if strings.Contains(out, "summing") {
+		t.Errorf("a passing case's output was printed without -v:\n%s", out)
+	}
+	_, out, _ = exec([]string{"test", "-v", dir}, "")
+	if !strings.Contains(out, "ok   money › sums\n     | summing\n") {
+		t.Errorf("-v:\n%s", out)
+	}
+}
+
+// Skips alone do not make a run red.
+func TestTestSkipsArePasses(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", "include test\ntest.case(\"one\") { test.skip(\"later\") }\ntest.skip(\"no db\")\n")
+	code, out, errOut := exec([]string{"test", dir}, "")
+	if code != exitOK {
+		t.Fatalf("code = %d\n%s\n%s", code, out, errOut)
+	}
+	if !strings.Contains(out, "skip (rest of file)  (no db)") || !strings.Contains(out, "1 file, 1 case, 0 failed, 1 skipped") {
+		t.Errorf("stdout:\n%s", out)
+	}
+}
+
+func TestTestFilter(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", rfc14File)
+	code, out, _ := exec([]string{"test", "--filter", "money › sums", dir}, "")
+	if code != exitOK {
+		t.Errorf("code = %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "1 file, 1 case, 0 failed") || strings.Contains(out, "rounds") {
+		t.Errorf("stdout:\n%s", out)
+	}
+	_, out, _ = exec([]string{"test", "--filter", "^nothing$", dir}, "")
+	if !strings.Contains(out, "(no cases match the filter)") {
+		t.Errorf("stdout:\n%s", out)
+	}
+}
+
+func TestTestFailFast(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", rfc14File)
+	writeTestFile(t, dir, "b_test.mzs", "include test\ntest.case(\"never\") { assert(true) }\n")
+	code, out, errOut := exec([]string{"test", "--fail-fast", dir}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	if strings.Contains(out, "later") || strings.Contains(out, "never") || strings.Contains(out, "b_test.mzs") {
+		t.Errorf("--fail-fast ran on after the failure:\n%s", out)
+	}
+	if !strings.Contains(out, "1 file, 2 cases, 1 failed  (") || strings.Contains(out, "did not finish") {
+		t.Errorf("stdout:\n%s\nstderr:\n%s", out, errOut)
+	}
+}
+
+func TestTestJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "a_test.mzs", "println(\"from the file\")\n"+rfc14File)
+	writeTestFile(t, dir, "b_test.mzs", "include test\nnope()\n")
+	code, out, errOut := exec([]string{"test", "--json", dir}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	var objs []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("a line of stdout is not JSON: %q (%v)\nall:\n%s", line, err, out)
+		}
+		objs = append(objs, m)
+	}
+	if len(objs) != 5 {
+		t.Fatalf("got %d objects, want 3 cases, a broken file and a summary:\n%s", len(objs), out)
+	}
+	first := objs[0]
+	if first["file"] != path || first["name"] != "sums" || first["status"] != "pass" ||
+		first["line"] != float64(4) || first["message"] != nil {
+		t.Errorf("first = %v", first)
+	}
+	if g, _ := first["group"].([]any); len(g) != 1 || g[0] != "money" {
+		t.Errorf("group = %v", first["group"])
+	}
+	if objs[1]["status"] != "fail" || !strings.Contains(objs[1]["message"].(string), "expected 30, got 29.99") {
+		t.Errorf("failed = %v", objs[1])
+	}
+	if objs[2]["status"] != "skip" || objs[2]["message"] != "not yet" {
+		t.Errorf("skipped = %v", objs[2])
+	}
+	if objs[3]["status"] != "error" || objs[3]["name"] != nil || objs[3]["line"] != float64(2) {
+		t.Errorf("broken = %v", objs[3])
+	}
+	sum := objs[4]
+	if sum["summary"] != true || sum["files"] != float64(2) || sum["cases"] != float64(3) ||
+		sum["failed"] != float64(1) || sum["skipped"] != float64(1) || sum["broken"] != float64(1) {
+		t.Errorf("summary = %v", sum)
+	}
+	// What the scripts print is not lost: it is on stderr, out of the stream's way.
+	for _, want := range []string{"from the file", "summing", "evidence"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr does not contain %q:\n%s", want, errOut)
+		}
+	}
+}
+
+func TestTestNowIsAFixedClock(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", `include test
+include time
+test.case("fixed") {
+  a = time.now
+  test.eq(a.str, "2026-01-31T09:00:00Z")
+  test.eq(time.now, a)
+}
+`)
+	code, out, errOut := exec([]string{"test", "--now", "2026-01-31T09:00:00Z", dir}, "")
+	if code != exitOK {
+		t.Errorf("code = %d\n%s\n%s", code, out, errOut)
 	}
 }
