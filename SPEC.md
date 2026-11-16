@@ -3021,8 +3021,9 @@ is looked at is not yielded. Telling a link from a directory without following i
 runs is up to the host's `List` (§13.2). A path longer than `MaxStringBytes`, a
 directory's `/` included, is a catchable `io` error naming the root rather than a string
 the script could not have built. Each `List` and each `Lstat` costs 1000 steps,
-like every other filesystem operation, and one directory's entries are bounded by
-`MaxCollection`.
+like every other filesystem operation. A walk keeps the listing of every directory it is
+inside, so `MaxCollection` bounds the names held down the current branch — the directory
+being listed and all its open ancestors together — not one directory's count.
 
 **The host resolves paths.** Nothing in the module joins, cleans or judges a name: what a
 script writes reaches `Options.FS` verbatim, and whether `"../../etc/shadow"` is allowed is

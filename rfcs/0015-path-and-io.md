@@ -200,7 +200,8 @@ settled as follows.
   yielded. A name `List` returns that is `""`, `.`, `..` or contains a `/` is skipped: it is
   a way back into or above the directory, not an entry of it, and would otherwise send the
   walk round a loop only the step budget ends. Each `List` and each `Lstat` costs 1000 steps
-  (`ioStepCost`), and one directory's entries are bounded by `MaxCollection`.
+  (`ioStepCost`). The walk keeps each open ancestor's listing, so `MaxCollection` bounds
+  the names held down the current branch together, not one directory's count.
 * **`io.rm`** answers `false` when `Remove`'s error satisfies `errors.Is(err,
   fs.ErrNotExist)`, so no `Stat` races the removal; the documentation of `FileRemover` asks
   for that.
