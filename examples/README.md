@@ -35,7 +35,7 @@ option:
 
 ```sh
 mzs examples/32_io_files.mzs                          # writes into $TMPDIR
-mzs examples/51_file_tree.mzs                         # builds a tree in $TMPDIR, then removes it
+mzs -v dir="$(mktemp -d)" examples/51_file_tree.mzs   # builds a tree in a directory you give it, then removes it
 printf 'yes\nno\nyes\n' | mzs examples/32_io_files.mzs # …and reads the pipe as data
 ```
 

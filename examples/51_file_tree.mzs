@@ -1,7 +1,6 @@
 # 51 — a directory tree: the path module, io.walk, and the half of io that changes things.
 #
-#   mzs examples/51_file_tree.mzs
-#   mzs -v dir=/some/scratch examples/51_file_tree.mzs   # somewhere other than $TMPDIR
+#   mzs -v dir="$(mktemp -d)" examples/51_file_tree.mzs
 #   mzs --read-only examples/51_file_tree.mzs     # refused before it runs, and says why
 #
 # `path` is pure: it takes names apart and puts them together, always with `/`, and never
@@ -10,13 +9,19 @@
 # the host both can do them and said yes (Options.FSMutations): the CLI says yes because
 # the person typing already owns the machine, and --read-only is that person saying no.
 #
-# Everything below happens under $TMPDIR/mzs_example_51 — or $dir/mzs_example_51 — and is
-# removed again at the end. A directory of that name that is already there is somebody's,
-# perhaps a run that failed halfway: the script stops rather than delete what it did not
-# make.
+# Everything below happens under $dir/mzs_example_51 and is removed again at the end. $dir
+# is yours to give, and it should be a directory nothing else writes to — `mktemp -d` makes
+# one. The script asks for it rather than picking a place in $TMPDIR because the language
+# has no "create, but only if it is not there" yet: in a directory other processes share,
+# nothing a script can do proves that the tree it is about to change is the one it made.
 
 include io
 include path
+
+if $dir == nil {
+  eprintln("usage: mzs -v dir=<a directory of your own> examples/51_file_tree.mzs   (mktemp -d makes one)")
+  exit(1)
+}
 
 # --- names, without a filesystem ----------------------------------------------
 
@@ -37,7 +42,7 @@ println("  path.match(\"*.csv\", name)             → ${path.match("*.csv", nam
 
 # --- a tree to work on ----------------------------------------------------------
 
-root = path.join($dir ?? io.env("TMPDIR", "/tmp"), "mzs_example_51")
+root = path.join($dir, "mzs_example_51")
 
 # The names below are relative to root, which is what a reader wants to see; io.walk
 # yields them with root in front, and a directory with a trailing `/`, which path.rel
@@ -79,9 +84,8 @@ println("  io.stat(nothing)        → ${inspect(io.stat(path.join(root, "nothin
 # --- changing it --------------------------------------------------------------------
 
 # The glob above is what is there; what is moved is what this script wrote. In a directory
-# of your own the two are the same, and `for p in csvs { … }` is the loop to write — here
-# the tree sits in a shared directory, and a CSV somebody else dropped into it since the
-# check at the top would be moved too, or land on one of ours.
+# of your own the two are the same, and `for p in csvs { … }` would do — naming the two
+# keeps the example honest about which files it is changing.
 io.mkdir(path.join(root, "out"))
 ours = ["in/2025/q4.csv", "in/2026/q1.csv"].map { path.join(root, it) }
 for p in ours {
@@ -102,10 +106,9 @@ println("  rm notes.txt again      → ${io.rm(notes)}   (it was not there: fals
 println("  rm in/ with things in   → ${try io.rm(path.join(root, "in")) else (e) -> e["kind"]}   (not recursive)")
 # A tree is removed deepest first, one name at a time: io.rm is not recursive, so the script
 # says what it deletes. A tree that is all yours goes with
-# `for p in io.walk(d).array.reverse { io.rm(p) }` and then `io.rm(d)` — but this one is in
-# a shared directory, and something else could have put a file in it since the check at the
-# top. So the cleanup names what this script made, rather than removing whatever a walk
-# finds: a stranger's file stays, and the directory around it refuses to go and says so.
+# `for p in io.walk(d).array.reverse { io.rm(p) }` and then `io.rm(d)`; this cleanup names
+# what the script made instead, so anything else in the tree stays where it is and the
+# directory around it refuses to go and says so.
 made = ["out/q1_2026.csv", "out/q4_2025.csv", "out", "in/2026", "in/2025", "in", ".gitignore"]
 removed = made.map { io.rm(path.join(root, it)) }.count { it }
 io.rm(root)

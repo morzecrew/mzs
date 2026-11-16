@@ -761,6 +761,12 @@ func TestExamples(t *testing.T) {
 			},
 		},
 		{
+			name:     "51 file tree asks for a directory of the caller's own",
+			argv:     []string{path("51_file_tree.mzs")},
+			wantCode: exitError,
+			errHas:   []string{"usage: mzs -v dir=<a directory of your own>"},
+		},
+		{
 			name:     "51 file tree stops at a tree it did not make",
 			argv:     []string{"-v", "dir=" + filepath.Join(scratch, "busy"), path("51_file_tree.mzs")},
 			wantCode: exitError,
