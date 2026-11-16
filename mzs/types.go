@@ -2,8 +2,11 @@ package mzs
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"mzs/internal/ast"
 	"mzs/internal/lru"
@@ -277,6 +280,83 @@ type runState struct {
 	// script. It is pushed and popped like the call stack, and a task starts with none.
 	roots []memRoot
 	held  []Value
+
+	// testGroups is the `test.group` names around the code running now, outermost
+	// first, and testDepth is how many `test.case` blocks it is inside (§12.18). They are
+	// per state rather than shared because they are the shape of the code a state is
+	// running: a task started inside a group is inside it too, and one started elsewhere
+	// is not.
+	testGroups []string
+	testDepth  int
+	// testOut is the capture of the innermost case this state is running inside, under
+	// Options.Test.Capture, or nil. It is per state for the reason the groups are: a task
+	// started inside a case prints into that case, and two cases running in two tasks
+	// at once each keep their own output, whichever finishes first.
+	testOut *caseOut
+}
+
+// caseOut is one case's captured output. A task can outlive the case that started it,
+// so a capture is closed rather than dropped when its case ends, and what is printed
+// into a closed one goes to the case around it — or to Stdout — instead of nowhere.
+//
+// A capture is bounded by Options.MaxStringBytes, like any string the Run makes: past it,
+// what a case prints is dropped and the capture says it was truncated, so a case that
+// prints without end cannot hold the runner's memory hostage (§12.18, §14.1).
+type caseOut struct {
+	b         strings.Builder
+	limit     int
+	truncated bool
+	done      bool
+	parent    *caseOut
+}
+
+// write keeps what fits under the limit, cut at a rune boundary, and reports the whole
+// write as done: a print that overflows a capture is not the script's error.
+func (w *caseOut) write(p []byte) (int, error) {
+	if w.truncated {
+		// Once something was dropped, nothing after it is kept: the capture stays a
+		// prefix of what the case printed, not a prefix with later scraps in the gap.
+		return len(p), nil
+	}
+	room := w.limit - w.b.Len()
+	if len(p) <= room {
+		return w.b.Write(p)
+	}
+	if room > 0 {
+		for room > 0 && !utf8.RuneStart(p[room]) {
+			room--
+		}
+		w.b.Write(p[:room])
+	}
+	w.truncated = true
+	return len(p), nil
+}
+
+// lastRuneStart is the index of the byte the last rune of s starts at, or -1.
+func lastRuneStart(s string) int {
+	for i := len(s) - 1; i >= 0 && i >= len(s)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(s[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+// text is the captured output, with a note at the end when some of it was dropped.
+func (w *caseOut) text() string {
+	if !w.truncated {
+		return w.b.String()
+	}
+	s := w.b.String()
+	// A rune whose bytes came in two writes may have been cut between them; what is kept
+	// ends on a whole rune, so Output is valid UTF-8 whatever the writes were.
+	if i := lastRuneStart(s); i >= 0 && !utf8.FullRuneInString(s[i:]) {
+		s = s[:i]
+	}
+	if s != "" && !strings.HasSuffix(s, "\n") {
+		s += "\n"
+	}
+	return s + fmt.Sprintf("… (output truncated at %d bytes)\n", w.limit)
 }
 
 // newRunState builds the per-Run state with the budget already armed.

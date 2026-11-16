@@ -68,6 +68,10 @@ type runShared struct {
 	// ran (§12.18). It lives here for the reason stdin does: a case may be written inside
 	// a task, and one report per Run is the only reading of "the tests this Run ran".
 	tests []TestCase
+	// failedFast records that a case failed under Options.Test.FailFast, so a case that
+	// failed in a task stops the Run as one in the main program does: every later
+	// test.case ends at once, and the Run answers ErrFailFast.
+	failedFast bool
 
 	// cancel ends the context every task derives from. RunResult calls it before joining,
 	// so a task blocked on the network or on another task stops instead of holding the
@@ -228,6 +232,11 @@ func (rs *runState) waitFor(ch <-chan struct{}) error {
 	return err
 }
 
+// A wait is also where a case that failed under fail-fast in another task reaches this
+// one (§12.18): the code that resumes from it stops instead of going on. A host call
+// through Ctx.Blocking, which cannot answer an error of its own, is stopped at the next
+// statement instead (execStmts).
+//
 // waitLimited is waitFor with a limit of the caller's own on top of the Run's: `sleep`
 // waits for nothing with one, `t.timeout(d)` waits for a task with one. It answers
 // whether ch fired — false with a nil error is the caller's limit running out, which is
@@ -277,6 +286,9 @@ func (rs *runState) waitLimited(ch <-chan struct{}, limit time.Duration, hasLimi
 		}
 	}()
 
+	if rs.sh.failedFast {
+		return false, &testSignal{}
+	}
 	switch outcome {
 	case expired:
 		return false, nil
@@ -336,6 +348,9 @@ func (rs *runState) waitAny(chs []<-chan struct{}) (int, error) {
 		}
 	}()
 
+	if rs.sh.failedFast {
+		return -1, &testSignal{}
+	}
 	switch chosen {
 	case stopped:
 		return -1, rs.canceledError()
@@ -417,6 +432,12 @@ func (rs *runState) reportUnawaited() {
 			continue
 		}
 		if x := asError(t.err); x != nil && x.Kind == ErrKindLimit {
+			continue
+		}
+		if s, ok := testSignalOf(t.err); ok && !s.skip {
+			// A task stopped by fail-fast did not fail: the report already says why it
+			// ended (§12.18). A skip in a task nobody awaited is reported, because it
+			// skipped nothing — the file went on without it.
 			continue
 		}
 		fmt.Fprintf(rs.opts.errOut(), "mzs: task '%s' failed and was never awaited: %v\n",

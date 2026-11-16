@@ -92,7 +92,7 @@ A module of your own has no function half, so the message stops at the rule:
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | none |
 | `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | none |
 | `url` | `parse build encode decode query parse_query` | none |
-| `test` | `case eq` | none |
+| `test` | `case eq ne near raises skip group` | none |
 | `csv` | `parse rows str line` | none |
 
 A module the host did not enable is absent, and the diagnostic names the option instead of

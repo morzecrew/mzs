@@ -1978,12 +1978,37 @@
   "test": {
    "case": {
     "sig": "`(name: string) { … } -> bool`",
-    "sem": "runs the block, records the case, prints one line, and answers whether it passed",
+    "sem": "runs the block, records the case, prints one line, and answers whether it passed (`true` for a skip; `nil` when a host's filter left it out)",
     "ex": ""
    },
    "eq": {
     "sig": "`(actual: any, expected: any) -> nil`",
     "sem": "raises when the two differ, with `inspect` of both in the message",
+    "ex": ""
+   },
+   "group": {
+    "sig": "`(name: string) { … } -> nil`",
+    "sem": "runs the block; the cases declared in it are reported as `name › case`, and groups nest",
+    "ex": ""
+   },
+   "ne": {
+    "sig": "`(actual: any, unexpected: any) -> nil`",
+    "sem": "raises when the two are `==`: `expected a value other than 3`",
+    "ex": ""
+   },
+   "near": {
+    "sig": "`(actual: number, expected: number, eps: number = 1e-9) -> nil`",
+    "sem": "raises unless the two are equal or `abs(actual - expected) <= eps`; NaN is near nothing. `eps` below 0 is an `argument` error",
+    "ex": ""
+   },
+   "raises": {
+    "sig": "`(kind: string = nil) { … } -> dict`",
+    "sem": "runs the block and raises if it completes (`expected an error, got 42`) or, when `kind` is given (`\"\"` included, which no error has), if the error is of another kind (`expected kind \"json\", got \"type\": …`). Answers the error dict a `try` handler binds (§8.11)",
+    "ex": ""
+   },
+   "skip": {
+    "sig": "`(reason: string) -> never`",
+    "sem": "ends the current case as *skipped*, not failed. Outside every case it ends the file, whose remaining cases are not run",
     "ex": ""
    }
   },

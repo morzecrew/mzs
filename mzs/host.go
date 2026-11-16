@@ -196,7 +196,28 @@ func (c *Ctx) allocCollection(total, added int) error { return c.rs.allocCollect
 // ---------------------------------------------------------------------------
 
 // Out is the sink for print/println/debug; never nil.
-func (c *Ctx) Out() io.Writer { return c.rs.opts.out() }
+//
+// Under Options.Test.Capture the writer picks the innermost case still open at each
+// Write, not when Out was called, so a host function that keeps it past the end of its
+// case still reaches the case around it, or Stdout (§12.18).
+func (c *Ctx) Out() io.Writer {
+	if !c.rs.opts.Test.Capture {
+		return c.rs.opts.out()
+	}
+	return caseWriter{c.rs}
+}
+
+// caseWriter is Out while a captured case may be running.
+type caseWriter struct{ rs *runState }
+
+func (o caseWriter) Write(p []byte) (int, error) {
+	for w := o.rs.testOut; w != nil; w = w.parent {
+		if !w.done {
+			return w.write(p)
+		}
+	}
+	return o.rs.opts.out().Write(p)
+}
 
 // Now returns the host clock, or an error when the host did not install one. Time is a
 // capability, not a given (§14.3, D15).

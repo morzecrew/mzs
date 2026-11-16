@@ -1,8 +1,11 @@
 package mzs
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -36,18 +39,116 @@ import (
 func init() {
 	RegisterModuleFunc("test", "case", 1, 2, testCase)
 	RegisterModuleFunc("test", "eq", 2, 2, testEq)
+	RegisterModuleFunc("test", "ne", 2, 2, testNe)
+	RegisterModuleFunc("test", "near", 2, 3, testNear)
+	RegisterModuleFunc("test", "raises", 0, 2, testRaises)
+	RegisterModuleFunc("test", "skip", 1, 1, testSkip)
+	RegisterModuleFunc("test", "group", 1, 2, testGroup)
 }
 
+// The three values of TestCase.Status (§12.18).
+const (
+	TestPass = "pass"
+	TestFail = "fail"
+	TestSkip = "skip"
+)
+
+// ErrFailFast is what a Run under Options.Test.FailFast ends with once a case has
+// failed (§12.18). The failure itself is in Result.Tests; this only says why the Run
+// stopped there.
+var ErrFailFast = errors.New("mzs: a test case failed under fail-fast")
+
 // TestCase is one `test.case` of a Run, in the order the cases ran (§12.18). Err is nil
-// when the case passed and holds what it raised when it did not.
+// when the case passed or was skipped, and holds what it raised when it failed.
+//
+// An entry with RestOfFile set is not a case: it is the rest of a file skipped, by a
+// `test.skip` called outside any case at Line and Col.
 type TestCase struct {
 	Name    string
 	Err     error
 	Elapsed time.Duration
+	// Status is TestPass, TestFail or TestSkip.
+	Status string
+	// Group is the `test.group` names the case was declared in, outermost first.
+	Group []string
+	// Reason is what `test.skip` said, for a skipped case.
+	Reason string
+	// Line and Col are where `test.case` was called.
+	Line, Col int
+	// Output is what the case printed, under Options.Test.Capture: always for a failed
+	// case, and for a passing or skipped one only under Verbose. It holds at most
+	// MaxStringBytes, and ends with a note when output past that was dropped.
+	Output string
+	// RestOfFile marks the entry a `test.skip` outside every case leaves: the cases after
+	// it were not run. Its Name is empty and its Status is TestSkip. A case may be named
+	// "" too, so this field, not the name, is what tells the two apart.
+	RestOfFile bool
 }
 
-// Passed reports whether the case passed.
-func (t TestCase) Passed() bool { return t.Err == nil }
+// Passed reports whether the case passed. A skipped case did not fail, and counts as
+// passed: skips do not make a run red.
+func (t TestCase) Passed() bool { return t.Status != TestFail && t.Err == nil }
+
+// FullName is the case's name under its groups, as a report prints it and as
+// Options.Test.Filter sees it: `rounding › half up`.
+func (t TestCase) FullName() string { return testFullName(t.Group, t.Name) }
+
+func testFullName(group []string, name string) string {
+	if len(group) == 0 {
+		return name
+	}
+	return strings.Join(append(slices.Clip(group), name), " › ")
+}
+
+// testSignal is how `test.skip` and fail-fast leave the code they are in. It is not an
+// error a script can catch (§8.11): a skip that a `try` swallowed would be a case that
+// went on running after it said it would not, and a fail-fast that a `try` swallowed would
+// not stop anything. An `ensure` does run on the way out of a skip, which is an ordinary
+// way out of a block. The stop of fail-fast runs none: it starts once the failure is
+// recorded, and from there no script code runs. The failure itself is an ordinary error,
+// so an `ensure` inside the case around the failing line has run by then, as for any
+// error — the case releases what it took before it is recorded as failed.
+type testSignal struct {
+	skip      bool
+	reason    string
+	line, col int
+}
+
+func (s *testSignal) Error() string {
+	if s.skip {
+		return "test.skip: " + s.reason
+	}
+	return ErrFailFast.Error()
+}
+
+func (s *testSignal) Unwrap() error {
+	if s.skip {
+		return nil
+	}
+	return ErrFailFast
+}
+
+// testSignalOf finds the signal in an error chain.
+func testSignalOf(err error) (*testSignal, bool) {
+	var s *testSignal
+	if err != nil && errors.As(err, &s) {
+		return s, true
+	}
+	return nil, false
+}
+
+// isTestSkip reports a `test.skip` travelling out of a block.
+func isTestSkip(err error) bool {
+	s, ok := testSignalOf(err)
+	return ok && s.skip
+}
+
+// fileSkipped is the entry a `test.skip` outside every case leaves in Result.Tests: the
+// rest of the file did not run, and the report says so instead of reading as a file that
+// ended with fewer cases (§12.18).
+func fileSkipped(s *testSignal) TestCase {
+	return TestCase{Status: TestSkip, Reason: s.reason, Line: s.line, Col: s.col, RestOfFile: true}
+}
 
 // testCase runs one case. The block is the trailing `{ … }` of §4.2 — which the
 // evaluator hands over as the last argument *and* as the Ctx's closure — so
@@ -61,28 +162,245 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	if !c.HasClosure() {
 		return Nil(), c.ArgErrorf("test.case needs a block: test.case(%q) { … }", name)
 	}
+	o := c.rs.opts.Test
+	if c.rs.sh.failedFast {
+		// A case failed in a task under fail-fast: the Run is stopping, and this case
+		// does not start.
+		return Nil(), &testSignal{}
+	}
+	group := slices.Clone(c.rs.testGroups)
+	if o.Filter != nil && !o.Filter(testFullName(group, name)) {
+		// Not run, not counted: a filter narrows the file to the cases asked for, and a
+		// case left out has neither passed nor failed.
+		return Nil(), nil
+	}
+	tc := TestCase{Name: name, Group: group, Line: c.pos.Line, Col: c.pos.Col}
+
+	var out *caseOut
+	if o.Capture {
+		out = &caseOut{parent: c.rs.testOut, limit: c.rs.opts.MaxStringBytes}
+		c.rs.testOut = out
+	}
 	outer := c.rs.frames()
+	c.rs.testDepth++
 	start := time.Now()
 	_, rerr := c.CallClosure()
-	elapsed := time.Since(start)
+	tc.Elapsed = time.Since(start)
+	c.rs.testDepth--
+	if o.Capture {
+		out.done = true
+		c.rs.testOut = out.parent
+		tc.Output = out.text()
+	}
 
+	if c.rs.sh.failedFast {
+		// A case failed under fail-fast in another task while this block had the lock
+		// given up. Whatever this case came to, it came to it after the stop, and the
+		// report holds only what happened before it (§12.18).
+		return Nil(), &testSignal{}
+	}
+	if s, ok := testSignalOf(rerr); ok {
+		if !s.skip {
+			// A case nested in this one failed under fail-fast: it is recorded already,
+			// and this one has not finished.
+			return Nil(), rerr
+		}
+		tc.Status, tc.Reason = TestSkip, s.reason
+		reportLine(c, "skip "+tc.FullName()+"  ("+s.reason+")")
+		reportOutput(c, tc, false)
+		c.rs.sh.tests = append(c.rs.sh.tests, keptOutput(o, tc))
+		return Bool(true), nil
+	}
 	if _, ok := catchableError(rerr); rerr != nil && !ok {
 		// A timeout, a budget or `exit` is the Run ending, not a case failing (§8.11).
 		// Recording it as a failure would report a red test where there is a stopped
 		// process, and swallowing it would hide the stop.
 		return Nil(), rerr
 	}
-	c.rs.sh.tests = append(c.rs.sh.tests, TestCase{Name: name, Err: rerr, Elapsed: elapsed})
+	tc.Err = rerr
 	if rerr != nil {
-		writeLine(c, "FAIL "+name)
-		writeLine(c, "     "+errorLine(rerr))
+		tc.Status = TestFail
+		c.rs.sh.tests = append(c.rs.sh.tests, tc)
+		reportLine(c, "FAIL "+tc.FullName())
+		reportLine(c, "     "+errorLine(rerr))
 		for _, line := range FormatTrace(caseFrames(rerr, outer)) {
-			writeLine(c, "       "+line)
+			reportLine(c, "       "+line)
+		}
+		reportOutput(c, tc, true)
+		if o.FailFast {
+			c.rs.sh.failedFast = true
+			// Wake every wait at once: a program sleeping for an hour stops now, not in
+			// an hour. Each wait answers the stop when it sees the flag (waitLimited).
+			if c.rs.sh.cancel != nil {
+				c.rs.sh.cancel()
+			}
+			return Nil(), &testSignal{}
 		}
 		return Bool(false), nil
 	}
-	writeLine(c, "ok   "+name)
+	tc.Status = TestPass
+	reportLine(c, "ok   "+tc.FullName())
+	reportOutput(c, tc, false)
+	c.rs.sh.tests = append(c.rs.sh.tests, keptOutput(o, tc))
 	return Bool(true), nil
+}
+
+// keptOutput is the record of a case that did not fail: its captured output is kept only
+// under Verbose, where it is shown. A run of a thousand passing cases that each print a
+// page would otherwise hold a thousand pages nobody asked to see; a failed case keeps
+// its output always, because that is when it is evidence.
+func keptOutput(o TestOptions, tc TestCase) TestCase {
+	if !o.Verbose {
+		tc.Output = ""
+	}
+	return tc
+}
+
+// reportOutput prints a case's captured output under its report line: always for a case
+// that failed, which is when the output is evidence, and for every case under Verbose.
+func reportOutput(c *Ctx, tc TestCase, failed bool) {
+	o := c.rs.opts.Test
+	if tc.Output == "" || !(failed || o.Verbose) {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(tc.Output, "\n"), "\n") {
+		reportLine(c, "     | "+line)
+	}
+}
+
+// testGroup names the cases declared in its block: they are reported as
+// `name › case`, and groups nest. It is naming and nothing else — no setup, no
+// isolation, no catching: a failure in the block outside any case ends the file as it
+// would without the group (§12.18).
+func testGroup(c *Ctx, args []Value) (Value, error) {
+	name, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if !c.HasClosure() {
+		return Nil(), c.ArgErrorf("test.group needs a block: test.group(%q) { … }", name)
+	}
+	saved := c.rs.testGroups
+	// Clip first, so the append never writes into a backing array a task started
+	// earlier still reads its own groups from.
+	c.rs.testGroups = append(slices.Clip(saved), name)
+	_, rerr := c.CallClosure()
+	c.rs.testGroups = saved
+	if rerr != nil {
+		return Nil(), rerr
+	}
+	return Nil(), nil
+}
+
+// testSkip ends the current case as skipped. Outside a case it ends the file, whose
+// remaining cases are then not run: a test file that needs a capability the host did not
+// give it says so once, at the top, instead of failing every case for the same reason.
+func testSkip(c *Ctx, args []Value) (Value, error) {
+	reason, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	// Outside a case the line `skip (rest of file)` is printed where the skip is recorded,
+	// when it reaches the end of the Run (RunResult): a skip in a task nobody awaits never
+	// gets there, and a report must not say the file was skipped when it was not.
+	return Nil(), &testSignal{skip: true, reason: reason, line: c.pos.Line, col: c.pos.Col}
+}
+
+// testNe is eq's negation, with the value it did not want in the message.
+func testNe(c *Ctx, args []Value) (Value, error) {
+	if !args[0].Equal(args[1]) {
+		return Nil(), nil
+	}
+	return Nil(), c.position(raiseError("expected a value other than "+args[1].Inspect(), Nil()))
+}
+
+// testNear compares two numbers with a tolerance, because `0.1 + 0.2 == 0.3` is false
+// in every language with IEEE floats and a test that wants the arithmetic right needs to
+// say how right. Equal values are near whatever eps is — that is how infinity is near
+// itself — and NaN is near nothing, itself included. A Decimal is not a number here:
+// Decimal arithmetic is exact, so `test.eq` is the comparison for it.
+func testNear(c *Ctx, args []Value) (Value, error) {
+	a, err := argNum(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	b, err := argNum(c, args[1])
+	if err != nil {
+		return Nil(), err
+	}
+	eps := Float(1e-9)
+	if len(args) > 2 {
+		if eps, err = argNum(c, args[2]); err != nil {
+			return Nil(), err
+		}
+		if e := eps.Float(); math.IsNaN(e) || e < 0 {
+			return Nil(), c.ArgErrorf("test.near wants a tolerance of 0 or more, got %s", eps.Inspect())
+		}
+	}
+	if a.Kind() == KInt && b.Kind() == KInt {
+		// Two ints are compared as ints: a float64 has 53 bits of mantissa, so distinct
+		// integers above 2^53 convert to one float and would read as near.
+		d := uint64(a.Int()) - uint64(b.Int())
+		if a.Int() < b.Int() {
+			d = uint64(b.Int()) - uint64(a.Int())
+		}
+		if d <= intTolerance(eps) {
+			return Nil(), nil
+		}
+	} else if x, y := a.Float(), b.Float(); x == y || math.Abs(x-y) <= eps.Float() {
+		return Nil(), nil
+	}
+	return Nil(), c.position(raiseError(
+		"expected "+b.Inspect()+" within "+eps.Inspect()+", got "+a.Inspect(), Nil()))
+}
+
+// intTolerance is the largest whole distance eps allows, so an int distance d is within
+// eps exactly when d <= intTolerance(eps). It is computed without rounding d: converting
+// d to a float would round a distance past 2^53 down onto the tolerance (eps is never
+// negative here; testNear checked).
+func intTolerance(eps Value) uint64 {
+	if eps.Kind() == KInt {
+		return uint64(eps.Int())
+	}
+	f := math.Floor(eps.Float())
+	if f >= 1<<64 {
+		return math.MaxUint64
+	}
+	return uint64(f)
+}
+
+// testRaises runs its block and wants it to fail. It answers the error dict a `try`
+// handler would bind (§8.11), so the test goes on to the message and the data instead of
+// stopping at "it raised". It catches what `try` catches and nothing more: a limit or
+// `exit` inside the block still ends the Run.
+func testRaises(c *Ctx, args []Value) (Value, error) {
+	if !c.HasClosure() {
+		return Nil(), c.ArgErrorf(`test.raises needs a block: test.raises("kind") { … }`)
+	}
+	args = args[:len(args)-1] // the last argument is the block
+	kind, wantKind := "", false
+	if len(args) > 0 && !args[0].IsNil() {
+		k, err := argStr(c, args[0])
+		if err != nil {
+			return Nil(), err
+		}
+		// An empty string is a kind asked for, not one left out: no error has it, so
+		// `test.raises("")` fails on every error rather than passing on any.
+		kind, wantKind = k, true
+	}
+	v, rerr := c.CallClosure()
+	if rerr == nil {
+		return Nil(), c.position(raiseError("expected an error, got "+v.Inspect(), Nil()))
+	}
+	x, ok := catchableError(rerr)
+	if !ok {
+		return Nil(), rerr
+	}
+	if wantKind && x.Kind != kind {
+		return Nil(), c.position(raiseError(
+			fmt.Sprintf("expected kind %q, got %q: %s", kind, x.Kind, x.Msg), Nil()))
+	}
+	return x.ErrorValue(), nil
 }
 
 // testEq is the comparison whose failure is worth reading. Equality is the language's
@@ -131,8 +449,14 @@ func errorLine(err error) string {
 	return e.Msg
 }
 
-func writeLine(c *Ctx, s string) {
-	w := c.Out()
+// reportLine writes one line of the human report, unless the host asked for none. It
+// writes to Stdout itself, never into a capture: the report of a case nested in another
+// is report, not the outer case's output, and must not be hidden with it.
+func reportLine(c *Ctx, s string) {
+	if c.rs.opts.Test.Quiet {
+		return
+	}
+	w := c.rs.opts.out()
 	if w == nil {
 		return
 	}

@@ -168,6 +168,8 @@ wait is bought.
 |---|---|
 | `include test; test.case("trim") { assert("  да ".trim == "да") }` | prints `ok   trim`, answers `true` |
 | `include test; test.case("sums") { test.eq([1, 2].sum, 4) }` | prints `FAIL sums` and `expected 4, got 3`, answers `false` |
+| `include test; include json; test.case("bad json") { test.raises("json") { json.parse("{") } }` | passes: the block raised an error of kind `json` |
+| `include test; test.case("floats") { test.near(0.1 + 0.2, 0.3) }` | passes: within `1e-9` |
 
 Put them in a `*_test.mzs` file and `mzs test` runs every one of them, each file on its own —
 see [../modules/test.md](../modules/test.md).

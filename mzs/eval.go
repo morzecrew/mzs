@@ -101,6 +101,13 @@ func (e ev) execStmts(stmts []ast.Stmt) (Value, error) {
 	e.rs.pushEnv(e.env)
 	last := Nil()
 	for _, s := range stmts {
+		if e.rs.sh.failedFast {
+			// A case failed under fail-fast in another task while this one had given
+			// the lock up — at a wait, or in a host call through Ctx.Blocking — and the
+			// Run is stopping: no further statement runs, here or in any task (§12.18).
+			e.rs.rootReset(m)
+			return Nil(), &testSignal{}
+		}
 		v, err := e.execStmt(s)
 		if err != nil {
 			e.rs.rootReset(m)
@@ -1180,6 +1187,10 @@ func ensureRuns(err error) bool {
 		return true
 	}
 	if _, ok := ctrlOf(err); ok {
+		return true
+	}
+	if isTestSkip(err) {
+		// A skip leaves the block the ordinary way: the case is over, the Run is not.
 		return true
 	}
 	_, ok := catchableError(err)

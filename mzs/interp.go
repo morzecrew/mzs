@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"runtime/debug"
 	"sort"
@@ -1561,6 +1562,12 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	defer func() {
 		r := recover()
 		rs.joinTasks()
+		if err == nil && r == nil && rs.sh.failedFast {
+			// A case failed under fail-fast in a task the program never awaited. The
+			// tasks are joined, so the flag is final: the failure is in Result.Tests,
+			// and the Run still says it stopped for it (§12.18).
+			res.Value, err = Nil(), &testSignal{}
+		}
 		rs.stopMemory()
 		rs.unlock()
 		res.Steps, res.Elapsed, res.Tests = rs.sh.steps, time.Since(start), rs.sh.tests
@@ -1574,6 +1581,25 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	e := ev{rs: rs, cx: newCtx(rs), env: newEnv(nil, p.frameSize)}
 	v, rerr := e.runProgram(p.tree())
 	res.Value = v
+	if rerr != nil && rs.sh.failedFast {
+		if _, ok := testSignalOf(rerr); !ok {
+			// A case failed under fail-fast while this program had the lock given up —
+			// in a host call that then failed on its own, say — so its error came after
+			// the stop it would hide (§12.18). The flag is read with the lock held: it
+			// was set before the program returned, not by a task draining after it.
+			rerr = &testSignal{}
+		}
+	}
+	if s, ok := testSignalOf(rerr); ok && s.skip {
+		// `test.skip` outside every case: the file chose to stop, and that is a result,
+		// not a failure (§12.18).
+		rs.sh.tests = append(rs.sh.tests, fileSkipped(s))
+		if !rs.opts.Test.Quiet {
+			_, _ = io.WriteString(rs.opts.out(), "skip (rest of file)  ("+s.reason+")\n")
+		}
+		res.Value = Nil()
+		return res, nil
+	}
 	if rerr != nil {
 		res.Value = Nil()
 		return res, e.at(rerr, p.tree().Start)

@@ -65,7 +65,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/crypto.md](./modules/crypto.md) | Hex, base64 in both alphabets, sha256/sha1/md5, HMAC, and why the signature check is `crypto.equal` |
 | [modules/url.md](./modules/url.md) | The eight keys of a parsed URL, the inverse that builds one, and the two encodings the `+` tells apart |
 | [modules/csv.md](./modules/csv.md) | RFC 4180 in and out: headers as dict keys, the options, `csv.rows` for a file that does not fit, and what `csv.str` quotes |
-| [modules/test.md](./modules/test.md) | `test.case` and `test.eq`, what a case catches, and the report `mzs test` counts |
+| [modules/test.md](./modules/test.md) | `test.case`, `test.eq`, `test.raises` and the rest: what a case catches, skips and groups, and the report `mzs test` counts |
 | [modules/custom.md](./modules/custom.md) | `include … from`, `export`, the `MZSPATH` search path, and how a path resolves |
 
 ## Embedding in Go

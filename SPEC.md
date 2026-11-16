@@ -3388,8 +3388,13 @@ test.case("деньги")       { test.eq(decimal.times(decimal.of("10.00"), 3),
 
 | Member | Signature | Semantics |
 |---|---|---|
-| `case` | `(name: string) { … } -> bool` | runs the block, records the case, prints one line, and answers whether it passed |
+| `case` | `(name: string) { … } -> bool` | runs the block, records the case, prints one line, and answers whether it passed (`true` for a skip; `nil` when a host's filter left it out) |
 | `eq` | `(actual: any, expected: any) -> nil` | raises when the two differ, with `inspect` of both in the message |
+| `ne` | `(actual: any, unexpected: any) -> nil` | raises when the two are `==`: `expected a value other than 3` |
+| `near` | `(actual: number, expected: number, eps: number = 1e-9) -> nil` | raises unless the two are equal or `abs(actual - expected) <= eps`; NaN is near nothing. `eps` below 0 is an `argument` error |
+| `raises` | `(kind: string = nil) { … } -> dict` | runs the block and raises if it completes (`expected an error, got 42`) or, when `kind` is given (`""` included, which no error has), if the error is of another kind (`expected kind "json", got "type": …`). Answers the error dict a `try` handler binds (§8.11) |
+| `skip` | `(reason: string) -> never` | ends the current case as *skipped*, not failed. Outside every case it ends the file, whose remaining cases are not run |
+| `group` | `(name: string) { … } -> nil` | runs the block; the cases declared in it are reported as `name › case`, and groups nest |
 
 **A case catches; the file keeps going.** `test.case` runs its block and holds on to
 whatever it raised, so the case after a failure still runs and the report names both. What
@@ -3403,16 +3408,63 @@ every other value. Equality is the language's own (§7.4), so `test.eq(1, 1.0)` 
 exactly as `1 == 1.0` does: a test that disagreed with `==` would be testing something no
 program can observe.
 
-**The report is a value, not a print.** Every case is recorded on the Run and comes back in
-`Result.Tests` (§13.3), which is what `mzs test` counts, what decides its exit status, and
-what an embedder reads to run its own scripts' tests. The lines on stdout are for the person
-watching:
+**`raises` answers the error.** It catches what `try` catches and nothing more — a limit or
+`exit` in its block still ends the Run — and hands back the dict a handler would bind, so a
+test goes on to the message and the data instead of stopping at "it raised":
 
 ```
-ok   нормализация
-FAIL деньги
+test.eq(test.raises("billing") { pay(order) }["data"]["short_by"], 30)
+```
+
+**`near` is for floats.** `0.1 + 0.2 == 0.3` is false wherever floats are IEEE (§12.15), so a
+test of float arithmetic says how close is close enough. Equal values are near whatever
+`eps` is, which is how an infinity is near itself; NaN is near nothing, itself included. Two
+ints are compared as ints, so integers past 2^53 that round to one float are not near. A
+Decimal is not a number to `near` — Decimal arithmetic is exact, and `eq` is its comparison.
+
+**A skip is not a failure, and not an error.** `test.skip(reason)` leaves the case the way
+`return` leaves a function: an `ensure` on the way out runs, and no `try` catches it, since
+a skip that a handler swallowed would be a case that went on after it said it would not.
+Outside a case it ends the file — a file that needs something the host did not provide says
+so once at the top — and the file is not counted as broken.
+
+**A group is naming, not isolation.** `test.group` prefixes the names of the cases in its
+block and nothing else: there are no setup or teardown hooks — shared setup is a function
+the cases call, cleanup is `ensure` — and a failure in the block outside a case ends the file
+exactly as it would without the group.
+
+**The report is a value, not a print.** Every case is recorded on the Run and comes back in
+`Result.Tests` (§13.3), which is what `mzs test` counts, what decides its exit status, and
+what an embedder reads to run its own scripts' tests. Each entry carries the case's `Name`,
+its `Group`, its `Status` (`"pass"`, `"fail"` or `"skip"`), the `Err` it failed with, the
+skip's `Reason`, the `Line` and `Col` of the `test.case` call and its `Elapsed` time; an
+entry with `RestOfFile` set is not a case but the rest of a file skipped (a case may itself be
+named `""`, so the name does not tell). The lines on stdout are for the
+person watching:
+
+```
+ok   rounding › half up
+skip rounding › bankers  (not implemented)
+FAIL totals › with discount
      expected 30.00, got 29.99 (money_test.mzs:7:5)
 ```
+
+**A runner may narrow and redirect, never change what a case does.** `Options.Test` (§13.2)
+is how a host such as `mzs test` asks for a subset of cases (`Filter`, given the full name
+`group › case`: a case it refuses is neither run nor recorded), for the Run to stop at the
+first failure (`FailFast`: the Run ends with an error that wraps `ErrFailFast`, which nothing
+catches), for no report lines on stdout (`Quiet`), and for what a case prints to be kept in
+its `Output` instead of printed as it happens (`Capture`; the output of a failed case — of
+every case under `Verbose` — is then printed under its report line; a passing case keeps its
+`Output` only under `Verbose`, and each case's capture holds at most `MaxStringBytes`, ending
+with `… (output truncated at N bytes)` when more was printed). A task started inside a
+case prints into that case, and two cases running in two tasks keep their own output; what a
+task prints after its case has ended goes to the case around it, or to Stdout. A case that
+fails in a task under `FailFast` stops the Run too: no later case starts, code resuming from a
+wait (`sleep`, `await`, `tasks.all`) or from a host call that gave the lock up stops before
+its next statement, and the Run ends with `ErrFailFast` even
+when nothing awaits the task. The zero value is the module as
+described above.
 
 The module needs nothing from the host — like `json` and `decimal`, the include is all of it
 (§14.3).
@@ -3611,6 +3663,15 @@ type Options struct {
     Stdin           io.Reader        // what io.stdin drains, io.lines streams and input() pulls (§12.13, §12.1). nil => ""
     Env             func(string) string // answers io.env. nil => every name is unset
     Location        *time.Location   // default zone for in_time_zone/strftime. Default time.UTC.
+    Test            TestOptions      // how a test runner wants the test module to report (§12.18); zero => as a script sees it
+}
+
+type TestOptions struct {
+    Filter   func(name string) bool // run only the cases whose full name it accepts; nil => every case
+    FailFast bool                   // end the Run at the first failed case, with an error wrapping ErrFailFast
+    Quiet    bool                   // no report lines on Stdout; Result.Tests is the report
+    Capture  bool                   // keep what a case prints in TestCase.Output (at most MaxStringBytes), not on Stdout
+    Verbose  bool                   // under Capture, print a passing case's output under it too
 }
 
 func DefaultOptions() Options
@@ -3688,12 +3749,19 @@ type Result struct {
 }
 
 type TestCase struct {
-    Name    string
-    Err     error         // nil when the case passed
-    Elapsed time.Duration
+    Name      string        // "" for the rest of a file skipped (see RestOfFile)
+    Err       error         // nil when the case passed or was skipped
+    Elapsed   time.Duration
+    Status    string        // TestPass, TestFail or TestSkip: "pass", "fail", "skip"
+    Group     []string      // the test.group names around the case, outermost first
+    Reason    string        // what test.skip said
+    Line, Col int           // where test.case was called; for the rest of a file skipped, where test.skip was
+    Output    string        // what the case printed, under Capture: a failed case's always, others' under Verbose; at most MaxStringBytes
+    RestOfFile bool         // not a case: the rest of a file skipped by test.skip outside every case
 }
 
-func (t TestCase) Passed() bool
+func (t TestCase) Passed() bool    // not failed: a skipped case counts as passed
+func (t TestCase) FullName() string // "group › case", as the report prints it
 
 type Program struct{ /* unexported */ }
 
@@ -3752,6 +3820,7 @@ var (
     ErrCanceled  = errors.New("mzs: canceled")
     ErrFatal     = errors.New("mzs: fatal")       // wrap to make a host error uncatchable
     ErrExit      = errors.New("mzs: exit")        // the `exit` builtin, §12.1
+    ErrFailFast  = errors.New("mzs: a test case failed under fail-fast") // Options.Test.FailFast, §12.18
 )
 
 type Error struct {
@@ -4298,11 +4367,25 @@ FAIL rounding
 
 Under a failed case come the call sites inside it that led to the failure (§8.11), rendered as
 the CLI renders a stack; the case's own block and the runner that called it are not shown,
-so a failure written directly in the block has no lines under it.
+so a failure written directly in the block has no lines under it. Under those comes what the
+case printed, each line after `     | `: the runner keeps a case's output until the case is
+over, prints a failed case's under its report, and a passing case's only under `-v`. Output
+outside every case is printed as it happens.
+
+The summary gains `, N skipped` when a case was skipped, and a skip is not a failure: a run
+of passes and skips answers `0`.
+
+| Flag | Meaning |
+|---|---|
+| `--filter <regex>` | run only the cases whose full name (`group › case`) matches. A case that does not match is not run and not counted; the file's own code still runs, since it is what declares the cases |
+| `--fail-fast` | stop at the first failed case, or the first file that did not finish; the files after it are not run |
+| `--json` | one JSON object per line on stdout: a case is `{"file", "name", "group", "status", "message", "line", "col", "ms"}` — `line` and `col` where the case was declared, `message` the failure with its position or the skip's reason, `null` for a pass — a file that did not finish has `"status": "error"` and `"name": null`, and a last object `{"summary": true, "files", "cases", "failed", "skipped", "broken", "ms"}` closes the stream. Nothing else is written to stdout: what the scripts print goes to stderr |
+| `--now <rfc3339>` | `--time` with a fixed clock: every read of the clock answers that instant, so date logic is tested with the same answer on every run (D15) |
+| `-v`, `--verbose` | print what each case printed under it, passing cases included |
 
 A file that raises **outside** a case did not finish, and that is counted apart from a case
-that failed: the fixes are different. Exit codes: `0` every case passed, `1` a case failed
-or a file did not finish, `2` usage.
+that failed: the fixes are different. Exit codes: `0` every case passed or was skipped, `1` a
+case failed or a file did not finish, `2` usage.
 
 ### 15.3 `mzs lsp`
 

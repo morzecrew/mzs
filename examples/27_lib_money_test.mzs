@@ -47,14 +47,26 @@ test.case("adding VAT and extracting it agree") {
 
 # --- splitting -------------------------------------------------------------------
 
-test.case("a split loses no cent") {
-  parts = money.split_evenly(10000, 3)
-  test.eq(parts.sum, 10000)
-  test.eq(parts, [3334, 3333, 3333])
-}
+# A group only names its cases — they report as `splitting › a split loses no cent` — so
+# `mzs test --filter splitting` runs this section alone. It has no setup of its own: what
+# the cases share is a function they call.
+test.group("splitting") {
+  test.case("a split loses no cent") {
+    parts = money.split_evenly(10000, 3)
+    test.eq(parts.sum, 10000)
+    test.eq(parts, [3334, 3333, 3333])
+  }
 
-test.case("a split into one is the whole amount") {
-  test.eq(money.split_evenly(777, 1), [777])
+  test.case("a split into one is the whole amount") {
+    test.eq(money.split_evenly(777, 1), [777])
+  }
+
+  # An error path is a case like any other. `test.raises` fails unless the block raises an
+  # error of the kind it names, and answers the error, so the case can go on to look at it.
+  test.case("splitting zero ways is an error, not an empty list") {
+    e = test.raises("zero-division") { money.split_evenly(100, 0) }
+    test.ne(e["message"], "")
+  }
 }
 
 # --- discounts -------------------------------------------------------------------

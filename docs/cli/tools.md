@@ -122,6 +122,36 @@ FAIL суммы
 | `--rand [seed]` | enable `rand()`/`uuid()` |
 | `--no-io` | withhold the `io` module |
 | `--no-trace` | a file that fails outside a case prints its three lines without the call stack |
+| `--now <t>` | `--time` with a fixed clock at `t`, an RFC 3339 time such as `2026-01-31T09:00:00Z` |
+| `--filter <re>` | run only the cases whose full name (`group › case`) matches the regular expression |
+| `--fail-fast` | stop at the first failed case or broken file |
+| `--json` | one JSON object per case on stdout, then a summary; what the scripts print goes to stderr |
+| `-v, --verbose` | print what each case printed under it, passing cases included |
+
+`--filter` narrows a file to the cases it names; a case that does not match is not run and
+not counted, but the file's own code still runs, since it is what declares the cases:
+
+```sh
+mzs test --filter 'rounding'          # every case in the rounding group
+mzs test --filter '^totals › with '   # a prefix of one group
+```
+
+`--json` is for CI. Every case is one line, and a last line sums them up:
+
+```
+{"col":6,"file":"money_test.mzs","group":["rounding"],"line":4,"message":null,"ms":0,"name":"half up","status":"pass"}
+{"col":6,"file":"money_test.mzs","group":["totals"],"line":7,"message":"expected 30.00, got 29.99 (money_test.mzs:8:5)","ms":0,"name":"with discount","status":"fail"}
+{"broken":0,"cases":2,"failed":1,"files":1,"ms":1,"skipped":0,"summary":true}
+```
+
+`status` is `pass`, `fail` or `skip`, and `error` for a file that did not finish. `name` is
+`null` in two rows that are not cases: an `error` row, and the `skip` row of a `test.skip`
+outside every case, which ended the file. `line` and `col` are where the case was declared —
+where `test.skip` was called, for that row, and where the error was raised, for an `error`
+row; a failure's own position is in its `message`, as it is in the human report.
+
+`--now` fixes the clock, so code that asks what day it is gets the same answer on every
+run — the only way a test of "is this invoice overdue" can mean anything tomorrow.
 
 A failed case prints, under its message, the calls inside the case that led to the failure —
 `in must, called from money_test.mzs:4:11` — and nothing of the case's own block or the
@@ -131,9 +161,13 @@ Each file is its own **run**: its globals, its includes and its budget reach no 
 so a test that leaves `$state` behind cannot make the next file pass, and the order the
 files run in is not something anybody has to know.
 
+Under a failed case also comes what it printed, each line after `     | `; a passing case's
+output is shown only under `-v`. A skipped case is reported as `skip name  (reason)` and
+counted in the summary, `1 file, 3 cases, 1 failed, 1 skipped`, and it is not a failure.
+
 A file that raises **outside** a case did not finish, and the summary counts that apart from
-a case that failed — the fixes are different. Exit codes: `0` every case passed, `1` a case
-failed or a file did not finish, `2` usage.
+a case that failed — the fixes are different. Exit codes: `0` every case passed or was
+skipped, `1` a case failed or a file did not finish, `2` usage.
 
 ## `mzs lsp`
 
@@ -162,5 +196,5 @@ is not read and nothing in the file has an effect.
 
 - [./README.md](./README.md) — every flag of the `mzs` command itself
 - [./diagnostics.md](./diagnostics.md) — the shape of the messages the server forwards
-- [../modules/test.md](../modules/test.md) — `test.case` and `test.eq`
+- [../modules/test.md](../modules/test.md) — `test.case`, `test.raises` and the rest of the module
 - [../reference/verification.md](../reference/verification.md) — the checks that run on every push

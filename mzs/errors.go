@@ -224,6 +224,9 @@ func (e *Error) Catchable() bool {
 	if e.Kind == ErrKindLimit || e.Kind == ErrKindInternal || e.Kind == ErrKindExit {
 		return false
 	}
+	if _, ok := testSignalOf(e.wrapped); ok {
+		return false // test.skip and fail-fast are not failures (§12.18)
+	}
 	switch {
 	case errors.Is(e.wrapped, ErrExit),
 		errors.Is(e.wrapped, ErrFatal),
