@@ -503,6 +503,44 @@ __wait()
 	if _, err = in.RunResult(context.Background(), prog, nil); !errors.Is(err, ErrFailFast) {
 		t.Fatalf("err = %v, want ErrFailFast", err)
 	}
+	// Nor does a `try` around that call get to handle its error, and a case around it does
+	// not record it as a second failure.
+	for _, src := range []string{
+		`include test
+async fn bad() { test.case("worker") { __release(); assert(false) } }
+bad()
+try __wait() else println("still running")
+`,
+		`include test
+async fn bad() { test.case("worker") { __release(); assert(false) } }
+bad()
+test.case("other") { __wait() }
+`,
+	} {
+		release = make(chan struct{})
+		once = sync.Once{}
+		var out strings.Builder
+		in := New(Options{Stdout: &out, Test: TestOptions{FailFast: true}})
+		in.Register("__wait", 0, func(c *Ctx, _ []Value) (Value, error) {
+			c.Blocking(func() { <-release })
+			return Nil(), errors.New("host failed")
+		})
+		in.Register("__release", 0, func(c *Ctx, _ []Value) (Value, error) {
+			once.Do(func() { close(release) })
+			return Nil(), nil
+		})
+		prog, err := in.Compile("t_test.mzs", src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := in.RunResult(context.Background(), prog, nil)
+		if !errors.Is(err, ErrFailFast) {
+			t.Fatalf("%s: err = %v, want ErrFailFast", src, err)
+		}
+		if strings.Contains(out.String(), "still running") || len(res.Tests) != 1 {
+			t.Errorf("%s: the host error was handled after the stop: Tests = %+v\n%s", src, res.Tests, out.String())
+		}
+	}
 	// A program that failed on its own before any case did keeps its own error, even
 	// when a task still draining fails a case afterwards.
 	in2 := New(Options{Test: TestOptions{FailFast: true}})

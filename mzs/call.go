@@ -131,6 +131,15 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 		restore := e.enterCall(f.Name, pos, args)
 		v, err := f.Host(e.cx, args)
 		restore()
+		if e.rs.sh.failedFast {
+			if _, ok := testSignalOf(err); !ok {
+				// A host call may give the lock up (Ctx.Blocking, a wait), and a case may
+				// have failed under fail-fast in another task meanwhile. Whatever the call
+				// answered, value or error, came after the stop: no `try` gets to handle
+				// it and no case records it as a failure of its own (§12.18).
+				return Nil(), &testSignal{}
+			}
+		}
 		// A host function standing in for a closure may end an iteration with `next`;
 		// there is no enclosing Go loop for the signal to reach, so absorb it here.
 		if c, ok := ctrlOf(err); ok && c.kind == ctrlNext {
