@@ -47,17 +47,6 @@ fn shown(p) {
   p.ends_with("/") ? r + "/" : r
 }
 
-# A tree is removed deepest first, one name at a time: io.rm is not recursive, so the
-# script says what it deletes — and it deletes only the tree it made below.
-fn remove_tree(dir) {
-  n = 0
-  for p in io.walk(dir).array.reverse {
-    io.rm(p)
-    n += 1
-  }
-  io.rm(dir)
-  n + 1
-}
 if io.exists(root) {
   eprintln("${root} is already there; remove it, or pass -v dir=<another directory>")
   exit(1)
@@ -106,5 +95,14 @@ notes = path.join(root, "in/2026/notes.txt")
 println("  rm notes.txt            → ${io.rm(notes)}")
 println("  rm notes.txt again      → ${io.rm(notes)}   (it was not there: false, not an error)")
 println("  rm in/ with things in   → ${try io.rm(path.join(root, "in")) else (e) -> e["kind"]}   (not recursive)")
-println("  the whole tree          → ${remove_tree(root)} names removed")
+# A tree is removed deepest first, one name at a time: io.rm is not recursive, so the script
+# says what it deletes. A tree that is all yours goes with
+# `for p in io.walk(d).array.reverse { io.rm(p) }` and then `io.rm(d)` — but this one is in
+# a shared directory, and something else could have put a file in it since the check at the
+# top. So the cleanup names what this script made, rather than removing whatever a walk
+# finds: a stranger's file stays, and the directory around it refuses to go and says so.
+made = ["out/q1_2026.csv", "out/q4_2025.csv", "out", "in/2026", "in/2025", "in", ".gitignore"]
+removed = made.map { io.rm(path.join(root, it)) }.count { it }
+io.rm(root)
+println("  what this script made   → ${removed + 1} names removed")
 println("  root exists             → ${io.exists(root)}")

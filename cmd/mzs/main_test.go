@@ -756,7 +756,7 @@ func TestExamples(t *testing.T) {
 				`out/                    → ["q1_2026.csv","q4_2025.csv"]`,
 				`rm notes.txt again      → false`,
 				`rm in/ with things in   → io   (not recursive)`,
-				`the whole tree          → 8 names removed`,
+				`what this script made   → 8 names removed`,
 				`root exists             → false`,
 			},
 		},
