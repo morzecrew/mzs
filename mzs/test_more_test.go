@@ -389,3 +389,10 @@ test.case("fails") { assert(false) }
 		t.Errorf("a task stopped by fail-fast was reported as failed:\n%s", errOut.String())
 	}
 }
+
+// Review of #29: an empty kind is a kind asked for, which no error has.
+func TestRaisesWithAnEmptyKind(t *testing.T) {
+	if got := failure(t, `test.raises("") { 1 / 0 }`); !strings.Contains(got, `expected kind "", got "zero-division"`) {
+		t.Errorf("raises(\"\") = %q", got)
+	}
+}

@@ -2003,7 +2003,7 @@
    },
    "raises": {
     "sig": "`(kind: string = nil) { … } -> dict`",
-    "sem": "runs the block and raises if it completes (`expected an error, got 42`) or, when `kind` is given, if the error is of another kind (`expected kind \"json\", got \"type\": …`). Answers the error dict a `try` handler binds (§8.11)",
+    "sem": "runs the block and raises if it completes (`expected an error, got 42`) or, when `kind` is given (`\"\"` included, which no error has), if the error is of another kind (`expected kind \"json\", got \"type\": …`). Answers the error dict a `try` handler binds (§8.11)",
     "ex": ""
    },
    "skip": {

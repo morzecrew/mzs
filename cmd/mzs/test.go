@@ -122,7 +122,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 	b, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "mzs test: %v\n", err)
-		cfg.jsonError(stdout, path, err)
+		cfg.jsonError(stdout, path, err, 0)
 		return tally, err
 	}
 	src := string(b)
@@ -153,7 +153,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 	prog, err := in.Compile(path, src)
 	if err != nil {
 		reportErr(stderr, path, src, err)
-		cfg.jsonError(stdout, path, err)
+		cfg.jsonError(stdout, path, err, 0)
 		return tally, err
 	}
 	reportWarnings(stderr, path, src, prog.Warnings())
@@ -194,11 +194,11 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 				return tally, nil
 			}
 			fmt.Fprintf(stderr, "mzs test: %s: exit(%d)\n", path, code)
-			cfg.jsonError(stdout, path, rerr)
+			cfg.jsonError(stdout, path, rerr, res.Elapsed)
 			return tally, rerr
 		}
 		reportErrTrace(stderr, path, src, rerr, !opts.noTrace, opts.loaded)
-		cfg.jsonError(stdout, path, rerr)
+		cfg.jsonError(stdout, path, rerr, res.Elapsed)
 		return tally, rerr
 	}
 	return tally, nil
@@ -228,8 +228,8 @@ func caseJSON(path string, t mzs.TestCase) map[string]any {
 }
 
 // jsonError is a file that did not finish, under --json: status "error", no case name,
-// and the position the error was raised at.
-func (cfg *testConfig) jsonError(w io.Writer, path string, err error) {
+// the position the error was raised at, and how long the file ran before it ended.
+func (cfg *testConfig) jsonError(w io.Writer, path string, err error, ran time.Duration) {
 	if !cfg.json {
 		return
 	}
@@ -240,7 +240,7 @@ func (cfg *testConfig) jsonError(w io.Writer, path string, err error) {
 	}
 	writeJSON(w, map[string]any{
 		"file": path, "name": nil, "group": []string{}, "status": "error",
-		"message": failureLine(err), "line": line, "col": col, "ms": 0,
+		"message": failureLine(err), "line": line, "col": col, "ms": ran.Milliseconds(),
 	})
 }
 

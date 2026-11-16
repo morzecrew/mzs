@@ -144,9 +144,11 @@ mzs test --filter '^totals › with '   # a prefix of one group
 {"broken":0,"cases":2,"failed":1,"files":1,"ms":1,"skipped":0,"summary":true}
 ```
 
-`status` is `pass`, `fail` or `skip`, and `error` for a file that did not finish, whose
-`name` is `null`. `line` and `col` are where the case was declared; a failure's own position
-is in its `message`, as it is in the human report.
+`status` is `pass`, `fail` or `skip`, and `error` for a file that did not finish. `name` is
+`null` in two rows that are not cases: an `error` row, and the `skip` row of a `test.skip`
+outside every case, which ended the file. `line` and `col` are where the case was declared —
+where `test.skip` was called, for that row, and where the error was raised, for an `error`
+row; a failure's own position is in its `message`, as it is in the human report.
 
 `--now` fixes the clock, so code that asks what day it is gets the same answer on every
 run — the only way a test of "is this invoice overdue" can mean anything tomorrow.

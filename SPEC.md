@@ -3392,7 +3392,7 @@ test.case("деньги")       { test.eq(decimal.times(decimal.of("10.00"), 3),
 | `eq` | `(actual: any, expected: any) -> nil` | raises when the two differ, with `inspect` of both in the message |
 | `ne` | `(actual: any, unexpected: any) -> nil` | raises when the two are `==`: `expected a value other than 3` |
 | `near` | `(actual: number, expected: number, eps: number = 1e-9) -> nil` | raises unless the two are equal or `abs(actual - expected) <= eps`; NaN is near nothing. `eps` below 0 is an `argument` error |
-| `raises` | `(kind: string = nil) { … } -> dict` | runs the block and raises if it completes (`expected an error, got 42`) or, when `kind` is given, if the error is of another kind (`expected kind "json", got "type": …`). Answers the error dict a `try` handler binds (§8.11) |
+| `raises` | `(kind: string = nil) { … } -> dict` | runs the block and raises if it completes (`expected an error, got 42`) or, when `kind` is given (`""` included, which no error has), if the error is of another kind (`expected kind "json", got "type": …`). Answers the error dict a `try` handler binds (§8.11) |
 | `skip` | `(reason: string) -> never` | ends the current case as *skipped*, not failed. Outside every case it ends the file, whose remaining cases are not run |
 | `group` | `(name: string) { … } -> nil` | runs the block; the cases declared in it are reported as `name › case`, and groups nest |
 
@@ -3750,7 +3750,7 @@ type TestCase struct {
     Status    string        // TestPass, TestFail or TestSkip: "pass", "fail", "skip"
     Group     []string      // the test.group names around the case, outermost first
     Reason    string        // what test.skip said
-    Line, Col int           // where test.case was called
+    Line, Col int           // where test.case was called; for the rest of a file skipped, where test.skip was
     Output    string        // what the case printed, under TestOptions.Capture
 }
 

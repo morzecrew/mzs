@@ -332,13 +332,15 @@ func testRaises(c *Ctx, args []Value) (Value, error) {
 		return Nil(), c.ArgErrorf(`test.raises needs a block: test.raises("kind") { … }`)
 	}
 	args = args[:len(args)-1] // the last argument is the block
-	kind := ""
+	kind, wantKind := "", false
 	if len(args) > 0 && !args[0].IsNil() {
 		k, err := argStr(c, args[0])
 		if err != nil {
 			return Nil(), err
 		}
-		kind = k
+		// An empty string is a kind asked for, not one left out: no error has it, so
+		// `test.raises("")` fails on every error rather than passing on any.
+		kind, wantKind = k, true
 	}
 	v, rerr := c.CallClosure()
 	if rerr == nil {
@@ -348,7 +350,7 @@ func testRaises(c *Ctx, args []Value) (Value, error) {
 	if !ok {
 		return Nil(), rerr
 	}
-	if kind != "" && x.Kind != kind {
+	if wantKind && x.Kind != kind {
 		return Nil(), c.position(raiseError(
 			fmt.Sprintf("expected kind %q, got %q: %s", kind, x.Kind, x.Msg), Nil()))
 	}

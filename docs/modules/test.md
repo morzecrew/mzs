@@ -30,7 +30,7 @@ is the command that finds the files and runs them.
 
 | Member | Signature | What it does |
 |---|---|---|
-| `case` | `(name: string) { … } -> bool` | runs the block, records the case, prints one line, answers whether it passed (`true` for a skip) |
+| `case` | `(name: string) { … } -> bool` | runs the block, records the case, prints one line, answers whether it passed (`true` for a skip; `nil` when a runner's filter left the case out) |
 | `eq` | `(actual, expected) -> nil` | raises when the two differ, showing `inspect` of both |
 | `ne` | `(actual, unexpected) -> nil` | raises when the two are equal: `expected a value other than 3` |
 | `near` | `(actual, expected, eps = 1e-9) -> nil` | raises unless two numbers are within `eps` of each other |
