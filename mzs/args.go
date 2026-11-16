@@ -170,6 +170,16 @@ func argsSpec(c *Ctx, args []Value) (*argSpec, error) {
 	if failed != nil {
 		return nil, failed
 	}
+	// A bool `x` answers to --no-x, so a flag spelled --no-x as well would leave one of
+	// the two unreachable from the command line. It is refused whichever comes first.
+	for _, f := range sp.flags {
+		if f.kind != flagBool {
+			continue
+		}
+		if g := sp.byLong["--no-"+strings.TrimPrefix(f.long, "--")]; g != nil {
+			return nil, c.ArgErrorf("%s: flags '%s' and '%s' both answer to %s, since '%s' is a bool", c.Name(), f.key, g.key, g.long, f.key)
+		}
+	}
 	return sp, nil
 }
 

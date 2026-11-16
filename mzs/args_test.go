@@ -303,6 +303,8 @@ func TestArgsSpecErrors(t *testing.T) {
 		{`args.parse({x: {short: "-"}})`, "short is one letter or digit"},
 		{`args.parse({x: {short: "h"}})`, "-h is always --help"},
 		{`args.parse({x: {short: "a"}, y: {short: "a"}})`, `flags 'x' and 'y' both have short "a"`},
+		{`args.parse({x: false, no_x: "s"})`, `flags 'x' and 'no_x' both answer to --no-x, since 'x' is a bool`},
+		{`args.parse({no_x: "s", x: true})`, `flags 'x' and 'no_x' both answer to --no-x, since 'x' is a bool`},
 		{`args.parse({x: {help: 1}})`, "help is a string"},
 		{`args.parse({x: {required: 1}})`, "required is true or false"},
 		{`args.parse({x: {required: true, default: "a"}})`, "is required, so it has no default"},
@@ -322,6 +324,16 @@ func TestArgsSpecErrors(t *testing.T) {
 		if _, ok := ExitCode(err); ok {
 			t.Errorf("%s: a spec mistake exited", tc.src)
 		}
+	}
+}
+
+// --no-x is a bool's negation only: next to a non-bool x, a flag no_x is its own.
+func TestArgsNoPrefixBesideANonBool(t *testing.T) {
+	t.Parallel()
+
+	v, _, _, err := runArgs(t, []string{"--no-x", "a", "--x", "b"}, `args.parse({x: "", no_x: ""}).json`)
+	if err != nil || v.Str() != `{"x":"b","no_x":"a","rest":[]}` {
+		t.Errorf("got %v, %v", v, err)
 	}
 }
 

@@ -3674,7 +3674,8 @@ shorthand for `{default: value}`, so `{width: 800, force: false}` is a whole spe
 
 A `required` flag has no default, takes a string, and its absence is a usage error. Any
 other default kind is a `type` error. A mistake in the spec or the options, such as an
-unknown key, a duplicate `short` or a bad kind, is an ordinary error of the script's,
+unknown key, a duplicate `short`, a bad kind, or a flag `no_x` beside a bool `x` (both
+would answer to `--no-x`), is an ordinary error of the script's,
 `argument` or `type`. The person at the command line cannot fix it, so `exit` (below) does
 not apply to it.
 

@@ -65,8 +65,9 @@ $ mzs -e 'include args; args.parse({width: 800, force: false, tag: []})' --json 
 ```
 
 `rest` and `help` cannot be flags, and `-h` cannot be a short. A mistake in the spec,
-such as an unknown entry key, a duplicate short or a default of another kind, is an
-ordinary error of the script's, because nobody at the command line can fix it.
+such as an unknown entry key, a duplicate short, a default of another kind, or a flag
+`no_x` beside a bool `x` (both would answer to `--no-x`), is an ordinary error of the
+script's, because nobody at the command line can fix it.
 
 ## The command line
 

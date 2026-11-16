@@ -178,7 +178,8 @@ The open questions, and the points the Design left open, were settled as follows
 * **A flag given twice** keeps the last value. An array-default flag collects every value,
   and its default is used only when the flag never appears.
 * **Spec keys** are letters, digits and `_`, starting with a letter. `rest` and `help` are
-  refused, and so is `short: "h"`. A mistake in the spec or the options is an ordinary
+  refused, and so is `short: "h"`, and so is a flag `no_x` beside a bool `x`, because
+  both would answer to `--no-x`. A mistake in the spec or the options is an ordinary
   `argument` or `type` error whatever `exit` says, because nobody at the command line can
   fix it.
 * **`{exit: false}`** raises kind `argument` with data `{flag, reason}`. `reason` is one
