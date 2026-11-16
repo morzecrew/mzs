@@ -714,11 +714,11 @@ func TestIOWalkBoundsTheNamesItHolds(t *testing.T) {
 	fs := newTreeFS().dir("a").file("a/1", "").file("a/2", "").dir("a/b").file("a/b/3", "").file("a/b/4", "")
 	o := treeOpts(fs)
 	o.MaxCollection = 4 // "." holds 1, a/ holds 3, a/b/ would make it 6
-	if _, err := evalIO(t, o, `io.walk.array.len`); err == nil {
+	if _, err := evalIO(t, o, `io.walk.len`); err == nil {
 		t.Error("a branch holding more names than MaxCollection was walked")
 	}
 	o.MaxCollection = 6
-	if got := mustEvalIO(t, o, `io.walk.array.len`); got != "6" {
+	if got := mustEvalIO(t, o, `io.walk.len`); got != "6" {
 		t.Errorf("walk under a bound it fits = %s", got)
 	}
 }

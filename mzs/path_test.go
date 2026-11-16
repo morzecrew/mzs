@@ -356,3 +356,25 @@ func TestPathElementCountsAreBoundedFirst(t *testing.T) {
 		t.Errorf("a slash-heavy match: err = %v", err)
 	}
 }
+
+// The root is one element: it fits a collection bound of one. And a pattern's bytes are
+// charged even against an empty name, since validating the pattern reads them all.
+func TestPathRootAndEmptyNameBounds(t *testing.T) {
+	t.Parallel()
+
+	in := New(Options{MaxCollection: 1})
+	for src, want := range map[string]string{
+		`path.split("/")`:    `["/"]`,
+		`path.rel("/", "/")`: `"."`,
+	} {
+		v, err := in.Eval(context.Background(), "include path; "+src, nil)
+		if err != nil || v.Inspect() != want {
+			t.Errorf("%s under MaxCollection 1 = %v, %v; want %s", src, v, err, want)
+		}
+	}
+	in = New(Options{StepBudget: 1000})
+	_, err := in.Eval(context.Background(), "include path; path.match($p, \"\")", map[string]Value{"$p": Str(strings.Repeat("a", 1_000_000))})
+	if err == nil || !strings.Contains(err.Error(), "step budget") {
+		t.Errorf("a long pattern against an empty name: err = %v", err)
+	}
+}

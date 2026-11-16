@@ -157,6 +157,13 @@ func pathElems(c *Ctx, p string) ([]string, error) {
 	if p == "." {
 		return nil, nil
 	}
+	if p == "/" {
+		// The root is one element, though its one `/` would count as two.
+		if err := c.CheckCollection(1); err != nil {
+			return nil, err
+		}
+		return []string{"/"}, nil
+	}
 	if err := c.CheckCollection(strings.Count(p, "/") + 1); err != nil {
 		return nil, err
 	}
@@ -285,7 +292,9 @@ func pathvMatch(c *Ctx, args []Value) (Value, error) {
 	if err := c.CheckCollection(nn); err != nil {
 		return Nil(), err
 	}
-	if err := c.Step(int64(np)*int64(nn) + int64(len(pattern))*int64(len(name))/64); err != nil {
+	// The pattern is read whole to validate it whatever the name is, so its bytes are
+	// charged even against an empty name.
+	if err := c.Step(int64(np)*int64(nn) + int64(len(pattern))*(int64(len(name))+1)/64); err != nil {
 		return Nil(), err
 	}
 	pe := strings.Split(pattern, "/")

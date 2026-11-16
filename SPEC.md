@@ -4226,7 +4226,10 @@ sandbox rule, and every limit in §14.1–14.2, applies to `http` unchanged.
 A module is a dict, and a script may write into it — `json["parse"] = 1` — but never into
 anyone else's: each `include` binds a copy of its own, of a built-in module and of one a
 host registered alike, so what one Run writes is gone for every other Run and every other
-interpreter in the process.
+interpreter in the process. The copy is of the module, not of what its members hold: a
+member a host registered that is itself a dict or an array is the host's value, shared
+the way one bound with `SetGlobal` is, and a host that must not have it changed hands over
+a fresh one or none.
 
 There is no `eval` builtin: a script cannot compile new source at runtime.
 
