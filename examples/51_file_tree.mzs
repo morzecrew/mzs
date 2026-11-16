@@ -78,8 +78,13 @@ println("  io.stat(nothing)        → ${inspect(io.stat(path.join(root, "nothin
 
 # --- changing it --------------------------------------------------------------------
 
+# The glob above is what is there; what is moved is what this script wrote. In a directory
+# of your own the two are the same, and `for p in csvs { … }` is the loop to write — here
+# the tree sits in a shared directory, and a CSV somebody else dropped into it since the
+# check at the top would be moved too, or land on one of ours.
 io.mkdir(path.join(root, "out"))
-for p in csvs {
+ours = ["in/2025/q4.csv", "in/2026/q1.csv"].map { path.join(root, it) }
+for p in ours {
   io.mv(p, path.join(root, "out", path.stem(p) + "_" + path.base(path.dir(p)) + ".csv"))
 }
 println("")
