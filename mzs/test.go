@@ -313,7 +313,7 @@ func testNear(c *Ctx, args []Value) (Value, error) {
 		if a.Int() < b.Int() {
 			d = uint64(b.Int()) - uint64(a.Int())
 		}
-		if d == 0 || float64(d) <= eps.Float() {
+		if d <= intTolerance(eps) {
 			return Nil(), nil
 		}
 	} else if x, y := a.Float(), b.Float(); x == y || math.Abs(x-y) <= eps.Float() {
@@ -321,6 +321,21 @@ func testNear(c *Ctx, args []Value) (Value, error) {
 	}
 	return Nil(), c.position(raiseError(
 		"expected "+b.Inspect()+" within "+eps.Inspect()+", got "+a.Inspect(), Nil()))
+}
+
+// intTolerance is the largest whole distance eps allows, so an int distance d is within
+// eps exactly when d <= intTolerance(eps). It is computed without rounding d: converting
+// d to a float would round a distance past 2^53 down onto the tolerance (eps is never
+// negative here; testNear checked).
+func intTolerance(eps Value) uint64 {
+	if eps.Kind() == KInt {
+		return uint64(eps.Int())
+	}
+	f := math.Floor(eps.Float())
+	if f >= 1<<64 {
+		return math.MaxUint64
+	}
+	return uint64(f)
 }
 
 // testRaises runs its block and wants it to fail. It answers the error dict a `try`

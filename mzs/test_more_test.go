@@ -356,12 +356,23 @@ bad()
 
 // Review of #29: two ints are compared as ints, not as the one float they round to.
 func TestNearComparesIntsExactly(t *testing.T) {
-	if got := failure(t, `test.near(9007199254740993, 9007199254740992, 0)`); !strings.Contains(got, "within 0") {
-		t.Errorf("distinct big ints read as near: %q", got)
+	for _, body := range []string{
+		`test.near(9007199254740993, 9007199254740992, 0)`,
+		// The distance is one more than the tolerance, and both round to 2^53 as floats.
+		`test.near(9007199254740993, 0, 9007199254740992)`,
+		`test.near(9007199254740993, 0, 9007199254740992.0)`,
+		`test.near(-9223372036854775807, 9223372036854775807, 1.0e18)`,
+	} {
+		if got := failure(t, body); !strings.Contains(got, "within") {
+			t.Errorf("%s passed: the distance exceeds the tolerance", body)
+		}
 	}
 	for _, pass := range []string{
 		`test.near(9007199254740993, 9007199254740992, 1)`,
 		`test.near(-9223372036854775807, 9223372036854775807, 2.0e19)`,
+		`test.near(9007199254740993, 0, 9007199254740993)`,
+		`test.near(9007199254740993, 1, 9007199254740992)`,
+		`test.near(5, 3, 2.5)`,
 	} {
 		if got := failure(t, pass); got != "" {
 			t.Errorf("%s failed: %s", pass, got)
