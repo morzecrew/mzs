@@ -144,6 +144,17 @@ func TestCLI(t *testing.T) {
 			errHas:   []string{"unknown flag"},
 		},
 		{
+			name:     "a flag that takes no value refuses one, rather than meaning the flag",
+			argv:     []string{"--read-only=false", "-e", "1"},
+			wantCode: 2,
+			errHas:   []string{`flag --read-only takes no value, got "--read-only=false"`},
+		},
+		{
+			name:    "a value attached to a flag that takes one still works",
+			argv:    []string{"--eval=1 + 1", "--rand=3", "-t=2"},
+			wantOut: "2\n",
+		},
+		{
 			name:     "compat is gone: -c is just an unknown flag",
 			argv:     []string{"-c", "-e", "1"},
 			wantCode: 2,
@@ -637,6 +648,12 @@ func TestExamples(t *testing.T) {
 	t.Parallel()
 
 	path := func(name string) string { return filepath.Join("..", "..", "examples", name) }
+	// 51 builds a tree and removes it again; it gets a directory of its own, so a run
+	// never meets another's tree, and the leftover check below has something to find.
+	scratch := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(scratch, "busy", "mzs_example_51"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name     string
@@ -720,9 +737,46 @@ func TestExamples(t *testing.T) {
 			errHas:   []string{"tag must be one of", "front_page"},
 		},
 		{
-			name:     "32 io: files, env and the catchable miss",
-			argv:     []string{path("32_io_files.mzs")},
-			contains: []string{"write       42 bytes", "parsed      3 rows, 210 minutes in total", "io.stdin  io.lines"},
+			name: "32 io: files, env and the catchable miss",
+			argv: []string{path("32_io_files.mzs")},
+			contains: []string{"write       42 bytes", "parsed      3 rows, 210 minutes in total",
+				"rm          true, and again false   (exists → false)",
+				"the members: stdin  lines  read  write  append  exists  ls  env  stat  walk  rm  mkdir  mv"},
+		},
+		{
+			name: "51 file tree: path, walk, mkdir, mv and rm",
+			argv: []string{"-v", "dir=" + scratch, path("51_file_tree.mzs")},
+			contains: []string{
+				`path.stem(name) + path.ext(name)      → q3.summary + .csv`,
+				`path.rel("/etc", "reports")           → nil   (no relative path says it)`,
+				"  .gitignore\n  in/\n  in/2025/\n  in/2025/q4.csv\n  in/2026/\n  in/2026/notes.txt\n  in/2026/q1.csv\n",
+				`**/*.csv                → ["in/2025/q4.csv","in/2026/q1.csv"]`,
+				`their size              → 54 bytes`,
+				`io.stat(in/2025/q4.csv) → {"size":23,"dir":false}`,
+				`out/                    → ["q1_2026.csv","q4_2025.csv"]`,
+				`rm notes.txt again      → false`,
+				`rm in/ with things in   → io   (not recursive)`,
+				`what this script made   → 8 names removed`,
+				`root exists             → false`,
+			},
+		},
+		{
+			name:     "51 file tree asks for a directory of the caller's own",
+			argv:     []string{path("51_file_tree.mzs")},
+			wantCode: exitError,
+			errHas:   []string{"usage: mzs -v dir=<a directory of your own>"},
+		},
+		{
+			name:     "51 file tree stops at a tree it did not make",
+			argv:     []string{"-v", "dir=" + filepath.Join(scratch, "busy"), path("51_file_tree.mzs")},
+			wantCode: exitError,
+			errHas:   []string{"mzs_example_51 is already there; remove it"},
+		},
+		{
+			name:     "51 file tree under --read-only is refused before it runs",
+			argv:     []string{"--read-only", path("51_file_tree.mzs")},
+			wantCode: exitError,
+			errHas:   []string{"io.rm needs the host to allow structural changes", "(mzs without --read-only)"},
 		},
 		{
 			name:     "--net is gone and says so",

@@ -19,6 +19,20 @@ and the release is still ahead of it.
 
 ### Added
 
+- **The `path` module, and the rest of `io`.** `include path` takes file names apart and
+  puts them together — `join`, `dir`, `base`, `ext`, `stem`, `clean`, `split`, `rel`,
+  `is_abs` and `match`, a shell glob whose `**` crosses directories. It is lexical and
+  always `/`, never looks at a disk, and needs no host option. `io` gains `stat` (`{size,
+  dir}` or `nil`), `walk` (every path under a directory as a lazy seq, depth-first and
+  sorted, never entering a symbolic link), and `rm` (one name, never recursive; `false`
+  when it was not there), `mkdir` (with parents) and `mv`. For embedders: `FileSystem`
+  is unchanged, and the four new members are backed by optional interfaces —
+  `LinkStater` for `walk`, `FileRemover`, `DirMaker` and `FileMover` for the other three —
+  of which the last three also need the new `Options.FSMutations`, so no existing host
+  hands scripts `io.rm` on upgrade. A member the host did not grant is absent and a compile
+  error that names what is missing. The CLI grants all of them; the new `--read-only`
+  (on `mzs` and `mzs test`) takes back `write`, `append`, `rm`, `mkdir` and `mv` for one
+  command (SPEC §12.13, §12.20, §13.2, §14.3, §15; RFC 0015).
 - **`test` grows up.** Five members join `case` and `eq`: `test.ne`; `test.near(a, b, eps)`
   for floats (`1e-9` by default; NaN is near nothing); `test.raises(kind) { … }`, which
   fails unless the block raises — an error of that kind, when named — and answers the
@@ -134,8 +148,22 @@ and the release is still ahead of it.
   checks that `mzs --version`, the newest version section here and every version README and
   `docs/` print are one string.
 
+### Fixed
+
+- **A write into a module stays in the Run that made it.** A module is a dict a script may
+  write to, and `include` handed every interpreter in the process the same built-in table:
+  `json["parse"] = 1` in one Run broke `json.parse` in every interpreter after it, and a
+  write into a host module (`RegisterModule`) stayed for the next Run of that `Interp`.
+  Each `include` now gets its own copy (SPEC §14.3).
+
 ### Changed
 
+- **A CLI flag that takes no value refuses one** — a deliberate break (SPEC §21.4). `mzs` and
+  `mzs test` used to accept `--no-io=false` or `--fail-fast=no` and act on the flag,
+  ignoring what followed the `=`, which is the opposite of what was typed. Such a command is
+  now a usage error (exit 2) that names the flag: `flag --read-only takes no value, got
+  "--read-only=false"`. Flags that take a value — `--timeout=5s`, `--rand=7` — are
+  unchanged.
 - **A dict literal written as a `match` arm is a dict pattern** — a deliberate break (SPEC
   §21.4). `{a: 1} ->` used to fire only on a subject *equal* to `{a: 1}`; it now fires on
   any dict whose `"a"` is `1`, whatever else it holds, and `{} ->` fires on any dict rather

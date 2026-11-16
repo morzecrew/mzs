@@ -1,0 +1,116 @@
+# 51 — a directory tree: the path module, io.walk, and the half of io that changes things.
+#
+#   mzs -v dir="$(mktemp -d)" examples/51_file_tree.mzs
+#   mzs --read-only examples/51_file_tree.mzs     # refused before it runs, and says why
+#
+# `path` is pure: it takes names apart and puts them together, always with `/`, and never
+# looks at a disk — so it needs nothing from the host (§12.20). io.walk lists a tree one
+# directory at a time; io.mkdir, io.mv and io.rm change one. Those three exist only where
+# the host both can do them and said yes (Options.FSMutations): the CLI says yes because
+# the person typing already owns the machine, and --read-only is that person saying no.
+#
+# Everything below happens under $dir/mzs_example_51 and is removed again at the end. $dir
+# is yours to give, and it should be a directory nothing else writes to — `mktemp -d` makes
+# one. The script asks for it rather than picking a place in $TMPDIR because the language
+# has no "create, but only if it is not there" yet: in a directory other processes share,
+# nothing a script can do proves that the tree it is about to change is the one it made.
+
+include io
+include path
+
+if $dir == nil {
+  eprintln("usage: mzs -v dir=<a directory of your own> examples/51_file_tree.mzs   (mktemp -d makes one)")
+  exit(1)
+}
+
+# --- names, without a filesystem ----------------------------------------------
+
+name = "reports/2026/q3.summary.csv"
+println("path — names taken apart, lexically")
+println("")
+println("  path.dir(name)                        → ${path.dir(name)}")
+println("  path.base(name)                       → ${path.base(name)}")
+println("  path.stem(name) + path.ext(name)      → ${path.stem(name)} + ${path.ext(name)}")
+println("  path.ext(\".gitignore\")                → ${inspect(path.ext(".gitignore"))}   (a leading dot hides, it does not type)")
+println("  path.split(name)                      → ${path.split(name).json}")
+println("  path.join(\"in\", \"../out\", \"x.json\")   → ${path.join("in", "../out", "x.json")}")
+println("  path.clean(\"a//b/./c/..\")             → ${path.clean("a//b/./c/..")}")
+println("  path.rel(name, \"reports\")             → ${path.rel(name, "reports")}")
+println("  path.rel(\"/etc\", \"reports\")           → ${inspect(path.rel("/etc", "reports"))}   (no relative path says it)")
+println("  path.match(\"**/*.csv\", name)          → ${path.match("**/*.csv", name)}")
+println("  path.match(\"*.csv\", name)             → ${path.match("*.csv", name)}   (* stays inside one element)")
+
+# --- a tree to work on ----------------------------------------------------------
+
+root = path.join($dir, "mzs_example_51")
+
+# The names below are relative to root, which is what a reader wants to see; io.walk
+# yields them with root in front, and a directory with a trailing `/`, which path.rel
+# would clean away — so it is put back.
+fn shown(p) {
+  r = path.rel(p, root)
+  p.ends_with("/") ? r + "/" : r
+}
+
+if io.exists(root) {
+  eprintln("${root} is already there; remove it, or pass -v dir=<another directory>")
+  exit(1)
+}
+
+io.mkdir(path.join(root, "in/2025"))
+io.mkdir(path.join(root, "in/2026"))
+io.mkdir(path.join(root, "in/2026"))           # already there: that is what was asked for
+io.write(path.join(root, "in/2025/q4.csv"), "region,total\nnorth,120\n")
+io.write(path.join(root, "in/2026/q1.csv"), "region,total\nnorth,90\nsouth,40\n")
+io.write(path.join(root, "in/2026/notes.txt"), "draft\n")
+io.write(path.join(root, ".gitignore"), "out/\n")
+
+println("")
+println("io.walk — depth-first, each directory sorted, directories with a /")
+println("")
+io.walk(root).each { println("  ${shown(it)}") }
+
+# --- a glob is a walk and a match ------------------------------------------------
+
+csvs = io.walk(root).filter { path.match("**/*.csv", it) }.array
+bytes = csvs.map { io.stat(it)["size"] }.sum
+println("")
+println("  **/*.csv                → ${csvs.map { shown(it) }.json}")
+println("  their size              → ${bytes} bytes")
+println("  io.stat(in/2025/q4.csv) → ${io.stat(path.join(root, "out/../in/2025/q4.csv")).json}")
+println("  io.stat(in/2026)[\"dir\"] → ${io.stat(path.join(root, "in/2026"))["dir"]}")
+println("  io.stat(nothing)        → ${inspect(io.stat(path.join(root, "nothing")))}")
+
+# --- changing it --------------------------------------------------------------------
+
+# The glob above is what is there; what is moved is what this script wrote. In a directory
+# of your own the two are the same, and `for p in csvs { … }` would do — naming the two
+# keeps the example honest about which files it is changing.
+io.mkdir(path.join(root, "out"))
+ours = ["in/2025/q4.csv", "in/2026/q1.csv"].map { path.join(root, it) }
+for p in ours {
+  io.mv(p, path.join(root, "out", path.stem(p) + "_" + path.base(path.dir(p)) + ".csv"))
+}
+println("")
+println("io.mv — the CSVs collected into out/, named by their year")
+println("")
+println("  out/                    → ${io.ls(path.join(root, "out")).json}")
+println("  in/2026/                → ${io.ls(path.join(root, "in/2026")).json}")
+
+println("")
+println("io.rm — one name at a time")
+println("")
+notes = path.join(root, "in/2026/notes.txt")
+println("  rm notes.txt            → ${io.rm(notes)}")
+println("  rm notes.txt again      → ${io.rm(notes)}   (it was not there: false, not an error)")
+println("  rm in/ with things in   → ${try io.rm(path.join(root, "in")) else (e) -> e["kind"]}   (not recursive)")
+# A tree is removed deepest first, one name at a time: io.rm is not recursive, so the script
+# says what it deletes. A tree that is all yours goes with
+# `for p in io.walk(d).array.reverse { io.rm(p) }` and then `io.rm(d)`; this cleanup names
+# what the script made instead, so anything else in the tree stays where it is and the
+# directory around it refuses to go and says so.
+made = ["out/q1_2026.csv", "out/q4_2025.csv", "out", "in/2026", "in/2025", "in", ".gitignore"]
+removed = made.map { io.rm(path.join(root, it)) }.count { it }
+io.rm(root)
+println("  what this script made   → ${removed + 1} names removed")
+println("  root exists             → ${io.exists(root)}")

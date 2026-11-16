@@ -26,6 +26,8 @@ field grants one capability.
 | Capability | `Options` field | CLI |
 |---|---|---|
 | `io` module (files) | `FS` | on by default, `--no-io` withholds |
+| `io.walk` | `FS` implementing `LinkStater` | on with `io` |
+| `io.rm`, `io.mkdir`, `io.mv` | `FSMutations`, and `FS` implementing `FileRemover`, `DirMaker`, `FileMover` | on with `io`; `--read-only` withholds them, and makes `io.write`/`io.append` fail |
 | `io.stdin` / `io.lines` / `input()` | `Stdin` | the data stream ([input](../cli/input.md)) |
 | `io.env` | `Env` | on with `io` |
 | `include x from "…"` | `ModuleLoader` | a `./` path is rooted at the program's directory; a bare name is a library on `$MZSPATH`, rooted where it was found |

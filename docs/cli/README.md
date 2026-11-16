@@ -26,6 +26,7 @@ page of their own: [tools.md](./tools.md). Everything below is the `mzs` command
 | `-l, --print-each-line` | `-n`, and print each line's value when it is not `nil` |
 | `--in <path>` | read the data from a file instead of stdin |
 | `--io`, `--no-io` | grant or withhold the `io` module; granted by default |
+| `--read-only` | `io` reads but changes nothing: `write` and `append` fail, `rm`, `mkdir` and `mv` are absent |
 | `-v, --var k=v` | bind `$k` to the string `v`; repeatable |
 | `--vars <json>` | bind every member of a JSON object as a `$var`, keeping JSON types |
 | `--vars-file <path>` | the same, read from a file |

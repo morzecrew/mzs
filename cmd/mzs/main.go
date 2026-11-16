@@ -77,6 +77,9 @@ type config struct {
 	// CLI says yes by default, being its own host; --no-io is for running somebody else's
 	// script the way an embedder would see it.
 	ioOn bool
+	// readOnly is --read-only: the filesystem still reads, and io.write, io.append,
+	// io.rm, io.mkdir and io.mv are taken away (§12.13).
+	readOnly bool
 	// inPath is --in: a file that becomes the data stream, so the program may still arrive
 	// on stdin while the data comes from somewhere else.
 	inPath string
@@ -428,7 +431,11 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	// person typing takes the capability back for one command — to run a script someone
 	// else wrote and see it the way an embedder would.
 	if cfg.ioOn {
-		o.FS, o.Env = hostFS(), os.Getenv
+		o.FS, o.Env = hostFS(cfg.readOnly), os.Getenv
+		// The CLI's filesystem can remove, create and move, and the person typing the
+		// command is the one who would be asked: so the CLI consents, unless --read-only
+		// says otherwise.
+		o.FSMutations = !cfg.readOnly
 		// In line mode the CLI owns the reader: it is being split into $_ one line at a
 		// time, and handing the same reader to io.stdin as well would have two consumers
 		// racing for the bytes. `io.stdin` is "" there, and the line is in $_.
@@ -522,9 +529,14 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 		}
 
 		name, val, hasVal := splitFlag(a)
+		// valUsed records that the flag read the value attached with `=`. One that takes
+		// none must not swallow it: `--read-only=false` silently meaning --read-only is
+		// the opposite of what was typed.
+		valUsed := false
 		// need consumes the flag's argument, from "--flag=v" or the next word.
 		need := func() (string, error) {
 			if hasVal {
+				valUsed = true
 				return val, nil
 			}
 			if i+1 >= len(argv) {
@@ -557,6 +569,8 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			cfg.ioOn = true
 		case "--no-io":
 			cfg.ioOn = false
+		case "--read-only":
+			cfg.readOnly = true
 		case "--in":
 			v, e := need()
 			if e != nil {
@@ -647,6 +661,7 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			cfg.randOn = true
 			cfg.randSeed = time.Now().UnixNano()
 			if hasVal {
+				valUsed = true
 				n, se := strconv.ParseInt(val, 10, 64)
 				if se != nil {
 					return nil, false, false, fmt.Errorf("--rand wants an integer seed, got %q", val)
@@ -673,6 +688,9 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			return nil, false, false, fmt.Errorf("--net is gone: the http module is always available")
 		default:
 			return nil, false, false, fmt.Errorf("unknown flag %s", name)
+		}
+		if hasVal && !valUsed {
+			return nil, false, false, fmt.Errorf("flag %s takes no value, got %q", name, a)
 		}
 	}
 
@@ -828,6 +846,7 @@ Flags:
   -l, --print-each-line  -n, and print each line's value when it is not nil
       --in <path>    read the data from a file instead of stdin
       --no-io        withhold the io module: no files, no env, no stdin
+      --read-only    io reads but cannot write, append, rm, mkdir or mv
   -v, --var k=v      bind $k to the string v; repeatable
       --vars <json>  bind every member of a JSON object as a $var
       --vars-file <path>   same, read from a file

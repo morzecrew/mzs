@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"sort"
+	"sync"
 
 	"mzs/internal/token"
 )
@@ -242,6 +243,20 @@ type moduleDef struct {
 	name    string
 	members *OrderedDict
 	gate    ModuleGate
+
+	// memberGates are the members that need more of the host than the module does —
+	// io.rm needs Options.FSMutations and a FileSystem that can remove (§12.13). Each
+	// answers "" when its member is available under o, or the sentence that says what
+	// is missing. A member whose gate is closed is absent from the module's dict, so
+	// using it fails the way any unknown member does, with that sentence instead.
+	memberGates map[string]func(o *Options) string
+	gateOrder   []string
+
+	// variants caches the members for each combination of closed member gates, so the
+	// filtering is done once per combination. What a script gets is always a copy
+	// (LookupModule).
+	mu       sync.Mutex
+	variants map[uint64]*OrderedDict
 }
 
 var moduleDefs = map[string]*moduleDef{}
@@ -295,6 +310,91 @@ func moduleGateOf(module string) (ModuleGate, bool) {
 // SetModuleGate records what a module needs from the host.
 func SetModuleGate(module string, g ModuleGate) { moduleFor(module).gate = g }
 
+// setMemberGate records that one member of a built-in module needs more of the host than
+// the module itself does. need answers "" when the member is available under o, and
+// otherwise the reason, which is what a script that uses the member is told (§12.13).
+// Call only from init(), after the member is registered.
+func setMemberGate(module, member string, need func(o *Options) string) {
+	d := moduleFor(module)
+	if d.memberGates == nil {
+		d.memberGates = map[string]func(*Options) string{}
+	}
+	if _, ok := d.memberGates[member]; !ok {
+		d.gateOrder = append(d.gateOrder, member)
+	}
+	d.memberGates[member] = need
+}
+
+// closedMemberMessage is the reason a member of a built-in module is absent under o, or
+// "" when it is not gated off — because it is available, or because it does not exist.
+func closedMemberMessage(module, member string, o *Options) string {
+	d, ok := moduleDefs[module]
+	if !ok || d.memberGates == nil {
+		return ""
+	}
+	need, ok := d.memberGates[member]
+	if !ok {
+		return ""
+	}
+	return need(o)
+}
+
+// isBuiltinModuleDict reports whether v is a dict LookupModule handed out for module, as
+// opposed to a script module that happens to have the same name: only the first may be
+// told that a member it lacks is the host's to grant.
+func isBuiltinModuleDict(module string, v Value) bool {
+	d, ok := moduleDefs[module]
+	if !ok || v.Kind() != KDict {
+		return false
+	}
+	od, ok := v.p.(*OrderedDict)
+	return ok && od != nil && od.module == d.name
+}
+
+// membersUnder is the module's dict under o: every member, less those whose gate is
+// closed. A module without member gates — every one but io — is its one shared dict.
+func (d *moduleDef) membersUnder(o *Options) *OrderedDict {
+	if len(d.gateOrder) == 0 {
+		return d.members
+	}
+	var closed uint64
+	for i, m := range d.gateOrder {
+		if d.memberGates[m](o) != "" {
+			closed |= 1 << uint(i)
+		}
+	}
+	if closed == 0 {
+		return d.members
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if m, ok := d.variants[closed]; ok {
+		return m
+	}
+	out := NewOrderedDict()
+	for _, k := range d.members.Keys() {
+		if i := indexOf(d.gateOrder, k.Str()); i >= 0 && closed&(1<<uint(i)) != 0 {
+			continue
+		}
+		v, _ := d.members.Get(k)
+		_ = out.Set(k, v)
+	}
+	if d.variants == nil {
+		d.variants = map[uint64]*OrderedDict{}
+	}
+	d.variants[closed] = out
+	return out
+}
+
+func indexOf(xs []string, x string) int {
+	for i, s := range xs {
+		if s == x {
+			return i
+		}
+	}
+	return -1
+}
+
 // LookupModule returns a built-in module as a Dict value, honouring its gate. Modules
 // are ordinary values bound in the root scope and reached with `.` like anything else
 // (§12.8). The evaluator consults host modules (RegisterModule) first, then this table.
@@ -315,7 +415,13 @@ func LookupModule(name string, o *Options) (Value, bool) {
 	if d.gate.NeedsFS && o.FS == nil {
 		return Nil(), false
 	}
-	return dictOf(d.members), true
+	// Every include gets a copy of its own. The table behind it is shared by every
+	// interpreter in the process, and a module is a dict a script can write to: handing
+	// the table itself over let `json["parse"] = 1` in one Run break json.parse in every
+	// other interpreter that came after it (§14.3).
+	m := d.membersUnder(o).Clone()
+	m.module = name
+	return dictOf(m), true
 }
 
 // ModuleNames lists the built-in modules available under o, sorted.

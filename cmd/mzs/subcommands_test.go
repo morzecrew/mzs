@@ -369,6 +369,12 @@ func TestTestFlags(t *testing.T) {
 		{"randomness", []string{"test", "--rand", dir}, exitOK},
 		{"no filesystem", []string{"test", "--no-io", dir}, exitOK},
 		{"a filesystem back", []string{"test", "--io", dir}, exitOK},
+		{"read only", []string{"test", "--read-only", dir}, exitOK},
+		// A flag that takes no value refuses one attached with `=` rather than ignoring
+		// it: `--read-only=false` would otherwise mean --read-only.
+		{"a value on a flag that takes none", []string{"test", "--read-only=false", dir}, exitUsage},
+		{"a value on --fail-fast", []string{"test", "--fail-fast=no", dir}, exitUsage},
+		{"a seed attached to --rand", []string{"test", "--rand=7", dir}, exitOK},
 		{"end of flags", []string{"test", "--", dir}, exitOK},
 		{"a bad duration", []string{"test", "-t", "soon", dir}, exitUsage},
 		{"a bad step budget", []string{"test", "--steps", "many", dir}, exitUsage},

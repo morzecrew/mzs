@@ -35,6 +35,7 @@ option:
 
 ```sh
 mzs examples/32_io_files.mzs                          # writes into $TMPDIR
+mzs -v dir="$(mktemp -d)" examples/51_file_tree.mzs   # builds a tree in a directory you give it, then removes it
 printf 'yes\nno\nyes\n' | mzs examples/32_io_files.mzs # …and reads the pipe as data
 ```
 
@@ -118,4 +119,5 @@ does not have it at all.
 | 29 | `29_time_scheduling.mzs` | **`--time`** · parsing four formats, durations, a slot grid, the first free gap, reminders |
 | 30 | `30_http_service.mzs` | an http client call and a five-route JSON server with validation and shutdown |
 | 31 | `31_api_pipeline.mzs` | **`-t 30`** · fetch a public JSON API, normalise the hits, then group, rank and tabulate them — with a sample to fall back on when the network is down |
-| 32 | `32_io_files.mzs` | **`Options.FS`** · stdin as data, read/write/append/exists/ls/env, a missing file caught by `try`, and why the host resolves the path |
+| 32 | `32_io_files.mzs` | **`Options.FS`** · stdin as data, read/write/append/exists/ls/env, a missing file caught by `try`, why the host resolves the path, and `io.rm` to clean up |
+| 51 | `51_file_tree.mzs` | **`Options.FS`, `FSMutations`** · `path` taking names apart, `io.walk` over a tree, a glob from `path.match`, then `io.mkdir`, `io.mv` and a deepest-first `io.rm` — and what `--read-only` says about it |

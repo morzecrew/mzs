@@ -1,7 +1,7 @@
 # Filesystem, stdin, env and modules
 
-The four `Options` fields that let a script reach outside the process, and the rule that
-the host — not the library — resolves every path.
+The `Options` fields that let a script reach outside the process, and the rule that the
+host — not the library — resolves every path.
 
 ```go
 in := mzs.New(mzs.Options{
@@ -152,6 +152,69 @@ hears `nil`. `Env` is usually `os.Getenv`; `nil`
 means every name is unset, and an empty result counts as unset, so
 `io.env("STAGE", "prod")` falls back the way `${STAGE:-prod}` does in a shell.
 
+## Walking and changing a tree: four optional interfaces
+
+`FileSystem` never grows, so the implementation above keeps compiling. Four members of `io`
+are backed by interfaces of their own instead, and each member exists only when your
+`FileSystem` implements its interface:
+
+```go
+type LinkStater interface {   // io.walk
+	Lstat(name string) (exists bool, size int64, dir, link bool, err error)
+}
+type FileRemover interface { Remove(name string) error }     // io.rm
+type DirMaker    interface { MkdirAll(name string) error }   // io.mkdir
+type FileMover   interface { Rename(from, to string) error } // io.mv
+```
+
+**The three that change a tree also need `Options.FSMutations: true`.** Go interfaces are
+satisfied implicitly, so a `FileSystem` that already had a `Remove` method for reasons of its
+own must not hand scripts `io.rm` when you upgrade mzs. The field is the deliberate act, and
+its zero value keeps every existing host where it was:
+
+```go
+in := mzs.New(mzs.Options{FS: myFS{}, FSMutations: true})
+```
+
+A member you did not grant is absent, and using it is a compile error that says which half
+is missing:
+
+```
+io.rm needs the host to allow structural changes: Options.FSMutations is off (mzs without --read-only)
+io.walk needs a filesystem that can tell a link from a directory: Options.FS does not implement LinkStater
+```
+
+What each method is expected to do:
+
+* **`Remove`** deletes a file, an *empty* directory or a link (not what it points to). A
+  name that does not exist is an error for which `errors.Is(err, fs.ErrNotExist)` holds —
+  `os.Remove`'s errors do — and `io.rm` answers `false` for it instead of raising.
+* **`MkdirAll`** creates the directory and every missing parent; one that already exists
+  is not an error, as with `os.MkdirAll`.
+* **`Rename`** moves within the filesystem and replaces a file at `to`, as `os.Rename` does.
+* **`Lstat`** is `Stat` for the name itself: `link` is true for a symbolic link, and then
+  `dir` and `size` describe the link. Not there is `(false, 0, false, false, nil)`.
+
+`io.walk` lists with `List`, looks at each entry with `Lstat`, and never descends into a
+name `Lstat` called a link — so on a tree that does not change while it runs, a walk cannot
+leave the tree through a link **it meets below the root**, or go round a cycle of them. The
+root itself is a path the script named, and it reaches your `List` like any other:
+`Lstat` refuses a root that *is* a link, but a link among its parent components —
+`io.walk("safe/link/sub")` — resolves the way it does for `io.read("safe/link/sub/x")`,
+because which names a script may reach is your path policy, not the walk's. A host that
+confines scripts to a tree refuses such a root in `List`, exactly as it refuses that path in
+`Open`. If a directory can be replaced by
+a link *while* the walk runs and that matters to you, the guarantee is yours to keep in
+`List`: it must follow no link in **any** component of the path, not only the last.
+`O_NOFOLLOW` covers the last component only, and an `os.Root` confines a walk to its tree
+but still follows links that stay inside it, so neither is enough on its own. On Linux it
+means opening each component in turn with `openat(…, O_NOFOLLOW|O_DIRECTORY)` from the one
+before, or `openat2` with `RESOLVE_NO_SYMLINKS`. Other cycles — a bind mount of an ancestor
+— are not links; bound those in your own `List` if you have them.
+
+A read-only host is one whose `Create` and `Append` fail and which implements none of the
+three mutating interfaces — the CLI's `--read-only` is exactly that.
+
 ## ModuleLoader
 
 ```go
@@ -194,7 +257,7 @@ no loader:     name: cannot include "./x.mzs": the host did not enable module lo
 loader error:  name: cannot include "./nope.mzs": nope.mzs: not found
 ```
 
-Built-in modules (`json`, `math`, `time`, `date`, `http`, `io`) never go through the loader.
+Built-in modules (`json`, `math`, `time`, `date`, `http`, `io`, `path`, …) never go through the loader.
 
 ## See also
 

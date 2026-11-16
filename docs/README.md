@@ -59,11 +59,12 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [modules/json.md](./modules/json.md) | `json.parse`, `x.json`, `json.pretty`, and the value mapping in both directions |
 | [modules/math.md](./modules/math.md) | The complete member list, and what happens out of domain |
 | [modules/time.md](./modules/time.md) | The clock capability, the `time` kind, parsing, `strftime`, duration arithmetic |
-| [modules/io.md](./modules/io.md) | The eight io members — stdin, files, env — the filesystem a host must supply, and streaming a file that does not fit |
+| [modules/io.md](./modules/io.md) | The io members — stdin, files, trees, env — the filesystem a host must supply, the consent changing a tree needs, and streaming a file that does not fit |
 | [modules/http.md](./modules/http.md) | The server whose routes are closures, and the client whose answers are dicts |
 | [modules/decimal.md](./modules/decimal.md) | Exact base-ten money: why a float is not one, the fourteen members, and the `+` that refuses |
 | [modules/crypto.md](./modules/crypto.md) | Hex, base64 in both alphabets, sha256/sha1/md5, HMAC, and why the signature check is `crypto.equal` |
 | [modules/url.md](./modules/url.md) | The eight keys of a parsed URL, the inverse that builds one, and the two encodings the `+` tells apart |
+| [modules/path.md](./modules/path.md) | `join`, `dir`, `base`, `ext`, `stem`, `rel` and the rest, all lexical and `/`-only; `path.match` and the `**` that makes `io.walk` a glob |
 | [modules/csv.md](./modules/csv.md) | RFC 4180 in and out: headers as dict keys, the options, `csv.rows` for a file that does not fit, and what `csv.str` quotes |
 | [modules/test.md](./modules/test.md) | `test.case`, `test.eq`, `test.raises` and the rest: what a case catches, skips and groups, and the report `mzs test` counts |
 | [modules/custom.md](./modules/custom.md) | `include … from`, `export`, the `MZSPATH` search path, and how a path resolves |
