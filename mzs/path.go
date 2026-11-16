@@ -149,20 +149,26 @@ func pathvClean(c *Ctx, args []Value) (Value, error) {
 
 // pathElems are the elements of the cleaned p. A rooted path starts with the element "/",
 // so `join(*split(p))` gives back `clean(p)`; "." has no elements at all.
-func pathElems(p string) []string {
+//
+// The number of elements is counted, and held to MaxCollection, before any of them is
+// allocated: a path of slashes is a short string and a long array.
+func pathElems(c *Ctx, p string) ([]string, error) {
 	p = path.Clean(p)
 	if p == "." {
-		return nil
+		return nil, nil
+	}
+	if err := c.CheckCollection(strings.Count(p, "/") + 1); err != nil {
+		return nil, err
 	}
 	var out []string
 	if strings.HasPrefix(p, "/") {
 		out = append(out, "/")
 		p = p[1:]
 		if p == "" {
-			return out
+			return out, nil
 		}
 	}
-	return append(out, strings.Split(p, "/")...)
+	return append(out, strings.Split(p, "/")...), nil
 }
 
 // pathvSplit is `path.split(p)`: the elements of the cleaned path — `"a/b/c"` is
@@ -172,8 +178,8 @@ func pathvSplit(c *Ctx, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	elems := pathElems(p)
-	if err := c.CheckCollection(len(elems)); err != nil {
+	elems, err := pathElems(c, p)
+	if err != nil {
 		return Nil(), err
 	}
 	out := make([]Value, len(elems))
@@ -196,7 +202,10 @@ func pathvRel(c *Ctx, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	r, ok := pathRel(p, base)
+	r, ok, err := pathRel(c, p, base)
+	if err != nil {
+		return Nil(), err
+	}
 	if !ok {
 		return Nil(), nil
 	}
@@ -208,10 +217,17 @@ func pathvRel(c *Ctx, args []Value) (Value, error) {
 	return Str(r), nil
 }
 
-func pathRel(p, base string) (string, bool) {
-	pe, be := pathElems(p), pathElems(base)
+func pathRel(c *Ctx, p, base string) (string, bool, error) {
+	pe, err := pathElems(c, p)
+	if err != nil {
+		return "", false, err
+	}
+	be, err := pathElems(c, base)
+	if err != nil {
+		return "", false, err
+	}
 	if path.IsAbs(path.Clean(p)) != path.IsAbs(path.Clean(base)) {
-		return "", false
+		return "", false, nil
 	}
 	i := 0
 	for i < len(pe) && i < len(be) && pe[i] == be[i] {
@@ -220,7 +236,7 @@ func pathRel(p, base string) (string, bool) {
 	up := be[i:]
 	for _, e := range up {
 		if e == ".." {
-			return "", false
+			return "", false, nil
 		}
 	}
 	out := make([]string, 0, len(up)+len(pe)-i)
@@ -229,9 +245,9 @@ func pathRel(p, base string) (string, bool) {
 	}
 	out = append(out, pe[i:]...)
 	if len(out) == 0 {
-		return ".", true
+		return ".", true, nil
 	}
-	return strings.Join(out, "/"), true
+	return strings.Join(out, "/"), true, nil
 }
 
 // pathvIsAbs is `path.is_abs(p)`: whether p starts with `/`.
@@ -259,6 +275,19 @@ func pathvMatch(c *Ctx, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
+	// Everything below is paid for before it is done: the elements are counted and held
+	// to MaxCollection before either side is split, and the whole match is charged before
+	// the pattern is validated, so a pattern of a million slashes is refused, not built.
+	np, nn := strings.Count(pattern, "/")+1, strings.Count(name, "/")+1
+	if err := c.CheckCollection(np); err != nil {
+		return Nil(), err
+	}
+	if err := c.CheckCollection(nn); err != nil {
+		return Nil(), err
+	}
+	if err := c.Step(int64(np)*int64(nn) + int64(len(pattern))*int64(len(name))/64); err != nil {
+		return Nil(), err
+	}
 	pe := strings.Split(pattern, "/")
 	for _, e := range pe {
 		if e == "**" {
@@ -271,27 +300,10 @@ func pathvMatch(c *Ctx, args []Value) (Value, error) {
 	ne := strings.Split(name, "/")
 	// The table has len(pe)·len(ne) cells, and a cell is one path.Match of an element
 	// against an element — which, for a `*` followed by a long literal, is as much work
-	// as the two lengths multiplied. Both are paid for up front, so a pattern built to be
+	// as the two lengths multiplied. Both were paid for above, so a pattern built to be
 	// slow runs out of budget before it runs at all, rather than inside a Go call the
 	// deadline cannot interrupt.
-	if err := c.Step(globCost(pe, ne)); err != nil {
-		return Nil(), err
-	}
 	return Bool(globElems(pe, ne)), nil
-}
-
-// globCost is what one match is charged: a step per cell of the table, and on top of it
-// the character work of the cells, one step per 64 pairs of pattern and name bytes — the
-// bound path.Match's own retries stay within.
-func globCost(pe, ne []string) int64 {
-	var pb, nb int64
-	for _, e := range pe {
-		pb += int64(len(e))
-	}
-	for _, e := range ne {
-		nb += int64(len(e))
-	}
-	return int64(len(pe))*int64(len(ne)) + pb*nb/64
 }
 
 // globElems matches pattern elements against name elements. It is the table of which

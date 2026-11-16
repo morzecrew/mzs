@@ -323,3 +323,36 @@ func TestPathJoinOfAnOversizedHostPart(t *testing.T) {
 		}
 	}
 }
+
+// A path of many slashes is a short string and a long array: split, rel and match count
+// the elements and hold them to MaxCollection before allocating any, and match charges
+// its whole cost before it splits or validates the pattern.
+func TestPathElementCountsAreBoundedFirst(t *testing.T) {
+	t.Parallel()
+
+	in := New(Options{MaxCollection: 100, Timeout: 10 * time.Second})
+	many := strings.Repeat("a/", 1000) + "a"
+	for _, src := range []string{
+		`path.split($p)`,
+		`path.rel($p, "a")`,
+		`path.rel("a", $p)`,
+		`path.match($p, "a")`,
+		`path.match("a", $p)`,
+	} {
+		_, err := in.Eval(context.Background(), "include path; "+src, map[string]Value{"$p": Str(many)})
+		if err == nil || !strings.Contains(err.Error(), "limit") {
+			t.Errorf("%s with 1001 elements under MaxCollection 100: err = %v", src, err)
+		}
+	}
+	// Under the bound they work as before.
+	in = New(Options{MaxCollection: 2000})
+	if v, err := in.Eval(context.Background(), "include path; path.split($p).len", map[string]Value{"$p": Str(many)}); err != nil || v.Inspect() != "1001" {
+		t.Errorf("split under the bound = %v, %v", v, err)
+	}
+	// A pattern of a million slashes is refused on the budget before it is validated.
+	in = New(Options{MaxCollection: 10_000_000, StepBudget: 1000})
+	slashes := strings.Repeat("/", 1_000_000)
+	if _, err := in.Eval(context.Background(), "include path; path.match($p, $p)", map[string]Value{"$p": Str(slashes)}); err == nil || !strings.Contains(err.Error(), "step budget") {
+		t.Errorf("a slash-heavy match: err = %v", err)
+	}
+}
