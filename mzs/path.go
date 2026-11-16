@@ -36,24 +36,23 @@ func init() {
 // dropped. Joining nothing, or only empty parts, is "" — there is no name to clean.
 func pathvJoin(c *Ctx, args []Value) (Value, error) {
 	parts := make([]string, 0, len(args))
-	size := 0
 	for _, a := range args {
 		s, err := argStr(c, a)
 		if err != nil {
 			return Nil(), err
 		}
 		if s != "" {
-			if len(parts) > 0 {
-				size++ // the separator before it
-			}
 			parts = append(parts, s)
-			size += len(s)
 		}
 	}
-	if err := c.CheckString(size); err != nil {
+	// The limit is on what the script gets back, which is the cleaned join: a doubled `/`
+	// or a `..` that cleaning removes is not part of it. The concatenation along the way is
+	// bounded by the arguments, each already a string under the limit.
+	joined := path.Join(parts...)
+	if err := c.CheckString(len(joined)); err != nil {
 		return Nil(), err
 	}
-	return Str(path.Join(parts...)), nil
+	return Str(joined), nil
 }
 
 // pathvDir is `path.dir(p)`: everything before the last element, cleaned, and "." when

@@ -228,6 +228,8 @@ func TestPathResultLimits(t *testing.T) {
 		`path.join("12345678")`:          true,
 		`path.join("1234", "567")`:       true,
 		`path.join("1234", "", "5678")`:  false,
+		`path.join("/", "1234567")`:      true,
+		`path.join("a/..", "12345678")`:  true,
 		`path.rel("a/a", "b")`:           true,
 		`path.rel("a/a/a/a", "b/b/b/b")`: false,
 	} {
