@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -161,10 +163,9 @@ func TestCLI(t *testing.T) {
 			errHas:   []string{"unknown flag -c"},
 		},
 		{
-			name:     "-e with a file is a usage error",
-			argv:     []string{"-e", "1", "script.mzs"},
-			wantCode: 2,
-			errHas:   []string{"mutually exclusive"},
+			name:    "-e takes its first positional as the script's first argument",
+			argv:    []string{"-e", "$ARGV.json", "script.mzs", "--json"},
+			wantOut: "[\"script.mzs\",\"--json\"]\n",
 		},
 		{
 			name:     "-v without an equals sign is a usage error",
@@ -1415,8 +1416,8 @@ func TestCLISeededRandIsReproducible(t *testing.T) {
 	}
 }
 
-// `--` ends the flags, so a script may be handed arguments that look like flags. It
-// needs a file: a one-liner and a script file are mutually exclusive (§15).
+// `--` right after the script path is still dropped, so the command lines written before
+// mzs stopped reading flags there keep handing the script the same $ARGV (§15).
 func TestCLIEndOfFlags(t *testing.T) {
 	t.Parallel()
 
@@ -1613,5 +1614,105 @@ func TestEprintlnKeepsStdoutForData(t *testing.T) {
 	}
 	if errOut != "skipping \"x\"\n" {
 		t.Errorf("stderr = %q", errOut)
+	}
+}
+
+// Everything after the script path is the script's (§15). Each case is a command line
+// RFC 0017 names, with the $ARGV it gives.
+func TestCLIArgumentBoundary(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := filepath.Join(dir, "argv.mzs")
+	if err := os.WriteFile(script, []byte("println($ARGV.json)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"flags after the script are the script's", []string{script, "--width", "800", "in.png"}, `["--width","800","in.png"]`},
+		{"an mzs flag after the script is the script's", []string{script, "--json"}, `["--json"]`},
+		{"a -- right after the script is dropped", []string{script, "--", "--width", "800"}, `["--width","800"]`},
+		{"only the first -- is dropped", []string{script, "--", "--"}, `["--"]`},
+		{"a -- further along is kept", []string{script, "foo", "--", "bar"}, `["foo","--","bar"]`},
+		{"a -- before the script makes the one after it the script's", []string{"--", script, "--", "--width"}, `["--","--width"]`},
+		{"mzs flags before the script still count", []string{"--no-trace", script, "x"}, `["x"]`},
+		{"-e: the first positional starts $ARGV", []string{"-e", "println($ARGV.json)", "foo", "--json"}, `["foo","--json"]`},
+		{"-e: a lone - is the script path and is dropped", []string{"-e", "println($ARGV.json)", "-", "foo"}, `["foo"]`},
+		{"-e: a -- right after - is dropped", []string{"-e", "println($ARGV.json)", "-", "--", "--width", "800"}, `["--width","800"]`},
+		{"-e: mzs flags after - are the script's", []string{"-e", "println($ARGV.json)", "-", "--json", "foo"}, `["--json","foo"]`},
+		{"-e: -- ends mzs's flags", []string{"-e", "println($ARGV.json)", "--", "--json"}, `["--json"]`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			code, out, errOut := exec(append([]string{"--no-print"}, tc.argv...), "")
+			if code != exitOK {
+				t.Fatalf("exit = %d (stdout %q, stderr %q)", code, out, errOut)
+			}
+			if got := strings.TrimSpace(out); got != tc.want {
+				t.Errorf("$ARGV = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// A script that stops with the usage status while an argument after it spells an mzs flag
+// was probably run the old way; the CLI says where the flag went, once, and only then.
+func TestCLIFlagAfterScriptHint(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := filepath.Join(dir, "usage.mzs")
+	if err := os.WriteFile(script, []byte("exit($ARGV.len > 0 && $ARGV[0] == \"ok\" ? 0 : 2)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut := exec([]string{script, "--json=1", "--timeout", "1"}, "")
+	if code != exitUsage {
+		t.Fatalf("exit = %d, want %d", code, exitUsage)
+	}
+	if strings.Count(errOut, "mzs: note:") != 1 || !strings.Contains(errOut, "--json after the script path") {
+		t.Errorf("stderr = %q, want one note about --json", errOut)
+	}
+	for _, argv := range [][]string{
+		{script, "-v", "x"},           // a short flag is as likely the script's own
+		{script, "--widht"},           // not an mzs flag
+		{script, "--", "--json"},      // the -- is dropped, so the script sees ["--json"]: this one hints
+		{script, "x", "--", "--json"}, // after the script's own --, an argument is data
+		{script, "ok", "--json"},      // the script did not exit 2
+	} {
+		_, _, errOut := exec(argv, "")
+		hinted := strings.Contains(errOut, "mzs: note:")
+		if want := argv[1] == "--"; hinted != want {
+			t.Errorf("%q: hinted = %v, want %v (stderr %q)", argv[1:], hinted, want, errOut)
+		}
+	}
+}
+
+// mzsLongFlags is held to the switch in parseArgs, so the hint knows every flag there is.
+func TestMzsLongFlagsMatchesTheParser(t *testing.T) {
+	t.Parallel()
+
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inSwitch []string
+	for _, line := range strings.Split(string(src), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "case \"-") {
+			continue
+		}
+		for _, f := range regexp.MustCompile(`"(--[a-z-]+)"`).FindAllStringSubmatch(line, -1) {
+			inSwitch = append(inSwitch, f[1])
+		}
+	}
+	slices.Sort(inSwitch)
+	listed := slices.Clone(mzsLongFlags)
+	slices.Sort(listed)
+	if !slices.Equal(inSwitch, listed) {
+		t.Errorf("mzsLongFlags = %v\nparseArgs has %v", listed, inSwitch)
 	}
 }
