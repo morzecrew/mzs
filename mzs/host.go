@@ -197,8 +197,10 @@ func (c *Ctx) allocCollection(total, added int) error { return c.rs.allocCollect
 
 // Out is the sink for print/println/debug; never nil.
 func (c *Ctx) Out() io.Writer {
-	if w := c.rs.sh.testOut; w != nil {
-		return w
+	for w := c.rs.testOut; w != nil; w = w.parent {
+		if !w.done {
+			return &w.b
+		}
 	}
 	return c.rs.opts.out()
 }

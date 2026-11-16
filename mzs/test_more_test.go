@@ -281,3 +281,90 @@ test.case("loud fail") { println("evidence"); assert(false) }
 		t.Errorf("Quiet lost the record: %+v", res.Tests)
 	}
 }
+
+// Review of #29: two cases running in two tasks at once each keep their own output,
+// whichever finishes first, and a task that outlives its case prints to the Stdout.
+func TestCaptureFollowsTheTaskNotTheClock(t *testing.T) {
+	res, out, err := runTests(t, `
+include test
+async fn a() { test.case("A") { println("a1"); sleep(0.03); println("a2") } }
+async fn b() { test.case("B") { sleep(0.01); println("b1"); sleep(0.05); println("b2") } }
+async fn late() { sleep(0.02); println("late") }
+ta = a()
+tb = b()
+ta.await
+tb.await
+test.case("C") { $t = late() }
+$t.await
+`, Options{Test: TestOptions{Capture: true, Verbose: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range res.Tests {
+		got[c.Name] = c.Output
+	}
+	if got["A"] != "a1\na2\n" || got["B"] != "b1\nb2\n" || got["C"] != "" {
+		t.Errorf("Output = %q", got)
+	}
+	if !strings.Contains(out.String(), "late\n") {
+		t.Errorf("what a task printed after its case ended was lost:\n%s", out)
+	}
+}
+
+// Review of #29: a nested case's report is report, not the outer case's output.
+func TestNestedReportIsNotCaptured(t *testing.T) {
+	_, out, err := runTests(t, `
+include test
+test.case("outer") { test.case("inner") { println("evidence"); assert(false) } }
+`, Options{Test: TestOptions{Capture: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FAIL inner", "     | evidence", "ok   outer"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the report does not mention %q:\n%s", want, out)
+		}
+	}
+}
+
+// Review of #29: a case that fails in a task under fail-fast stops the Run, even when
+// nothing awaits the task.
+func TestFailFastFromATask(t *testing.T) {
+	res, _, err := runTests(t, `
+include test
+async fn bad() { test.case("in a task") { assert(false) } }
+bad()
+sleep(0.02)
+test.case("after") { assert(true) }
+`, Options{Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("err = %v, want ErrFailFast", err)
+	}
+	if len(res.Tests) != 1 || res.Tests[0].Name != "in a task" {
+		t.Errorf("Tests = %+v, want only the failure", res.Tests)
+	}
+	_, _, err = runTests(t, `
+include test
+async fn bad() { test.case("in a task") { assert(false) } }
+bad()
+`, Options{Test: TestOptions{FailFast: true}})
+	if !errors.Is(err, ErrFailFast) {
+		t.Fatalf("never awaited: err = %v, want ErrFailFast", err)
+	}
+}
+
+// Review of #29: two ints are compared as ints, not as the one float they round to.
+func TestNearComparesIntsExactly(t *testing.T) {
+	if got := failure(t, `test.near(9007199254740993, 9007199254740992, 0)`); !strings.Contains(got, "within 0") {
+		t.Errorf("distinct big ints read as near: %q", got)
+	}
+	for _, pass := range []string{
+		`test.near(9007199254740993, 9007199254740992, 1)`,
+		`test.near(-9223372036854775807, 9223372036854775807, 2.0e19)`,
+	} {
+		if got := failure(t, pass); got != "" {
+			t.Errorf("%s failed: %s", pass, got)
+		}
+	}
+}

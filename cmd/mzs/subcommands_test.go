@@ -687,3 +687,13 @@ test.case("fixed") {
 		t.Errorf("code = %d\n%s\n%s", code, out, errOut)
 	}
 }
+
+// Review of #29: a case with an empty name is still a case, and its failure counts.
+func TestTestCountsAnUnnamedFailure(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a_test.mzs", "include test\ntest.case(\"\") { assert(false) }\n")
+	code, out, _ := exec([]string{"test", dir}, "")
+	if code != exitError || !strings.Contains(out, "1 file, 1 case, 1 failed") {
+		t.Errorf("code = %d\n%s", code, out)
+	}
+}

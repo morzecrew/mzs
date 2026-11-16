@@ -3418,7 +3418,8 @@ test.eq(test.raises("billing") { pay(order) }["data"]["short_by"], 30)
 
 **`near` is for floats.** `0.1 + 0.2 == 0.3` is false wherever floats are IEEE (§12.15), so a
 test of float arithmetic says how close is close enough. Equal values are near whatever
-`eps` is, which is how an infinity is near itself; NaN is near nothing, itself included. A
+`eps` is, which is how an infinity is near itself; NaN is near nothing, itself included. Two
+ints are compared as ints, so integers past 2^53 that round to one float are not near. A
 Decimal is not a number to `near` — Decimal arithmetic is exact, and `eq` is its comparison.
 
 **A skip is not a failure, and not an error.** `test.skip(reason)` leaves the case the way
@@ -3453,8 +3454,12 @@ is how a host such as `mzs test` asks for a subset of cases (`Filter`, given the
 first failure (`FailFast`: the Run ends with an error that wraps `ErrFailFast`, which nothing
 catches), for no report lines on stdout (`Quiet`), and for what a case prints to be kept in
 its `Output` instead of printed as it happens (`Capture`; the output of a failed case — of
-every case under `Verbose` — is then printed under its report line). The zero value is the
-module as described above.
+every case under `Verbose` — is then printed under its report line). A task started inside a
+case prints into that case, and two cases running in two tasks keep their own output; what a
+task prints after its case has ended goes to the case around it, or to Stdout. A case that
+fails in a task under `FailFast` stops the Run too: no later case starts, and the Run ends
+with `ErrFailFast` even when nothing awaits the task. The zero value is the module as
+described above.
 
 The module needs nothing from the host — like `json` and `decimal`, the include is all of it
 (§14.3).

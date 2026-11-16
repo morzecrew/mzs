@@ -154,6 +154,11 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 		return Nil(), c.ArgErrorf("test.case needs a block: test.case(%q) { … }", name)
 	}
 	o := c.rs.opts.Test
+	if c.rs.sh.failedFast {
+		// A case failed in a task under fail-fast: the Run is stopping, and this case
+		// does not start.
+		return Nil(), &testSignal{}
+	}
 	group := slices.Clone(c.rs.testGroups)
 	if o.Filter != nil && !o.Filter(testFullName(group, name)) {
 		// Not run, not counted: a filter narrows the file to the cases asked for, and a
@@ -162,10 +167,10 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	}
 	tc := TestCase{Name: name, Group: group, Line: c.pos.Line, Col: c.pos.Col}
 
-	var out, prev *strings.Builder
+	var out *caseOut
 	if o.Capture {
-		prev, out = c.rs.sh.testOut, &strings.Builder{}
-		c.rs.sh.testOut = out
+		out = &caseOut{parent: c.rs.testOut}
+		c.rs.testOut = out
 	}
 	outer := c.rs.frames()
 	c.rs.testDepth++
@@ -174,8 +179,9 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 	tc.Elapsed = time.Since(start)
 	c.rs.testDepth--
 	if o.Capture {
-		c.rs.sh.testOut = prev
-		tc.Output = out.String()
+		out.done = true
+		c.rs.testOut = out.parent
+		tc.Output = out.b.String()
 	}
 
 	if s, ok := testSignalOf(rerr); ok {
@@ -207,6 +213,7 @@ func testCase(c *Ctx, args []Value) (Value, error) {
 		}
 		reportOutput(c, tc, true)
 		if o.FailFast {
+			c.rs.sh.failedFast = true
 			return Nil(), &testSignal{}
 		}
 		return Bool(false), nil
@@ -299,8 +306,17 @@ func testNear(c *Ctx, args []Value) (Value, error) {
 			return Nil(), c.ArgErrorf("test.near wants a tolerance of 0 or more, got %s", eps.Inspect())
 		}
 	}
-	x, y := a.Float(), b.Float()
-	if x == y || math.Abs(x-y) <= eps.Float() {
+	if a.Kind() == KInt && b.Kind() == KInt {
+		// Two ints are compared as ints: a float64 has 53 bits of mantissa, so distinct
+		// integers above 2^53 convert to one float and would read as near.
+		d := uint64(a.Int()) - uint64(b.Int())
+		if a.Int() < b.Int() {
+			d = uint64(b.Int()) - uint64(a.Int())
+		}
+		if d == 0 || float64(d) <= eps.Float() {
+			return Nil(), nil
+		}
+	} else if x, y := a.Float(), b.Float(); x == y || math.Abs(x-y) <= eps.Float() {
 		return Nil(), nil
 	}
 	return Nil(), c.position(raiseError(
@@ -385,12 +401,14 @@ func errorLine(err error) string {
 	return e.Msg
 }
 
-// reportLine writes one line of the human report, unless the host asked for none.
+// reportLine writes one line of the human report, unless the host asked for none. It
+// writes to Stdout itself, never into a capture: the report of a case nested in another
+// is report, not the outer case's output, and must not be hidden with it.
 func reportLine(c *Ctx, s string) {
 	if c.rs.opts.Test.Quiet {
 		return
 	}
-	w := c.Out()
+	w := c.rs.opts.out()
 	if w == nil {
 		return
 	}

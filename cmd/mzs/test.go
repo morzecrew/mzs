@@ -163,7 +163,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 		if cfg.json {
 			writeJSON(stdout, caseJSON(path, t))
 		}
-		if t.Name == "" {
+		if t.Name == "" && t.Status == mzs.TestSkip {
 			continue // the rest of the file skipped: a line in the report, not a case
 		}
 		tally.cases++

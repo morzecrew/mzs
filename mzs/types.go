@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -285,6 +286,20 @@ type runState struct {
 	// is not.
 	testGroups []string
 	testDepth  int
+	// testOut is the capture of the innermost case this state is running inside, under
+	// Options.Test.Capture, or nil. It is per state for the reason the groups are: a task
+	// started inside a case prints into that case, and two cases running in two tasks
+	// at once each keep their own output, whichever finishes first.
+	testOut *caseOut
+}
+
+// caseOut is one case's captured output. A task can outlive the case that started it,
+// so a capture is closed rather than dropped when its case ends, and what is printed
+// into a closed one goes to the case around it — or to Stdout — instead of nowhere.
+type caseOut struct {
+	b      strings.Builder
+	done   bool
+	parent *caseOut
 }
 
 // newRunState builds the per-Run state with the budget already armed.

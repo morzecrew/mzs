@@ -1561,6 +1561,12 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	defer func() {
 		r := recover()
 		rs.joinTasks()
+		if err == nil && r == nil && rs.sh.failedFast {
+			// A case failed under fail-fast in a task the program never awaited. The
+			// tasks are joined, so the flag is final: the failure is in Result.Tests,
+			// and the Run still says it stopped for it (§12.18).
+			res.Value, err = Nil(), &testSignal{}
+		}
 		rs.stopMemory()
 		rs.unlock()
 		res.Steps, res.Elapsed, res.Tests = rs.sh.steps, time.Since(start), rs.sh.tests
