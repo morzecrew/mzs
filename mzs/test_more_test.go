@@ -632,7 +632,7 @@ include test
 async fn bad() { test.case("worker") { assert(false) } }
 bad()
 sleep(3600)
-`, Options{Test: TestOptions{FailFast: true}})
+`, Options{Timeout: 10 * time.Second, Test: TestOptions{FailFast: true}})
 	if !errors.Is(err, ErrFailFast) {
 		t.Fatalf("err = %v, want ErrFailFast", err)
 	}
