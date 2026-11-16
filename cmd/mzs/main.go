@@ -529,9 +529,14 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 		}
 
 		name, val, hasVal := splitFlag(a)
+		// valUsed records that the flag read the value attached with `=`. One that takes
+		// none must not swallow it: `--read-only=false` silently meaning --read-only is
+		// the opposite of what was typed.
+		valUsed := false
 		// need consumes the flag's argument, from "--flag=v" or the next word.
 		need := func() (string, error) {
 			if hasVal {
+				valUsed = true
 				return val, nil
 			}
 			if i+1 >= len(argv) {
@@ -656,6 +661,7 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			cfg.randOn = true
 			cfg.randSeed = time.Now().UnixNano()
 			if hasVal {
+				valUsed = true
 				n, se := strconv.ParseInt(val, 10, 64)
 				if se != nil {
 					return nil, false, false, fmt.Errorf("--rand wants an integer seed, got %q", val)
@@ -682,6 +688,9 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			return nil, false, false, fmt.Errorf("--net is gone: the http module is always available")
 		default:
 			return nil, false, false, fmt.Errorf("unknown flag %s", name)
+		}
+		if hasVal && !valUsed {
+			return nil, false, false, fmt.Errorf("flag %s takes no value, got %q", name, a)
 		}
 	}
 

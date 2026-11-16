@@ -53,6 +53,14 @@ io.walk(r).map { path.rel(it, r) }.array.join(" ")`
 	if code != 0 || strings.TrimSpace(out) != "2" {
 		t.Errorf("directories = %q (exit %d: %s)", out, code, errOut)
 	}
+	// A link among the root's own parent components resolves, as it would for io.read
+	// of a name under it: the root is a path the script chose, and the host's policy
+	// decides what it may name. Links met below the root are still not entered.
+	code, out, errOut = exec([]string{"-v", "root=" + root, "-e",
+		`include io; include path; io.walk(path.join($root, "lnk/lib")).map { path.rel(it, $root) }.array.join(" ")`}, "")
+	if code != 0 || strings.TrimSpace(out) != "lnk/lib/b.mzs lnk/lib/up" {
+		t.Errorf("walk through a parent link = %q (exit %d: %s)", out, code, errOut)
+	}
 	// A root that is a link is refused, trailing `/` or not.
 	for _, r := range []string{"lnk", "lnk/"} {
 		code, _, errOut = exec([]string{"-v", "root=" + filepath.Join(root, r), "-e", `include io; io.walk($root).array`}, "")

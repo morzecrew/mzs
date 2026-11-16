@@ -144,6 +144,17 @@ func TestCLI(t *testing.T) {
 			errHas:   []string{"unknown flag"},
 		},
 		{
+			name:     "a flag that takes no value refuses one, rather than meaning the flag",
+			argv:     []string{"--read-only=false", "-e", "1"},
+			wantCode: 2,
+			errHas:   []string{`flag --read-only takes no value, got "--read-only=false"`},
+		},
+		{
+			name:    "a value attached to a flag that takes one still works",
+			argv:    []string{"--eval=1 + 1", "--rand=3", "-t=2"},
+			wantOut: "2\n",
+		},
+		{
 			name:     "compat is gone: -c is just an unknown flag",
 			argv:     []string{"-c", "-e", "1"},
 			wantCode: 2,

@@ -197,7 +197,13 @@ What each method is expected to do:
 
 `io.walk` lists with `List`, looks at each entry with `Lstat`, and never descends into a
 name `Lstat` called a link — so on a tree that does not change while it runs, a walk cannot
-leave the tree through a link or go round a cycle of them. If a directory can be replaced by
+leave the tree through a link **it meets below the root**, or go round a cycle of them. The
+root itself is a path the script named, and it reaches your `List` like any other:
+`Lstat` refuses a root that *is* a link, but a link among its parent components —
+`io.walk("safe/link/sub")` — resolves the way it does for `io.read("safe/link/sub/x")`,
+because which names a script may reach is your path policy, not the walk's. A host that
+confines scripts to a tree refuses such a root in `List`, exactly as it refuses that path in
+`Open`. If a directory can be replaced by
 a link *while* the walk runs and that matters to you, the guarantee is yours to keep in
 `List`: it must follow no link in **any** component of the path, not only the last.
 `O_NOFOLLOW` covers the last component only, and an `os.Root` confines a walk to its tree

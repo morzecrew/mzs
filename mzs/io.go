@@ -579,7 +579,9 @@ func mutationGate(member, iface string, has func(FileSystem) bool) func(*Options
 // root is the path the script named with its trailing `/`s removed — `link/` would ask the
 // host for the directory the link names — and nothing else about it is touched: `..` in
 // it is not resolved, because `missing/../x` must fail on the host exactly as it would
-// anywhere else. A root that is a link is an error rather than an empty walk.
+// anywhere else, and a link among its parent components resolves as it would for io.read,
+// since which names a script may reach is the host's policy. A root that is itself a link
+// is an error rather than an empty walk.
 //
 // The paths are the root joined with what is under it, so `io.walk("src")` yields
 // `src/a.mzs`; under the default root `.` they are the bare relative names `a.mzs`, the

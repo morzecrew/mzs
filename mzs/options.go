@@ -81,7 +81,10 @@ type FileMover interface {
 //
 // io.walk yields a link as a name and never descends into one it has seen as a link, so a
 // walk of a tree that does not change while it runs cannot enter a linked directory or a
-// cycle of links. A directory replaced by a link between Lstat and List can still be
+// cycle of links below its root. The root is a name the script chose and reaches List like
+// any other: one that is itself a link is refused, but a link among its parent components
+// resolves as it would for Open, and a host that confines scripts refuses that root in List
+// as it refuses the path in Open. A directory replaced by a link between Lstat and List can still be
 // entered if List follows links. A host that must hold the rule against concurrent changes
 // needs a List that follows no link in any component of the path, not only the last one:
 // O_NOFOLLOW covers the final component alone, and an os.Root confines a walk to its tree

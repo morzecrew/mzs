@@ -150,6 +150,12 @@ and the release is still ahead of it.
 
 ### Changed
 
+- **A CLI flag that takes no value refuses one** — a deliberate break (SPEC §21.4). `mzs` and
+  `mzs test` used to accept `--no-io=false` or `--fail-fast=no` and act on the flag,
+  ignoring what followed the `=`, which is the opposite of what was typed. Such a command is
+  now a usage error (exit 2) that names the flag: `flag --read-only takes no value, got
+  "--read-only=false"`. Flags that take a value — `--timeout=5s`, `--rand=7` — are
+  unchanged.
 - **A dict literal written as a `match` arm is a dict pattern** — a deliberate break (SPEC
   §21.4). `{a: 1} ->` used to fire only on a subject *equal* to `{a: 1}`; it now fires on
   any dict whose `"a"` is `1`, whatever else it holds, and `{} ->` fires on any dict rather

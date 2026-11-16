@@ -352,8 +352,11 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			continue
 		}
 		name, val, hasVal := splitFlag(a)
+		// valUsed is main's rule: a flag that takes no value refuses one given with `=`.
+		valUsed := false
 		need := func() (string, error) {
 			if hasVal {
+				valUsed = true
 				return val, nil
 			}
 			if i+1 >= len(argv) {
@@ -417,6 +420,7 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			cfg.opts.randOn = true
 			cfg.opts.randSeed = time.Now().UnixNano()
 			if hasVal {
+				valUsed = true
 				n, perr := strconv.ParseInt(val, 10, 64)
 				if perr != nil {
 					return nil, fmt.Errorf("--rand wants an integer seed, got %q", val)
@@ -466,6 +470,9 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			cfg.opts.now, cfg.opts.nowSet = t, true
 		default:
 			return nil, fmt.Errorf("unknown flag %s", name)
+		}
+		if hasVal && !valUsed {
+			return nil, fmt.Errorf("flag %s takes no value, got %q", name, a)
 		}
 	}
 	if len(cfg.paths) == 0 {

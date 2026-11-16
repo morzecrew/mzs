@@ -3008,7 +3008,11 @@ under the default root `.` they are bare relative names, the ones `io.ls` answer
 is the path the script named with its trailing `/`s removed (`/` stays `/`), because
 `link/` would ask the host for the directory the link names; nothing else about it is
 touched, and `..` in it reaches the host unresolved. A root that is a link, is not a
-directory or does not exist is a catchable `io` error. An entry listed and gone before it
+directory or does not exist is a catchable `io` error. The guarantee is about links met
+**below** the root: the root is a path the script named, and a link among its parent
+components — `io.walk("safe/link/sub")` — resolves as it would for `io.read` of a name under
+it, because which names a script may reach is the host's path policy (above), not the
+walk's. An entry listed and gone before it
 is looked at is not yielded. Telling a link from a directory without following it is what
 `LinkStater` is for; what happens when a directory is replaced by a link *while* the walk
 runs is up to the host's `List` (§13.2). Each `List` and each `Lstat` costs 1000 steps,
@@ -4277,6 +4281,10 @@ file is `fmt.mzs`, not `fmt`.
 | `--check` | parse + compile only; print errors and warnings; exit 1 on error |
 | `--repl` | interactive REPL (line-based, persistent env; `.exit`, `:q`, `exit(code)`, Ctrl-D or Ctrl-C twice to quit) |
 | `--version` | print version |
+
+A flag that takes a value accepts it as the next word or attached with `=` — `-t 5` and
+`--timeout=5s` are one flag. A flag that takes no value refuses one attached with `=`:
+`--read-only=false` is a usage error, not `--read-only`.
 
 The CLI installs a `ModuleLoader` (§12.8), and sets `CompileIncludes` (§7.8) because that
 loader is a file read. The loader reads a path in one of two forms, told apart by the
