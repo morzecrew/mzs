@@ -1133,7 +1133,19 @@ func strWrap(c *Ctx, s string, args []Value) (Value, error) {
 		lineW = 0
 		return nil
 	}
-	for _, word := range strings.FieldsFunc(s, isTrimSpace) {
+	// The words are walked in place rather than split out first, so a long text of
+	// short words costs the lines it makes and not a slice of every word.
+	for rest := s; ; {
+		rest = strings.TrimLeftFunc(rest, isTrimSpace)
+		if rest == "" {
+			break
+		}
+		end := strings.IndexFunc(rest, isTrimSpace)
+		if end < 0 {
+			end = len(rest)
+		}
+		word := rest[:end]
+		rest = rest[end:]
 		ww := int64(width.String(word))
 		if line.Len() > 0 && lineW+1+ww > w {
 			if err := flush(); err != nil {

@@ -2453,7 +2453,7 @@ business. `debug` stays on stdout.
 | `swapcase` | `-> string` | | |
 | `casefold` | `-> string` | Unicode **full** case folding: the key two texts are equal by when case is not to be looked at. Stronger than `lower` — `ß` folds to `ss`, `ς` and `Σ` both to `σ`, `K` (U+212A) to `k` — and longer than what it folded, so it is a comparison key and not a rendering | `a.casefold == b.casefold` |
 | `trim` | `(cutset: string = nil) -> string` | trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF**. With a cutset it trims the runes in it instead — a set, not a prefix: `"-=a=-".trim("=-")` is `a`. `nil` is whitespace, as with no argument, and `""` trims nothing | `"  ОПЕРАТОР ".lower.trim` |
-| `trim_start` / `trim_end` | `(cutset: string = nil) -> string` | one end, as `trim` | `"--a-".trim_start("-")` |
+| `trim_start` / `trim_end` | `(cutset: string = nil) -> string` | one end, as `trim` | |
 | `chomp` | `(suffix: string = "\n") -> string` | | |
 | `chop` | `-> string` | drops the last rune | |
 | `squeeze` | `(set: string = "") -> string` | collapses runs of repeated runes | |
@@ -2478,7 +2478,7 @@ business. `debug` stays on stdout.
 | `reverse` | `-> string` | rune-wise | |
 | `first` / `last` | `(n: int = 1) -> string` | first/last `n` runes | |
 | `first_and_last` | `-> string` | `first(1) + last(1)` | |
-| `take` / `drop` | `(n: int) -> string` | the first `n` runes, or all but them, as on an array; a negative `n` is an argument error | `"привет".drop(2) == "ивет"` |
+| `take` / `drop` | `(n: int) -> string` | the first `n` runes, or all but them, as on an array; a negative `n` is an argument error | `s.take(2) + s.drop(2) == s` |
 | `truncate` | `(width: int, tail: string = "…") -> string` | at most `width` **display columns**, ending in `tail` when anything was cut. The tail counts toward the width, and a tail wider than the width is an argument error. A combining mark stays with its letter | `"日本語テキスト".truncate(7) == "日本語…"` |
 | `wrap` | `(width: int) -> array` | words filled into lines of at most `width` display columns. Any whitespace, newlines included, separates two words, so the text is reflowed as one paragraph; a word wider than `width` gets a line of its own and is never split. No empty lines; text with no words gives `[]` | `"the quick brown fox".wrap(10)` |
 | `indent` | `(prefix: string) -> string` | `prefix` before every line that has something on it; a line that is empty or only whitespace is left alone, and line endings are kept | `body.indent("    ")` |

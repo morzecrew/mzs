@@ -1356,7 +1356,7 @@
    "drop": {
     "sig": "`(n: int) -> string`",
     "sem": "the first `n` runes, or all but them, as on an array; a negative `n` is an argument error",
-    "ex": "`\"привет\".drop(2) == \"ивет\"`"
+    "ex": "`s.take(2) + s.drop(2) == s`"
    },
    "each_char": {
     "sig": "`{ (c) -> … } -> string`",
@@ -1506,7 +1506,7 @@
    "take": {
     "sig": "`(n: int) -> string`",
     "sem": "the first `n` runes, or all but them, as on an array; a negative `n` is an argument error",
-    "ex": "`\"привет\".drop(2) == \"ивет\"`"
+    "ex": "`s.take(2) + s.drop(2) == s`"
    },
    "trim": {
     "sig": "`(cutset: string = nil) -> string`",
@@ -1516,12 +1516,12 @@
    "trim_end": {
     "sig": "`(cutset: string = nil) -> string`",
     "sem": "one end, as `trim`",
-    "ex": "`\"--a-\".trim_start(\"-\")`"
+    "ex": ""
    },
    "trim_start": {
     "sig": "`(cutset: string = nil) -> string`",
     "sem": "one end, as `trim`",
-    "ex": "`\"--a-\".trim_start(\"-\")`"
+    "ex": ""
    },
    "truncate": {
     "sig": "`(width: int, tail: string = \"…\") -> string`",
