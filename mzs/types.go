@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -30,6 +31,10 @@ type Interp struct {
 	progs   *lru.Cache[string, *Program]
 	rxc     *lru.Cache[string, *rx.Regexp]
 	started atomic.Bool
+	// randMu serialises reads of opts.CryptoRand. crypto.random reads with the Run's
+	// lock released, so two tasks may read at once, and an io.Reader need not allow it:
+	// with this, each call takes whole, successive bytes of the source (RFC 0016 §7).
+	randMu sync.Mutex
 }
 
 // initState prepares an Interp for use. interp.go's New MUST call it exactly once

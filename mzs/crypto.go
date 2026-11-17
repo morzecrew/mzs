@@ -407,7 +407,12 @@ func cryRandom(c *Ctx, args []Value) (Value, error) {
 	// memory the interpreter does not own.
 	buf := make([]byte, n)
 	var rerr error
-	c.blocking(func() { _, rerr = io.ReadFull(src, buf) })
+	c.blocking(func() {
+		mu := &c.rs.in.randMu
+		mu.Lock()
+		defer mu.Unlock()
+		_, rerr = io.ReadFull(src, buf)
+	})
 	if rerr != nil {
 		return Nil(), c.ArgErrorf("crypto.random: the host's source of randomness failed: %s", rerr.Error())
 	}

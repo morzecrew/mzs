@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -179,6 +181,11 @@ func TestTimeStrftimeStopsAtTheStringCap(t *testing.T) {
 	if out, _ := timevStrftime(colClock(), strings.Repeat("%s", 50), 100); len(out) > 100+20 {
 		t.Errorf("timevStrftime built %d bytes past a cap of 100; want it to stop within one directive", len(out))
 	}
+	// A bad directive after the cap is still the argument error, not the size limit.
+	_, err = colInvoke(c, KTime, "strftime", timeOf(colClock()), Str(strings.Repeat("%s", 11)+"%Q"))
+	if err == nil || !strings.Contains(err.Error(), `unknown directive "%Q"`) {
+		t.Errorf("a bad directive past the cap: error = %v; want the unknown directive named", err)
+	}
 	got, err := colInvoke(c, KTime, "strftime", timeOf(colClock()), Str(strings.Repeat("%s", 9)))
 	if err != nil || len(got.Str()) != 90 {
 		t.Errorf("nine %%s under the cap = %q, %v; want 90 digits", got.Str(), err)
@@ -230,5 +237,57 @@ crypto.random(2)`
 	case <-time.After(3 * time.Second):
 		close(g.open) // let the stuck Run finish, so the goroutine does not outlive the test
 		t.Fatal("crypto.random held the Run's lock while it waited on its source: the task that opens it never ran")
+	}
+}
+
+// overlapReader hands out successive bytes and fails the test if two reads overlap.
+type overlapReader struct {
+	mu     sync.Mutex
+	active int
+	next   byte
+	t      *testing.T
+}
+
+func (r *overlapReader) Read(p []byte) (int, error) {
+	r.mu.Lock()
+	r.active++
+	if r.active > 1 {
+		r.t.Error("two crypto.random reads overlapped on the host source")
+	}
+	r.mu.Unlock()
+	time.Sleep(time.Millisecond) // widen the window two unserialised reads would share
+	r.mu.Lock()
+	for i := range p {
+		p[i] = r.next
+		r.next++
+	}
+	r.active--
+	r.mu.Unlock()
+	return len(p), nil
+}
+
+// The read runs with the Run's lock released, so tasks can be inside it together; the
+// reads are serialised all the same, and each call takes whole, successive bytes.
+func TestCryptoRandomSerialisesReadsAcrossTasks(t *testing.T) {
+	t.Parallel()
+	src := &overlapReader{t: t}
+	o := DefaultOptions()
+	o.CryptoRand = src
+	o.Timeout = 10 * time.Second
+	v, err := New(o).Eval(context.Background(), `include crypto
+include tasks
+async fn draw() { crypto.random(4) }
+tasks.all((1..8).map { (_) -> draw() }).sort`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for k := 0; k < 8; k++ {
+		b := byte(4 * k)
+		want = append(want, fmt.Sprintf("%02x%02x%02x%02x", b, b+1, b+2, b+3))
+	}
+	got := v.Inspect()
+	if wantS := `["` + strings.Join(want, `","`) + `"]`; got != wantS {
+		t.Errorf("eight concurrent draws = %s; want each to take four successive bytes, %s", got, wantS)
 	}
 }

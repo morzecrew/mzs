@@ -271,19 +271,25 @@ func timevStrftimeMethod(c *Ctx, recv Value, args []Value) (Value, error) {
 // unpadded number (`%-d`, `%-m`). An unknown directive is not rendered: it is returned as
 // bad, and the row raises an `argument` error naming it (audit B6, D16), because echoing
 // `%G` back hides a typo until someone reads the output. A `%` with nothing after it is
-// bad as "%". It stops once the output passes max, so a layout of repeated `%s` — two
-// bytes that render as up to twenty — never builds more than the cap it is checked
-// against; the caller's CheckString then refuses what came back.
+// bad as "%". Once the output passes max it stops growing, so a layout of repeated `%s` —
+// two bytes that render as up to twenty — never builds much more than the cap it is
+// checked against; it still reads the layout to its end, so a bad directive anywhere is
+// the argument error, and only a layout that is all good is the caller's string limit.
 func timevStrftime(t time.Time, layout string, max int) (out, bad string) {
 	var sb strings.Builder
 	sb.Grow(len(layout) + 16)
 	rs := []rune(layout)
+	// Past the cap the rest renders into a scratch builder that is emptied each time, so
+	// the layout is still checked to its end without the output growing further.
+	w := &sb
+	var scratch strings.Builder
 	for i := 0; i < len(rs); i++ {
-		if sb.Len() > max {
-			return sb.String(), ""
+		if w == &sb && sb.Len() > max {
+			w = &scratch
 		}
+		scratch.Reset()
 		if rs[i] != '%' {
-			sb.WriteRune(rs[i])
+			w.WriteRune(rs[i])
 			continue
 		}
 		if i+1 >= len(rs) {
@@ -300,43 +306,43 @@ func timevStrftime(t time.Time, layout string, max int) (out, bad string) {
 		}
 		switch rs[i] {
 		case 'Y':
-			sb.WriteString(strconv.Itoa(t.Year()))
+			w.WriteString(strconv.Itoa(t.Year()))
 		case 'y':
-			sb.WriteString(timevNum(t.Year()%100, 2, pad))
+			w.WriteString(timevNum(t.Year()%100, 2, pad))
 		case 'm':
-			sb.WriteString(timevNum(int(t.Month()), 2, pad))
+			w.WriteString(timevNum(int(t.Month()), 2, pad))
 		case 'd':
-			sb.WriteString(timevNum(t.Day(), 2, pad))
+			w.WriteString(timevNum(t.Day(), 2, pad))
 		case 'H':
-			sb.WriteString(timevNum(t.Hour(), 2, pad))
+			w.WriteString(timevNum(t.Hour(), 2, pad))
 		case 'M':
-			sb.WriteString(timevNum(t.Minute(), 2, pad))
+			w.WriteString(timevNum(t.Minute(), 2, pad))
 		case 'S':
-			sb.WriteString(timevNum(t.Second(), 2, pad))
+			w.WriteString(timevNum(t.Second(), 2, pad))
 		case 's':
-			sb.WriteString(strconv.FormatInt(t.Unix(), 10))
+			w.WriteString(strconv.FormatInt(t.Unix(), 10))
 		case 'L':
-			sb.WriteString(timevNum(t.Nanosecond()/1e6, 3, pad))
+			w.WriteString(timevNum(t.Nanosecond()/1e6, 3, pad))
 		case 'f':
-			sb.WriteString(timevNum(t.Nanosecond()/1e3, 6, pad))
+			w.WriteString(timevNum(t.Nanosecond()/1e3, 6, pad))
 		case 'j':
-			sb.WriteString(timevNum(t.YearDay(), 3, pad))
+			w.WriteString(timevNum(t.YearDay(), 3, pad))
 		case 'a':
-			sb.WriteString(t.Format("Mon"))
+			w.WriteString(t.Format("Mon"))
 		case 'A':
-			sb.WriteString(t.Format("Monday"))
+			w.WriteString(t.Format("Monday"))
 		case 'b':
-			sb.WriteString(t.Format("Jan"))
+			w.WriteString(t.Format("Jan"))
 		case 'B':
-			sb.WriteString(t.Format("January"))
+			w.WriteString(t.Format("January"))
 		case 'p':
-			sb.WriteString(t.Format("PM"))
+			w.WriteString(t.Format("PM"))
 		case 'z':
-			sb.WriteString(t.Format("-0700"))
+			w.WriteString(t.Format("-0700"))
 		case 'Z':
-			sb.WriteString(t.Format("MST"))
+			w.WriteString(t.Format("MST"))
 		case '%':
-			sb.WriteByte('%')
+			w.WriteByte('%')
 		default:
 			if !pad {
 				return "", "%-" + string(rs[i])
