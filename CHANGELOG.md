@@ -19,7 +19,7 @@ and the release is still ahead of it.
 
 ### Added
 
-- **Warning codes, suppression, and eight new warnings** (RFC 0019, part 1).
+- **Warning codes, suppression, and seven new warnings** (RFC 0019, part 1).
   - Every warning has a stable code, printed in brackets after the message, and as the
     `code` of an LSP diagnostic: `… never used [unused-variable]`. `Warning.Code` carries
     it in the Go API.

@@ -46,6 +46,9 @@ func TestWarningCodes(t *testing.T) {
 		{"while true is a loop", "while true { break }", nil},
 		{"duplicate key", "{a: 1, \"a\": 2, b: 3}", []string{"1:duplicate-key"}},
 		{"distinct keys", "{a: 1, b: 2}", nil},
+		{"duplicate int key", "{1 -> \"a\", 1 -> \"b\"}", []string{"1:duplicate-key"}},
+		{"an int and a string are two keys", "{1 -> \"a\", \"1\": \"b\"}", nil},
+		{"after a grouped raise", "fn f() {\n  (raise(\"x\"))\n  2\n}\ntry f() else 0", []string{"3:unreachable"}},
 		{"self compare", "x = 1\nx == x", []string{"2:self-compare"}},
 		{"self compare !=", "x = 1\nx != x", []string{"2:self-compare"}},
 		{"two names", "x = 1\ny = 2\nx == y", nil},
@@ -104,5 +107,24 @@ func TestWarningStringCarriesTheCode(t *testing.T) {
 	w := Warning{Code: "unreachable", Msg: "unreachable: the statement above always leaves", Line: 3, Col: 2}
 	if got := w.String(); got != "3:2: warning: unreachable: the statement above always leaves [unreachable]" {
 		t.Errorf("String() = %q", got)
+	}
+}
+
+// Options holds one slice, and the Interp keeps its own copy: a host that edits its list
+// after New, or edits what Options() handed back, changes nothing the Interp does.
+func TestAllowWarningsIsCopied(t *testing.T) {
+	t.Parallel()
+	allow := []string{"unused-variable"}
+	o := DefaultOptions()
+	o.AllowWarnings = allow
+	in := New(o)
+	allow[0] = "unreachable"
+	in.Options().AllowWarnings[0] = "self-compare"
+	prog, err := in.Compile("w.mzs", "fn f() {\n  a = 1\n  2\n}\nf()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws := prog.Warnings(); len(ws) != 0 {
+		t.Errorf("warnings after the host edited its slices = %v; want unused-variable still allowed", ws)
 	}
 }

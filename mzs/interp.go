@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -951,18 +952,14 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 func (c *compiler) dict(n *ast.DictLit) {
 	seen := map[string]bool{}
 	for _, k := range n.Keys {
-		s, ok := k.(*ast.StrLit)
-		if !ok || !s.IsConst() {
+		id, shown, pos, ok := constKey(k)
+		if !ok {
 			continue
 		}
-		text := ""
-		for _, p := range s.Parts {
-			text += p.Text
+		if seen[id] {
+			c.warnAt(pos, "duplicate-key", "key %s is written twice; the second wins", shown)
 		}
-		if seen[text] {
-			c.warnAt(s.Start, "duplicate-key", "key %s is written twice; the second wins", quoteString(text))
-		}
-		seen[text] = true
+		seen[id] = true
 	}
 	for i := range n.Keys {
 		n.Keys[i] = c.expr(n.Keys[i])
@@ -1870,6 +1867,29 @@ func assignedName(s ast.Stmt) string {
 	return ""
 }
 
+// constKey is a dict key written as a constant: a string without interpolation, an int
+// or a bool. id tells kinds apart, so `1` and `"1"` are two keys, as they are at run time.
+func constKey(k ast.Expr) (id, shown string, pos token.Pos, ok bool) {
+	switch n := k.(type) {
+	case *ast.StrLit:
+		if !n.IsConst() {
+			return "", "", pos, false
+		}
+		text := ""
+		for _, p := range n.Parts {
+			text += p.Text
+		}
+		return "s:" + text, quoteString(text), n.Start, true
+	case *ast.IntLit:
+		v := strconv.FormatInt(n.Value, 10)
+		return "i:" + v, v, n.Start, true
+	case *ast.BoolLit:
+		v := strconv.FormatBool(n.Value)
+		return "b:" + v, v, n.Start, true
+	}
+	return "", "", pos, false
+}
+
 // leaves reports a statement after which nothing in its block runs: `return`, `break`,
 // `next`, and a call of the built-in `raise` or `exit` (a local of that name is someone
 // else's function and may well come back).
@@ -1878,6 +1898,11 @@ func leaves(s ast.Stmt) bool {
 	case *ast.ReturnStmt, *ast.BreakStmt, *ast.NextStmt:
 		return true
 	case *ast.ExprStmt:
+		// Parentheses group statements and open no scope: `(raise(x))` leaves as surely as
+		// `raise(x)` does, and so does a group whose last statement leaves.
+		if g, ok := n.X.(*ast.GroupExpr); ok && len(g.Stmts) > 0 {
+			return leaves(g.Stmts[len(g.Stmts)-1])
+		}
 		if call, ok := n.X.(*ast.CallExpr); ok {
 			if id, ok := call.Fn.(*ast.Ident); ok && id.Ref == ast.RefFunc {
 				return id.Name == "raise" || id.Name == "exit"

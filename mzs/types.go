@@ -3,6 +3,7 @@ package mzs
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,6 +42,10 @@ type Interp struct {
 // before returning; every other method assumes the maps and caches exist.
 func (in *Interp) initState(opts Options) {
 	in.opts = opts.normalize()
+	// The one slice in Options is copied, so a host that edits its own list after New
+	// changes nothing here: not a Compile in flight, and not a cached Program compiled
+	// under the old list.
+	in.opts.AllowWarnings = slices.Clone(in.opts.AllowWarnings)
 	in.globals = make(map[string]Value)
 	in.funcs = make(map[string]Value)
 	in.modules = make(map[string]Value)
@@ -50,7 +55,11 @@ func (in *Interp) initState(opts Options) {
 }
 
 // Options returns a copy of the normalised options this interpreter runs with.
-func (in *Interp) Options() Options { return in.opts }
+func (in *Interp) Options() Options {
+	o := in.opts
+	o.AllowWarnings = slices.Clone(o.AllowWarnings)
+	return o
+}
 
 // compileRegex compiles a pattern through the shared LRU (§11.4). It is what the
 // `regex()` builtin and every string method taking a string pattern must use, so a
