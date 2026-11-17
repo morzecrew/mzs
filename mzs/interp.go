@@ -624,7 +624,7 @@ func (c *compiler) stmts(list []ast.Stmt) {
 	leftAt := -1 // the index of a statement that always leaves the block, once seen
 	for i, s := range list {
 		list[i] = c.stmt(s)
-		if leftAt < 0 && i < len(list)-1 && leaves(list[i]) {
+		if leftAt < 0 && i < len(list)-1 && c.leaves(list[i]) {
 			leftAt = i
 			c.warnAt(list[i+1].Pos(), "unreachable", "unreachable: the statement above always leaves")
 		}
@@ -863,9 +863,10 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		n.Value = c.expr(n.Value)
 		// The names a destructuring creates are locals like any other's; a `for`
 		// header's are loop variables, which the same walk binds without tracking.
+		prev := c.trackTargets
 		c.trackTargets = true
 		c.targets(n.Pattern, n.Op)
-		c.trackTargets = false
+		c.trackTargets = prev
 		return n
 	case *ast.IndexExpr:
 		n.X, n.Index, n.Index2 = c.expr(n.X), c.expr(n.Index), c.expr(n.Index2)
@@ -913,8 +914,11 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		c.declare(n.ValVar)
 		// A pattern in the header binds fresh names for each item, which is `:=` (RFC
 		// 0002): the loop scope is new, so nothing outside it is written.
+		prev := c.trackTargets
+		c.trackTargets = false
 		c.targets(n.KeyPat, token.DECLARE)
 		c.targets(n.ValPat, token.DECLARE)
+		c.trackTargets = prev
 		if n.Body != nil {
 			c.stmts(n.Body.Stmts)
 			n.Body.FrameSize = c.scope.size
@@ -1098,6 +1102,9 @@ func (c *compiler) assign(n *ast.AssignExpr) {
 			if !c.known(t.Name) {
 				c.declare(t.Name)
 				c.noteLocal(t)
+			} else if n.Op != token.ASSIGN {
+				// `||=` and `??=` read the binding to decide whether to write it.
+				c.markUsed(t.Name)
 			}
 		default:
 			// Every other compound operator reads the target before writing it, so it
@@ -1926,9 +1933,10 @@ func constKey(k ast.Expr) (id, shown string, pos token.Pos, ok bool) {
 }
 
 // leaves reports a statement after which nothing in its block runs: `return`, `break`,
-// `next`, and a call of the built-in `raise` or `exit` (a local of that name is someone
-// else's function and may well come back).
-func leaves(s ast.Stmt) bool {
+// `next`, and a call of the built-in `raise` or `exit`. A local of that name, or a host
+// function registered under it — which a call reaches before the built-in — is someone
+// else's function and may well come back.
+func (c *compiler) leaves(s ast.Stmt) bool {
 	switch n := s.(type) {
 	case *ast.ReturnStmt, *ast.BreakStmt, *ast.NextStmt:
 		return true
@@ -1936,11 +1944,12 @@ func leaves(s ast.Stmt) bool {
 		// Parentheses group statements and open no scope: `(raise(x))` leaves as surely as
 		// `raise(x)` does, and so does a group whose last statement leaves.
 		if g, ok := n.X.(*ast.GroupExpr); ok && len(g.Stmts) > 0 {
-			return leaves(g.Stmts[len(g.Stmts)-1])
+			return c.leaves(g.Stmts[len(g.Stmts)-1])
 		}
 		if call, ok := n.X.(*ast.CallExpr); ok {
-			if id, ok := call.Fn.(*ast.Ident); ok && id.Ref == ast.RefFunc {
-				return id.Name == "raise" || id.Name == "exit"
+			if id, ok := call.Fn.(*ast.Ident); ok && id.Ref == ast.RefFunc && (id.Name == "raise" || id.Name == "exit") {
+				_, host := c.in.hostFunc(id.Name)
+				return !host
 			}
 		}
 	}

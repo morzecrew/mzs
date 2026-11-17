@@ -41,6 +41,9 @@ func TestWarningCodes(t *testing.T) {
 		{"destructured locals", "fn f() {\n  [a, b] = [1, 2]\n  a\n}\nf()", []string{"2:unused-variable"}},
 		{"a destructuring that is the value", "fn f() {\n  [a, b] = [1, 2]\n}\nf()", nil},
 		{"for variables are not tracked", "fn f(xs) {\n  n = 0\n  for x in xs { n += 1 }\n  n\n}\nf([1])", nil},
+		{"||= reads the binding", "fn f() {\n  x = nil\n  x ||= 1\n  0\n}\nf()", nil},
+		{"??= reads the binding", "fn f() {\n  x = nil\n  x ??= 1\n  0\n}\nf()", nil},
+		{"a nested destructuring keeps the outer one tracked", "fn f() {\n  xs = [0]\n  [xs[([_skip] = [0]; 0)], dead] = [1, 2]\n  xs\n}\nf()", []string{"3:unused-variable"}},
 		{"after return", "fn f() {\n  return 1\n  2\n}\nf()", []string{"3:unreachable"}},
 		{"after raise", "fn f() {\n  raise(\"x\")\n  2\n}\ntry f() else 0", []string{"3:unreachable"}},
 		{"after break, once", "while true {\n  break\n  1\n  2\n}", []string{"3:unreachable"}},
@@ -131,5 +134,22 @@ func TestAllowWarningsIsCopied(t *testing.T) {
 	}
 	if ws := prog.Warnings(); len(ws) != 0 {
 		t.Errorf("warnings after the host edited its slices = %v; want unused-variable still allowed", ws)
+	}
+}
+
+// A host function registered as `raise` or `exit` is called before the built-in and may
+// return, so a statement after it is not unreachable.
+func TestUnreachableTrustsOnlyTheBuiltins(t *testing.T) {
+	t.Parallel()
+	in := New(DefaultOptions())
+	in.Register("raise", 1, func(c *Ctx, args []Value) (Value, error) { return Nil(), nil })
+	prog, err := in.Compile("w.mzs", "fn f() {\n  raise(\"x\")\n  2\n}\nf()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range prog.Warnings() {
+		if w.Code == "unreachable" {
+			t.Errorf("a host raise that returns: got %v", w)
+		}
 	}
 }
