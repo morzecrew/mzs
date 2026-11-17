@@ -112,6 +112,17 @@ func TestSeqIsLazy(t *testing.T) {
 		{"a filtered take pulls only what it needs", `s.filter { it % 2 == 0 }.take(2).array`, "3"},
 		{"a chain of lazy rows pulls nothing on its own", `s.map { it * 2 }.filter { true }.drop(1)`, "0"},
 		{"len is a terminal and pulls everything", `s.len`, "101"},
+		// RFC 0016 §3.
+		{"zip pulls the receiver first", `s.zip([7, 8]).array`, "3"},
+		{"zip stops pulling an argument once the receiver ends", `[7, 8].seq.zip(s).array`, "2"},
+		{"concat reaches a later part only when it is needed", `[7].seq.concat(s).first`, "0"},
+		{"concat pulls the first part like any source", `s.concat([7]).take(2).array`, "2"},
+		{"uniq passes the first of each", `s.uniq.take(2).array`, "2"},
+		{"each_slice fills one batch", `s.each_slice(3).first`, "3"},
+		{"each_cons slides one at a time", `s.each_cons(2).take(2).array`, "3"},
+		{"the new lazy rows pull nothing on their own", `s.uniq.zip([1]).concat([2]).each_slice(2).each_cons(2)`, "0"},
+		{"last is a terminal and pulls everything", `s.last`, "101"},
+		{"min_by is a terminal and pulls everything", `s.min_by { -it }`, "101"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,6 +189,43 @@ func TestSeqRows(t *testing.T) {
 		{"join", `(1..3).seq.join("-")`, "1-2-3"},
 		{"join with no separator", `(1..3).seq.join`, "123"},
 		{"array", `(1..3).seq.array.json`, "[1,2,3]"},
+
+		// RFC 0016 §3.
+		{"zip", `(1..5).seq.zip([10, 20, 30]).array.json`, "[[1,10],[2,20],[3,30]]"},
+		{"zip stops with the shortest", `(1..5).seq.zip((7..100).seq, ["a", "b"]).array.json`, `[[1,7,"a"],[2,8,"b"]]`},
+		{"zip with a generator", `[1, 2].seq.zip(seq { (i) -> i * 10 }).array.json`, "[[1,0],[2,10]]"},
+		{"zip of an empty receiver", `(4..1).seq.zip([1]).array.json`, "[]"},
+		{"concat", `[1, 2].seq.concat((3..4), [5].seq).array.json`, "[1,2,3,4,5]"},
+		{"concat of empties", `(4..1).seq.concat([], (4..1)).array.json`, "[]"},
+		{"concat builds a new seq", `s = [1].seq; t = s.concat([2]); [s.array, t.array].json`, "[[1],[1,2]]"},
+		{"uniq", `[3, 1, 3, 2, 1].seq.uniq.array.json`, "[3,1,2]"},
+		{"uniq by a key", `["aa", "b", "cc", "d"].seq.uniq { it.len }.array.json`, `["aa","b"]`},
+		{"uniq compares by ==", `[1, 1.0, "1"].seq.uniq.array.json`, `[1,"1"]`},
+		{"uniq of an unhashable element", `[[1], [1], [2]].seq.uniq.array.json`, "[[1],[2]]"},
+		{"uniq starts afresh on each run", `s = [1, 1, 2].seq.uniq; [s.array, s.array].json`, "[[1,2],[1,2]]"},
+		{"each_slice", `(1..7).seq.each_slice(3).array.json`, "[[1,2,3],[4,5,6],[7]]"},
+		{"each_slice of an exact multiple", `(1..4).seq.each_slice(2).array.json`, "[[1,2],[3,4]]"},
+		{"each_slice of empty", `(4..1).seq.each_slice(2).array.json`, "[]"},
+		{"each_slice with a closure walks and returns the receiver",
+			`out = []; r = (1..5).seq.each_slice(2) { out.push(it.sum) }; [type(r), out].json`, `["seq",[3,7,5]]`},
+		{"each_cons", `(1..5).seq.each_cons(3).array.json`, "[[1,2,3],[2,3,4],[3,4,5]]"},
+		{"each_cons of one", `(1..3).seq.each_cons(1).array.json`, "[[1],[2],[3]]"},
+		{"each_cons shorter than the window", `(1..2).seq.each_cons(3).array.json`, "[]"},
+		{"each_cons with a closure", `out = []; (1..4).seq.each_cons(2) { out.push(it.sum) }; out.json`, "[3,5,7]"},
+		{"each_cons batches are not shared", `w = (1..3).seq.each_cons(2).array; w[0].push(9); w.json`, "[[1,2,9],[2,3]]"},
+		{"last", `(1..9).seq.last`, "9"},
+		{"last of empty is nil", `inspect((4..1).seq.last)`, "nil"},
+		{"last n", `(1..9).seq.last(3).json`, "[7,8,9]"},
+		{"last n past the length", `(1..2).seq.last(5).json`, "[1,2]"},
+		{"last n of a wrapped ring", `(1..10).seq.last(4).json`, "[7,8,9,10]"},
+		{"last(0)", `(1..9).seq.last(0).json`, "[]"},
+		{"min_by", `["aaa", "b", "cc"].seq.min_by { it.len }`, "b"},
+		{"max_by", `["aaa", "b", "ccc"].seq.max_by { it.len }`, "aaa"},
+		{"min_by of empty is nil", `inspect((4..1).seq.min_by { it })`, "nil"},
+		{"tally", `["a", "b", "a"].seq.tally.json`, `{"a":2,"b":1}`},
+		{"tally of empty", `(4..1).seq.tally.json`, "{}"},
+		{"group_by", `(1..6).seq.group_by { it % 3 }.json`, `{"1":[1,4],"2":[2,5],"0":[3,6]}`},
+		{"a stream in batches", `(1..10).seq.filter { it.even }.each_slice(2).map { it.sum }.array.json`, "[6,14,10]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -312,16 +360,12 @@ func TestSeqRefusesTheRowsThatNeedEverything(t *testing.T) {
 	in := evInterp()
 
 	// What the materialised form answers, so the second half of each case can fail.
-	materialised := map[string]string{
-		"sort": "array", "reverse": "array", "uniq": "array",
-		"tally": "dict", "group_by": "dict", "last": "int",
-	}
+	// uniq, tally, group_by and last were here until RFC 0016 §3 made them seq rows:
+	// they remember what they have seen rather than needing all of it at once.
+	materialised := map[string]string{"sort": "array", "reverse": "array"}
 	for name, want := range materialised {
 		t.Run(name, func(t *testing.T) {
 			suffix := ""
-			if name == "group_by" {
-				suffix = " { it }"
-			}
 			e := evErr(t, in, "(1..3).seq."+name+suffix, nil)
 			if !strings.Contains(e.Msg, "seq") {
 				t.Errorf("(1..3).seq.%s = %q; want a diagnostic naming the receiver kind", name, e.Msg)
@@ -430,6 +474,36 @@ func TestSeqMaterialisationIsCapped(t *testing.T) {
 	if v, err := in.Eval(context.Background(), `(1..1000).seq.len`, nil); err != nil || v.Str() != "1000" {
 		t.Fatalf("len = %v, %v; counting materialises nothing", v.Str(), err)
 	}
+
+	// RFC 0016 §3: the rows that remember charge what they keep, and only that.
+	for _, src := range []string{
+		`(1..1000).seq.uniq.len`,
+		`seq { (i) -> i }.uniq.len`,
+		`(1..1000).seq.tally`,
+		`(1..1000).seq.group_by { it }`,
+		`(1..1000).seq.group_by { it % 2 }`,
+		`(1..1000).seq.last(500)`,
+		`(1..1000).seq.each_slice(500).len`,
+		`(1..1000).seq.each_cons(500).len`,
+	} {
+		if _, err := in.Eval(context.Background(), src, nil); err == nil {
+			t.Errorf("%s kept more than 100 elements under a cap of 100", src)
+		}
+	}
+	for src, want := range map[string]string{
+		`(1..1000).seq.uniq { it % 10 }.len`:     "10",
+		`(1..1000).seq.last(5).json`:             "[996,997,998,999,1000]",
+		`(1..1000).seq.each_slice(10).len`:       "100",
+		`(1..1000).seq.each_cons(10).len`:        "991",
+		`(1..1000).seq.zip((1..1000)).len`:       "1000",
+		`(1..1000).seq.concat((1..1000)).len`:    "2000",
+		`(1..1000).seq.group_by { it % 20 }.len`: "20",
+	} {
+		v, err := in.Eval(context.Background(), src, nil)
+		if err != nil || v.Str() != want {
+			t.Errorf("%s = %v, %v; want %s — what is kept is under the cap", src, v.Str(), err, want)
+		}
+	}
 }
 
 // The closure contract of §8.10 travels through a lazy chain unchanged: a raise inside a
@@ -493,6 +567,12 @@ var seqRowArgs = map[string][]Value{
 	"any": {seqNever}, "all": {seqAlways}, "none": {seqNever},
 	"array": nil, "len": nil, "empty": nil, "first": nil,
 	"sum": nil, "min": nil, "max": nil, "join": {Str("-")},
+
+	// RFC 0016 §3.
+	"zip": {colInts(1, 2)}, "concat": {colInts(4)}, "uniq": {colIdentity},
+	"each_slice": {Int(2)}, "each_cons": {Int(2)},
+	"last": nil, "min_by": {colIdentity}, "max_by": {colIdentity},
+	"tally": nil, "group_by": {colIdentity},
 }
 
 func TestSeqRowArgsTableIsComplete(t *testing.T) {
@@ -534,6 +614,7 @@ func TestSeqRowsAndTheStepBudget(t *testing.T) {
 	lazy := map[string]bool{
 		"map": true, "filter": true, "reject": true, "flat_map": true,
 		"take": true, "drop": true, "take_while": true, "drop_while": true,
+		"zip": true, "concat": true, "uniq": true, "each_slice": true, "each_cons": true,
 	}
 	// first/empty pull one element and stop, which one step pays for.
 	oneElement := map[string]bool{"first": true, "empty": true}

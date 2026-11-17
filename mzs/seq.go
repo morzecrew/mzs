@@ -30,11 +30,13 @@ import "math"
 //     Host code that accepts one must not silently accept the other.
 //
 // The rows below are in two groups and the difference is the whole feature: a **lazy**
-// row returns another seq and evaluates nothing; a **terminal** row pulls. Everything an
-// array can do that needs the whole sequence at once — `sort`, `reverse`, `uniq`,
-// `tally`, `group_by` — is reached by materialising first (`s.array.sort`), and that is
-// deliberate: a row that quietly buffered a gigabyte would defeat the point of asking for
-// a seq at all.
+// row returns another seq and evaluates nothing; a **terminal** row pulls. A row that
+// must see every element before it can give its first — `sort`, `reverse`, `shuffle` —
+// is reached by materialising first (`s.array.sort`), and that is deliberate: a row that
+// quietly buffered a gigabyte would defeat the point of asking for a seq at all. The rows
+// that only *remember* what they have seen — `uniq`'s keys, `tally`'s counts,
+// `group_by`'s buckets, `last(n)`'s window — are seq rows, and each charges what it keeps
+// to MaxCollection as it grows (RFC 0016 §3).
 
 func init() {
 	RegisterMethods(KSeq,
@@ -47,6 +49,12 @@ func init() {
 		Method{Name: "take_while", Min: 1, Max: 1, Fn: seqvTakeWhile},
 		Method{Name: "drop", Min: 1, Max: 1, Fn: seqvDrop},
 		Method{Name: "drop_while", Min: 1, Max: 1, Fn: seqvDropWhile},
+		Method{Name: "zip", Min: 1, Max: -1, Fn: seqvZip},
+		Method{Name: "concat", Min: 1, Max: -1, Fn: seqvConcat},
+		Method{Name: "uniq", Max: 1, Fn: seqvUniq},
+		// Lazy without a closure, a seq of arrays; terminal with one, as on an array.
+		Method{Name: "each_slice", Min: 1, Max: 2, Fn: seqvEachSlice},
+		Method{Name: "each_cons", Min: 1, Max: 2, Fn: seqvEachCons},
 
 		// Terminal: each pulls the source until it has its answer.
 		Method{Name: "each", Min: 1, Max: 1, Fn: seqvEach},
@@ -66,6 +74,11 @@ func init() {
 		Method{Name: "min", Max: 1, Fn: seqvMin},
 		Method{Name: "max", Max: 1, Fn: seqvMax},
 		Method{Name: "join", Max: 1, Fn: seqvJoin},
+		Method{Name: "last", Max: 1, Fn: seqvLast},
+		Method{Name: "min_by", Min: 1, Max: 1, Fn: seqvMinBy},
+		Method{Name: "max_by", Min: 1, Max: 1, Fn: seqvMaxBy},
+		Method{Name: "tally", Fn: seqvTally},
+		Method{Name: "group_by", Min: 1, Max: 1, Fn: seqvGroupBy},
 	)
 
 	RegisterBuiltin(Builtin{Name: "seq", Min: 1, Max: 1, Fn: func(c *Ctx, args []Value) (Value, error) {
@@ -842,5 +855,414 @@ func seqvJoin(c *Ctx, recv Value, args []Value) (Value, error) {
 			return Nil(), err
 		}
 		return Str(string(sb)), nil
+	})
+}
+
+// ---------------------------------------------------------------------------
+// RFC 0016 §3: what a streaming pipeline needs
+// ---------------------------------------------------------------------------
+
+// seqKept is state a cursor keeps between pulls — a batch being filled, a window, the
+// keys `uniq` has seen. The memory walk cannot look inside a Go closure (RFC 0011), so the
+// first pull roots the slice for the rest of the traversal: the traversal runs inside the
+// call of the terminal or the `for` that pulls it, and the hold is released with that
+// frame. Every later pull happens inside the same frame, so one hold is enough.
+type seqKept struct {
+	vals []Value
+	held bool
+}
+
+func (k *seqKept) root(c *Ctx) {
+	if !k.held {
+		c.holdGrowing(&k.vals)
+		k.held = true
+	}
+}
+
+// seqSources converts the arguments of zip and concat when the row is built, so
+// `s.zip(3)` fails where it is written. Each becomes a seq the way `seq(x)` would make
+// one: an array, a range, a function or a seq.
+func seqSources(c *Ctx, args []Value) ([]*Seq, error) {
+	out := make([]*Seq, len(args))
+	for i, a := range args {
+		v, err := toSeq(c, a)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v.seq()
+	}
+	return out, nil
+}
+
+// seqvZip pairs each element with the elements of the others at the same position and,
+// unlike the array row, stops with the shortest: an array is padded with nil to the
+// receiver's length, but a seq may be endless, and padding an endless one would never
+// end. The receiver is pulled first and an argument only once the receiver has given an
+// element, so a stateful argument loses nothing to a receiver that has run out.
+func seqvZip(c *Ctx, recv Value, args []Value) (Value, error) {
+	s, err := seqRecv(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	others, err := seqSources(c, args)
+	if err != nil {
+		return Nil(), err
+	}
+	out := &Seq{open: func() seqIter {
+		it := s.open()
+		its := make([]seqIter, len(others))
+		for i, o := range others {
+			its[i] = o.open()
+		}
+		done := false
+		return func(c *Ctx) (Value, bool, error) {
+			if done {
+				return Nil(), false, nil
+			}
+			x, ok, err := it(c)
+			if err != nil || !ok {
+				done = true
+				return Nil(), false, err
+			}
+			row := make([]Value, 1, len(its)+1)
+			row[0] = x
+			for _, o := range its {
+				y, ok, err := o(c)
+				if err != nil || !ok {
+					done = true
+					return Nil(), false, err
+				}
+				row = append(row, y)
+			}
+			return arrayOf(row), true, nil
+		}
+	}, refs: []Value{recv}}
+	for _, o := range others {
+		out.with(seqOf(o))
+	}
+	return seqOf(out), nil
+}
+
+// seqvConcat is the receiver and then each argument in turn. It builds a new seq rather
+// than appending in place as the array row does: a seq is a recipe, and recipes are not
+// edited.
+func seqvConcat(c *Ctx, recv Value, args []Value) (Value, error) {
+	s, err := seqRecv(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	others, err := seqSources(c, args)
+	if err != nil {
+		return Nil(), err
+	}
+	parts := append([]*Seq{s}, others...)
+	out := &Seq{open: func() seqIter {
+		i := 0
+		var it seqIter
+		return func(c *Ctx) (Value, bool, error) {
+			for i < len(parts) {
+				if it == nil {
+					// Each part is opened when the one before it ends, so a stateful
+					// source later in the chain is not touched until it is reached.
+					it = parts[i].open()
+				}
+				v, ok, err := it(c)
+				if err != nil {
+					return Nil(), false, err
+				}
+				if ok {
+					return v, true, nil
+				}
+				i, it = i+1, nil
+			}
+			return Nil(), false, nil
+		}
+	}}
+	for _, p := range parts {
+		out.with(seqOf(p))
+	}
+	return seqOf(out), nil
+}
+
+// seqvUniq passes each element whose key — the element, or what the closure makes of
+// it — has not been seen before. It is the one lazy row whose memory is not constant: it
+// keeps every key it has seen, charges them to MaxCollection as they arrive, and so ends
+// an endless source of distinct keys on the cap rather than on the machine.
+func seqvUniq(c *Ctx, recv Value, args []Value) (Value, error) {
+	s, err := seqRecv(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	fn := Nil()
+	if len(args) == 1 {
+		if args[0].Kind() != KFunc {
+			return Nil(), c.TypeErrorf("%s expects a closure, got %s", c.Name(), args[0].TypeName())
+		}
+		fn = args[0]
+	}
+	out := seqStage(s, func(it seqIter) seqIter {
+		seen := newArrSeen(0)
+		kept := &seqKept{}
+		return func(c *Ctx) (Value, bool, error) {
+			kept.root(c)
+			for {
+				v, ok, err := it(c)
+				if err != nil || !ok {
+					return Nil(), false, err
+				}
+				key := v
+				if fn.Kind() == KFunc {
+					if key, err = c.Call(fn, v); err != nil {
+						return Nil(), false, err
+					}
+				}
+				if !seen.add(key) {
+					continue
+				}
+				if err := c.allocCollection(len(kept.vals)+1, 1); err != nil {
+					return Nil(), false, err
+				}
+				kept.vals = append(kept.vals, key)
+				return v, true, nil
+			}
+		}
+	})
+	if fn.Kind() == KFunc {
+		out.with(fn)
+	}
+	return seqOf(out), nil
+}
+
+// seqvEachSlice is batches of n, the last one short. Without a closure it is lazy and a
+// seq of arrays, which is what a stream wants (`io.lines.each_slice(500).each { … }`);
+// with one it walks the sequence and returns the receiver, as the array row does.
+func seqvEachSlice(c *Ctx, recv Value, args []Value) (Value, error) {
+	return seqBatches(c, recv, args, false)
+}
+
+// seqvEachCons is every window of n neighbours, overlapping; a sequence shorter than n
+// has none.
+func seqvEachCons(c *Ctx, recv Value, args []Value) (Value, error) {
+	return seqBatches(c, recv, args, true)
+}
+
+func seqBatches(c *Ctx, recv Value, args []Value, windows bool) (Value, error) {
+	s, err := seqRecv(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	n, err := arrChunkArg(c, arrArg(c, args, 0))
+	if err != nil {
+		return Nil(), err
+	}
+	batches := seqStage(s, func(it seqIter) seqIter {
+		kept := &seqKept{}
+		done := false
+		return func(c *Ctx) (Value, bool, error) {
+			kept.root(c)
+			if done {
+				return Nil(), false, nil
+			}
+			if windows && len(kept.vals) == n {
+				// Slide by one: the window keeps n-1 of the last one.
+				copy(kept.vals, kept.vals[1:])
+				kept.vals = kept.vals[:n-1]
+			}
+			for len(kept.vals) < n {
+				v, ok, err := it(c)
+				if err != nil {
+					return Nil(), false, err
+				}
+				if !ok {
+					done = true
+					if windows || len(kept.vals) == 0 {
+						return Nil(), false, nil
+					}
+					return arrCopy(kept.vals), true, nil
+				}
+				if err := c.allocCollection(len(kept.vals)+1, 1); err != nil {
+					return Nil(), false, err
+				}
+				kept.vals = append(kept.vals, v)
+			}
+			batch := arrCopy(kept.vals)
+			if !windows {
+				kept.vals = kept.vals[:0]
+			}
+			return batch, true, nil
+		}
+	})
+	if !c.HasClosure() {
+		return seqOf(batches), nil
+	}
+	if err := seqRun(c, batches, func(b Value) (bool, error) {
+		_, err := c.CallClosure(b)
+		return true, err
+	}); err != nil {
+		return Nil(), err
+	}
+	return recv, nil
+}
+
+// seqvLast is the last element, or the last n as an array. It has to pull everything,
+// so it is finite only over a finite source, and it keeps n elements, not the sequence.
+func seqvLast(c *Ctx, recv Value, args []Value) (Value, error) {
+	n := 1
+	if len(args) == 1 {
+		var err error
+		if n, err = arrCountArg(c, args[0]); err != nil {
+			return Nil(), err
+		}
+	}
+	return seqTerm(c, recv, func(s *Seq) (Value, error) {
+		if err := c.CheckCollection(n); err != nil {
+			return Nil(), err
+		}
+		if n == 0 {
+			// As `first(0)`: nothing is pulled to answer a question that needs nothing.
+			return Array(), nil
+		}
+		// A ring of the last n, oldest at start once it is full.
+		ring := make([]Value, 0, min(n, 64))
+		m := c.rootMark()
+		defer c.release(m)
+		c.holdGrowing(&ring)
+		start := 0
+		err := seqRun(c, s, func(v Value) (bool, error) {
+			if len(ring) < n {
+				ring = append(ring, v)
+				return true, nil
+			}
+			ring[start] = v
+			start = (start + 1) % n
+			return true, nil
+		})
+		if err != nil {
+			return Nil(), err
+		}
+		if len(args) == 0 {
+			if len(ring) == 0 {
+				return Nil(), nil
+			}
+			return ring[(start+len(ring)-1)%len(ring)], nil
+		}
+		out := make([]Value, 0, len(ring))
+		out = append(out, ring[start:]...)
+		out = append(out, ring[:start]...)
+		return arrayOf(out), nil
+	})
+}
+
+func seqvMinBy(c *Ctx, recv Value, args []Value) (Value, error) {
+	return seqExtremeBy(c, recv, args, -1)
+}
+
+func seqvMaxBy(c *Ctx, recv Value, args []Value) (Value, error) {
+	return seqExtremeBy(c, recv, args, 1)
+}
+
+// seqExtremeBy is the element whose key is least or greatest, the first on a tie, and
+// nil for an empty sequence. The best element and its key are closure-made values the
+// walk could not otherwise see while the next key is computed (§14.2).
+func seqExtremeBy(c *Ctx, recv Value, args []Value, want int) (Value, error) {
+	return seqTerm(c, recv, func(s *Seq) (Value, error) {
+		fn, err := seqFn(c, args)
+		if err != nil {
+			return Nil(), err
+		}
+		slot := []Value{Nil(), Nil()} // best, its key
+		m := c.rootMark()
+		defer c.release(m)
+		c.holdVals(slot)
+		seen := false
+		err = seqRun(c, s, func(v Value) (bool, error) {
+			key, err := c.Call(fn, v)
+			if err != nil {
+				return false, err
+			}
+			if !seen {
+				slot[0], slot[1], seen = v, key, true
+				return true, nil
+			}
+			n, err := arrCompare(c, key, slot[1])
+			if err != nil {
+				return false, err
+			}
+			if (want < 0 && n < 0) || (want > 0 && n > 0) {
+				slot[0], slot[1] = v, key
+			}
+			return true, nil
+		})
+		if err != nil {
+			return Nil(), err
+		}
+		return slot[0], nil
+	})
+}
+
+// seqvTally counts each distinct element, in the order each was first seen. The dict
+// holds one entry per distinct element and is charged to MaxCollection as it grows.
+func seqvTally(c *Ctx, recv Value, args []Value) (Value, error) {
+	return seqTerm(c, recv, func(s *Seq) (Value, error) {
+		d := NewOrderedDict()
+		m := c.rootMark()
+		defer c.release(m)
+		c.hold(dictOf(d))
+		err := seqRun(c, s, func(v Value) (bool, error) {
+			n, ok := d.Get(v)
+			if !ok {
+				if err := c.allocCollection(d.Len()+1, 1); err != nil {
+					return false, err
+				}
+			}
+			if err := d.Set(v, Int(n.Int()+1)); err != nil {
+				return false, c.TypeErrorf("%s: an element of kind %s cannot be a dict key", c.Name(), v.TypeName())
+			}
+			return true, nil
+		})
+		if err != nil {
+			return Nil(), err
+		}
+		return dictOf(d), nil
+	})
+}
+
+// seqvGroupBy buckets the elements by the closure's key, in the order each key was first
+// made. The dict and every bucket are charged to MaxCollection as they grow.
+func seqvGroupBy(c *Ctx, recv Value, args []Value) (Value, error) {
+	return seqTerm(c, recv, func(s *Seq) (Value, error) {
+		fn, err := seqFn(c, args)
+		if err != nil {
+			return Nil(), err
+		}
+		d := NewOrderedDict()
+		m := c.rootMark()
+		defer c.release(m)
+		c.hold(dictOf(d))
+		err = seqRun(c, s, func(v Value) (bool, error) {
+			k, err := c.Call(fn, v)
+			if err != nil {
+				return false, err
+			}
+			bucket, ok := d.Get(k)
+			if !ok {
+				if err := c.CheckCollection(d.Len() + 1); err != nil {
+					return false, err
+				}
+				bucket = Array()
+				if err := d.Set(k, bucket); err != nil {
+					return false, c.TypeErrorf("%s: the closure returned %s, which cannot be a dict key", c.Name(), k.TypeName())
+				}
+			}
+			if err := c.allocCollection(bucket.Len()+1, 1); err != nil {
+				return false, err
+			}
+			bucket.Append(v)
+			return true, nil
+		})
+		if err != nil {
+			return Nil(), err
+		}
+		return dictOf(d), nil
 	})
 }

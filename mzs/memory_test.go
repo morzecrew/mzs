@@ -107,6 +107,15 @@ d.map_values { "x" * 50000 + it.str }`},
 		{"a dict max_by's best key", `{a: 1, b: 2}.max_by { (k, _) -> "x" * 600000 + k }`},
 		{"an accumulate in progress", `(0..40).accumulate("") { (acc, x) -> "x" * 50000 + x.str }`},
 		{"a seq being collected", `(0..40).seq.map { "x" * 50000 + it.str }.array`},
+		{"a seq uniq's seen keys", `seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }.len`},
+		{"a seq uniq's seen keys under a for", `n = 0
+for x in (seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }) { n += 1 }`},
+		{"a seq each_slice batch being filled", `(0..40).seq.map { "x" * 50000 + it.str }.each_slice(41).len`},
+		{"a seq each_cons window", `(0..40).seq.map { "x" * 50000 + it.str }.each_cons(41).len`},
+		{"a seq last window", `(0..40).seq.map { "x" * 50000 + it.str }.last(41).len`},
+		{"a seq tally in progress", `(0..40).seq.map { "x" * 50000 + it.str }.tally`},
+		{"a seq group_by in progress", `(0..40).seq.group_by { "x" * 50000 + it.str }`},
+		{"a seq max_by's best key", `[1, 2].seq.max_by { "x" * 600000 + it.str }`},
 		{"a seq's source array", `keep = []
 for i in 0..40 { keep.push(("x" * 50000 + i.str).chars.first(1).join + ("y" * 50000)) }
 s = keep.seq; keep = nil
@@ -122,6 +131,28 @@ more = []; for i in 0..10 { more.push("z" * 50000 + i.str) }`},
 			_, err := memRun(t, memInterp(1<<20), tt.src, nil)
 			wantMemoryError(t, err)
 		})
+	}
+}
+
+// The state a lazy seq row keeps is held for the traversal that pulls it and no longer
+// (RFC 0016 §3): the hold is released with the frame of the `for` or the terminal that
+// pulled it, so eight traversals in one block, each keeping about 550 KB, run under a
+// 1 MiB budget.
+func TestMemorySeqStateEndsWithItsTraversal(t *testing.T) {
+	loop := `for x in ((0..10).seq.map { "%s" * 50000 + it.str }.uniq { it }) { n += 1 }
+`
+	src := "n = 0\n"
+	for _, c := range []string{"a", "b", "c", "d"} {
+		src += strings.Replace(loop, "%s", c, 1)
+	}
+	src += `for k in ["e", "f", "g", "h"] { n += (0..10).seq.map { k * 50000 + it.str }.uniq { it }.len }
+n`
+	res, err := memRun(t, memInterp(1<<20), src, nil)
+	if err != nil {
+		t.Fatalf("Run: %v; the keys of a finished traversal are not live", err)
+	}
+	if res.Value.Int() != 88 {
+		t.Errorf("n = %v; want every loop to have run", res.Value)
 	}
 }
 
