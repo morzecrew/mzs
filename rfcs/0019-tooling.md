@@ -1,6 +1,6 @@
 # RFC 0019 — Tooling: lint, doc comments, coverage, profile, and the rest of the LSP
 
-**Status:** Draft · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
+**Status:** Partly landed: §1 (#37) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
 
 ## Summary
 
@@ -146,3 +146,37 @@ Compile pass in `mzs/interp.go` (warnings, codes, suppression comments via
 fix-its as structured edits), `mzs/eval.go` (one counter hook shared by coverage and
 profile), `cmd/mzs/test.go`, `cmd/mzs/main.go`, new `cmd/mzs/doc.go`, `cmd/mzs/lsp/*`,
 `internal/printer` (doc comments), SPEC §15 and §17, `docs/cli/tools.md`.
+
+## As landed
+
+### Part 1: warnings (#37)
+
+§1 landed in `mzs/interp.go` and `mzs/errors.go`, with SPEC §17 and §21.1,
+`docs/cli/diagnostics.md` and `docs/embedding/errors.md`. §2–§5 are still to come.
+Decisions:
+
+* **Every warning has a code, the old ones too.** `regex-word-boundary`,
+  `unused-parameter`, `discarded-closure`, `assign-in-condition`,
+  `field-shadows-method`, `function-shadows-field` and `include-rebinds` name the seven
+  that were already there. The code is printed in brackets after the message, set as the
+  `code` of an LSP diagnostic, and carried by `Warning.Code`.
+* **`unused-variable` is about a function's locals.** A name at file scope is the
+  program's, and the one-liner `x = 1` that the REPL and `-e` are made of is not dead.
+  An assignment that is the last statement of its block is the block's value and is
+  exempt, as the RFC asks, and a `_`-prefixed name is unused on purpose. Only a plain
+  `name = …`, `:=`, `||=` or `??=` that creates the binding is a candidate; a
+  destructuring pattern is not, yet.
+* **`unreachable` fires once per block**, at the first dead statement. `raise` and `exit`
+  count only when they resolve to the built-ins.
+* **`constant-condition` looks at the literal as written**, before folding, so `if DEBUG`
+  over a folded constant stays quiet. `while true` is how a loop that ends by `break` is
+  spelled and is exempt. A `match` arm after `else` is already a syntax error, so that
+  case of the proposal needs no warning.
+* **`empty-else` fires on the braced form only.** `try { … } else { }` reads as "ignore
+  the error"; the expression form `try json.parse(s) else {}` is a default value.
+* **`shadowed-builtin` is not in this part.** The open question proposed it off by
+  default; it needs the switch to turn it on, which a later part brings with the LSP.
+  **`outer-assignment` belongs to RFC 0004.**
+* **A suppression comment needs its codes.** A bare `# mzs:allow` allows nothing, so a
+  new rule is never silenced by a comment written before it existed.
+

@@ -7,11 +7,13 @@ import (
 	"io"
 	"math"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"mzs/internal/ast"
+	"mzs/internal/lexer"
 	"mzs/internal/parser"
 	"mzs/internal/rx"
 	"mzs/internal/token"
@@ -61,6 +63,7 @@ func (in *Interp) Compile(name, src string) (p *Program, err error) {
 	if cerr != nil {
 		return nil, cerr
 	}
+	warns = in.keepWarnings(name, src, warns)
 	if in.opts.StrictWarnings && len(warns) > 0 {
 		w := warns[0]
 		return nil, (&Error{Kind: ErrKindSyntax, Msg: w.Msg}).At(name, w.Line, w.Col)
@@ -133,6 +136,9 @@ type cscope struct {
 	// lets `Money {amount} ->` be told from a call with a trailing closure (RFC 0002).
 	// A later binding of the same name in an inner scope shadows it, as for any name.
 	recs map[string]*ast.RecordDecl
+	// vars are the locals an assignment created in this scope inside a function, with
+	// where each was first written: the candidates for `unused-variable` (RFC 0019).
+	vars map[string]token.Pos
 	size int
 }
 
@@ -140,9 +146,12 @@ type compiler struct {
 	in    *Interp
 	file  string
 	scope *cscope
-	warns []Warning
-	errs  []error
-	pool  []string // method and function names, built only to make a suggestion
+	// fnDepth counts the function bodies being compiled. A variable is a local only in
+	// one; at file scope a name is the program's, and a one-liner's `x = 1` is not dead.
+	fnDepth int
+	warns   []Warning
+	errs    []error
+	pool    []string // method and function names, built only to make a suggestion
 
 	// fields is every name any `record` in this unit declares (§7.8). A receiver's shape
 	// is no more known statically than its kind is, so `m.amount` survives step 2 the way
@@ -416,9 +425,10 @@ func (c *compiler) markUsed(name string) {
 	}
 }
 
-// warnAt records a §17 warning. Warnings never fail a compile unless StrictWarnings.
-func (c *compiler) warnAt(pos token.Pos, format string, a ...any) {
-	c.warns = append(c.warns, Warning{Msg: fmt.Sprintf(format, a...), Line: pos.Line, Col: pos.Col})
+// warnAt records a §17 warning under its stable code (§21.1). Warnings never fail a
+// compile unless StrictWarnings.
+func (c *compiler) warnAt(pos token.Pos, code, format string, a ...any) {
+	c.warns = append(c.warns, Warning{Code: code, Msg: fmt.Sprintf(format, a...), Line: pos.Line, Col: pos.Col})
 }
 
 // declare records a binding in the current scope and grows its frame.
@@ -607,8 +617,20 @@ func (c *compiler) argErrorf(pos token.Pos, format string, a ...any) {
 // ---------------------------------------------------------------------------
 
 func (c *compiler) stmts(list []ast.Stmt) {
+	leftAt := -1 // the index of a statement that always leaves the block, once seen
 	for i, s := range list {
 		list[i] = c.stmt(s)
+		if leftAt < 0 && i < len(list)-1 && leaves(list[i]) {
+			leftAt = i
+			c.warnAt(list[i+1].Pos(), "unreachable", "unreachable: the statement above always leaves")
+		}
+		if i == len(list)-1 {
+			// The last statement is the block's value (§8.1): an assignment there is
+			// its result, not a dead store.
+			if t := assignedName(list[i]); t != "" {
+				c.markUsed(t)
+			}
+		}
 		// §17: a closure literal whose value nothing receives. The last statement of a
 		// block is its value (§8.1), so only an earlier one is genuinely thrown away —
 		// which is what `xs.each` written on the line above its `{ … }` looks like.
@@ -616,12 +638,12 @@ func (c *compiler) stmts(list []ast.Stmt) {
 			if x, ok := list[i].(*ast.ExprStmt); ok {
 				switch fn := x.X.(type) {
 				case *ast.FuncLit:
-					c.warnAt(fn.Start, "closure literal in statement position: its value is discarded")
+					c.warnAt(fn.Start, "discarded-closure", "closure literal in statement position: its value is discarded")
 				case *ast.FnDecl:
 					// A named `fn` is a declaration and never reaches here; an anonymous
 					// one is a value, and a value nobody receives is the same mistake.
 					if fn.Name == "" {
-						c.warnAt(fn.Kw, "anonymous 'fn' in statement position: its value is discarded")
+						c.warnAt(fn.Kw, "discarded-closure", "anonymous 'fn' in statement position: its value is discarded")
 					}
 				}
 			}
@@ -678,6 +700,7 @@ func (c *compiler) block(b *ast.BlockStmt) {
 	}
 	c.push()
 	c.stmts(b.Stmts)
+	c.warnUnusedVars()
 	b.FrameSize = c.scope.size
 	c.pop()
 }
@@ -694,14 +717,17 @@ func (c *compiler) funcScope(params []ast.Param, body *ast.BlockStmt, warnUnused
 		}
 		c.declare(params[i].Name)
 	}
+	c.fnDepth++
 	if body != nil {
 		c.stmts(body.Stmts)
 		body.FrameSize = c.scope.size
 	}
+	c.warnUnusedVars()
+	c.fnDepth--
 	if warnUnused {
 		for _, p := range params {
 			if p.Name != "" && p.Name != itName && p.Name != blankName && !c.scope.used[p.Name] {
-				c.warnAt(p.NamePos, "closure parameter '%s' is never used", p.Name)
+				c.warnAt(p.NamePos, "unused-parameter", "closure parameter '%s' is never used", p.Name)
 			}
 		}
 	}
@@ -731,7 +757,7 @@ func (c *compiler) record(n *ast.RecordDecl) {
 			// §17: the field wins on this shape, which is what the shape is for — but
 			// `m.len` then reads the field and not the count, and that is worth saying
 			// once, here, rather than leaving it to be discovered.
-			c.warnAt(f.NamePos,
+			c.warnAt(f.NamePos, "field-shadows-method",
 				"record field '%s' shadows the method of that name: on a %s, '.%s' reads the field — write %s(m) for the method",
 				f.Name, n.Name, f.Name, f.Name)
 		}
@@ -755,7 +781,7 @@ func (c *compiler) warnIfAssignCond(cond ast.Expr) {
 	if !ok || a.Op != token.ASSIGN {
 		return
 	}
-	c.warnAt(a.OpPos, "'=' assigns; did you mean '==' ?")
+	c.warnAt(a.OpPos, "assign-in-condition", "'=' assigns; did you mean '==' ?")
 }
 
 // ---------------------------------------------------------------------------
@@ -812,6 +838,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		n.X = c.expr(n.X)
 		return foldUnary(n)
 	case *ast.BinaryExpr:
+		c.warnSelfCompare(n)
 		n.L, n.R = c.expr(n.L), c.expr(n.R)
 		c.checkRegexEquality(n)
 		return foldBinary(n)
@@ -853,6 +880,9 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		return n
 	case *ast.IfExpr:
 		c.warnIfAssignCond(n.Cond)
+		if b, ok := n.Cond.(*ast.BoolLit); ok {
+			c.warnAt(b.Start, "constant-condition", "the condition is always %t: write the branch that runs, or remove the 'if'", b.Value)
+		}
 		n.Cond = c.expr(n.Cond)
 		c.block(n.Then)
 		if n.Else != nil {
@@ -860,6 +890,10 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		}
 		return n
 	case *ast.WhileExpr:
+		// `while true` is how a loop that ends by `break` is spelled; only `false` is dead.
+		if b, ok := n.Cond.(*ast.BoolLit); ok && !b.Value {
+			c.warnAt(b.Start, "constant-condition", "'while false' never runs its body")
+		}
 		n.Cond = c.expr(n.Cond)
 		c.block(n.Body)
 		return n
@@ -876,6 +910,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 			c.stmts(n.Body.Stmts)
 			n.Body.FrameSize = c.scope.size
 		}
+		c.warnUnusedVars()
 		c.pop()
 		return n
 	case *ast.MatchExpr:
@@ -907,12 +942,28 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 			c.pop()
 		}
 		c.block(n.Ensure)
+		c.warnEmptyTry(n)
 		return n
 	}
 	return x
 }
 
 func (c *compiler) dict(n *ast.DictLit) {
+	seen := map[string]bool{}
+	for _, k := range n.Keys {
+		s, ok := k.(*ast.StrLit)
+		if !ok || !s.IsConst() {
+			continue
+		}
+		text := ""
+		for _, p := range s.Parts {
+			text += p.Text
+		}
+		if seen[text] {
+			c.warnAt(s.Start, "duplicate-key", "key %s is written twice; the second wins", quoteString(text))
+		}
+		seen[text] = true
+	}
 	for i := range n.Keys {
 		n.Keys[i] = c.expr(n.Keys[i])
 		n.Vals[i] = c.expr(n.Vals[i])
@@ -923,7 +974,7 @@ func (c *compiler) dict(n *ast.DictLit) {
 // eval time, and the §11.5 `\\b` lint runs here too.
 func (c *compiler) compileRegex(n *ast.RegexLit) {
 	for _, msg := range rx.LintPattern(n.Pattern) {
-		c.warns = append(c.warns, Warning{Msg: msg, Line: n.Start.Line, Col: n.Start.Col})
+		c.warns = append(c.warns, Warning{Code: "regex-word-boundary", Msg: msg, Line: n.Start.Line, Col: n.Start.Col})
 	}
 	r, err := c.in.compileRegex(n.Pattern, n.Flags)
 	if err != nil {
@@ -994,7 +1045,7 @@ func (c *compiler) include(n *ast.IncludeDecl) {
 		}
 	}
 	if c.known(n.Name) {
-		c.warnAt(n.NamePos, "'%s' is already bound; the include replaces it", n.Name)
+		c.warnAt(n.NamePos, "include-rebinds", "'%s' is already bound; the include replaces it", n.Name)
 	}
 	c.declareModule(n.Name)
 	if n.HasPath {
@@ -1036,9 +1087,11 @@ func (c *compiler) assign(n *ast.AssignExpr) {
 		switch n.Op {
 		case token.DECLARE:
 			c.declare(t.Name)
+			c.noteLocal(t)
 		case token.ASSIGN, token.OR_EQ, token.NIL_EQ:
 			if !c.known(t.Name) {
 				c.declare(t.Name)
+				c.noteLocal(t)
 			}
 		default:
 			// Every other compound operator reads the target before writing it, so it
@@ -1429,7 +1482,7 @@ func (c *compiler) methodCall(n *ast.MethodCall) ast.Expr {
 			// A field another module's record declares never takes a call away from a
 			// function this unit can see (RFC 0003): the call stays what it compiled to
 			// before CompileIncludes, and the overlap is said once, here.
-			c.warnAt(n.NamePos, "'%s' is also a field of %s; this calls the function — read the field with m[\"%s\"]", n.Name, r, n.Name)
+			c.warnAt(n.NamePos, "function-shadows-field", "'%s' is also a field of %s; this calls the function — read the field with m[\"%s\"]", n.Name, r, n.Name)
 		}
 		if n.Safe {
 			// `?.` must not evaluate anything when the receiver is nil (§4.3), which a
@@ -1759,4 +1812,157 @@ func internalError(file string, r any, withStack bool) *Error {
 		e.wrapped = err
 	}
 	return e
+}
+
+// ---------------------------------------------------------------------------
+// RFC 0019 §1: the warnings with a code
+// ---------------------------------------------------------------------------
+
+// noteLocal records a local an assignment just created, inside a function, as a
+// candidate for `unused-variable`. A `_`-prefixed name is the spelling of "unused on
+// purpose" and is never a candidate.
+func (c *compiler) noteLocal(t *ast.Ident) {
+	if c.fnDepth == 0 || strings.HasPrefix(t.Name, "_") {
+		return
+	}
+	if c.scope.vars == nil {
+		c.scope.vars = map[string]token.Pos{}
+	}
+	if _, seen := c.scope.vars[t.Name]; !seen {
+		c.scope.vars[t.Name] = t.Start
+	}
+}
+
+// warnUnusedVars is `unused-variable` for the scope about to close: a local written and
+// never read is a value computed for nothing, or a name typed twice two ways. In source
+// order, so the warnings of one compile are always the same list.
+func (c *compiler) warnUnusedVars() {
+	s := c.scope
+	if len(s.vars) == 0 {
+		return
+	}
+	names := make([]string, 0, len(s.vars))
+	for name := range s.vars {
+		if !s.used[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool {
+		a, b := s.vars[names[i]], s.vars[names[j]]
+		return a.Line < b.Line || a.Line == b.Line && a.Col < b.Col
+	})
+	for _, name := range names {
+		c.warnAt(s.vars[name], "unused-variable", "'%s' is assigned and never used", name)
+	}
+}
+
+// assignedName is the plain name a statement assigns, or "".
+func assignedName(s ast.Stmt) string {
+	e, ok := s.(*ast.ExprStmt)
+	if !ok {
+		return ""
+	}
+	if a, ok := e.X.(*ast.AssignExpr); ok {
+		if id, ok := a.Target.(*ast.Ident); ok {
+			return id.Name
+		}
+	}
+	return ""
+}
+
+// leaves reports a statement after which nothing in its block runs: `return`, `break`,
+// `next`, and a call of the built-in `raise` or `exit` (a local of that name is someone
+// else's function and may well come back).
+func leaves(s ast.Stmt) bool {
+	switch n := s.(type) {
+	case *ast.ReturnStmt, *ast.BreakStmt, *ast.NextStmt:
+		return true
+	case *ast.ExprStmt:
+		if call, ok := n.X.(*ast.CallExpr); ok {
+			if id, ok := call.Fn.(*ast.Ident); ok && id.Ref == ast.RefFunc {
+				return id.Name == "raise" || id.Name == "exit"
+			}
+		}
+	}
+	return false
+}
+
+// warnSelfCompare is `self-compare`: `x == x` is true for every value but NaN and `x !=
+// x` false for every value but NaN, so either is a typo or a NaN test, and the NaN test
+// has a name (RFC 0016).
+func (c *compiler) warnSelfCompare(n *ast.BinaryExpr) {
+	if n.Op != token.EQ && n.Op != token.NEQ {
+		return
+	}
+	l, lok := n.L.(*ast.Ident)
+	r, rok := n.R.(*ast.Ident)
+	if !lok || !rok || l.Name != r.Name {
+		return
+	}
+	c.warnAt(n.OpPos, "self-compare", "'%s %s %s' compares a value with itself; to test for NaN write %s.is_nan",
+		l.Name, token.Kind(n.Op).String(), l.Name, l.Name)
+}
+
+// warnEmptyTry is `empty-else` and `empty-ensure`. A braced `try { … } else { }` reads
+// as "ignore the error" and answers an empty dict; `else nil` says the first on purpose.
+// The expression form is left alone: `try json.parse(s) else {}` is a default value.
+func (c *compiler) warnEmptyTry(n *ast.TryExpr) {
+	if _, braced := n.X.(*ast.BlockStmt); braced && n.Var == "" {
+		if d, ok := n.Fallback.(*ast.DictLit); ok && len(d.Keys) == 0 {
+			c.warnAt(d.Lbrack, "empty-else", "this 'else { }' discards every error and answers {}; write 'else nil' to discard on purpose")
+		}
+	}
+	if n.Ensure != nil && len(n.Ensure.Stmts) == 0 {
+		c.warnAt(n.Ensure.Start, "empty-ensure", "this 'ensure' block is empty and does nothing")
+	}
+}
+
+// keepWarnings orders a compile's warnings by position and drops the ones the program or
+// the host allowed (§17). A `# mzs:allow code[, code]` comment allows its codes on its
+// own line when it trails code, and on the next line when it stands alone — the two
+// places a reader looks for it. Options.AllowWarnings allows a code everywhere.
+func (in *Interp) keepWarnings(name, src string, ws []Warning) []Warning {
+	if len(ws) == 0 {
+		return ws
+	}
+	sort.SliceStable(ws, func(i, j int) bool {
+		return ws[i].Line < ws[j].Line || ws[i].Line == ws[j].Line && ws[i].Col < ws[j].Col
+	})
+	allowed := map[int][]string{}
+	if strings.Contains(src, allowMarker) {
+		_, comments, _, _ := lexer.Scan(name, src)
+		for _, cm := range comments {
+			codes := allowCodes(cm.Text)
+			if len(codes) == 0 {
+				continue
+			}
+			line := cm.Pos.Line
+			if cm.OwnLine {
+				line++
+			}
+			allowed[line] = append(allowed[line], codes...)
+		}
+	}
+	out := ws[:0]
+	for _, w := range ws {
+		if slices.Contains(in.opts.AllowWarnings, w.Code) || slices.Contains(allowed[w.Line], w.Code) {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// allowMarker opens a suppression comment: `# mzs:allow unused-variable`.
+const allowMarker = "mzs:allow"
+
+// allowCodes reads the codes of a suppression comment, separated by commas or blanks;
+// any other comment has none.
+func allowCodes(text string) []string {
+	t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "#"))
+	rest, ok := strings.CutPrefix(t, allowMarker)
+	if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t') {
+		return nil
+	}
+	return strings.FieldsFunc(rest, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
 }

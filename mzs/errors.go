@@ -166,14 +166,23 @@ func FormatTrace(stack []Frame) []string {
 
 // Warning is a non-fatal diagnostic produced at compile time (§11.5, §17).
 // Options.StrictWarnings promotes the whole set to a compile error.
+//
+// Code names the rule — `unused-variable`, `unreachable` — and, unlike Msg, is stable
+// (§21.1): it is what a `# mzs:allow` comment, Options.AllowWarnings and an editor's
+// filter key on, so a rule's code never changes once it has shipped.
 type Warning struct {
+	Code string
 	Msg  string
 	Line int
 	Col  int
 }
 
 func (w Warning) String() string {
-	return strconv.Itoa(w.Line) + ":" + strconv.Itoa(w.Col) + ": warning: " + w.Msg
+	s := strconv.Itoa(w.Line) + ":" + strconv.Itoa(w.Col) + ": warning: " + w.Msg
+	if w.Code != "" {
+		s += " [" + w.Code + "]"
+	}
+	return s
 }
 
 // Error is every script-visible failure: a syntax error from Compile, a runtime type

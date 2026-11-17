@@ -108,6 +108,10 @@ type LinkStater interface {
 type Options struct {
 	// StrictWarnings promotes Program.Warnings to compile errors.
 	StrictWarnings bool
+	// AllowWarnings drops the warnings with these codes (§17) before StrictWarnings
+	// sees them: a host that promotes warnings can still opt out of one rule. A code
+	// names a rule, so the list keeps working when a message's wording improves.
+	AllowWarnings []string
 
 	// Timeout is the wall clock allowed per Run. 0 uses DefaultTimeout; a negative
 	// value disables the deadline, which is not recommended outside tests.

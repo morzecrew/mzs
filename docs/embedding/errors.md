@@ -174,11 +174,14 @@ try fatal() else "caught"   => eval:1:5: raise: cannot continue: mzs: fatal
 ## Warnings
 
 `Compile` succeeds with warnings; `Options.StrictWarnings` turns the first one into a
-syntax error.
+syntax error. Each `Warning` has a `Code`, the stable name of its rule (CLI diagnostics
+lists them), and `Options.AllowWarnings` drops the codes a host does not want before
+`StrictWarnings` sees them.
 
 ```go
 p, _ := in.Compile("w.mzs", "x = 1\nif x = 2 { 3 }")
-fmt.Println(p.Warnings())   // [2:6: warning: '=' assigns; did you mean '==' ?]
+fmt.Println(p.Warnings())          // [2:6: warning: '=' assigns; did you mean '==' ? [assign-in-condition]]
+fmt.Println(p.Warnings()[0].Code)  // assign-in-condition
 ```
 
 ## See also

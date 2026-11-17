@@ -264,8 +264,9 @@ func TestCLI(t *testing.T) {
 		{
 			// §12.1: `exit` is the program naming its own status. It is not a failure, so
 			// nothing is printed for it, and nothing after it runs.
-			name:     "exit sets the status and prints nothing",
-			argv:     []string{"-e", `println("done"); exit(2); println("never")`},
+			name: "exit sets the status and prints nothing",
+			// The dead println is the point, so the `unreachable` warning is allowed.
+			argv:     []string{"-e", `println("done"); exit(2); println("never") # mzs:allow unreachable`},
 			wantCode: 2,
 			wantOut:  "done\n",
 			errLacks: []string{"exit", "error"},
