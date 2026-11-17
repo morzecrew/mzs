@@ -108,6 +108,9 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		{`[].mean`, `nil`},
 		// A sum that overflows does not make a mean that does.
 		{`[1.7e308, 1.7e308].mean`, `1.7e+308`},
+		// n quotients x/n can each round up and add past max; scaling by 2^-k cannot.
+		{`m = 1.7976931348623157e308; [m, m, m].mean == m`, `true`},
+		{`m = 1.7976931348623157e308; (0..<99).map { m }.mean == m`, `true`},
 		{`[1.0e308, -1.0e308, 2.0].mean`, `0.6666666666666666`},
 		{`(1..4).mean`, `2.5`},
 		{`[3, 1, 2].median`, `2`},

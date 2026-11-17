@@ -2,6 +2,7 @@ package mzs
 
 import (
 	"math"
+	"math/bits"
 	"sort"
 	"strings"
 )
@@ -1915,12 +1916,16 @@ func arrMean(c *Ctx, recv Value, args []Value) (Value, error) {
 	n := float64(len(xs))
 	if math.IsInf(sum, 0) && finite {
 		// Finite numbers whose sum overflows can still have a mean that does not:
-		// [1.7e308, 1.7e308]. Dividing before adding keeps it in range.
+		// [1.7e308, 1.7e308]. Each is scaled by 2^-k with 2^k ≥ 2n, which is exact for a
+		// normal float, so every partial sum is at most n·max/2^k ≤ max/2 and cannot
+		// round up past max — dividing each by n first can, because n rounded-up
+		// quotients may add to more than max. The mean is scaled back at the end.
+		k := bits.Len(uint(len(xs))) + 1
 		sum = 0
 		for _, x := range xs {
-			sum += x.Float() / n
+			sum += math.Ldexp(x.Float(), -k)
 		}
-		return Float(sum), nil
+		return Float(math.Ldexp(sum/n, k)), nil
 	}
 	return Float(sum / n), nil
 }
