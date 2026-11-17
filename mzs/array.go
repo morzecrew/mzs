@@ -1957,8 +1957,14 @@ func arrMedian(c *Ctx, recv Value, args []Value) (Value, error) {
 	if len(sorted)%2 == 1 {
 		return sorted[mid], nil
 	}
-	// Halved before they are added, so two finite middles cannot overflow to +Inf.
-	return Float(sorted[mid-1].Float()/2 + sorted[mid].Float()/2), nil
+	// Added, then halved — exact for subnormals, where halving each first would round
+	// 5e-324 to 0. Only when the sum overflows are they halved first instead: two finite
+	// middles always have a finite mean, and values that large lose nothing to halving.
+	a, b := sorted[mid-1].Float(), sorted[mid].Float()
+	if s := a + b; !math.IsInf(s, 0) || math.IsInf(a, 0) || math.IsInf(b, 0) {
+		return Float(s / 2), nil
+	}
+	return Float(a/2 + b/2), nil
 }
 
 // arrProduct multiplies the elements, or the closure's values, the way sum adds them:

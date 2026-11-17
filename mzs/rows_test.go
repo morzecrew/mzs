@@ -124,6 +124,10 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		{`n = 2 ** 53; [n + 1, n, n + 2].median == n + 1`, `true`},
 		// The two middles are halved before they are added, so they cannot overflow.
 		{`[1.7e308, 1.7e308].median`, `1.7e+308`},
+		// Added before halving: halving 5e-324 first would round it to 0.
+		{`[5e-324, 5e-324].median == 5e-324`, `true`},
+		{`[5e-324, 1.5e-323].median == 1e-323`, `true`},
+		{`m = 1.7976931348623157e308; [-m, m].median`, `0.0`},
 		{`[2, 3, 4].product`, `24`},
 		{`[2, 0.5].product`, `1.0`},
 		{`["a", "bb"].product { it.len }`, `2`},
