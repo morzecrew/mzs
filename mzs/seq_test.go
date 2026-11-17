@@ -485,6 +485,7 @@ func TestSeqMaterialisationIsCapped(t *testing.T) {
 		`(1..1000).seq.last(500)`,
 		`(1..1000).seq.each_slice(500).len`,
 		`(1..1000).seq.each_cons(500).len`,
+		`(1..3).seq.zip(*(1..100).array.map { [it] })`,
 	} {
 		if _, err := in.Eval(context.Background(), src, nil); err == nil {
 			t.Errorf("%s kept more than 100 elements under a cap of 100", src)
@@ -492,6 +493,7 @@ func TestSeqMaterialisationIsCapped(t *testing.T) {
 	}
 	for src, want := range map[string]string{
 		`(1..1000).seq.uniq { it % 10 }.len`:     "10",
+		`(1..3).seq.last(5000).json`:             "[1,2,3]",
 		`(1..1000).seq.last(5).json`:             "[996,997,998,999,1000]",
 		`(1..1000).seq.each_slice(10).len`:       "100",
 		`(1..1000).seq.each_cons(10).len`:        "991",

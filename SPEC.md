@@ -3170,8 +3170,8 @@ nothing:
 | `zip` | `(*others) -> seq` | `[x, y, …]` rows, **stopping with the shortest** — unlike the array row, which pads with `nil`, because a seq may be endless. Each argument is anything `seq(x)` accepts. The receiver is pulled first, and an argument only once the receiver has given an element |
 | `concat` | `(*others) -> seq` | the receiver, then each argument in turn; a new seq, where the array row appends in place. A later part is opened only when it is reached |
 | `uniq` | `[{ (x) -> key }] -> seq` | the first element of each key, by `==`. The one lazy row whose memory is not constant: it keeps every key it has seen, charged to `MaxCollection` |
-| `each_slice` | `(n: int) -> seq` | arrays of `n`, the last one short |
-| `each_cons` | `(n: int) -> seq` | every window of `n` neighbours; none when there are fewer than `n` |
+| `each_slice` | `(n: int) [{ (batch) -> … }] -> seq` | arrays of `n`, the last one short |
+| `each_cons` | `(n: int) [{ (window) -> … }] -> seq` | every window of `n` neighbours; none when there are fewer than `n` |
 
 `each_slice` and `each_cons` given a closure walk the sequence instead, call it with each
 batch, and return the receiver, as the array rows do.

@@ -1167,12 +1167,12 @@
     "ex": ""
    },
    "each_cons": {
-    "sig": "`(n: int) -> seq`",
+    "sig": "`(n: int) [{ (window) -> … }] -> seq`",
     "sem": "every window of `n` neighbours; none when there are fewer than `n`",
     "ex": ""
    },
    "each_slice": {
-    "sig": "`(n: int) -> seq`",
+    "sig": "`(n: int) [{ (batch) -> … }] -> seq`",
     "sem": "arrays of `n`, the last one short",
     "ex": ""
    },

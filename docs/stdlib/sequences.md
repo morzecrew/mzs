@@ -52,7 +52,7 @@ Each returns another seq and evaluates nothing.
 | `zip` | `(*others) -> seq` — rows of `[x, y, …]`, stopping with the shortest |
 | `concat` | `(*others) -> seq` — one after another |
 | `uniq` | `[{ (x) -> key }] -> seq` — the first of each key |
-| `each_slice` `each_cons` | `(n) -> seq` — batches of `n`, or windows of `n` |
+| `each_slice` `each_cons` | `(n) [{ (batch) -> … }] -> seq` — batches of `n`, or windows of `n` |
 
 ```
 (1..9).seq.map { it * 10 }.array           # [10,20,30,40,50,60,70,80,90]
@@ -142,7 +142,7 @@ name:
 
 That is deliberate: a row that quietly buffered a gigabyte would defeat the point of
 asking for a seq. The rows that only remember — `uniq`, `tally`, `group_by`, `last(n)`,
-the batch of `each_slice` — are seq rows, and each keeps what it remembers, charged to
+the batch of `each_slice`, the window of `each_cons` — are seq rows, and each keeps what it remembers, charged to
 `MaxCollection`, rather than the sequence.
 
 ## A seq is a recipe, not a cursor

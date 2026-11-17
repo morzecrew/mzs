@@ -904,6 +904,10 @@ func seqvZip(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
+	// Every row the seq gives has one element per source; the width is known here.
+	if err := c.CheckCollection(len(args) + 1); err != nil {
+		return Nil(), err
+	}
 	others, err := seqSources(c, args)
 	if err != nil {
 		return Nil(), err
@@ -1106,6 +1110,8 @@ func seqBatches(c *Ctx, recv Value, args []Value, windows bool) (Value, error) {
 
 // seqvLast is the last element, or the last n as an array. It has to pull everything,
 // so it is finite only over a finite source, and it keeps n elements, not the sequence.
+// The window is charged as it fills rather than as asked for, so `last(2_000_000)` of a
+// three-element sequence is the three, as on an array.
 func seqvLast(c *Ctx, recv Value, args []Value) (Value, error) {
 	n := 1
 	if len(args) == 1 {
@@ -1115,9 +1121,6 @@ func seqvLast(c *Ctx, recv Value, args []Value) (Value, error) {
 		}
 	}
 	return seqTerm(c, recv, func(s *Seq) (Value, error) {
-		if err := c.CheckCollection(n); err != nil {
-			return Nil(), err
-		}
 		if n == 0 {
 			// As `first(0)`: nothing is pulled to answer a question that needs nothing.
 			return Array(), nil
@@ -1130,6 +1133,9 @@ func seqvLast(c *Ctx, recv Value, args []Value) (Value, error) {
 		start := 0
 		err := seqRun(c, s, func(v Value) (bool, error) {
 			if len(ring) < n {
+				if err := c.allocCollection(len(ring)+1, 1); err != nil {
+					return false, err
+				}
 				ring = append(ring, v)
 				return true, nil
 			}
