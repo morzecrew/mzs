@@ -187,7 +187,9 @@ apidoc regeneration, one corpus row per new function.
 * **`min_by` / `max_by` on a dict** give the `[k, v]` pair that `find` gives, the first
   on a tie, and `nil` for `{}`.
 * **`median`** sorts numerically. An odd count gives the middle element itself, so an int
-  stays an int, and an even count gives the float mean of the two middle elements.
+  stays an int, and an even count gives the float mean of the two middle elements. That
+  mean is taken from the exact sum, an int as its int64, and rounded once, so ints past
+  2^53, sums past `MaxFloat64` and subnormals all come out right.
 * **`bsearch`** takes a closure in the `x <=> target` shape, since the language has
   `<=>`. It costs a step per probe. Which index it gives when several elements match is
   unspecified.

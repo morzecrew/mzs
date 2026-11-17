@@ -122,12 +122,20 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		{`[].median`, `nil`},
 		// Sorted as numbers compare, not as float64s: past 2^53 those collapse.
 		{`n = 2 ** 53; [n + 1, n, n + 2].median == n + 1`, `true`},
-		// The two middles are halved before they are added, so they cannot overflow.
+		// The two middles are added exactly, so they cannot overflow.
 		{`[1.7e308, 1.7e308].median`, `1.7e+308`},
 		// Added before halving: halving 5e-324 first would round it to 0.
 		{`[5e-324, 5e-324].median == 5e-324`, `true`},
 		{`[5e-324, 1.5e-323].median == 1e-323`, `true`},
 		{`m = 1.7976931348623157e308; [-m, m].median`, `0.0`},
+		{`m = 1.7976931348623157e308; [m, m].median == m`, `true`},
+		// Ints are added as ints: as float64s, -n - 1 would round to -n and give 0.0.
+		{`n = 2 ** 53; [-n - 1, n].median`, `-0.5`},
+		{`n = 2 ** 53; [n, n + 1].median`, `9007199254740992.0`}, // n + 0.5, rounded to even
+		{`[9223372036854775807, 9223372036854775807].median`, `9223372036854776000.0`},
+		{`[-9223372036854775807 - 1, 9223372036854775807].median`, `-0.5`},
+		{`n = 2 ** 53; [-n - 1, n * 1.0].median`, `-0.5`},
+		{`[1.0 / 0.0, 1.0].median`, `Infinity`},
 		{`[2, 3, 4].product`, `24`},
 		{`[2, 0.5].product`, `1.0`},
 		{`["a", "bb"].product { it.len }`, `2`},

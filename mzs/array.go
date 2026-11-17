@@ -1957,14 +1957,29 @@ func arrMedian(c *Ctx, recv Value, args []Value) (Value, error) {
 	if len(sorted)%2 == 1 {
 		return sorted[mid], nil
 	}
-	// Added, then halved — exact for subnormals, where halving each first would round
-	// 5e-324 to 0. Only when the sum overflows are they halved first instead: two finite
-	// middles always have a finite mean, and values that large lose nothing to halving.
-	a, b := sorted[mid-1].Float(), sorted[mid].Float()
-	if s := a + b; !math.IsInf(s, 0) || math.IsInf(a, 0) || math.IsInf(b, 0) {
-		return Float(s / 2), nil
+	// The mean of the two middles, rounded once. No float64 formula is right for every
+	// pair: converting an int past 2^53 first loses its low bits, adding first can
+	// overflow, and halving first rounds 5e-324 to 0. So two finite middles are added
+	// exactly — an int as its int64, a float as its float64 — halved, and only then
+	// rounded to the nearest float64, which is finite since both middles are.
+	x, y := sorted[mid-1], sorted[mid]
+	a, b := x.Float(), y.Float()
+	if math.IsInf(a, 0) || math.IsInf(b, 0) || math.IsNaN(a) || math.IsNaN(b) {
+		return Float((a + b) / 2), nil
 	}
-	return Float(a/2 + b/2), nil
+	sum := new(big.Float).SetPrec(2098 + 64)
+	sum.Add(exactNumber(x), exactNumber(y))
+	half, _ := sum.SetMantExp(sum, -1).Float64()
+	return Float(half), nil
+}
+
+// exactNumber is a finite number as a big.Float, with no rounding: an int keeps all 64
+// bits instead of the 53 that Value.Float would leave it.
+func exactNumber(v Value) *big.Float {
+	if v.Kind() == KInt {
+		return new(big.Float).SetInt64(v.Int())
+	}
+	return new(big.Float).SetFloat64(v.Float())
 }
 
 // arrProduct multiplies the elements, or the closure's values, the way sum adds them:
