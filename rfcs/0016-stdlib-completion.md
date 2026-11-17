@@ -271,8 +271,8 @@ Decisions:
 * **`gcd` and `lcm` take ints only.** A float has no divisors, and truncating one would be
   a guess. Both are non-negative, `gcd(0, 0)` is `0`, and `lcm` with a `0` is `0`. They
   are computed on the magnitudes as unsigned ints, so `MinInt64` works, and a result past
-  `MaxInt64` — `gcd(MinInt64, 0)`, or an `lcm` that overflows — promotes to a float as
-  any int arithmetic does (D9).
+  `MaxInt64` promotes to a float as any int arithmetic does (D9): `gcd(MinInt64, 0)` and
+  `gcd(MinInt64, MinInt64)` are 2^63, and so can an `lcm` overflow.
 * **`is_nan` and `is_inf` are false on an int**, rather than undefined on one, so a test
   does not need to know which kind it holds. `is_inf` is true for both infinities; the
   sign is `sign`.

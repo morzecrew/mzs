@@ -717,8 +717,8 @@ func parseStrictFloat(s string) (float64, bool) {
 // the true quotient, not the truncation `/` gives. The identity is exact while its product
 // stays an int; `div(1, MinInt64) * MinInt64` is past int64 and promotes (D9). Two ints
 // give an int — dividing by 0 is the `zero-division` error `/` raises, and MinInt64 by -1
-// promotes to Float as `/` does (D9). Any float operand gives the float floor, and a float division by zero
-// is IEEE, as it is for `/`.
+// promotes to Float as `/` does (D9). A float operand on either side gives the float
+// floor, and then a zero divisor is IEEE, as it is for `/`.
 func numDiv(c *Ctx, recv Value, args []Value) (Value, error) {
 	b, err := argNum(c, args[0])
 	if err != nil {
@@ -768,7 +768,8 @@ func numSign(c *Ctx, recv Value, _ []Value) (Value, error) {
 // numGcdLcm is gcd and lcm, of ints only: a float has no divisors, and truncating one
 // would be a guess (§9.1). Both are non-negative. gcd(0, 0) is 0, and lcm of anything
 // with 0 is 0. The arithmetic is unsigned, so MinInt64 has its magnitude; a result past
-// MaxInt64 — gcd(MinInt64, 0), or an lcm that overflows — promotes to Float (D9).
+// MaxInt64 promotes to Float (D9) — gcd(MinInt64, 0) or gcd(MinInt64, MinInt64), or an
+// lcm that overflows.
 func numGcdLcm(c *Ctx, recv, other Value, lcm bool) (Value, error) {
 	for _, v := range []Value{recv, other} {
 		if v.Kind() != KInt {
