@@ -103,6 +103,8 @@ d.map { (k, v) -> "x" * 50000 + k }`},
 		{"a group_by in progress", `(0..40).group_by { "x" * 50000 + it.str }`},
 		{"a dict map_values in progress", `d = {}; for i in 0..40 { d[i.str] = i }
 d.map_values { "x" * 50000 + it.str }`},
+		{"an array min_by's best key", `[1, 2].min_by { "x" * 600000 + it.str }`},
+		{"a dict max_by's best key", `{a: 1, b: 2}.max_by { (k, _) -> "x" * 600000 + k }`},
 		{"an accumulate in progress", `(0..40).accumulate("") { (acc, x) -> "x" * 50000 + x.str }`},
 		{"a seq being collected", `(0..40).seq.map { "x" * 50000 + it.str }.array`},
 		{"a seq's source array", `keep = []

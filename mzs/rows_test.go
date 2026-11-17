@@ -106,6 +106,9 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		{`[1, 2, 3, 4].mean`, `2.5`},
 		{`[1, 2, 3].mean`, `2.0`},
 		{`[].mean`, `nil`},
+		// A sum that overflows does not make a mean that does.
+		{`[1.7e308, 1.7e308].mean`, `1.7e+308`},
+		{`[1.0e308, -1.0e308, 2.0].mean`, `0.6666666666666666`},
 		{`(1..4).mean`, `2.5`},
 		{`[3, 1, 2].median`, `2`},
 		{`[4, 1, 3, 2].median`, `2.5`},
@@ -141,6 +144,9 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		{`[1, 3].bsearch { it <=> 2 }`, `nil`},
 		{`[].bsearch { it <=> 2 }`, `nil`},
 		{`["ant", "bee", "cat"].bsearch { it <=> "cat" }`, `2`},
+		// A range is probed in place: ten million elements is past MaxCollection.
+		{`(1..10_000_000).bsearch { it <=> 7_777_777 }`, `7777776`},
+		{`(1..<1).bsearch { it <=> 1 }`, `nil`},
 	}
 	for _, tc := range cases {
 		got, err := evalRow(t, tc.src)

@@ -988,6 +988,12 @@ func arrExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		return Nil(), nil
 	}
 	best, bestKey := Nil(), Nil()
+	// The best key so far is a closure result nothing else holds; it stays live while
+	// the next closure runs (§14.2).
+	slot := []Value{Nil()}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdVals(slot)
 	for i, x := range xs {
 		key, err := c.CallClosure(x)
 		if err != nil {
@@ -995,6 +1001,7 @@ func arrExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		}
 		if i == 0 {
 			best, bestKey = x, key
+			slot[0] = key
 			continue
 		}
 		n, err := arrCompare(c, key, bestKey)
@@ -1003,6 +1010,7 @@ func arrExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		}
 		if (want < 0 && n < 0) || (want > 0 && n > 0) {
 			best, bestKey = x, key
+			slot[0] = key
 		}
 	}
 	return best, nil
@@ -1895,14 +1903,26 @@ func arrMean(c *Ctx, recv Value, args []Value) (Value, error) {
 	if len(xs) == 0 {
 		return Nil(), nil
 	}
-	sum := 0.0
+	sum, finite := 0.0, true
 	for _, x := range xs {
 		if !x.IsNum() {
 			return Nil(), c.TypeErrorf("%s expects numbers, got %s", c.Name(), x.TypeName())
 		}
-		sum += x.Float()
+		f := x.Float()
+		finite = finite && !math.IsInf(f, 0)
+		sum += f
 	}
-	return Float(sum / float64(len(xs))), nil
+	n := float64(len(xs))
+	if math.IsInf(sum, 0) && finite {
+		// Finite numbers whose sum overflows can still have a mean that does not:
+		// [1.7e308, 1.7e308]. Dividing before adding keeps it in range.
+		sum = 0
+		for _, x := range xs {
+			sum += x.Float() / n
+		}
+		return Float(sum), nil
+	}
+	return Float(sum / n), nil
 }
 
 // arrMedian is the middle element of the sorted numbers — an int stays an int — or the
@@ -2120,17 +2140,26 @@ func arrAccumulate(c *Ctx, recv Value, args []Value) (Value, error) {
 // after — `xs.bsearch { it <=> 42 }`. nil when nothing matches. Which match, if several
 // do, is unspecified; the array must be sorted the way the closure compares.
 func arrBsearch(c *Ctx, recv Value, args []Value) (Value, error) {
-	xs, err := arrElems(c, recv)
-	if err != nil {
-		return Nil(), err
+	// A range is probed where it is, not materialised first: building 1..10_000_000 to
+	// look at two dozen of its elements would cost what the search exists to avoid.
+	n, at := 0, func(int) Value { return Nil() }
+	if recv.Kind() == KRange {
+		r := recv.rng()
+		n, at = r.Len(), func(i int) Value { return Int(r.At(i)) }
+	} else {
+		xs, err := arrElems(c, recv)
+		if err != nil {
+			return Nil(), err
+		}
+		n, at = len(xs), func(i int) Value { return xs[i] }
 	}
-	lo, hi := 0, len(xs)-1
+	lo, hi := 0, n-1
 	for lo <= hi {
 		if err := c.Step(1); err != nil {
 			return Nil(), err
 		}
 		mid := lo + (hi-lo)/2
-		r, err := c.CallClosure(xs[mid])
+		r, err := c.CallClosure(at(mid))
 		if err != nil {
 			return Nil(), err
 		}

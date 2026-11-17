@@ -549,6 +549,11 @@ func dictvExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		return Nil(), err
 	}
 	best, bestKey := -1, Nil()
+	// The best key so far is a closure result nothing else holds (§14.2).
+	slot := []Value{Nil()}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdVals(slot)
 	for i, k := range keys {
 		key, err := c.CallClosure(k, vals[i])
 		if err != nil {
@@ -564,6 +569,7 @@ func dictvExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 			}
 		}
 		best, bestKey = i, key
+		slot[0] = key
 	}
 	if best < 0 {
 		return Nil(), nil
