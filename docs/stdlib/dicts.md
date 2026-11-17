@@ -116,6 +116,47 @@ for k, v in {a: 1, b: 2} { print("${k}=${v} ") }   # prints a=1 b=2
 for p in {a: 1} { print(p) }                       # prints ["a",1]
 ```
 
+## Folding, counting and grouping
+
+The rows arrays have, with a closure that takes the key and the value. Write `_` for the
+one you do not need.
+
+```
+d = {a: 1, b: 2, c: 3}
+d.reduce(0) { (acc, _, v) -> acc + v }        # 6 — the initial value is required
+d.count { (_, v) -> v > 1 }                   # 2 — `len` is how many entries there are
+d.none { (_, v) -> v > 5 }                    # true
+d.sum { (_, v) -> v * 2 }                     # 12
+d.max_by { (_, v) -> v }                      # ["c",3] — the pair; nil for {}
+d.group_by { (_, v) -> v % 2 == 0 ? "even" : "odd" }   # {"odd":{"a":1,"c":3},"even":{"b":2}}
+d.partition { (_, v) -> v > 1 }               # [{"b":2,"c":3},{"a":1}]
+```
+
+Each of these walks the entries as they were when it started, so a closure that writes
+to the dict changes what the next row sees, not this walk.
+
+## Reshaping: map_values, pick, omit
+
+`map_values` keeps the keys and their order and replaces each value with what the closure
+returns for it. Its closure takes the value alone. Because the shape is unchanged, a
+record stays the record it was, which `map` followed by `dict` cannot do:
+
+```
+d.map_values { it * 10 }                                  # {"a":10,"b":20,"c":30}
+record Money(amount, currency = "EUR")
+type(Money(5).map_values { it })                          # "Money"
+type(Money(5).map { (k, v) -> [k, v] }.dict)              # "dict"
+```
+
+`pick` keeps the named entries and `omit` the rest, both in the dict's own order. A named
+key the dict does not have is skipped. Both give a plain dict, since fewer fields is
+another shape.
+
+```
+d.pick("c", "a", "z")         # {"a":1,"c":3}
+d.omit("a")                   # {"b":2,"c":3}
+```
+
 ## Keys
 
 Keys are hashable values: nil, bool, int, float, string, regex, time. An array or a dict

@@ -2546,6 +2546,14 @@ Strings are immutable. There are no in-place string operations under any spellin
 | `concat` | `(other: array) -> array` | mutates |
 | `sample` / `shuffle` | `-> any \| array` | require `Options.Rand` |
 | `sort_in_place` / `reverse_in_place` | `-> array` | the mutating variants, named so at the call site |
+| `mean` | `-> float \| nil` | the arithmetic mean, always a float; `nil` for no elements |
+| `median` | `-> number \| nil` | the middle element of the sorted numbers, or the mean of the middle two (a float) for an even count; `nil` for no elements |
+| `product` | `[{ (x) -> … }] -> number` | `sum`'s partner; `[]` multiplies to `1` |
+| `transpose` | `-> array` | rows to columns; every row an array of one length, or an `argument` error naming the ragged row |
+| `rotate` | `(n: int = 1) -> array` | a new array with the first `n` elements moved to the end; negative `n` the other way |
+| `chunk_while` | `{ (a, b) -> bool } -> array` | runs of neighbours: `b` joins `a`'s run while the closure says yes |
+| `accumulate` | `(init: any = nil) { (acc, x) -> … } -> array` | `reduce` with every step kept: as long as the receiver, last element the `reduce` |
+| `bsearch` | `{ (x) -> int } -> int \| nil` | an index in a sorted array: the closure is `x <=> target`, negative before, 0 on a match |
 
 **The four set rows answer with a set**: the first occurrence of each element wins and
 nothing repeats. `intersect`, `difference` and `subset` read the receiver and keep its
@@ -2574,6 +2582,24 @@ rows of §12.2 then see U+FFFD where a byte does not decode, and `json` escapes 
 way. An element that is not an int in `0..255` **is** an error, and it names the index:
 a byte silently truncated from 300 to 44 would surface as corruption much later.
 
+**Statistics, reshaping and running folds** (RFC 0016). `mean` exists because `xs.sum /
+xs.len` is integer division on ints (D9). `mean` and `median` take numbers only, and an
+empty receiver is `nil` rather than an error or `NaN`. `product`, like `sum`, keeps ints
+ints until the result overflows. `accumulate` is the running `reduce`, the one Python
+calls `itertools.accumulate`: `[1, 2, 3].accumulate { (a, b) -> a + b }` is `[1, 3, 6]`,
+and with an initial value the answer still has one element per input. It is not spelled
+`scan` because `scan` is Ruby's name for `matches` (§19.2), and that table's names are not
+the library's (D17). `bsearch` costs a step per probe, not per element; which index it
+answers when several match is unspecified. `avg` and `average` are diagnostics that say
+`mean`.
+
+```
+[1, 2, 3, 4].mean                                   # 2.5
+[[1, 2], [3, 4]].transpose                          # [[1, 3], [2, 4]]
+[1, 2, 4, 5, 7].chunk_while { (a, b) -> b == a + 1 } # [[1, 2], [4, 5], [7]]
+[1, 3, 5, 7].bsearch { it <=> 5 }                    # 2
+```
+
 ### 12.4 Dicts
 
 | Method | Signature | Semantics |
@@ -2597,6 +2623,30 @@ a byte silently truncated from 300 to 44 would surface as corruption much later.
 | `any` / `all` | `{ (k, v) -> … } -> bool` | |
 | `invert` | `-> dict` | |
 | `sort_by` | `{ (k, v) -> … } -> array` | |
+| `reduce` | `(init: any) { (acc, k, v) -> … } -> any` | `init` is required: a dict has no first element to seed it |
+| `count` | `{ (k, v) -> … } -> int` | the entries the closure accepts; `len` is how many there are |
+| `none` | `{ (k, v) -> … } -> bool` | `true` for `{}` |
+| `sum` | `{ (k, v) -> number } -> number` | `{}` sums to `0` |
+| `min_by` / `max_by` | `{ (k, v) -> … } -> array \| nil` | the `[k, v]` pair, the first on a tie; `nil` for `{}` |
+| `group_by` | `{ (k, v) -> … } -> dict` | closure value → a dict of the entries that gave it, both in first-seen order |
+| `partition` | `{ (k, v) -> … } -> array` | `[accepted, rest]`, two dicts in the receiver's order |
+| `map_values` | `{ (v) -> … } -> dict` | the same keys in the same order, each value replaced; **a record stays the record it was** (§7.8) |
+| `pick` / `omit` | `(*keys) -> dict` | the entries named, or the rest, in the receiver's order; a named key that is absent is skipped |
+
+**The collection rows arrays have** (RFC 0016). Every row from `reduce` down takes the
+key and the value, as `filter` and `each` do, except `map_values`. Its closure takes the
+value alone, because the key is not changing. That is also what lets it keep the record
+label that `d.map { … }.dict` drops, since that rebuilds through pairs. `pick` and `omit`
+change the shape, so they give a plain dict. Each row walks the entries as they were when
+it started, so a closure that writes to the dict changes what the next row sees, not this
+walk.
+
+```
+{a: 1, b: 2, c: 3}.reduce(0) { (acc, _, v) -> acc + v }   # 6
+{a: 1, b: 2}.max_by { (_, v) -> v }                       # ["b", 2]
+{a: 1, b: 2, c: 3}.pick("c", "a")                          # {"a": 1, "c": 3}
+Money(5).map_values { it * 2 }                             # a Money
+```
 
 ### 12.5 Numbers (Int and Float)
 

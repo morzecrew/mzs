@@ -19,6 +19,13 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Dict and array rows that their neighbours already had** (RFC 0016, part 1).
+  - **Dicts** gain `reduce(init)`, `count`, `none`, `sum`, `min_by`, `max_by`, `group_by`
+    and `partition`, with closures that take `(k, v)`. They also gain `map_values`, which
+    keeps a record's label, plus `pick` and `omit`.
+  - **Arrays and ranges** gain `mean`, `median`, `product`, `transpose`, `rotate`,
+    `chunk_while`, `accumulate` (the running `reduce`) and `bsearch`.
+  - `avg` and `average` now suggest `mean` (SPEC §12.3, §12.4).
 - **The `args` module.** `include args` gives a script command-line flags of its own,
   declared in one dict: `args.parse({width: 800, force: {default: false, short: "f"}})`.
   The kind of each default decides the conversion: int, float, string, bool with

@@ -23,24 +23,24 @@ func TestDictCollectionRows(t *testing.T) {
 
 	const d = `d = {a: 1, b: 2, c: 3}; `
 	cases := []struct{ src, want string }{
-		{d + `d.reduce(0) { (acc, _k, v) -> acc + v }`, `6`},
-		{d + `d.reduce("") { (acc, k, _v) -> acc + k }`, `"abc"`},
-		{`{}.reduce(7) { (acc, _k, _v) -> acc + 1 }`, `7`},
-		{d + `d.count { (_k, v) -> v > 1 }`, `2`},
-		{`{}.count { (_k, _v) -> true }`, `0`},
-		{d + `d.none { (_k, v) -> v > 5 }`, `true`},
-		{d + `d.none { (k, _v) -> k == "b" }`, `false`},
-		{`{}.none { (_k, _v) -> true }`, `true`},
-		{d + `d.sum { (_k, v) -> v * 2 }`, `12`},
-		{d + `d.sum { (_k, v) -> v / 2.0 }`, `3.0`},
-		{`{}.sum { (_k, v) -> v }`, `0`},
-		{d + `d.min_by { (_k, v) -> -v }`, `["c",3]`},
-		{d + `d.max_by { (_k, v) -> v }`, `["c",3]`},
-		{`{a: 1, b: 1}.max_by { (_k, v) -> v }`, `["a",1]`},
-		{`{}.min_by { (_k, v) -> v }`, `nil`},
-		{d + `d.group_by { (_k, v) -> v % 2 == 0 ? "even" : "odd" }`, `{"odd":{"a":1,"c":3},"even":{"b":2}}`},
-		{d + `d.partition { (_k, v) -> v > 1 }`, `[{"b":2,"c":3},{"a":1}]`},
-		{`{}.partition { (_k, _v) -> true }`, `[{},{}]`},
+		{d + `d.reduce(0) { (acc, _, v) -> acc + v }`, `6`},
+		{d + `d.reduce("") { (acc, k, _) -> acc + k }`, `"abc"`},
+		{`{}.reduce(7) { (acc, _, _) -> acc + 1 }`, `7`},
+		{d + `d.count { (_, v) -> v > 1 }`, `2`},
+		{`{}.count { (_, _) -> true }`, `0`},
+		{d + `d.none { (_, v) -> v > 5 }`, `true`},
+		{d + `d.none { (k, _) -> k == "b" }`, `false`},
+		{`{}.none { (_, _) -> true }`, `true`},
+		{d + `d.sum { (_, v) -> v * 2 }`, `12`},
+		{d + `d.sum { (_, v) -> v / 2.0 }`, `3.0`},
+		{`{}.sum { (_, v) -> v }`, `0`},
+		{d + `d.min_by { (_, v) -> -v }`, `["c",3]`},
+		{d + `d.max_by { (_, v) -> v }`, `["c",3]`},
+		{`{a: 1, b: 1}.max_by { (_, v) -> v }`, `["a",1]`},
+		{`{}.min_by { (_, v) -> v }`, `nil`},
+		{d + `d.group_by { (_, v) -> v % 2 == 0 ? "even" : "odd" }`, `{"odd":{"a":1,"c":3},"even":{"b":2}}`},
+		{d + `d.partition { (_, v) -> v > 1 }`, `[{"b":2,"c":3},{"a":1}]`},
+		{`{}.partition { (_, _) -> true }`, `[{},{}]`},
 		{d + `d.map_values { it * 10 }`, `{"a":10,"b":20,"c":30}`},
 		{d + `d.pick("c", "a", "z")`, `{"a":1,"c":3}`},
 		{d + `d.pick()`, `{}`},
@@ -75,7 +75,7 @@ m = Money(5)
 func TestDictRowsWalkASnapshot(t *testing.T) {
 	t.Parallel()
 
-	got, err := evalRow(t, `d = {a: 1}; n = d.count { (k, _v) -> d["z"] = 1; true }; [n, d.len]`)
+	got, err := evalRow(t, `d = {a: 1}; n = d.count { (k, _) -> d["z"] = 1; true }; [n, d.len]`)
 	if err != nil || got != `[1,2]` {
 		t.Errorf("got %s, %v", got, err)
 	}
@@ -85,11 +85,11 @@ func TestDictRowErrors(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct{ src, want string }{
-		{`{a: 1}.reduce { (acc, _k, _v) -> acc }`, "expects at least 2 argument(s)"},
-		{`{a: 1}.sum { (_k, _v) -> "x" }`, "sum expects numbers, got int and string"},
-		{`{a: 1, b: "x"}.min_by { (_k, v) -> v }`, "comparison of string with int failed"},
+		{`{a: 1}.reduce { (acc, _, _) -> acc }`, "expects at least 2 argument(s)"},
+		{`{a: 1}.sum { (_, _) -> "x" }`, "sum expects numbers, got int and string"},
+		{`{a: 1, b: "x"}.min_by { (_, v) -> v }`, "comparison of string with int failed"},
 		{`{a: 1}.pick([1])`, "pick:"},
-		{`{a: 1}.group_by { (_k, _v) -> [1] }`, "group_by: the closure returned array, which cannot be a dict key"},
+		{`{a: 1}.group_by { (_, _) -> [1] }`, "group_by: the closure returned array, which cannot be a dict key"},
 	}
 	for _, tc := range cases {
 		_, err := evalRow(t, tc.src)
