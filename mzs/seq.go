@@ -1131,7 +1131,10 @@ func seqBatches(c *Ctx, recv Value, args []Value, windows bool) (Value, error) {
 			}
 			if windows && len(kept.vals) == n {
 				// Slide by one: the window keeps n-1 of the last one.
+				// The vacated last slot is cleared, so the value that left the window is
+				// not kept alive past len, where the walk does not look (RFC 0011).
 				copy(kept.vals, kept.vals[1:])
+				kept.vals[n-1] = Value{}
 				kept.vals = kept.vals[:n-1]
 			}
 			for len(kept.vals) < n {
@@ -1160,6 +1163,8 @@ func seqBatches(c *Ctx, recv Value, args []Value, windows bool) (Value, error) {
 			}
 			batch := arrCopy(kept.vals)
 			if !windows {
+				// The delivered batch is a copy; the buffer lets go of its values.
+				clear(kept.vals)
 				kept.vals = kept.vals[:0]
 			}
 			return batch, true, nil
@@ -1220,6 +1225,10 @@ func seqvLast(c *Ctx, recv Value, args []Value) (Value, error) {
 				return Nil(), nil
 			}
 			return ring[(start+len(ring)-1)%len(ring)], nil
+		}
+		// The result is a second slice beside the ring, and is charged as one.
+		if err := c.allocCollection(len(ring), len(ring)); err != nil {
+			return Nil(), err
 		}
 		out := make([]Value, 0, len(ring))
 		out = append(out, ring[start:]...)
