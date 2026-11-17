@@ -1121,14 +1121,23 @@ func strWrap(c *Ctx, s string, args []Value) (Value, error) {
 	if err := c.Step(int64(len(s))/64 + 1); err != nil {
 		return Nil(), err
 	}
+	// The result is rooted as it grows and each line is charged as it is made — its
+	// bytes, and its slot against MaxCollection — so a text of many short words meets
+	// the memory budget while it is being wrapped, not after (§14.2).
 	var out []Value
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdGrowing(&out)
 	var line strings.Builder
 	lineW := int64(0)
 	flush := func() error {
-		if err := c.CheckCollection(len(out) + 1); err != nil {
+		if err := c.allocString(line.Len()); err != nil {
 			return err
 		}
 		out = append(out, Str(line.String()))
+		if err := c.allocCollection(len(out), 1); err != nil {
+			return err
+		}
 		line.Reset()
 		lineW = 0
 		return nil
@@ -1181,9 +1190,9 @@ func strIndent(c *Ctx, s string, args []Value) (Value, error) {
 	if err := c.Step(int64(len(s))/64 + 1); err != nil {
 		return Nil(), err
 	}
-	lines := strings.SplitAfter(s, "\n")
+	// The lines are walked twice with an iterator rather than split out into a slice.
 	n := 0
-	for _, l := range lines {
+	for l := range strings.SplitAfterSeq(s, "\n") {
 		if strings.TrimFunc(l, isTrimSpace) != "" {
 			n++
 		}
@@ -1193,7 +1202,7 @@ func strIndent(c *Ctx, s string, args []Value) (Value, error) {
 	}
 	var b strings.Builder
 	b.Grow(len(s) + n*len(prefix))
-	for _, l := range lines {
+	for l := range strings.SplitAfterSeq(s, "\n") {
 		if strings.TrimFunc(l, isTrimSpace) != "" {
 			b.WriteString(prefix)
 		}

@@ -121,6 +121,7 @@ for x in (seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }) { n += 
 		{"a flat_map's inner array beside another flat_map under a zip",
 			`(1..3).seq.flat_map { [it] }.zip((0..0).seq.flat_map { (_) -> [0, 0, "b" * 600000] })
 .map { it[0] == 2 ? ("z" * 600000).len : 0 }.sum`},
+		{"a wrap result being built", `x = ("abcdefghij " * 80000).wrap(5); x.len`},
 		{"a zip row being built", `seq { (i) -> i < 1 ? "a" * 600000 : nil }
 .zip(seq { (i) -> i < 1 ? "b" * 600000 : nil }).len`},
 		{"a uniq beside a flat_map that releases its inner cursors",
