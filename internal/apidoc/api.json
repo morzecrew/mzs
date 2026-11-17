@@ -1951,6 +1951,11 @@
     "sem": "the digest, in hex",
     "ex": ""
    },
+   "random": {
+    "sig": "`(n: int) -> string`",
+    "sem": "`n` bytes from `Options.CryptoRand`, in hex, so `random(16)` is a 128-bit token of 32 digits. **Absent unless the host sets `Options.CryptoRand`**; a negative `n` is an `argument` error, and so is a source that fails or runs short",
+    "ex": ""
+   },
    "sha1": {
     "sig": "`(s: string) -> string`",
     "sem": "the digest, in hex",

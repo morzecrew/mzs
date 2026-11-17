@@ -7,6 +7,7 @@
 package main
 
 import (
+	crand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,7 @@ func main() {
 	full.EnableTime = true
 	full.Now, full.Rand = time.Now, rand.New(rand.NewSource(1))
 	full.FS, full.FSMutations = probeFS{}, true
+	full.CryptoRand = crand.Reader
 
 	modules := map[string][]string{}
 	gates := map[string]string{}

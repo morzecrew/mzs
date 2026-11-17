@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -111,8 +112,10 @@ func TestCryptoRandomRefuses(t *testing.T) {
 
 func TestCryptoRandomIsAbsentWithoutCryptoRand(t *testing.T) {
 	t.Parallel()
+	// A seeded Rand is exactly what crypto.random must not fall back to: with Rand set
+	// and CryptoRand not, the member is still absent.
 	o := DefaultOptions()
-	o.Rand = nil
+	o.Rand = rand.New(rand.NewSource(7))
 	in := New(o)
 	v, err := in.Eval(context.Background(), `include crypto; crypto.keys.has("random")`, nil)
 	if err != nil || v.Inspect() != "false" {
