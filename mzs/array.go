@@ -2155,19 +2155,43 @@ func arrAccumulate(c *Ctx, recv Value, args []Value) (Value, error) {
 // do, is unspecified; the array must be sorted the way the closure compares.
 func arrBsearch(c *Ctx, recv Value, args []Value) (Value, error) {
 	// A range is probed where it is, not materialised first: building 1..10_000_000 to
-	// look at two dozen of its elements would cost what the search exists to avoid.
-	n, at := 0, func(int) Value { return Nil() }
+	// look at two dozen of its elements would cost what the search exists to avoid. Its
+	// length is not Range.Len, which is clamped for the rows that do materialise: the
+	// search runs over the exact distance between the ends, in uint64, so a range of
+	// three billion elements is searched to its last one.
+	var (
+		last  uint64 // the last offset: the span is 0..last, which no count could hold for every int64
+		empty bool
+		at    func(uint64) Value
+	)
 	if recv.Kind() == KRange {
 		r := recv.rng()
-		n, at = r.Len(), func(i int) Value { return Int(r.At(i)) }
+		hi := r.Hi
+		if r.Excl {
+			empty = hi == math.MinInt64
+			hi--
+		}
+		empty = empty || hi < r.Lo
+		if !empty {
+			last = uint64(hi) - uint64(r.Lo) // exact in uint64, whatever the ends
+		}
+		lo := r.Lo
+		at = func(i uint64) Value { return Int(lo + int64(i)) }
 	} else {
 		xs, err := arrElems(c, recv)
 		if err != nil {
 			return Nil(), err
 		}
-		n, at = len(xs), func(i int) Value { return xs[i] }
+		empty = len(xs) == 0
+		if !empty {
+			last = uint64(len(xs) - 1)
+		}
+		at = func(i uint64) Value { return xs[i] }
 	}
-	lo, hi := 0, n-1
+	if empty {
+		return Nil(), nil
+	}
+	lo, hi := uint64(0), last
 	for lo <= hi {
 		if err := c.Step(1); err != nil {
 			return Nil(), err
@@ -2180,12 +2204,21 @@ func arrBsearch(c *Ctx, recv Value, args []Value) (Value, error) {
 		if r.Kind() != KInt {
 			return Nil(), c.TypeErrorf("%s: the closure returns an int (negative, 0 or positive), got %s", c.Name(), r.TypeName())
 		}
-		switch n := r.Int(); {
-		case n < 0:
+		switch d := r.Int(); {
+		case d < 0:
+			if mid == hi {
+				return Nil(), nil // mid + 1 would wrap past the last offset
+			}
 			lo = mid + 1
-		case n > 0:
+		case d > 0:
+			if mid == 0 {
+				return Nil(), nil
+			}
 			hi = mid - 1
 		default:
+			if mid > math.MaxInt64 {
+				return Nil(), c.ArgErrorf("%s: the match is at index %d, past the largest int", c.Name(), mid)
+			}
 			return Int(int64(mid)), nil
 		}
 	}

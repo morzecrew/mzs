@@ -153,6 +153,12 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		// A range is probed in place: ten million elements is past MaxCollection.
 		{`(1..10_000_000).bsearch { it <=> 7_777_777 }`, `7777776`},
 		{`(1..<1).bsearch { it <=> 1 }`, `nil`},
+		// Past Range.Len's clamp: the search runs over the exact span.
+		{`(1..3_000_000_000).bsearch { it <=> 3_000_000_000 }`, `2999999999`},
+		{`(1..3_000_000_000).bsearch { it <=> 3_000_000_001 }`, `nil`},
+		{`(-9_223_372_036_854_775_807 - 1..9_223_372_036_854_775_807).bsearch { it <=> -9_223_372_036_854_775_807 - 1 }`, `0`},
+		{`(0..9_223_372_036_854_775_807).bsearch { it <=> 9_223_372_036_854_775_807 }`, `9223372036854775807`},
+		{`(0..<5).bsearch { it <=> 4 }`, `4`},
 	}
 	for _, tc := range cases {
 		got, err := evalRow(t, tc.src)
