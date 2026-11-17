@@ -93,6 +93,7 @@ $ mzs -e 'include json; json.pretty({a: 1})'
 | `include url; url.parse_query("q=a+b")["q"]` | `a b` |
 | `include path; path.join("in", "x.json")` | `in/x.json` |
 | `include path; [path.stem("b.tar.gz"), path.ext("b.tar.gz")]` | `["b.tar",".gz"]` |
+| `include args; args.parse({width: 800, force: false})["width"]` | `800`, or what `--width` said, as an int |
 
 ## Regex
 

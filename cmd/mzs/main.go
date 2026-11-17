@@ -16,6 +16,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -204,6 +205,7 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if code, ok := mzs.ExitCode(err); ok {
 		// `exit(n)` is the program choosing its own status, not a failure: nothing is
 		// printed and nothing after it runs (§12.1).
+		flagHint(stderr, code, cfg.args)
 		return code
 	}
 	if err != nil {
@@ -331,6 +333,7 @@ func runLines(cfg *config, in *mzs.Interp, prog *mzs.Program, name, src string, 
 			// One line asking to stop stops the whole run: `exit` is about the process,
 			// and the lines after it are never read (§12.1).
 			stats()
+			flagHint(stderr, code, cfg.args)
 			return code
 		}
 		if err != nil {
@@ -510,18 +513,29 @@ func lintRegexes(w io.Writer, name, src string) {
 
 func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 	cfg = &config{vars: map[string]mzs.Value{}, ioOn: true, loaded: map[string]string{}}
-	positional := []string{}
 	endOfFlags := false
 
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		if endOfFlags || a == "" || a[0] != '-' || a == "-" {
-			if a == "-" && !endOfFlags && len(positional) == 0 {
-				cfg.file = "-"
-				continue
+			// The first positional ends mzs's flags: what comes after it is the script's
+			// (§15). It is the script path — a file, or `-` for stdin — unless -e already
+			// supplied the program, in which case it is the script's first argument.
+			if len(cfg.exprs) > 0 && a != "-" {
+				cfg.args = append([]string{}, argv[i:]...)
+				break
 			}
-			positional = append(positional, a)
-			continue
+			cfg.file = a
+			rest := argv[i+1:]
+			// A `--` right after the script path is how every script that takes flags
+			// was invoked before mzs stopped reading them there, so it is still dropped —
+			// unless a `--` before the script path already ended mzs's flags, which
+			// makes this one the script's own.
+			if !endOfFlags && len(rest) > 0 && rest[0] == "--" {
+				rest = rest[1:]
+			}
+			cfg.args = append([]string{}, rest...)
+			break
 		}
 		if a == "--" {
 			endOfFlags = true
@@ -694,15 +708,6 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 		}
 	}
 
-	if len(positional) > 0 {
-		if cfg.file == "" {
-			cfg.file, positional = positional[0], positional[1:]
-		}
-		cfg.args = positional
-	}
-	if len(cfg.exprs) > 0 && cfg.file != "" && cfg.file != "-" {
-		return nil, false, false, fmt.Errorf("-e and a script file are mutually exclusive")
-	}
 	if cfg.perLine && cfg.repl {
 		return nil, false, false, fmt.Errorf("-n reads stdin as data and --repl reads it as commands; pick one")
 	}
@@ -728,6 +733,36 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 		cfg.vars["$ARGV"] = mzs.Array(argv...)
 	}
 	return cfg, help, showVersion, nil
+}
+
+// mzsLongFlags is every long flag parseArgs knows. flagHint reads it, and a test holds it
+// to the switch in parseArgs.
+var mzsLongFlags = []string{
+	"--help", "--version", "--eval", "--print", "--no-print", "--json", "--bool", "--io",
+	"--no-io", "--read-only", "--in", "--for-each-line", "--print-each-line", "--var",
+	"--vars", "--vars-file", "--timeout", "--steps", "--mem", "--tasks", "--time", "--stats",
+	"--no-trace", "--rand", "--tokens", "--ast", "--check", "--repl", "--net",
+}
+
+// flagHint is the transition note of §15. mzs used to read its own flags anywhere on
+// the command line; now everything after the script path is the script's. A script that
+// stops with the usage status while one of its arguments spells an mzs flag was most
+// likely run the old way, so the CLI says where that flag went. Only long flags count: a
+// short one such as -v or -n is as likely the script's own.
+func flagHint(stderr io.Writer, code int, args []string) {
+	if code != exitUsage {
+		return
+	}
+	for _, a := range args {
+		if a == "--" {
+			return
+		}
+		name, _, _ := splitFlag(a)
+		if slices.Contains(mzsLongFlags, name) {
+			fmt.Fprintf(stderr, "mzs: note: %s after the script path is the script's argument, not mzs's; put mzs flags before the script path\n", name)
+			return
+		}
+	}
 }
 
 // splitFlag separates "--name=value" without disturbing "-v" style flags.
@@ -825,8 +860,8 @@ func isTerminal(r io.Reader) bool {
 const usage = `mzs — a small scripting language for fast one-liners
 
 Usage:
-  mzs [flags] script.mzs [args...]
-  mzs [flags] -e '<source>' ...
+  mzs [flags] script.mzs [args...]   everything after the script is the script's ($ARGV)
+  mzs [flags] -e '<source>' [args...]
   cat script.mzs | mzs -
   cat data | mzs -n -e '<source>'
   mzs                      # REPL, when stdin is a terminal

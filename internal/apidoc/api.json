@@ -1637,6 +1637,18 @@
   }
  },
  "modules": {
+  "args": {
+   "parse": {
+    "sig": "`(spec: dict, opts: dict = {}) -> dict`",
+    "sem": "parses `$ARGV`, or `opts[\"argv\"]`, against `spec`. The result has every flag by its spec key, in spec order, then `rest`, the positionals",
+    "ex": "`args.parse({n: 1})[\"n\"]`"
+   },
+   "usage": {
+    "sig": "`(spec: dict, opts: dict = {}) -> string`",
+    "sem": "the text `--help` prints",
+    "ex": "`eprint(args.usage(spec))`"
+   }
+  },
   "crypto": {
    "base64": {
     "sig": "`(s: string, alphabet: string = \"std\") -> string`",
@@ -2140,6 +2152,7 @@
   }
  },
  "gates": {
+  "args": "",
   "crypto": "",
   "csv": "",
   "date": "--time",

@@ -95,6 +95,7 @@ A module of your own has no function half, so the message stops at the rule:
 | `test` | `case eq ne near raises skip group` | none |
 | `csv` | `parse rows str line` | none |
 | `path` | `join dir base ext stem clean split rel is_abs match` | none |
+| `args` | `parse usage` | none; reads `$ARGV` |
 
 A module the host did not enable is absent, and the diagnostic names the option instead of
 the symptom:
@@ -123,6 +124,7 @@ A host adds modules of its own with `RegisterModule` and removes built-ins with
 - [./url.md](./url.md) — taking a URL apart and putting one together
 - [./csv.md](./csv.md) — reading and writing CSV, and streaming a file through `csv.rows`
 - [./path.md](./path.md) — file names taken apart and put together, lexically and always with `/`
+- [./args.md](./args.md) — a script's command-line flags, declared in one dict
 - [../language/async.md](../language/async.md) — `tasks.all` and `tasks.race`, and the tasks they wait for
 - [./test.md](./test.md) — cases with names, and the runner behind `mzs test`
 - [./custom.md](./custom.md) — `include … from` and `export`

@@ -1,0 +1,65 @@
+#!/usr/bin/env mzs
+# 52 — a script with flags of its own: the args module.
+#
+#   mzs examples/52_args.mzs --width 640 -fq 0.5 --tag web --tag hero photo.png banner.png
+#   mzs examples/52_args.mzs --help                 # the usage, from the same dict; exit 0
+#   mzs examples/52_args.mzs --widht 640 photo.png  # the near miss and the usage; exit 2
+#   chmod +x examples/52_args.mzs && examples/52_args.mzs --help
+#
+# Everything after the script path is the script's (§15), so the shebang line works: the
+# kernel runs `mzs examples/52_args.mzs --help`, and --help reaches this script, not mzs.
+# args.parse reads $ARGV against one dict. The kind of each default decides how a flag's
+# text becomes a value, so `width: 800` makes --width an int and `force: false` makes
+# --force a bool with a --no-force. A mistake on the command line is answered the way mzs
+# answers its own: the message and the usage on stderr, and exit status 2 (§12.21).
+#
+# Nothing is resized: the script prints what it would do with each file.
+
+include args
+include path
+
+spec = {
+    width: {default: 800, help: "target width in pixels"},
+    quality: {default: 0.85, short: "q", help: "JPEG quality, 0 to 1"},
+    out: {default: nil, help: "output directory (default: next to each file)"},
+    force: {default: false, short: "f", help: "overwrite what is there"},
+    tag: {default: [], help: "a label for the output"},
+    dry_run: {default: true, help: "only say what would happen"},
+}
+opt = args.parse(spec, {usage: "52_args.mzs [flags] <image>…", min: 1})
+
+if opt["quality"] < 0 || opt["quality"] > 1 {
+    eprintln("52_args.mzs: --quality is between 0 and 1, got ${opt["quality"]}")
+    exit(2)
+}
+
+{width, quality, out, force, tag} = opt
+println("${opt["dry_run"] ? "would resize" : "resizing"} ${opt["rest"].len} file(s) to ${width}px, quality ${quality}")
+for f in opt["rest"] {
+    name = path.stem(f) + "_" + width.str + path.ext(f)
+    target = path.join(out ?? path.dir(f), name)
+    println("  ${f} → ${target}${force ? " (overwriting)" : ""}${tag.empty ? "" : "  tags: " + tag.join(", ")}")
+}
+
+# --- the same spec, against argument lists of our own ------------------------------
+
+# {argv: [...]} parses a list instead of $ARGV, and {exit: false} turns a usage error into
+# an `argument` error the script can catch, with {flag, reason} in its data — which is how
+# a test checks a script's command line without running a process.
+println("")
+println("what the spec says to other command lines")
+println("")
+for argv in [
+    ["--width=1_024", "--no-dry-run", "a.png"],
+    ["-q", "fast", "a.png"],
+    ["--widht", "9", "a.png"],
+    [],
+] {
+    shown = argv.empty ? "(nothing)" : argv.join(" ")
+    r = try args.parse(spec, {argv: argv, exit: false, min: 1}) else (e) -> e
+    if r.has("rest") {
+        println("  ${shown.ljust(36)} → width ${r["width"]}, dry run ${r["dry_run"]}")
+    } else {
+        println("  ${shown.ljust(36)} → ${r["data"]["reason"]}: ${r["message"].replace("args.parse: ", "")}")
+    }
+}
