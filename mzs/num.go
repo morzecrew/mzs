@@ -714,9 +714,10 @@ func parseStrictFloat(s string) (float64, bool) {
 
 // numDiv is **floored** division, the partner of `%` (§8.3): `%` takes the sign of the
 // divisor, so the quotient that makes `div(a, b) * b + a % b == a` hold is the floor of
-// the true quotient, not the truncation `/` gives. Two ints give an int — dividing by 0
-// is the `zero-division` error `/` raises, and MinInt64 by -1 promotes to Float as
-// `/` does (D9). Any float operand gives the float floor, and a float division by zero
+// the true quotient, not the truncation `/` gives. The identity is exact while its product
+// stays an int; `div(1, MinInt64) * MinInt64` is past int64 and promotes (D9). Two ints
+// give an int — dividing by 0 is the `zero-division` error `/` raises, and MinInt64 by -1
+// promotes to Float as `/` does (D9). Any float operand gives the float floor, and a float division by zero
 // is IEEE, as it is for `/`.
 func numDiv(c *Ctx, recv Value, args []Value) (Value, error) {
 	b, err := argNum(c, args[0])

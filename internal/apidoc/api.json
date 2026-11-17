@@ -562,7 +562,7 @@
    },
    "div": {
     "sig": "`(b) -> number`",
-    "sem": "**floored** division, the partner of `%`: `div(a, b) * b + a % b == a`, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). A Float operand gives the Float floor, IEEE on a zero divisor",
+    "sem": "**floored** division, the partner of `%`: `div(a, b) * b + a % b == a` while every step stays an Int, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). So does a product `div(a, b) * b` past the int64 range — `a = 1, b = MinInt64` — and then the identity holds only to Float precision. A Float operand gives the Float floor, IEEE on a zero divisor",
     "ex": ""
    },
    "downto": {
@@ -721,7 +721,7 @@
    },
    "div": {
     "sig": "`(b) -> number`",
-    "sem": "**floored** division, the partner of `%`: `div(a, b) * b + a % b == a`, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). A Float operand gives the Float floor, IEEE on a zero divisor",
+    "sem": "**floored** division, the partner of `%`: `div(a, b) * b + a % b == a` while every step stays an Int, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). So does a product `div(a, b) * b` past the int64 range — `a = 1, b = MinInt64` — and then the identity holds only to Float precision. A Float operand gives the Float floor, IEEE on a zero divisor",
     "ex": ""
    },
    "downto": {

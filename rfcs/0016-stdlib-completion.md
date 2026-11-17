@@ -264,6 +264,8 @@ Decisions:
   of 0 is the same `zero-division` error, `div(MinInt64, -1)` promotes to a float as `/`
   does (D9), and a float operand gives the float floor with IEEE on a zero divisor. The
   only difference is the direction of rounding, which is what makes it `%`'s partner.
+  The identity `div(a, b) * b + a % b == a` is exact while the product stays an int; at
+  `a = 1, b = MinInt64` the product is past int64 and promotes, and the SPEC says so.
 * **`sign` is an int for either kind**, so it can multiply anything. `sign(-0.0)` is `0`.
   NaN has no sign, and any answer would be a guess, so it is an `argument` error.
 * **`gcd` and `lcm` take ints only.** A float has no divisors, and truncating one would be

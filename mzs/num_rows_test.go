@@ -25,6 +25,8 @@ func TestNumberRowsOfRFC0016(t *testing.T) {
 		{`div(7, 2.0)`, `3.0`},
 		{`div(7.5, 0)`, `Infinity`},
 		{`7.div(2)`, `3`},
+		{`div(1, -9223372036854775807 - 1)`, `-1`},
+		{`b = -9223372036854775807 - 1; div(1, b) * b`, `9223372036854776000.0`}, // past int64: promotes
 
 		// sign is an int whatever the receiver.
 		{`sign(-5)`, `-1`},

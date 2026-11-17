@@ -74,7 +74,10 @@ silent swap.
 
 `div` is **floored** division, the partner of `%`. `/` truncates toward zero and `%` takes
 the sign of the divisor, so `-7 / 2 * 2 + -7 % 2` is `-5`, not `-7`; `div` is the quotient
-that makes the identity hold — `div(a, b) * b + a % b == a` for every pair of ints.
+that makes the identity hold — `div(a, b) * b + a % b == a` for every pair of ints whose
+product `div(a, b) * b` stays in the int64 range. Past it, as for `div(1, MinInt64) * MinInt64`,
+the product promotes to a float like any int overflow, and the identity holds only as far as
+float precision does.
 
 ```
 -7 / 2            # -3      — truncated

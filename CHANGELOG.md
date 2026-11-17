@@ -27,7 +27,7 @@ and the release is still ahead of it.
     `chunk_while`, `accumulate` (the running `reduce`) and `bsearch`.
   - `avg` and `average` now suggest `mean` (SPEC §12.3, §12.4).
 - **Number rows and math members** (RFC 0016, part 4).
-  - `div(a, b)` is floored division, the partner of `%`, so `div(a, b) * b + a % b == a`
+  - `div(a, b)` is floored division, the partner of `%`, so `div(a, b) * b + a % b == a` while the arithmetic stays in int64
     and `div(-7, 2)` is `-4` where `-7 / 2` is `-3`.
   - `sign` gives `-1`, `0` or `1`; `gcd` and `lcm` take ints and are never negative;
     `is_nan` and `is_inf` are the IEEE tests, which `==` cannot be.
