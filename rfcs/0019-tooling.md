@@ -163,9 +163,11 @@ Decisions:
 * **`unused-variable` is about a function's locals.** A name at file scope is the
   program's, and the one-liner `x = 1` that the REPL and `-e` are made of is not dead.
   An assignment that is the last statement of its block is the block's value and is
-  exempt, as the RFC asks, and a `_`-prefixed name is unused on purpose. Only a plain
-  `name = …`, `:=`, `||=` or `??=` that creates the binding is a candidate; a
-  destructuring pattern is not, yet.
+  exempt, as the RFC asks, and a `_`-prefixed name is unused on purpose. A `name = …`,
+  `:=`, `||=` or `??=` that creates the binding is a candidate, and so is each name a
+  destructuring assignment creates. A `for` header's names are loop variables and are
+  not. The last-statement exemption takes a local off the list without marking it read,
+  so `{ (x) -> x = 1 }` still warns that the parameter is never used.
 * **`unreachable` fires once per block**, at the first dead statement. `raise` and `exit`
   count only when they resolve to the built-ins.
 * **`constant-condition` looks at the literal as written**, before folding, so `if DEBUG`

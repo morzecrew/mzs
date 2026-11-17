@@ -150,9 +150,12 @@ type compiler struct {
 	// fnDepth counts the function bodies being compiled. A variable is a local only in
 	// one; at file scope a name is the program's, and a one-liner's `x = 1` is not dead.
 	fnDepth int
-	warns   []Warning
-	errs    []error
-	pool    []string // method and function names, built only to make a suggestion
+	// trackTargets is set while a destructuring assignment's pattern is bound, so the
+	// names it creates become unused-variable candidates (a `for` pattern's do not).
+	trackTargets bool
+	warns        []Warning
+	errs         []error
+	pool         []string // method and function names, built only to make a suggestion
 
 	// fields is every name any `record` in this unit declares (§7.8). A receiver's shape
 	// is no more known statically than its kind is, so `m.amount` survives step 2 the way
@@ -627,9 +630,10 @@ func (c *compiler) stmts(list []ast.Stmt) {
 		}
 		if i == len(list)-1 {
 			// The last statement is the block's value (§8.1): an assignment there is
-			// its result, not a dead store.
-			if t := assignedName(list[i]); t != "" {
-				c.markUsed(t)
+			// its result, not a dead store. Only a local the assignment created is
+			// exempted — it is not a read, so a parameter it overwrites stays unread.
+			for _, t := range assignedNames(list[i]) {
+				c.exemptLocal(t)
 			}
 		}
 		// §17: a closure literal whose value nothing receives. The last statement of a
@@ -857,7 +861,11 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		return n
 	case *ast.DestructureAssign:
 		n.Value = c.expr(n.Value)
+		// The names a destructuring creates are locals like any other's; a `for`
+		// header's are loop variables, which the same walk binds without tracking.
+		c.trackTargets = true
 		c.targets(n.Pattern, n.Op)
+		c.trackTargets = false
 		return n
 	case *ast.IndexExpr:
 		n.X, n.Index, n.Index2 = c.expr(n.X), c.expr(n.Index), c.expr(n.Index2)
@@ -940,6 +948,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 			c.push()
 			c.declare(n.Var)
 			n.Fallback = c.expr(n.Fallback)
+			c.warnUnusedVars()
 			c.pop()
 		}
 		c.block(n.Ensure)
@@ -1186,6 +1195,9 @@ func (c *compiler) target(t *ast.Ident, op token.Kind) {
 	t.Slot, t.Ref = -1, ast.RefLocal
 	if op == token.DECLARE || !c.known(t.Name) {
 		c.declare(t.Name)
+		if c.trackTargets {
+			c.noteLocal(t)
+		}
 	}
 }
 
@@ -1273,6 +1285,7 @@ func (c *compiler) armPattern(arm *ast.MatchArm) {
 		c.stmts(arm.Body.Stmts)
 		arm.Body.FrameSize = c.scope.size
 	}
+	c.warnUnusedVars()
 	c.pop()
 }
 
@@ -1853,18 +1866,40 @@ func (c *compiler) warnUnusedVars() {
 	}
 }
 
-// assignedName is the plain name a statement assigns, or "".
-func assignedName(s ast.Stmt) string {
+// assignedNames are the plain names a statement assigns: one for `x = …`, every name
+// of the pattern for a destructuring assignment, none for anything else.
+func assignedNames(s ast.Stmt) []string {
 	e, ok := s.(*ast.ExprStmt)
 	if !ok {
-		return ""
+		return nil
 	}
-	if a, ok := e.X.(*ast.AssignExpr); ok {
+	switch a := e.X.(type) {
+	case *ast.AssignExpr:
 		if id, ok := a.Target.(*ast.Ident); ok {
-			return id.Name
+			return []string{id.Name}
+		}
+	case *ast.DestructureAssign:
+		var out []string
+		ast.Walk(a.Pattern, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				out = append(out, id.Name)
+			}
+			return true
+		})
+		return out
+	}
+	return nil
+}
+
+// exemptLocal takes name off the unused-variable candidates of the scope that declares
+// it. Nothing is marked as read, so an unread parameter is still warned about.
+func (c *compiler) exemptLocal(name string) {
+	for s := c.scope; s != nil; s = s.parent {
+		if s.names[name] {
+			delete(s.vars, name)
+			return
 		}
 	}
-	return ""
 }
 
 // constKey is a dict key written as a constant: a string without interpolation, an int

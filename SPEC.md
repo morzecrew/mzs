@@ -5002,7 +5002,7 @@ Rules:
   | `field-shadows-method` | a `record` field named like a stdlib method (§7.8): the field wins on that shape, and the warning names the prefix spelling that still reaches the method |
   | `function-shadows-field` | a call of a function this unit can see whose name is also a field of an included module's record (RFC 0003) |
   | `include-rebinds` | an `include` whose name is already bound |
-  | `unused-variable` | a local assigned inside a function and never read. A `_`-prefixed name is exempt, and so is an assignment that is the last statement of its block, which is the block's value (§8.1). Names at file scope are the program's and are not locals |
+  | `unused-variable` | a local created inside a function, by an assignment or a destructuring one, and never read. A `_`-prefixed name is exempt, and so is an assignment that is the last statement of its block, which is the block's value (§8.1). Names at file scope are the program's and are not locals, and a `for` header's names are loop variables |
   | `unreachable` | a statement after `return`, `break`, `next`, or a call of the built-in `raise` or `exit`, in the same block; once per block |
   | `constant-condition` | `if true`, `if false` and `while false` written as literals. `while true` is how a loop that ends by `break` is spelled and is not warned about |
   | `duplicate-key` | a dict literal that writes the same constant key twice; the second wins |
