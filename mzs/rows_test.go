@@ -194,3 +194,46 @@ func TestRowCharges(t *testing.T) {
 		t.Errorf("transposing 1500 cells cost %d steps; want at least one per cell", d)
 	}
 }
+
+// A closure that raises stops the row and the error reaches the script unchanged, from
+// every row that calls one — the first entry it is given is enough.
+func TestRowsPassAClosureErrorThrough(t *testing.T) {
+	t.Parallel()
+
+	const boom = `{ (*_) -> raise("boom") }`
+	srcs := []string{
+		`{a: 1}.reduce(0) ` + boom,
+		`{a: 1}.count ` + boom,
+		`{a: 1}.none ` + boom,
+		`{a: 1}.sum ` + boom,
+		`{a: 1}.min_by ` + boom,
+		`{a: 1}.max_by ` + boom,
+		`{a: 1}.group_by ` + boom,
+		`{a: 1}.partition ` + boom,
+		`{a: 1}.map_values ` + boom,
+		`[1, 2].product ` + boom,
+		`[1, 2].chunk_while ` + boom,
+		`[1, 2].accumulate ` + boom,
+		`[1, 2].accumulate(0) ` + boom,
+		`[1, 2].bsearch ` + boom,
+	}
+	for _, src := range srcs {
+		got, err := evalRow(t, `try `+src+` else (e) -> e["message"]`)
+		if err != nil || got != `"boom"` {
+			t.Errorf("%s: got %s, %v; want the closure's error", src, got, err)
+		}
+	}
+}
+
+// A row that is not given a dict says so, whichever row it is.
+func TestDictRowsRefuseAnArrayThroughUFCS(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"reduce", "count", "none", "sum", "min_by", "max_by", "group_by", "partition", "map_values", "pick", "omit"} {
+		c := colCtx(t, DefaultOptions())
+		_, err := colInvoke(c, KDict, name, colInts(1, 2), dictRowArgs[name]...)
+		if err == nil || !strings.Contains(err.Error(), "expects a dict") {
+			t.Errorf("%s on an array: %v", name, err)
+		}
+	}
+}
