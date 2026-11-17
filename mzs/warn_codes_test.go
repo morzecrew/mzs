@@ -55,6 +55,8 @@ func TestWarningCodes(t *testing.T) {
 		{"duplicate key", "{a: 1, \"a\": 2, b: 3}", []string{"1:duplicate-key"}},
 		{"distinct keys", "{a: 1, b: 2}", nil},
 		{"duplicate int key", "{1 -> \"a\", 1 -> \"b\"}", []string{"1:duplicate-key"}},
+		{"duplicate signed key", "{-1 -> \"a\", -1 -> \"b\", 1 -> \"c\"}", []string{"1:duplicate-key"}},
+		{"after a group that raises midway", "fn f() {\n  (raise(\"x\"); 0)\n  2\n}\ntry f() else 0", []string{"2:unreachable", "3:unreachable"}},
 		{"an int and a string are two keys", "{1 -> \"a\", \"1\": \"b\"}", nil},
 		{"after a grouped raise", "fn f() {\n  (raise(\"x\"))\n  2\n}\ntry f() else 0", []string{"3:unreachable"}},
 		{"self compare", "x = 1\nx == x", []string{"2:self-compare"}},

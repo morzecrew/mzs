@@ -1925,6 +1925,18 @@ func constKey(k ast.Expr) (id, shown string, pos token.Pos, ok bool) {
 	case *ast.IntLit:
 		v := strconv.FormatInt(n.Value, 10)
 		return "i:" + v, v, n.Start, true
+	case *ast.UnaryExpr:
+		// A sign on an int literal is still a constant key; folding runs after this.
+		lit, ok := n.X.(*ast.IntLit)
+		if !ok || (n.Op != token.MINUS && n.Op != token.PLUS) {
+			return "", "", pos, false
+		}
+		val := lit.Value
+		if n.Op == token.MINUS {
+			val = -val
+		}
+		v := strconv.FormatInt(val, 10)
+		return "i:" + v, v, n.OpPos, true
 	case *ast.BoolLit:
 		v := strconv.FormatBool(n.Value)
 		return "b:" + v, v, n.Start, true
@@ -1942,9 +1954,14 @@ func (c *compiler) leaves(s ast.Stmt) bool {
 		return true
 	case *ast.ExprStmt:
 		// Parentheses group statements and open no scope: `(raise(x))` leaves as surely as
-		// `raise(x)` does, and so does a group whose last statement leaves.
-		if g, ok := n.X.(*ast.GroupExpr); ok && len(g.Stmts) > 0 {
-			return c.leaves(g.Stmts[len(g.Stmts)-1])
+		// `raise(x)` does, and so does a group any statement of which leaves.
+		if g, ok := n.X.(*ast.GroupExpr); ok {
+			for _, s := range g.Stmts {
+				if c.leaves(s) {
+					return true
+				}
+			}
+			return false
 		}
 		if call, ok := n.X.(*ast.CallExpr); ok {
 			if id, ok := call.Fn.(*ast.Ident); ok && id.Ref == ast.RefFunc && (id.Name == "raise" || id.Name == "exit") {
