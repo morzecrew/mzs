@@ -1,6 +1,8 @@
 package mzs
 
 import (
+	"math"
+	"math/big"
 	"sort"
 	"strings"
 )
@@ -73,6 +75,15 @@ func init() {
 		{Name: "array", Fn: arrArray},
 		{Name: "dict", Fn: arrDict},
 		{Name: "json", Fn: arrJSON},
+		// RFC 0016: statistics, reshaping and running folds.
+		{Name: "mean", Fn: arrMean},
+		{Name: "median", Fn: arrMedian},
+		{Name: "product", Max: 1, Fn: arrProduct},
+		{Name: "transpose", Fn: arrTranspose},
+		{Name: "rotate", Max: 1, Fn: arrRotate},
+		{Name: "chunk_while", Min: 1, Max: 1, Fn: arrChunkWhile},
+		{Name: "accumulate", Min: 1, Max: 2, Fn: arrAccumulate},
+		{Name: "bsearch", Min: 1, Max: 1, Fn: arrBsearch},
 		{Name: "sample", Fn: arrSample, NeedsRand: true},
 		{Name: "shuffle", Fn: arrShuffle, NeedsRand: true},
 	}
@@ -978,6 +989,12 @@ func arrExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		return Nil(), nil
 	}
 	best, bestKey := Nil(), Nil()
+	// The best key so far is a closure result nothing else holds; it stays live while
+	// the next closure runs (§14.2).
+	slot := []Value{Nil()}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdVals(slot)
 	for i, x := range xs {
 		key, err := c.CallClosure(x)
 		if err != nil {
@@ -985,6 +1002,7 @@ func arrExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		}
 		if i == 0 {
 			best, bestKey = x, key
+			slot[0] = key
 			continue
 		}
 		n, err := arrCompare(c, key, bestKey)
@@ -993,6 +1011,7 @@ func arrExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
 		}
 		if (want < 0 && n < 0) || (want > 0 && n > 0) {
 			best, bestKey = x, key
+			slot[0] = key
 		}
 	}
 	return best, nil
@@ -1848,4 +1867,381 @@ func rngStep(c *Ctx, recv Value, args []Value) (Value, error) {
 		return recv, nil
 	}
 	return arrayOf(out), nil
+}
+
+// ---------------------------------------------------------------------------
+// Statistics, reshaping and running folds (RFC 0016)
+// ---------------------------------------------------------------------------
+
+// arrNumbers is the receiver as float64s, for the rows whose answer is a float whatever
+// the elements were. A non-number is the same type error sum gives.
+func arrNumbers(c *Ctx, recv Value) ([]Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return nil, err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return nil, err
+	}
+	for _, x := range xs {
+		if !x.IsNum() {
+			return nil, c.TypeErrorf("%s expects numbers, got %s", c.Name(), x.TypeName())
+		}
+	}
+	return xs, nil
+}
+
+// arrMean is the arithmetic mean, always a float — `sum / len` on ints is integer
+// division (D9), which is the mistake this row exists to remove. nil for no elements.
+func arrMean(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	if len(xs) == 0 {
+		return Nil(), nil
+	}
+	sum, finite := 0.0, true
+	for _, x := range xs {
+		if !x.IsNum() {
+			return Nil(), c.TypeErrorf("%s expects numbers, got %s", c.Name(), x.TypeName())
+		}
+		f := x.Float()
+		finite = finite && !math.IsInf(f, 0)
+		sum += f
+	}
+	n := float64(len(xs))
+	if math.IsInf(sum, 0) && finite {
+		// Finite numbers whose sum overflows can still have a mean that does not:
+		// [1.7e308, 1.7e308]. No reordering of float64 additions is right for every input
+		// — scaling down to dodge the overflow loses the subnormal residue that is left
+		// when large values cancel — so this path, which only runs once a sum has
+		// overflowed, adds exactly instead. A float64 has 2098 bits from its largest
+		// exponent to its smallest subnormal; with 64 more for the carries, every partial
+		// sum is exact, and the one division by n is the only rounding before the result
+		// is rounded to the nearest float64. It is a second walk, and charged as one.
+		if err := arrIter(c, xs); err != nil {
+			return Nil(), err
+		}
+		exact := new(big.Float).SetPrec(2098 + 64)
+		var f big.Float
+		f.SetPrec(53)
+		for _, x := range xs {
+			exact.Add(exact, f.SetFloat64(x.Float()))
+		}
+		exact.Quo(exact, new(big.Float).SetPrec(64).SetInt64(int64(len(xs))))
+		mean, _ := exact.Float64()
+		return Float(mean), nil
+	}
+	return Float(sum / n), nil
+}
+
+// arrMedian is the middle element of the sorted numbers — an int stays an int — or the
+// mean of the middle two, a float, for an even count. nil for no elements.
+func arrMedian(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrNumbers(c, recv)
+	if err != nil || len(xs) == 0 {
+		return Nil(), err
+	}
+	// Sorted the way `<` compares numbers, not by their float64 values, which would
+	// collapse ints past 2^53 into one another and pick the wrong middle.
+	sorted := append([]Value(nil), xs...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		n, _ := compare(sorted[i], sorted[j])
+		return n < 0
+	})
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid], nil
+	}
+	// The mean of the two middles, rounded once. No float64 formula is right for every
+	// pair: converting an int past 2^53 first loses its low bits, adding first can
+	// overflow, and halving first rounds 5e-324 to 0. So two finite middles are added
+	// exactly — an int as its int64, a float as its float64 — halved, and only then
+	// rounded to the nearest float64, which is finite since both middles are.
+	x, y := sorted[mid-1], sorted[mid]
+	a, b := x.Float(), y.Float()
+	if math.IsInf(a, 0) || math.IsInf(b, 0) || math.IsNaN(a) || math.IsNaN(b) {
+		return Float((a + b) / 2), nil
+	}
+	sum := new(big.Float).SetPrec(2098 + 64)
+	sum.Add(exactNumber(x), exactNumber(y))
+	half, _ := sum.SetMantExp(sum, -1).Float64()
+	return Float(half), nil
+}
+
+// exactNumber is a finite number as a big.Float, with no rounding: an int keeps all 64
+// bits instead of the 53 that Value.Float would leave it.
+func exactNumber(v Value) *big.Float {
+	if v.Kind() == KInt {
+		return new(big.Float).SetInt64(v.Int())
+	}
+	return new(big.Float).SetFloat64(v.Float())
+}
+
+// arrProduct multiplies the elements, or the closure's values, the way sum adds them:
+// ints stay ints until the product overflows, and nothing multiplies to 1.
+func arrProduct(c *Ctx, recv Value, args []Value) (Value, error) {
+	if err := arrOnlyClosure(c, args); err != nil {
+		return Nil(), err
+	}
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	acc := Int(1)
+	for _, x := range xs {
+		v := x
+		if c.HasClosure() {
+			if v, err = c.CallClosure(x); err != nil {
+				return Nil(), err
+			}
+		}
+		if acc, err = arrMul(c, acc, v); err != nil {
+			return Nil(), err
+		}
+	}
+	return acc, nil
+}
+
+// arrMul is arrAdd's partner: an int product that overflows becomes a float, as an int
+// sum that overflows does.
+func arrMul(c *Ctx, a, b Value) (Value, error) {
+	if !a.IsNum() || !b.IsNum() {
+		return Nil(), c.TypeErrorf("%s expects numbers, got %s and %s", c.Name(), a.TypeName(), b.TypeName())
+	}
+	if a.Kind() == KInt && b.Kind() == KInt {
+		x, y := a.Int(), b.Int()
+		if x == 0 || y == 0 {
+			return Int(0), nil
+		}
+		p := x * y
+		if p/y == x && !(x == -1 && y == math.MinInt64) && !(y == -1 && x == math.MinInt64) {
+			return Int(p), nil
+		}
+		return Float(float64(x) * float64(y)), nil
+	}
+	return Float(a.Float() * b.Float()), nil
+}
+
+// arrTranspose turns rows into columns. Every row is an array of the same length — a
+// ragged table has no transpose, and padding it with nil would invent cells — and []
+// transposes to [].
+func arrTranspose(c *Ctx, recv Value, args []Value) (Value, error) {
+	rows, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, rows); err != nil {
+		return Nil(), err
+	}
+	if len(rows) == 0 {
+		return Array(), nil
+	}
+	width := -1
+	for i, r := range rows {
+		if r.Kind() != KArray {
+			return Nil(), c.TypeErrorf("%s expects an array of arrays, got %s at index %d", c.Name(), r.TypeName(), i)
+		}
+		switch {
+		case width < 0:
+			width = r.Len()
+		case r.Len() != width:
+			return Nil(), c.ArgErrorf("%s: row %d has %d elements and row 0 has %d; a ragged table has no transpose", c.Name(), i, r.Len(), width)
+		}
+	}
+	if err := c.Step(int64(len(rows)) * int64(width+1)); err != nil {
+		return Nil(), err
+	}
+	if err := c.CheckCollection(width); err != nil {
+		return Nil(), err
+	}
+	cols := make([]Value, width)
+	for j := range cols {
+		col := make([]Value, len(rows))
+		for i, r := range rows {
+			col[i] = r.Elems()[j]
+		}
+		cols[j] = arrayOf(col)
+	}
+	return arrayOf(cols), nil
+}
+
+// arrRotate is a new array with the first n elements moved to the end; a negative n moves
+// the last ones to the front, and n wraps around the length.
+func arrRotate(c *Ctx, recv Value, args []Value) (Value, error) {
+	n := int64(1)
+	if len(args) == 1 {
+		if args[0].Kind() != KInt {
+			return Nil(), c.TypeErrorf("%s expects an int, got %s", c.Name(), args[0].TypeName())
+		}
+		n = args[0].Int()
+	}
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	out := make([]Value, len(xs))
+	if len(xs) == 0 {
+		return arrayOf(out), nil
+	}
+	k := int(((n % int64(len(xs))) + int64(len(xs))) % int64(len(xs)))
+	copy(out, xs[k:])
+	copy(out[len(xs)-k:], xs[:k])
+	return arrayOf(out), nil
+}
+
+// arrChunkWhile cuts the elements into runs: a neighbour joins the run while the closure
+// says yes for (previous, next). each_slice cuts by count; this cuts by content.
+func arrChunkWhile(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	var out []Value
+	if len(xs) == 0 {
+		return arrayOf(out), nil
+	}
+	run := []Value{xs[0]}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdGrowing(&out)
+	c.holdGrowing(&run)
+	for i := 1; i < len(xs); i++ {
+		r, err := c.CallClosure(xs[i-1], xs[i])
+		if err != nil {
+			return Nil(), err
+		}
+		if !r.Truthy() {
+			out = append(out, arrayOf(run))
+			run = nil
+		}
+		run = append(run, xs[i])
+	}
+	return arrayOf(append(out, arrayOf(run))), nil
+}
+
+// arrAccumulate is reduce with every step kept: element i of the answer is what reduce
+// would return for the first i+1 elements. So the answer is as long as the receiver, and
+// its last element is the reduce. Without an initial value the first element seeds it,
+// as reduce's does. (Not `scan`: that is Ruby's spelling of `matches`, §19.2.)
+func arrAccumulate(c *Ctx, recv Value, args []Value) (Value, error) {
+	pos := arrArgs(c, args)
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	out := make([]Value, 0, len(xs))
+	if len(xs) == 0 {
+		return arrayOf(out), nil
+	}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdGrowing(&out)
+	var acc Value
+	start := 0
+	if len(pos) == 1 {
+		acc = pos[0]
+	} else {
+		acc, start = xs[0], 1
+		out = append(out, acc)
+	}
+	for _, x := range xs[start:] {
+		if acc, err = c.CallClosure(acc, x); err != nil {
+			return Nil(), err
+		}
+		out = append(out, acc)
+	}
+	return arrayOf(out), nil
+}
+
+// arrBsearch finds an index in a sorted array by asking the closure where each probe
+// stands: negative when the element sorts before what is sought, 0 on a match, positive
+// after — `xs.bsearch { it <=> 42 }`. nil when nothing matches. Which match, if several
+// do, is unspecified; the array must be sorted the way the closure compares.
+func arrBsearch(c *Ctx, recv Value, args []Value) (Value, error) {
+	// A range is probed where it is, not materialised first: building 1..10_000_000 to
+	// look at two dozen of its elements would cost what the search exists to avoid. Its
+	// length is not Range.Len, which is clamped for the rows that do materialise: the
+	// search runs over the exact distance between the ends, in uint64, so a range of
+	// three billion elements is searched to its last one.
+	var (
+		last  uint64 // the last offset: the span is 0..last, which no count could hold for every int64
+		empty bool
+		at    func(uint64) Value
+	)
+	if recv.Kind() == KRange {
+		r := recv.rng()
+		hi := r.Hi
+		if r.Excl {
+			empty = hi == math.MinInt64
+			hi--
+		}
+		empty = empty || hi < r.Lo
+		if !empty {
+			last = uint64(hi) - uint64(r.Lo) // exact in uint64, whatever the ends
+		}
+		lo := r.Lo
+		at = func(i uint64) Value { return Int(lo + int64(i)) }
+	} else {
+		xs, err := arrElems(c, recv)
+		if err != nil {
+			return Nil(), err
+		}
+		empty = len(xs) == 0
+		if !empty {
+			last = uint64(len(xs) - 1)
+		}
+		at = func(i uint64) Value { return xs[i] }
+	}
+	if empty {
+		return Nil(), nil
+	}
+	lo, hi := uint64(0), last
+	for lo <= hi {
+		if err := c.Step(1); err != nil {
+			return Nil(), err
+		}
+		mid := lo + (hi-lo)/2
+		r, err := c.CallClosure(at(mid))
+		if err != nil {
+			return Nil(), err
+		}
+		if r.Kind() != KInt {
+			return Nil(), c.TypeErrorf("%s: the closure returns an int (negative, 0 or positive), got %s", c.Name(), r.TypeName())
+		}
+		switch d := r.Int(); {
+		case d < 0:
+			if mid == hi {
+				return Nil(), nil // mid + 1 would wrap past the last offset
+			}
+			lo = mid + 1
+		case d > 0:
+			if mid == 0 {
+				return Nil(), nil
+			}
+			hi = mid - 1
+		default:
+			if mid > math.MaxInt64 {
+				return Nil(), c.ArgErrorf("%s: the match is at index %d, past the largest int", c.Name(), mid)
+			}
+			return Int(int64(mid)), nil
+		}
+	}
+	return Nil(), nil
 }

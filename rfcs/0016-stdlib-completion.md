@@ -1,6 +1,6 @@
 # RFC 0016 — Standard-library completion
 
-**Status:** Draft · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
+**Status:** Partly landed: §1–§2 (#32) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
 
 ## Summary
 
@@ -161,3 +161,37 @@ which has since landed on its own, in #18:
 `mzs/options.go` (`CryptoRand`), `renameTable` entries for the obvious near-misses
 (`avg → mean`, `average → mean`, beside the existing `sub → replace_first`), SPEC §12, `docs/stdlib`,
 apidoc regeneration, one corpus row per new function.
+
+## As landed
+
+### Part 1: dicts and arrays (#32)
+
+§1 and §2 landed together, in `mzs/dict.go` and `mzs/array.go`, with SPEC §12.3 and
+§12.4, `docs/stdlib`, and apidoc. Decisions:
+
+* **`scan` is `accumulate`.** `scan` is in the §19.2 rename table as Ruby's spelling of
+  `matches`. D17, which `TestNoAliasesForRenamedNames` enforces, keeps every name in that
+  table out of the library, so a string's `scan` keeps saying `matches`. `accumulate` is
+  Python's name for the same running fold (`itertools.accumulate`). The answer has one
+  element per input, with or without an initial value, and its last element is the
+  `reduce`.
+* **`dict.reduce` requires `init`.** A dict has no first element to seed the fold with.
+* **`dict.count`, `none` and `sum` require a closure.** The entry count is `len`, and a
+  dict entry is a pair, so there is no element truthiness to fall back on. This is the
+  rule `any` and `all` already follow. `TestDictHasNoOldNames` had listed `count` and
+  `none` as forbidden aliases of `len` and `all`. They are distinct operations, the ones
+  arrays have, so that table now says so, and `transform_values` points at `map_values`.
+* **`map_values` passes the value alone**, as proposed, and keeps the record label.
+  `pick` and `omit` do not keep it, because fewer fields is another shape. They keep the
+  receiver's order, not the order the keys are named in.
+* **`min_by` / `max_by` on a dict** give the `[k, v]` pair that `find` gives, the first
+  on a tie, and `nil` for `{}`.
+* **`median`** sorts numerically. An odd count gives the middle element itself, so an int
+  stays an int, and an even count gives the float mean of the two middle elements. That
+  mean is taken from the exact sum, an int as its int64, and rounded once, so ints past
+  2^53, sums past `MaxFloat64` and subnormals all come out right.
+* **`bsearch`** takes a closure in the `x <=> target` shape, since the language has
+  `<=>`. It costs a step per probe. Which index it gives when several elements match is
+  unspecified.
+* **`transpose`** refuses a ragged table with an `argument` error naming the row, and
+  charges a step per cell.

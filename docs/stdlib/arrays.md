@@ -109,6 +109,28 @@ without a closure and the receiver when called with one.
 `tally` and `group_by` return dicts whose keys keep their own kind — `[1,1,2].tally.keys`
 is two ints; JSON only renders keys as strings.
 
+## Statistics, reshaping and running folds
+
+```
+[1, 2, 3, 4].mean                # 2.5 — always a float; nil for []
+[4, 1, 3, 2].median              # 2.5 — the middle, or the mean of the middle two
+[2, 3, 4].product                # 24 — [] multiplies to 1
+[[1, 2], [3, 4], [5, 6]].transpose   # [[1,3,5],[2,4,6]] — a ragged table is an error
+[1, 2, 3, 4].rotate              # [2,3,4,1]
+[1, 2, 3, 4].rotate(-1)          # [4,1,2,3]
+[1, 2, 4, 5, 7].chunk_while { (a, b) -> b == a + 1 }   # [[1,2],[4,5],[7]]
+[1, 2, 3, 4].accumulate { (a, b) -> a + b }            # [1,3,6,10]
+[1, 2, 3].accumulate(10) { (a, b) -> a + b }           # [11,13,16]
+[1, 3, 5, 7, 9].bsearch { it <=> 7 }                   # 3
+[1, 3].bsearch { it <=> 2 }                            # nil
+```
+
+`mean` is there because `xs.sum / xs.len` is integer division on ints. Writing `avg` or
+`average` is a diagnostic that says `mean`. `accumulate` is `reduce` with every step kept,
+so its last element is the `reduce`. It is not called `scan`, Ruby's name for `matches`.
+`bsearch` needs a sorted array and a closure that compares the element with what is sought,
+`it <=> target`, and it costs a step per probe, not per element.
+
 ## Ordering
 
 ```

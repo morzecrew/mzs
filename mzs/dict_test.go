@@ -297,7 +297,9 @@ func TestDictHasNoOldNames(t *testing.T) {
 	}{
 		{"length", "len"},
 		{"size", "len"},
-		{"count", "len"},
+		// `count` and `none` are not here: RFC 0016 made them dict rows of their own,
+		// the ones arrays have — count is how many entries a closure accepts (len is
+		// how many there are), and none is all of the negation.
 		{"has_key", "has"},
 		{"key", "has"},
 		{"include", "has"},
@@ -307,13 +309,12 @@ func TestDictHasNoOldNames(t *testing.T) {
 		{"store", "set"},
 		{"update", "merge_in_place"},
 		{"merge!", "merge_in_place"},
-		{"transform_values", "map"},
+		{"transform_values", "map_values"},
 		{"transform_keys", "map"},
 		{"each_pair", "each"},
 		{"select", "filter"},
 		{"collect", "map"},
 		{"detect", "find"},
-		{"none", "all"},
 		{"to_a", "array"},
 		{"to_h", "dict"},
 		{"to_json", "json"},
@@ -346,6 +347,11 @@ var dictRowArgs = map[string][]Value{
 	"get": {Str("k1")}, "has": {Str("k1")}, "has_val": {Int(1)},
 	"merge": {Dict(Str("z"), Int(0))}, "merge_in_place": {Dict(Str("z"), Int(0))},
 	"set": {Str("k1"), Int(2)},
+	// RFC 0016.
+	"reduce": {Int(0), colIdentity}, "count": {colIdentity}, "none": {colIdentity},
+	"sum": {colIdentity}, "min_by": {colIdentity}, "max_by": {colIdentity},
+	"group_by": {colIdentity}, "partition": {colIdentity}, "map_values": {colIdentity},
+	"pick": {Str("k1")}, "omit": {Str("k1")},
 }
 
 func TestDictRowArgsTableIsComplete(t *testing.T) {

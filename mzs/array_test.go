@@ -725,6 +725,9 @@ var arrayRowArgs = map[string][]Value{
 	"to_set": nil,
 	"union":  {colInts(7, 8)}, "intersect": {colInts(7, 8)},
 	"difference": {colInts(7, 8)}, "subset": {colInts(7, 8)},
+	// RFC 0016.
+	"mean": nil, "median": nil, "product": nil, "transpose": nil, "rotate": {Int(1)},
+	"chunk_while": {colSumPair}, "accumulate": {colSumPair}, "bsearch": {colIdentity},
 }
 
 // arrayRowNames is every row registered for arrays and ranges, deduplicated.
@@ -798,6 +801,9 @@ func TestArrayRowsChargeTheStepBudget(t *testing.T) {
 		"len": true, "empty": true, "first": true, "last": true, "dig": true,
 		"push": true, "pop": true, "shift": true, "unshift": true, "insert": true,
 		"delete_at": true, "sample": true, "array": true,
+		// Not constant but logarithmic: a step per probe, about a dozen here, which is
+		// under the interval at which the budget is checked.
+		"bsearch": true,
 	}
 	unchargedCopy := map[string]bool{
 		"slice": true, "take": true, "drop": true, "concat": true,
