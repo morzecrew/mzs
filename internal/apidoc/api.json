@@ -560,6 +560,11 @@
     "sem": "only with the `time` module installed (§12.8)",
     "ex": ""
    },
+   "div": {
+    "sig": "`(b) -> number`",
+    "sem": "**floored** division, the partner of `%`: `div(a, b) * b + a % b == a`, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). A Float operand gives the Float floor, IEEE on a zero divisor",
+    "ex": ""
+   },
    "downto": {
     "sig": "`(n: int) [{ (i) -> … }] -> array`",
     "sem": "",
@@ -575,6 +580,11 @@
     "sem": "",
     "ex": ""
    },
+   "gcd": {
+    "sig": "`(b: int) -> int`",
+    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "ex": ""
+   },
    "hours": {
     "sig": "`-> duration`",
     "sem": "only with the `time` module installed (§12.8)",
@@ -585,10 +595,25 @@
     "sem": "Float truncates toward zero",
     "ex": ""
    },
+   "is_inf": {
+    "sig": "`-> bool`",
+    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "ex": ""
+   },
+   "is_nan": {
+    "sig": "`-> bool`",
+    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "ex": ""
+   },
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
     "ex": "`{a: 1}.json`"
+   },
+   "lcm": {
+    "sig": "`(b: int) -> int`",
+    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "ex": ""
    },
    "minutes": {
     "sig": "`-> duration`",
@@ -618,6 +643,11 @@
    "seconds": {
     "sig": "`-> duration`",
     "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "sign": {
+    "sig": "`-> int`",
+    "sem": "`-1`, `0` or `1`, an Int for either kind; `sign(-0.0) == 0`, and NaN is an `argument` error",
     "ex": ""
    },
    "step": {
@@ -689,6 +719,11 @@
     "sem": "only with the `time` module installed (§12.8)",
     "ex": ""
    },
+   "div": {
+    "sig": "`(b) -> number`",
+    "sem": "**floored** division, the partner of `%`: `div(a, b) * b + a % b == a`, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). A Float operand gives the Float floor, IEEE on a zero divisor",
+    "ex": ""
+   },
    "downto": {
     "sig": "`(n: int) [{ (i) -> … }] -> array`",
     "sem": "",
@@ -709,6 +744,11 @@
     "sem": "",
     "ex": ""
    },
+   "gcd": {
+    "sig": "`(b: int) -> int`",
+    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "ex": ""
+   },
    "hours": {
     "sig": "`-> duration`",
     "sem": "only with the `time` module installed (§12.8)",
@@ -719,10 +759,25 @@
     "sem": "Float truncates toward zero",
     "ex": ""
    },
+   "is_inf": {
+    "sig": "`-> bool`",
+    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "ex": ""
+   },
+   "is_nan": {
+    "sig": "`-> bool`",
+    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "ex": ""
+   },
    "json": {
     "sig": "`json(x) -> string`",
     "sem": "compact JSON, keys in insertion order; under `include json` only the method spelling (§12.8)",
     "ex": "`{a: 1}.json`"
+   },
+   "lcm": {
+    "sig": "`(b: int) -> int`",
+    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "ex": ""
    },
    "minutes": {
     "sig": "`-> duration`",
@@ -757,6 +812,11 @@
    "seconds": {
     "sig": "`-> duration`",
     "sem": "only with the `time` module installed (§12.8)",
+    "ex": ""
+   },
+   "sign": {
+    "sig": "`-> int`",
+    "sem": "`-1`, `0` or `1`, an Int for either kind; `sign(-0.0) == 0`, and NaN is an `argument` error",
     "ex": ""
    },
    "step": {
@@ -2134,79 +2194,114 @@
    }
   },
   "math": {
+   "acos": {
+    "sig": "`(…) -> float`",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
+   "asin": {
+    "sig": "`(…) -> float`",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
    "atan": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "atan2": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "cbrt": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "cos": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
+   "cosh": {
+    "sig": "`(…) -> float`",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "e": {
     "sig": "constants",
-    "sem": "",
+    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
     "ex": ""
    },
    "exp": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "hypot": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
+   "inf": {
+    "sig": "constants",
+    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
     "ex": ""
    },
    "log": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "log10": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "log2": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
+   "nan": {
+    "sig": "constants",
+    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
     "ex": ""
    },
    "pi": {
     "sig": "constants",
-    "sem": "",
+    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
     "ex": ""
    },
    "pow": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "sin": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
+   "sinh": {
+    "sig": "`(…) -> float`",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "sqrt": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    },
    "tan": {
     "sig": "`(…) -> float`",
-    "sem": "",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "ex": ""
+   },
+   "tanh": {
+    "sig": "`(…) -> float`",
+    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
     "ex": ""
    }
   },

@@ -274,7 +274,7 @@ after digits starts a float **only if** the next rune is a digit. `1.str` theref
 `INT(1) DOTDOT INT(5)` (the `..`/`..<` check runs before the float check).
 
 `INT` values that do not fit in `int64` are a lex error. Float parsing uses
-`strconv.ParseFloat`; `Inf`/`NaN` literals do not exist.
+`strconv.ParseFloat`; `Inf`/`NaN` literals do not exist; the values are `math.inf` and `math.nan` (§12.8).
 
 Because a float must begin with a digit, `.5` is never a literal — which is what makes `?.`
 unambiguous against a ternary (§3.9).
@@ -1599,7 +1599,7 @@ ends the program with that value.
 
 | Expr | Rule |
 |---|---|
-| `Int op Int` | Int arithmetic; `+ - *` promote to Float on overflow; `/` truncates toward zero; `%` takes the sign of the **divisor**, i.e. `-7 % 3 == 2` |
+| `Int op Int` | Int arithmetic; `+ - *` promote to Float on overflow; `/` truncates toward zero; `%` takes the sign of the **divisor**, i.e. `-7 % 3 == 2`, and its partner quotient is the floored `div` (§12.5) |
 | any Float | Float arithmetic |
 | `x / 0` (Int) | error `divided by 0` |
 | `x / 0.0` | `±Inf` / `NaN` (IEEE, no error) |
@@ -2664,6 +2664,10 @@ Money(5).map_values { it * 2 }                             # a Money
 | `clamp` | `(lo, hi) -> number` | |
 | `zero` / `positive` / `negative` | `-> bool` | |
 | `even` / `odd` | `-> bool` | Int only |
+| `is_nan` / `is_inf` | `-> bool` | IEEE tests; an Int is never either. `is_inf` is true for both infinities |
+| `div` | `(b) -> number` | **floored** division, the partner of `%`: `div(a, b) * b + a % b == a`, so `div(-7, 2) == -4` where `-7 / 2 == -3`. Two Ints give an Int; an Int divisor of 0 is the `zero-division` error `/` raises, and `div(MinInt64, -1)` promotes to Float (D9). A Float operand gives the Float floor, IEEE on a zero divisor |
+| `sign` | `-> int` | `-1`, `0` or `1`, an Int for either kind; `sign(-0.0) == 0`, and NaN is an `argument` error |
+| `gcd` / `lcm` | `(b: int) -> int` | Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9) |
 | `times` | `[{ (i) -> … }] -> array` | `3.times` without a closure → `[0,1,2]` |
 | `upto` / `downto` | `(n: int) [{ (i) -> … }] -> array` | |
 | `step` | `(limit, by) [{ (i) -> … }] -> array` | |
@@ -2842,8 +2846,8 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 |---|---|---|---|
 | `json` | `parse` | `(s: string) -> any` | objects→Dict (insertion-ordered), arrays→Array, numbers→Int when integral else Float, `null`→nil. Raises on malformed input. |
 | `json` | `pretty` | `(x: any) -> string` | 2-space indent |
-| `math` | `pi`, `e` | constants | |
-| `math` | `sqrt cbrt sin cos tan atan atan2 log log2 log10 exp pow hypot` | `(…) -> float` | |
+| `math` | `pi`, `e`, `inf`, `nan` | constants | `inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3) |
+| `math` | `sqrt cbrt sin cos tan asin acos atan sinh cosh tanh atan2 log log2 log10 exp pow hypot` | `(…) -> float` | out of domain is an IEEE value, not an error: `math.asin(2)` is NaN |
 | `time` | `now` | `-> time` | requires `Options.Now` |
 | `time` | `parse` | `(s: string, layout: string = auto) -> time` | accepts RFC3339, `YYYY-MM-DD{ HH:MM[:SS]}`, `DD/MM/YY`, `DD.MM.YYYY` |
 | `time` | `at` | `(unix: int) -> time` | |

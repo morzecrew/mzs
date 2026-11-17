@@ -27,6 +27,9 @@ func init() {
 
 	RegisterModuleConst("math", "pi", Float(math.Pi))
 	RegisterModuleConst("math", "e", Float(math.E))
+	// The two IEEE values with no literal (RFC 0016 §5); `1.0 / 0` spelled them before.
+	RegisterModuleConst("math", "inf", Float(math.Inf(1)))
+	RegisterModuleConst("math", "nan", Float(math.NaN()))
 	// The members are registered from ordered slices, not maps: a module is a Dict and
 	// a Dict is insertion-ordered, so `math.keys` must not depend on Go's map iteration
 	// (§8.13).
@@ -39,7 +42,12 @@ func init() {
 		{"sin", math.Sin},
 		{"cos", math.Cos},
 		{"tan", math.Tan},
+		{"asin", math.Asin},
+		{"acos", math.Acos},
 		{"atan", math.Atan},
+		{"sinh", math.Sinh},
+		{"cosh", math.Cosh},
+		{"tanh", math.Tanh},
 		{"log", math.Log},
 		{"log2", math.Log2},
 		{"log10", math.Log10},

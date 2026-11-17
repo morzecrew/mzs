@@ -19,17 +19,20 @@ host alike.
 | Member | Arguments | Notes |
 |---|---|---|
 | `pi`, `e` | — | constants, `3.141592653589793` and `2.718281828459045` |
+| `inf`, `nan` | — | constants, +Infinity and NaN — the two IEEE values with no literal |
 | `sqrt` `cbrt` `exp` | 1 | |
 | `log` `log2` `log10` | 1 | `log` is the natural logarithm |
-| `sin` `cos` `tan` `atan` | 1 | radians |
+| `sin` `cos` `tan` | 1 | radians |
+| `asin` `acos` `atan` | 1 | radians out; `asin` and `acos` take `-1..1` |
+| `sinh` `cosh` `tanh` | 1 | hyperbolic |
 | `atan2` `pow` `hypot` | 2 | |
 
-That is the whole module — `math.keys` lists exactly these 15 names, in registration order:
+That is the whole module — `math.keys` lists exactly these 22 names, in registration order:
 
 ```
 include math
 math.keys
-# ["pi","e","sqrt","cbrt","sin","cos","tan","atan","log","log2","log10","exp","atan2","pow","hypot"]
+# ["pi","e","inf","nan","sqrt","cbrt","sin","cos","tan","asin","acos","atan","sinh","cosh","tanh","log","log2","log10","exp","atan2","pow","hypot"]
 ```
 
 **Every function returns a float**, including one with an integral value: `math.pow(2, 10)`
@@ -48,6 +51,18 @@ include math
 
 [math.sin(0), math.cos(0), math.tan(0), math.atan(1), math.atan2(1, 1)].json
 # [0,1,0,0.7853981633974483,0.7853981633974483]
+
+[math.asin(1) == math.pi / 2, math.acos(1), math.tanh(0), math.cosh(0)].json
+# [true,0,0,1]
+```
+
+`inf` is the start value that every comparison beats, and `nan` the value a test can
+compare against with `is_nan` — `math.nan == math.nan` is `false`, as IEEE says:
+
+```
+include math
+[4, 9, 2].reduce(math.inf) { (lo, x) -> min(lo, x) }   # 2
+math.nan.is_nan                                        # true
 ```
 
 Degrees are not built in; convert with `pi`:
@@ -74,7 +89,9 @@ An impossible result is an IEEE value, not an error:
 ```
 include math
 math.sqrt(-1)          # NaN
+math.asin(2)           # NaN
 math.log(0)            # -Infinity
+math.cosh(1000)        # Infinity
 [math.sqrt(-1)].json   # [null]  — JSON has no NaN
 ```
 
@@ -88,8 +105,8 @@ mzs -e 'include math; math.sqrt(2, 3)'     # argument: math.sqrt expects 1 argum
 mzs -e 'include math; math.round(1.5)'     # name: undefined member 'round' in module 'math'
 ```
 
-Rounding, truncation, absolute value, min/max and the bit functions are number methods, not
-module members — `(-3.7).abs.ceil` is `4`, and `2.sqrt` is
+Rounding, truncation, absolute value, min/max, `sign`, `div`, `gcd`/`lcm`, the `is_nan` and
+`is_inf` tests and the bit functions are number methods, not module members — `(-3.7).abs.ceil` is `4`, and `2.sqrt` is
 `undefined method 'sqrt'; did you mean 'sort'?`. See
 [../stdlib/numbers.md](../stdlib/numbers.md).
 

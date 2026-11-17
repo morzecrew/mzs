@@ -348,6 +348,22 @@ func init() {
 			return iterInts(c, recv.Int(), limit, by, recv)
 		}},
 
+		// RFC 0016 §5: floored division, the sign, and the IEEE tests.
+		Method{Name: "div", Min: 1, Max: 1, Fn: numDiv},
+		Method{Name: "sign", Fn: numSign},
+		Method{Name: "gcd", Min: 1, Max: 1, Fn: func(c *Ctx, recv Value, args []Value) (Value, error) {
+			return numGcdLcm(c, recv, args[0], false)
+		}},
+		Method{Name: "lcm", Min: 1, Max: 1, Fn: func(c *Ctx, recv Value, args []Value) (Value, error) {
+			return numGcdLcm(c, recv, args[0], true)
+		}},
+		Method{Name: "is_nan", Fn: func(c *Ctx, recv Value, _ []Value) (Value, error) {
+			return Bool(recv.Kind() == KFloat && math.IsNaN(recv.Float())), nil
+		}},
+		Method{Name: "is_inf", Fn: func(c *Ctx, recv Value, _ []Value) (Value, error) {
+			return Bool(recv.Kind() == KFloat && math.IsInf(recv.Float(), 0)), nil
+		}},
+
 		durationMethod("seconds", 1),
 		durationMethod("minutes", 60),
 		durationMethod("hours", 3600),
@@ -690,4 +706,105 @@ func parseStrictFloat(s string) (float64, bool) {
 		return 0, false
 	}
 	return x, true
+}
+
+// ---------------------------------------------------------------------------
+// RFC 0016 §5: div, sign, gcd, lcm
+// ---------------------------------------------------------------------------
+
+// numDiv is **floored** division, the partner of `%` (§8.3): `%` takes the sign of the
+// divisor, so the quotient that makes `div(a, b) * b + a % b == a` hold is the floor of
+// the true quotient, not the truncation `/` gives. Two ints give an int — dividing by 0
+// is the `zero-division` error `/` raises, and MinInt64 by -1 promotes to Float as
+// `/` does (D9). Any float operand gives the float floor, and a float division by zero
+// is IEEE, as it is for `/`.
+func numDiv(c *Ctx, recv Value, args []Value) (Value, error) {
+	b, err := argNum(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if recv.Kind() == KInt && b.Kind() == KInt {
+		x, y := recv.Int(), b.Int()
+		if y == 0 {
+			return Nil(), zeroDivError()
+		}
+		if x == math.MinInt64 && y == -1 {
+			return Float(-float64(x)), nil
+		}
+		q := x / y
+		if x%y != 0 && (x < 0) != (y < 0) {
+			q--
+		}
+		return Int(q), nil
+	}
+	return Float(math.Floor(recv.Float() / b.Float())), nil
+}
+
+// numSign is -1, 0 or 1, an int whatever the receiver's kind. NaN has no sign, and an
+// answer of 0 would be a guess, so it is an argument error; -0.0 is 0.
+func numSign(c *Ctx, recv Value, _ []Value) (Value, error) {
+	f := recv.Float()
+	if recv.Kind() == KInt {
+		switch {
+		case recv.Int() < 0:
+			return Int(-1), nil
+		case recv.Int() > 0:
+			return Int(1), nil
+		}
+		return Int(0), nil
+	}
+	switch {
+	case math.IsNaN(f):
+		return Nil(), c.ArgErrorf("sign: NaN has no sign")
+	case f < 0:
+		return Int(-1), nil
+	case f > 0:
+		return Int(1), nil
+	}
+	return Int(0), nil
+}
+
+// numGcdLcm is gcd and lcm, of ints only: a float has no divisors, and truncating one
+// would be a guess (§9.1). Both are non-negative. gcd(0, 0) is 0, and lcm of anything
+// with 0 is 0. The arithmetic is unsigned, so MinInt64 has its magnitude; a result past
+// MaxInt64 — gcd(MinInt64, 0), or an lcm that overflows — promotes to Float (D9).
+func numGcdLcm(c *Ctx, recv, other Value, lcm bool) (Value, error) {
+	for _, v := range []Value{recv, other} {
+		if v.Kind() != KInt {
+			return Nil(), c.TypeErrorf("%s expects ints, got %s", c.Name(), v.Kind())
+		}
+	}
+	a, b := uabs(recv.Int()), uabs(other.Int())
+	x, y := a, b
+	for y != 0 {
+		x, y = y, x%y
+	}
+	g := x
+	if !lcm {
+		return uintNum(g), nil
+	}
+	if a == 0 || b == 0 {
+		return Int(0), nil
+	}
+	hi, lo := bits.Mul64(a/g, b)
+	if hi != 0 {
+		return Float(float64(a/g) * float64(b)), nil
+	}
+	return uintNum(lo), nil
+}
+
+// uabs is the magnitude of an int64 as a uint64, which MinInt64 has room for.
+func uabs(n int64) uint64 {
+	if n < 0 {
+		return uint64(-(n + 1)) + 1
+	}
+	return uint64(n)
+}
+
+// uintNum is an Int when it fits and a Float past MaxInt64 (D9).
+func uintNum(u uint64) Value {
+	if u > math.MaxInt64 {
+		return Float(float64(u))
+	}
+	return Int(int64(u))
 }

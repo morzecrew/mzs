@@ -26,6 +26,13 @@ and the release is still ahead of it.
   - **Arrays and ranges** gain `mean`, `median`, `product`, `transpose`, `rotate`,
     `chunk_while`, `accumulate` (the running `reduce`) and `bsearch`.
   - `avg` and `average` now suggest `mean` (SPEC §12.3, §12.4).
+- **Number rows and math members** (RFC 0016, part 4).
+  - `div(a, b)` is floored division, the partner of `%`, so `div(a, b) * b + a % b == a`
+    and `div(-7, 2)` is `-4` where `-7 / 2` is `-3`.
+  - `sign` gives `-1`, `0` or `1`; `gcd` and `lcm` take ints and are never negative;
+    `is_nan` and `is_inf` are the IEEE tests, which `==` cannot be.
+  - `math` gains `asin`, `acos`, `sinh`, `cosh` and `tanh`, and the constants `inf` and
+    `nan`, the two IEEE values that have no literal (SPEC §12.5, §12.8).
 - **String rows for text that has to fit** (RFC 0016, part 3).
   - `trim`, `trim_start` and `trim_end` take an optional cutset, a set of runes:
     `"xxhixx".trim("x")` is `hi`.
