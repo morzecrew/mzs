@@ -26,6 +26,16 @@ and the release is still ahead of it.
   - **Arrays and ranges** gain `mean`, `median`, `product`, `transpose`, `rotate`,
     `chunk_while`, `accumulate` (the running `reduce`) and `bsearch`.
   - `avg` and `average` now suggest `mean` (SPEC §12.3, §12.4).
+- **Time and crypto rows** (RFC 0016, part 5).
+  - `strftime` gains `%s` (unix seconds), `%L` (milliseconds) and `%f` (microseconds), and
+    a time has `ms`, its unix milliseconds.
+  - `time.mono()` is seconds on a monotonic clock, for timing a step. It needs
+    `Options.Now`, as `time.now` does.
+  - `crypto` gains `sha512` and `sha384`, and `hmac` signs with either.
+  - `crypto.random(n)` gives `n` secure random bytes in hex. For embedders: it reads a new
+    `Options.CryptoRand io.Reader` and is absent without it, because `Options.Rand` may be
+    seeded. The CLI's `--rand` sets it from the operating system, never from the seed
+    (SPEC §12.8, §12.16).
 - **Number rows and math members** (RFC 0016, part 4).
   - `div(a, b)` is floored division, the partner of `%`, so `div(a, b) * b + a % b == a` while the arithmetic stays in int64
     and `div(-7, 2)` is `-4` where `-7 / 2` is `-3`.
@@ -196,6 +206,11 @@ and the release is still ahead of it.
   Each `include` now gets its own copy (SPEC §14.3).
 
 ### Changed
+
+- **An unknown `strftime` directive is an error** — a deliberate break (SPEC §21.4, audit
+  B6). `t.strftime("%G")` used to answer `%G`, so a typo surfaced only in the output; it is
+  now an `argument` error naming the directive, and so is a layout that ends in a lone `%`.
+  Write `%%` for a literal percent sign.
 
 - **Everything after the script path is the script's** — a deliberate break (SPEC §21.4).
   `mzs` used to read its own flags anywhere on the command line, so `mzs resize.mzs --width

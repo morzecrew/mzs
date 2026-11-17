@@ -24,6 +24,7 @@ func init() {
 	RegisterModuleFunc("time", "now", 0, 0, timevNow)
 	RegisterModuleFunc("time", "parse", 1, 2, timevParse)
 	RegisterModuleFunc("time", "at", 1, 1, timevAt)
+	RegisterModuleFunc("time", "mono", 0, 0, timevMono)
 
 	SetModuleGate("date", ModuleGate{NeedsTime: true})
 	RegisterModuleFunc("date", "today", 0, 0, timevToday)
@@ -33,6 +34,13 @@ func init() {
 	// already answers unix seconds for a time. One operation, one implementation (D17).
 	RegisterMethods(KTime,
 		Method{Name: "strftime", Min: 1, Max: 1, Fn: timevStrftimeMethod},
+		Method{Name: "ms", Fn: func(c *Ctx, recv Value, _ []Value) (Value, error) {
+			t, err := timevOf(c, recv)
+			if err != nil {
+				return Nil(), err
+			}
+			return Int(t.UnixMilli()), nil
+		}},
 		Method{Name: "to_date", Fn: timevToDate},
 		Method{Name: "in_time_zone", Min: 1, Max: 1, Fn: timevInZone},
 		Method{Name: "year", Fn: timevPart("year")},
@@ -56,6 +64,23 @@ func timevNow(c *Ctx, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	return timeOf(t.In(c.Location())), nil
+}
+
+// timevMono is seconds on a monotonic clock, for measuring an interval: `t0 = time.mono()`
+// ... `time.mono() - t0`. The origin is the first reading in the Run, so the first call
+// answers 0.0. It reads the host clock like `now` (D15) and is gated on Options.Now the
+// same way; the readings are monotonic when the host's clock carries a monotonic
+// reading, as Go's time.Now does, so a wall-clock step does not bend the interval.
+func timevMono(c *Ctx, args []Value) (Value, error) {
+	if c.rs.opts.Now == nil {
+		return Nil(), nameErrorf("undefined function 'time.mono' (the host did not enable a clock)")
+	}
+	t := c.rs.opts.Now()
+	sh := c.rs.sh
+	if !sh.monoSet {
+		sh.monoBase, sh.monoSet = t, true
+	}
+	return Float(t.Sub(sh.monoBase).Seconds()), nil
 }
 
 func timevToday(c *Ctx, args []Value) (Value, error) {
@@ -225,7 +250,13 @@ func timevStrftimeMethod(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	out := timevStrftime(t, layout)
+	out, bad := timevStrftime(t, layout, c.rs.opts.MaxStringBytes)
+	if bad != "" {
+		if bad == "%" {
+			return Nil(), c.ArgErrorf("strftime: the layout ends in a lone %%; write %%%% for a percent sign")
+		}
+		return Nil(), c.ArgErrorf("strftime: unknown directive %s; write %%%% for a percent sign", quoteString(bad))
+	}
 	if err := c.CheckString(len(out)); err != nil {
 		return Nil(), err
 	}
@@ -237,66 +268,89 @@ func timevStrftimeMethod(c *Ctx, recv Value, args []Value) (Value, error) {
 // ---------------------------------------------------------------------------
 
 // timevStrftime renders the C-style directives §12.8 lists, plus the `-` flag for an
-// unpadded number (`%-d`, `%-m`). An unknown directive is emitted verbatim, so a layout
-// that is really meant for something else survives round-tripping instead of losing
-// characters.
-func timevStrftime(t time.Time, layout string) string {
+// unpadded number (`%-d`, `%-m`). An unknown directive is not rendered: it is returned as
+// bad, and the row raises an `argument` error naming it (audit B6, D16), because echoing
+// `%G` back hides a typo until someone reads the output. A `%` with nothing after it is
+// bad as "%". Once the output passes max it stops growing, so a layout of repeated `%s` —
+// two bytes that render as up to twenty — never builds much more than the cap it is
+// checked against; it still reads the layout to its end, so a bad directive anywhere is
+// the argument error, and only a layout that is all good is the caller's string limit.
+func timevStrftime(t time.Time, layout string, max int) (out, bad string) {
 	var sb strings.Builder
 	sb.Grow(len(layout) + 16)
 	rs := []rune(layout)
+	// Past the cap the rest renders into a scratch builder that is emptied each time, so
+	// the layout is still checked to its end without the output growing further.
+	w := &sb
+	var scratch strings.Builder
 	for i := 0; i < len(rs); i++ {
-		if rs[i] != '%' || i+1 >= len(rs) {
-			sb.WriteRune(rs[i])
+		if w == &sb && sb.Len() > max {
+			w = &scratch
+		}
+		scratch.Reset()
+		if rs[i] != '%' {
+			w.WriteRune(rs[i])
 			continue
+		}
+		if i+1 >= len(rs) {
+			return "", "%"
 		}
 		i++
 		pad := true
-		if rs[i] == '-' && i+1 < len(rs) {
+		if rs[i] == '-' {
+			if i+1 >= len(rs) {
+				return "", "%-"
+			}
 			pad = false
 			i++
 		}
 		switch rs[i] {
 		case 'Y':
-			sb.WriteString(strconv.Itoa(t.Year()))
+			w.WriteString(strconv.Itoa(t.Year()))
 		case 'y':
-			sb.WriteString(timevNum(t.Year()%100, 2, pad))
+			w.WriteString(timevNum(t.Year()%100, 2, pad))
 		case 'm':
-			sb.WriteString(timevNum(int(t.Month()), 2, pad))
+			w.WriteString(timevNum(int(t.Month()), 2, pad))
 		case 'd':
-			sb.WriteString(timevNum(t.Day(), 2, pad))
+			w.WriteString(timevNum(t.Day(), 2, pad))
 		case 'H':
-			sb.WriteString(timevNum(t.Hour(), 2, pad))
+			w.WriteString(timevNum(t.Hour(), 2, pad))
 		case 'M':
-			sb.WriteString(timevNum(t.Minute(), 2, pad))
+			w.WriteString(timevNum(t.Minute(), 2, pad))
 		case 'S':
-			sb.WriteString(timevNum(t.Second(), 2, pad))
+			w.WriteString(timevNum(t.Second(), 2, pad))
+		case 's':
+			w.WriteString(strconv.FormatInt(t.Unix(), 10))
+		case 'L':
+			w.WriteString(timevNum(t.Nanosecond()/1e6, 3, pad))
+		case 'f':
+			w.WriteString(timevNum(t.Nanosecond()/1e3, 6, pad))
 		case 'j':
-			sb.WriteString(timevNum(t.YearDay(), 3, pad))
+			w.WriteString(timevNum(t.YearDay(), 3, pad))
 		case 'a':
-			sb.WriteString(t.Format("Mon"))
+			w.WriteString(t.Format("Mon"))
 		case 'A':
-			sb.WriteString(t.Format("Monday"))
+			w.WriteString(t.Format("Monday"))
 		case 'b':
-			sb.WriteString(t.Format("Jan"))
+			w.WriteString(t.Format("Jan"))
 		case 'B':
-			sb.WriteString(t.Format("January"))
+			w.WriteString(t.Format("January"))
 		case 'p':
-			sb.WriteString(t.Format("PM"))
+			w.WriteString(t.Format("PM"))
 		case 'z':
-			sb.WriteString(t.Format("-0700"))
+			w.WriteString(t.Format("-0700"))
 		case 'Z':
-			sb.WriteString(t.Format("MST"))
+			w.WriteString(t.Format("MST"))
 		case '%':
-			sb.WriteByte('%')
+			w.WriteByte('%')
 		default:
-			sb.WriteByte('%')
 			if !pad {
-				sb.WriteByte('-')
+				return "", "%-" + string(rs[i])
 			}
-			sb.WriteRune(rs[i])
+			return "", "%" + string(rs[i])
 		}
 	}
-	return sb.String()
+	return sb.String(), ""
 }
 
 func timevNum(n, width int, pad bool) string {

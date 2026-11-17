@@ -1,6 +1,6 @@
 # RFC 0016 — Standard-library completion
 
-**Status:** Partly landed: §1–§5 (#32, #33, #34, #35) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
+**Status:** Landed (#32, #33, #34, #35, #36) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
 
 ## Summary
 
@@ -257,8 +257,7 @@ Decisions:
 ### Part 4: numbers and math (#35)
 
 §5 landed in `mzs/num.go` and the `math` module in `mzs/json.go`, with SPEC §12.5 and
-§12.8, `docs/stdlib/numbers.md`, `docs/modules/math.md` and apidoc. §6 (time) and §7
-(crypto) are the part still to come. Decisions:
+§12.8, `docs/stdlib/numbers.md`, `docs/modules/math.md` and apidoc. Decisions:
 
 * **`div` follows `/` everywhere but the rounding.** Two ints give an int, an int divisor
   of 0 is the same `zero-division` error, `div(MinInt64, -1)` promotes to a float as `/`
@@ -282,3 +281,32 @@ Decisions:
   `is_nan` and `is_inf`.
 * **`math.inf` and `math.nan` are constants**, next to `pi` and `e`. The lexer still has
   no `Inf` or `NaN` literal (SPEC §3).
+
+### Part 5: time and crypto (#36)
+
+§6 landed in `mzs/time.go` and §7 in `mzs/crypto.go`, with `Options.CryptoRand` in
+`mzs/options.go`, SPEC §12.8 and §12.16, `docs/modules/time.md`, `docs/modules/crypto.md`,
+the CLI docs and apidoc. Decisions:
+
+* **An unknown directive is an `argument` error**, as audit B6 asks, and so is a `%` that
+  ends the layout, which used to come back as itself too. Both name what they saw and say
+  that `%%` is the literal. This is a deliberate break (SPEC §21.4), and the CHANGELOG
+  names it. `time.parse` with a strftime layout is unchanged: it fails on what it cannot
+  parse already.
+* **`%L` and `%f` are zero-padded** to 3 and 6 digits, the sub-second part only, so
+  `"%S.%L"` reads `15.007`. `%-L` drops the padding like any numeric directive. `%s` is
+  never padded.
+* **`time.mono()`'s origin is the first reading in the Run**, so the first call answers
+  `0.0` and every later one the seconds since. The origin is shared by the Run's tasks
+  and is new in each Run. It reads `Options.Now`, so a host that fixes the clock gets a
+  constant, which is what a reproducible run wants. The readings are monotonic when the
+  host's clock carries a monotonic reading, as `time.Now` does.
+* **`crypto.random` is a member gate**, the mechanism `io.rm` uses: without
+  `Options.CryptoRand` the member is not in `crypto.keys`, and calling it is the unknown-
+  member error with a sentence that names the option. A negative count is an `argument`
+  error; the count is checked against `MaxStringBytes` before a byte is read; and a source
+  that fails or runs short is an error, never a short token.
+* **The CLI's `--rand` sets `CryptoRand` to `crypto/rand.Reader`.** A new flag would have
+  been a second switch for "randomness on", and the seed `--rand` takes cannot reach
+  `crypto.random`, which is the point of keeping the two options apart.
+

@@ -5,12 +5,15 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
+	"io"
+	"math"
 	"strings"
 )
 
@@ -51,10 +54,12 @@ const (
 	cryAlphabetStd = "std"
 	cryAlphabetURL = "url"
 
-	// The three algorithms, which are also three member names: what `crypto.sha256`
-	// computes is what `crypto.hmac(k, m, "sha256")` signs with, and there is no fourth
+	// The five algorithms, which are also five member names: what `crypto.sha256`
+	// computes is what `crypto.hmac(k, m, "sha256")` signs with, and there is no second
 	// spelling of either list (D17).
 	cryAlgSHA256 = "sha256"
+	cryAlgSHA512 = "sha512"
+	cryAlgSHA384 = "sha384"
 	cryAlgSHA1   = "sha1"
 	cryAlgMD5    = "md5"
 )
@@ -67,11 +72,22 @@ func init() {
 	RegisterModuleFunc("crypto", "base64", 1, 2, cryBase64)
 	RegisterModuleFunc("crypto", "unbase64", 1, 1, cryUnbase64)
 	RegisterModuleFunc("crypto", "sha256", 1, 1, cryDigest(cryAlgSHA256))
+	RegisterModuleFunc("crypto", "sha512", 1, 1, cryDigest(cryAlgSHA512))
+	RegisterModuleFunc("crypto", "sha384", 1, 1, cryDigest(cryAlgSHA384))
 	RegisterModuleFunc("crypto", "sha1", 1, 1, cryDigest(cryAlgSHA1))
 	RegisterModuleFunc("crypto", "md5", 1, 1, cryDigest(cryAlgMD5))
 	RegisterModuleFunc("crypto", "hmac", 2, 3, cryHmac)
 	RegisterModuleFunc("crypto", "crc32", 1, 1, cryCRC32)
 	RegisterModuleFunc("crypto", "equal", 2, 2, cryEqual)
+	// random is the one member that needs the host: secure bytes come from
+	// Options.CryptoRand, never from Options.Rand, which may be seeded (RFC 0016 §7).
+	RegisterModuleFunc("crypto", "random", 1, 1, cryRandom)
+	setMemberGate("crypto", "random", func(o *Options) string {
+		if o.CryptoRand == nil {
+			return "crypto.random needs a source of secure randomness (Options.CryptoRand; on the command line, --rand)"
+		}
+		return ""
+	})
 }
 
 // cryStep charges what walking n bytes costs, at the rate `print` charges for writing
@@ -212,8 +228,8 @@ func cryUnbase64(c *Ctx, args []Value) (Value, error) {
 // Digests and signatures
 // ---------------------------------------------------------------------------
 
-// cryDigest builds the sha256/sha1/md5 rows from one body, since they differ only in which
-// constructor they call. All three answer in lowercase hex: a digest travels in a header
+// cryDigest builds the five digest rows from one body, since they differ only in which
+// constructor they call. All of them answer in lowercase hex: a digest travels in a header
 // and is compared against one, and a raw-byte answer would only ever be `crypto.hex`'d by
 // the next line.
 func cryDigest(alg string) HostFunc {
@@ -254,7 +270,7 @@ func cryHmac(c *Ctx, args []Value) (Value, error) {
 	return cryHexValue(c, mac.Sum(nil))
 }
 
-// cryAlg reads the optional algorithm name. The message names all three, because the next
+// cryAlg reads the optional algorithm name. The message names all five, because the next
 // guess is the interesting part of a diagnostic (§17).
 func cryAlg(c *Ctx, args []Value, i int) (string, error) {
 	if i >= len(args) {
@@ -265,21 +281,25 @@ func cryAlg(c *Ctx, args []Value, i int) (string, error) {
 		return "", err
 	}
 	if cryHasher(name) == nil {
-		return "", c.ArgErrorf("%s: unknown algorithm %s; the algorithms are %s, %s and %s",
-			c.Name(), quoteString(name),
-			quoteString(cryAlgSHA256), quoteString(cryAlgSHA1), quoteString(cryAlgMD5))
+		return "", c.ArgErrorf("%s: unknown algorithm %s; the algorithms are %s, %s, %s, %s and %s",
+			c.Name(), quoteString(name), quoteString(cryAlgSHA256), quoteString(cryAlgSHA512),
+			quoteString(cryAlgSHA384), quoteString(cryAlgSHA1), quoteString(cryAlgMD5))
 	}
 	return name, nil
 }
 
 // cryHasher maps an algorithm name to its constructor, and nil is how `cryAlg` knows a name
-// is not one of the three. `sha1` and `md5` are here to *read* what already exists — a
+// is not one of the five. `sha1` and `md5` are here to *read* what already exists — a
 // webhook signed with sha1 is still a webhook that has to be verified — and never because
 // they are a choice worth making today.
 func cryHasher(alg string) func() hash.Hash {
 	switch alg {
 	case cryAlgSHA256:
 		return sha256.New
+	case cryAlgSHA512:
+		return sha512.New
+	case cryAlgSHA384:
+		return sha512.New384
 	case cryAlgSHA1:
 		return sha1.New
 	case cryAlgMD5:
@@ -354,4 +374,47 @@ func cryText(c *Ctx, v Value) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(s), nil
+}
+
+// cryRandom is n secure random bytes, hex-encoded, so the answer is a token as it stands:
+// `crypto.random(16)` is 32 hex digits, 128 bits. The bytes come from Options.CryptoRand
+// (the member is absent without it). The count is checked against the string cap before
+// any byte is read, and a source that fails or runs short is an error, never a short token.
+func cryRandom(c *Ctx, args []Value) (Value, error) {
+	n, err := argInt(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if n < 0 {
+		return Nil(), c.ArgErrorf("crypto.random expects a non-negative byte count, got %d", n)
+	}
+	// Half of MaxInt32, so the hex length below is an int even on a 32-bit build.
+	if n > math.MaxInt32/2 {
+		return Nil(), c.ArgErrorf("crypto.random: %d bytes is too many", n)
+	}
+	if err := c.CheckString(hex.EncodedLen(int(n))); err != nil {
+		return Nil(), err
+	}
+	if err := cryStep(c, int(n)); err != nil {
+		return Nil(), err
+	}
+	src := c.rs.opts.CryptoRand
+	if src == nil {
+		return Nil(), nameErrorf("undefined member 'random' in module 'crypto' (the host did not set Options.CryptoRand)")
+	}
+	// The read is the host's I/O, so it runs with the Run's lock released, as io and
+	// http do: a source that blocks stalls this call, not every task (§8.14). buf is Go
+	// memory the interpreter does not own.
+	buf := make([]byte, n)
+	var rerr error
+	c.blocking(func() {
+		mu := &c.rs.in.randMu
+		mu.Lock()
+		defer mu.Unlock()
+		_, rerr = io.ReadFull(src, buf)
+	})
+	if rerr != nil {
+		return Nil(), c.ArgErrorf("crypto.random: the host's source of randomness failed: %s", rerr.Error())
+	}
+	return cryHexValue(c, buf)
 }

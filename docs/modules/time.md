@@ -37,13 +37,15 @@ mzs --time -e 'time.now'
 ```
 
 An embedding host needs `EnableTime` for the modules to appear at all, and `Now` on top of
-it for `time.now` and `date.today`; `time.parse`, `time.at` and `date.parse` read no clock.
+it for `time.now`, `time.mono` and `date.today`; `time.parse`, `time.at` and `date.parse` read no
+clock.
 
 | Member | Signature | Result |
 |---|---|---|
 | `time.now` | `-> time` | the host clock, in `Options.Location` |
 | `time.parse` | `(s, layout = auto) -> time` | raises when it cannot parse |
 | `time.at` | `(unix: int) -> time` | |
+| `time.mono` | `-> float` | seconds on a monotonic clock, for timing; needs `Options.Now` |
 | `date.today` | `-> time` | today at midnight |
 | `date.parse` | `(s) -> time` | `time.parse` truncated to midnight |
 
@@ -80,8 +82,9 @@ try time.parse("yesterday") else (e) -> e["message"]
 
 ## Formatting
 
-`strftime` renders C-style directives; `%-d` and `%-m` drop the zero padding, and an
-unknown directive is copied through verbatim (`%Q` stays `%Q`).
+`strftime` renders C-style directives; `%-d` and `%-m` drop the zero padding. An unknown
+directive is an `argument` error that names it, and so is a `%` that ends the layout, so a
+typo shows up when it runs rather than in the output; `%%` is a literal `%`.
 
 | | | | |
 |---|---|---|---|
@@ -89,12 +92,36 @@ unknown directive is copied through verbatim (`%Q` stays `%Q`).
 | `%H` hour | `%M` minute | `%S` second | `%j` day of year |
 | `%a` Mon | `%A` Monday | `%b` Jan | `%B` January |
 | `%p` AM/PM | `%z` +0000 | `%Z` UTC | `%%` a literal `%` |
+| `%s` unix seconds | `%L` milliseconds, `000` | `%f` microseconds, `000000` | |
 
 ```
 include time
 time.parse("2026-03-05 14:30:15").strftime("%Y-%m-%d %H:%M:%S %A %b %-d %j %z %Z")
 # 2026-03-05 14:30:15 Thursday Mar 5 064 +0000 UTC
+
+time.at(1772721015).strftime("%s %H:%M:%S.%L")    # 1772721015 14:30:15.000
+time.parse("2026-03-05").strftime("%G")
+# argument: strftime: unknown directive "%G"; write %% for a percent sign
 ```
+
+`t.ms` is the unix time in milliseconds, the unit JavaScript and most JSON APIs use, where
+`t.int` is seconds.
+
+### Timing a step
+
+Subtracting two `time.now` readings measures the wall clock, which the host may step
+backwards or forwards between them. `time.mono()` is seconds on a monotonic clock whose
+origin is the first reading in the Run, so its differences are intervals:
+
+```
+include time
+t0 = time.mono()
+(1..100000).sum
+println("took ${(time.mono() - t0).round(3)}s")
+```
+
+It reads the host clock like `time.now` and needs `Options.Now` (`--time`). A host that
+fixes the clock (`mzs test --now`) gets the same reading every time, so every interval is 0.
 
 ## Fields, arithmetic and zones
 
@@ -104,6 +131,7 @@ time.parse("2026-03-05 14:30:15").strftime("%Y-%m-%d %H:%M:%S %A %b %-d %j %z %Z
 | `wday` `yday` | int; Sunday is 0 |
 | `to_date` | the same day at midnight |
 | `int` | unix seconds |
+| `ms` | unix milliseconds |
 | `strftime(layout)` | string |
 | `in_time_zone(tz)` | the same instant in another zone |
 

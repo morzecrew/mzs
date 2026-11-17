@@ -319,6 +319,19 @@ func TestCLI(t *testing.T) {
 			wantOut: "true\n",
 		},
 		{
+			// Two runs with the same seed give the same rand() and different tokens:
+			// crypto.random reads the operating system, never the seed (RFC 0016 §7).
+			name:    "--rand gives crypto.random a secure source",
+			argv:    []string{"--rand=7", "-e", "include crypto\na = crypto.random(16)\nb = crypto.random(16)\n[a.len, a != b]"},
+			wantOut: "[32,true]\n",
+		},
+		{
+			name:     "crypto.random stays absent without --rand",
+			argv:     []string{"-e", "include crypto\ncrypto.random(16)"},
+			wantCode: 1,
+			errHas:   []string{"Options.CryptoRand", "--rand"},
+		},
+		{
 			name:     "rand stays off without the flag",
 			argv:     []string{"-e", "rand(100)"},
 			wantCode: 1,

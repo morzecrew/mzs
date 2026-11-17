@@ -150,6 +150,11 @@ type Options struct {
 	// Rand enables rand(), uuid(), sample and shuffle. nil keeps evaluation
 	// deterministic.
 	Rand *rand.Rand
+	// CryptoRand enables crypto.random (§12.16): the bytes of a token or a nonce. It is
+	// separate from Rand on purpose — Rand may be a seeded PRNG, which is what a test
+	// wants and exactly what a secret must never come from. A host that sets it passes
+	// crypto/rand.Reader. nil leaves crypto.random absent.
+	CryptoRand io.Reader
 	// EnableTime installs the time and date modules (§12.8). Members that read the clock
 	// additionally need Now.
 	EnableTime bool

@@ -35,7 +35,7 @@ page of their own: [tools.md](./tools.md). Everything below is the `mzs` command
 | `--mem <size>` | live memory budget: `64m`, `1g`, `512k` or bytes (default `64m`; `0` disables) |
 | `--tasks <n>` | tasks running at once, for `async fn` (default `64`; `0` forbids them) |
 | `--time` | enable the `time`/`date` modules and a real clock |
-| `--rand [seed]` | enable `rand()`/`uuid()`; pass a seed for reproducibility |
+| `--rand [seed]` | enable `rand()`/`uuid()` (pass a seed for reproducibility) and `crypto.random`, which always reads the operating system and never the seed |
 | `--stats` | print steps, elapsed time and peak live memory to stderr |
 | `--no-trace` | print a runtime error's three lines without the call stack under them |
 | `--tokens` | dump the token stream and exit |

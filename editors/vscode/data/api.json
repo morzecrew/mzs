@@ -1636,6 +1636,7 @@
     "ex": "`max(1,2,3)`"
    },
    "month": {},
+   "ms": {},
    "sec": {},
    "strftime": {},
    "to_date": {},
@@ -1942,12 +1943,17 @@
    },
    "hmac": {
     "sig": "`(key: string, msg: string, alg: string = \"sha256\") -> string`",
-    "sem": "the signature, in hex; `alg` is `\"sha256\"`, `\"sha1\"` or `\"md5\"`",
+    "sem": "the signature, in hex; `alg` is `\"sha256\"`, `\"sha512\"`, `\"sha384\"`, `\"sha1\"` or `\"md5\"`",
     "ex": ""
    },
    "md5": {
     "sig": "`(s: string) -> string`",
     "sem": "the digest, in hex",
+    "ex": ""
+   },
+   "random": {
+    "sig": "`(n: int) -> string`",
+    "sem": "`n` bytes from `Options.CryptoRand`, in hex, so `random(16)` is a 128-bit token of 32 digits. **Absent unless the host sets `Options.CryptoRand`**; a negative `n` is an `argument` error, and so is a source that fails or runs short",
     "ex": ""
    },
    "sha1": {
@@ -1956,6 +1962,16 @@
     "ex": ""
    },
    "sha256": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the digest, in hex",
+    "ex": ""
+   },
+   "sha384": {
+    "sig": "`(s: string) -> string`",
+    "sem": "the digest, in hex",
+    "ex": ""
+   },
+   "sha512": {
     "sig": "`(s: string) -> string`",
     "sem": "the digest, in hex",
     "ex": ""
@@ -2410,6 +2426,11 @@
    "at": {
     "sig": "`(unix: int) -> time`",
     "sem": "",
+    "ex": ""
+   },
+   "mono": {
+    "sig": "`() -> float`",
+    "sem": "seconds on a monotonic clock, for measuring an interval; requires `Options.Now`. The origin is the Run's first reading, so the first call is `0.0`",
     "ex": ""
    },
    "now": {

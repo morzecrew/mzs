@@ -119,7 +119,7 @@ FAIL суммы
 | `--mem <size>` | live memory budget per file (`64m`; `0` disables) |
 | `--tasks <n>` | tasks running at once, for `async fn` |
 | `--time` | enable the `time`/`date` modules and a real clock |
-| `--rand [seed]` | enable `rand()`/`uuid()` |
+| `--rand [seed]` | enable `rand()`/`uuid()`, and `crypto.random` from the operating system |
 | `--no-io` | withhold the `io` module |
 | `--read-only` | `io` reads, and cannot write, append, `rm`, `mkdir` or `mv` |
 | `--no-trace` | a file that fails outside a case prints its three lines without the call stack |

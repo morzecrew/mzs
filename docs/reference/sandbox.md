@@ -32,8 +32,9 @@ field grants one capability.
 | `io.env` | `Env` | on with `io` |
 | `include x from "…"` | `ModuleLoader` | a `./` path is rooted at the program's directory; a bare name is a library on `$MZSPATH`, rooted where it was found |
 | `time` / `date` modules | `EnableTime` | `--time` |
-| `now()`, `time.now`, `date.today` | `Now` | `--time` |
+| `now()`, `time.now`, `time.mono`, `date.today` | `Now` | `--time` |
 | `rand()`, `uuid()`, `sample`, `shuffle` | `Rand` | `--rand [seed]` |
+| `crypto.random` | `CryptoRand` (pass `crypto/rand.Reader`) | `--rand`, which reads the operating system, never the seed |
 | `print` / `println` / `debug` output | `Stdout` | always wired by the CLI |
 | runtime notices (a failed unawaited task, an http handler error) | `Stderr` | always wired by the CLI |
 
