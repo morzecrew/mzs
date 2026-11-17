@@ -3,29 +3,18 @@
 #   mzs examples/14_text_layout.mzs
 #
 # Terminal output is a layout problem, and the four primitives — `ljust`, `rjust`,
-# `center` and string repetition — are enough for all of it once you write the wrapper.
-# Everything here counts runes, so a Cyrillic invoice lines up exactly like a Latin one.
+# `center` and string repetition — are enough for all of it once the text is wrapped,
+# which `wrap` does.
+# Everything here measures display columns, so a Cyrillic invoice lines up exactly like a
+# Latin one.
 
 WIDTH = 62
 
 # --- word wrap: the fold every report needs -----------------------------------
-
-fn wrap(text, width) {
-  lines = []
-  line = ""
-  text.split(/\s+/).reject { it.blank }.each { (word) ->
-    if line.blank {
-      line = word
-    } else if line.len + 1 + word.len <= width {
-      line += " " + word
-    } else {
-      lines.push(line)
-      line = word
-    }
-  }
-  lines.push(line) if !line.blank
-  lines
-}
+#
+# `text.wrap(width)` fills words into lines of at most `width` columns, reflowing the
+# text as one paragraph: a newline inside it is just more whitespace. Columns are display
+# columns, so CJK text, which is two columns a character, wraps as it looks.
 
 # --- full justification: spread the slack into the gaps -----------------------
 
@@ -51,10 +40,10 @@ word wrapper is written. The same function wraps other scripts — та же ф�
 
 println("wrapped to ${WIDTH} columns")
 println("┌" + "─" * WIDTH + "┐")
-wrap(prose, WIDTH - 2).each { (l) -> println("│ ${l.ljust(WIDTH - 2)} │") }
+prose.wrap(WIDTH - 2).each { (l) -> println("│ ${l.ljust(WIDTH - 2)} │") }
 println("└" + "─" * WIDTH + "┘")
 
-wrapped = wrap(prose, WIDTH - 2)
+wrapped = prose.wrap(WIDTH - 2)
 println("")
 println("the same paragraph, fully justified")
 println("┌" + "─" * WIDTH + "┐")
@@ -110,8 +99,9 @@ table(items, ["item", "qty", "price", "total"], ["l", "r", "r", "r"]).each { (l)
 println("${" " * 17}${"total".rjust(6)}${(items.sum { it["total"] }.str + " ₽").rjust(15)}")
 
 # --- truncation with an ellipsis, and a two-column layout ---------------------
-
-fn ellipsis(s, n) { s.len <= n ? s : s.first(n - 1) + "…" }
+#
+# `truncate(n)` cuts to at most `n` columns, the "…" included, and leaves a string that
+# already fits alone.
 
 notes = [
   ["Allergies", "ammonia — use an ammonia-free colourant on every visit"],
@@ -122,7 +112,7 @@ notes = [
 println("")
 println("client notes, truncated to fit")
 notes.each { (n) ->
-  println("  ${n[0].ljust(14)}${ellipsis(n[1], 44)}")
+  println("  ${n[0].ljust(14)}${n[1].truncate(44)}")
 }
 
 # --- centering a banner --------------------------------------------------------

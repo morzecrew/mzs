@@ -27,7 +27,7 @@ points back to, plus the defects that need a fix rather than a design.
 | [0013](0013-csv-module.md) | The `csv` module — **landed** (#28) | stdlib | M | P1 |
 | [0014](0014-test-module.md) | `test` grows up: `raises`, `near`, `skip`, `group`, and runner flags — **landed** (#29) | stdlib, CLI | M | P1 |
 | [0015](0015-path-and-io.md) | The `path` module, and `io.stat` / `rm` / `mkdir` / `mv` / `walk` — **landed** (#30) | stdlib | M | P2 |
-| [0016](0016-stdlib-completion.md) | Standard-library completion: the rows that are conspicuously absent — dicts, arrays and seq **landed** (#32, #33) | stdlib | M | P2 |
+| [0016](0016-stdlib-completion.md) | Standard-library completion: the rows that are conspicuously absent — dicts, arrays, seq and strings **landed** (#32, #33, #34) | stdlib | M | P2 |
 | [0017](0017-args-module.md) | The `args` module: declared command-line flags — **landed** (#31) | stdlib | S | P2 |
 | [0018](0018-big-integers.md) | `big` — integers past 2⁶³ | stdlib | M | P3 |
 | [0019](0019-tooling.md) | Tooling: lint, doc comments, coverage, profile, and the rest of the LSP | tools | L | P2 |

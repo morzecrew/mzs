@@ -1353,6 +1353,11 @@
     "sem": "non-overlapping occurrences",
     "ex": ""
    },
+   "drop": {
+    "sig": "`(n: int) -> string`",
+    "sem": "the first `n` runes, or all but them, as on an array; a negative `n` is an argument error",
+    "ex": "`\"привет\".drop(2) == \"ивет\"`"
+   },
    "each_char": {
     "sig": "`{ (c) -> … } -> string`",
     "sem": "iterates, returns the receiver",
@@ -1387,6 +1392,11 @@
     "sig": "`(sub: string) -> bool`",
     "sem": "substring test",
     "ex": "`\"hello\".has(\"lo\")`"
+   },
+   "indent": {
+    "sig": "`(prefix: string) -> string`",
+    "sem": "`prefix` before every line that has something on it; a line that is empty or only whitespace is left alone, and line endings are kept",
+    "ex": "`body.indent(\"    \")`"
    },
    "index": {
     "sig": "`(needle: string | regex, from: int = 0) -> int | nil`",
@@ -1493,20 +1503,30 @@
     "sem": "",
     "ex": ""
    },
+   "take": {
+    "sig": "`(n: int) -> string`",
+    "sem": "the first `n` runes, or all but them, as on an array; a negative `n` is an argument error",
+    "ex": "`\"привет\".drop(2) == \"ивет\"`"
+   },
    "trim": {
-    "sig": "`-> string`",
-    "sem": "trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF**",
+    "sig": "`(cutset: string = nil) -> string`",
+    "sem": "trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF**. With a cutset it trims the runes in it instead — a set, not a prefix: `\"-=a=-\".trim(\"=-\")` is `a`. `nil` is whitespace, as with no argument, and `\"\"` trims nothing",
     "ex": "`\"  ОПЕРАТОР \".lower.trim`"
    },
    "trim_end": {
-    "sig": "`-> string`",
-    "sem": "",
-    "ex": ""
+    "sig": "`(cutset: string = nil) -> string`",
+    "sem": "one end, as `trim`",
+    "ex": "`\"--a-\".trim_start(\"-\")`"
    },
    "trim_start": {
-    "sig": "`-> string`",
-    "sem": "",
-    "ex": ""
+    "sig": "`(cutset: string = nil) -> string`",
+    "sem": "one end, as `trim`",
+    "ex": "`\"--a-\".trim_start(\"-\")`"
+   },
+   "truncate": {
+    "sig": "`(width: int, tail: string = \"…\") -> string`",
+    "sem": "at most `width` **display columns**, ending in `tail` when anything was cut. The tail counts toward the width, and a tail wider than the width is an argument error. A combining mark stays with its letter",
+    "ex": "`\"日本語テキスト\".truncate(7) == \"日本語…\"`"
    },
    "upper": {
     "sig": "`-> string`",
@@ -1517,6 +1537,11 @@
     "sig": "`-> int`",
     "sem": "display columns: a CJK ideograph and an emoji are 2, a combining mark and a control character are 0, everything else is 1. What a terminal, a Markdown table and a fixed-width report align by. The unit is the **code point**, as in Unicode's own width property: an emoji sequence joined with U+200D counts each of its emoji, because whether a terminal draws such a sequence as one glyph or two is the terminal's decision and not the text's",
     "ex": "`\"日本\".width == 4`"
+   },
+   "wrap": {
+    "sig": "`(width: int) -> array`",
+    "sem": "words filled into lines of at most `width` display columns. Any whitespace, newlines included, separates two words, so the text is reflowed as one paragraph; a word wider than `width` gets a line of its own and is never split. No empty lines; text with no words gives `[]`",
+    "ex": "`\"the quick brown fox\".wrap(10)`"
    }
   },
   "task": {
