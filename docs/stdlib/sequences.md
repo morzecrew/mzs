@@ -49,6 +49,10 @@ Each returns another seq and evaluates nothing.
 | `flat_map` | `{ (x) -> … } -> seq` — one level, an array/range/seq is pulled through |
 | `take` `drop` | `(n) -> seq` |
 | `take_while` `drop_while` | `{ (x) -> … } -> seq` |
+| `zip` | `(*others) -> seq` — rows of `[x, y, …]`, stopping with the shortest |
+| `concat` | `(*others) -> seq` — one after another |
+| `uniq` | `[{ (x) -> key }] -> seq` — the first of each key |
+| `each_slice` `each_cons` | `(n) [{ (batch) -> … }] -> seq` — batches of `n`, or windows of `n` |
 
 ```
 (1..9).seq.map { it * 10 }.array           # [10,20,30,40,50,60,70,80,90]
@@ -56,7 +60,30 @@ Each returns another seq and evaluates nothing.
 (1..9).seq.take_while { it < 4 }.array     # [1,2,3]
 (1..9).seq.drop(6).array                   # [7,8,9]
 (1..3).seq.flat_map { [it, -it] }.array    # [1,-1,2,-2,3,-3]
+(1..5).seq.zip(["a", "b"]).array           # [[1,"a"],[2,"b"]]
+[1,2].seq.concat((3..4)).array             # [1,2,3,4]
+[3,1,3,2,1].seq.uniq.array                 # [3,1,2]
+(1..7).seq.each_slice(3).array             # [[1,2,3],[4,5,6],[7]]
+(1..4).seq.each_cons(2).array              # [[1,2],[2,3],[3,4]]
 ```
+
+`zip` on an array pads the shorter side with `nil`; on a seq it stops, because the other
+side may never end. Its arguments are anything `seq(x)` takes — an array, a range, a
+generator or a seq — and an endless one is fine:
+
+```
+["a", "b", "c"].seq.zip(seq { (i) -> i }).array   # [["a",0],["b",1],["c",2]]
+```
+
+`each_slice` is how a stream is handled in batches, and given a closure it walks the
+sequence itself, as on an array:
+
+```
+io.lines.each_slice(500) { (batch) -> println("${batch.len} lines") }
+```
+
+`uniq` is the one lazy row that is not constant in memory: it remembers every key it has
+passed, and those keys count toward `MaxCollection`.
 
 ## Terminal rows
 
@@ -73,6 +100,10 @@ Each pulls the source until it has its answer.
 | `reduce` | `(init = nil) { (acc, x) -> … } -> any` |
 | `sum` `min` `max` | as on an array, optional closure included |
 | `join` | `(sep = "") -> string` |
+| `last` | `(n = nil) -> any \| array` — keeps `n`, not the sequence |
+| `min_by` `max_by` | `{ (x) -> key } -> any` |
+| `tally` | `-> dict` |
+| `group_by` | `{ (x) -> key } -> dict` |
 
 ```
 (1..4).seq.sum                             # 10
@@ -81,6 +112,10 @@ Each pulls the source until it has its answer.
 (1..9).seq.first(2)                        # [1,2]
 (1..3).seq.join("-")                       # "1-2-3"
 (1..9).seq.count { it.even }               # 4
+(1..9).seq.last(2)                         # [8,9]
+["aaa", "b"].seq.min_by { it.len }         # "b"
+["a", "b", "a"].seq.tally                  # {"a":2,"b":1}
+(1..6).seq.group_by { it % 3 }             # {"1":[1,4],"2":[2,5],"0":[3,6]}
 2 in (1..3).seq                            # true
 for x in (1..3).seq { print(x) }           # prints 123
 ```
@@ -96,8 +131,9 @@ pulls                                      # 8 — not a million
 
 ## Everything else needs the whole sequence
 
-`sort`, `reverse`, `uniq`, `tally`, `group_by` and `last` cannot answer from a prefix, so
-they are not seq rows. Materialise first — it is one row and the same name:
+`sort`, `reverse`, `shuffle` and `sample` cannot give their first element until they have
+seen the last, so they are not seq rows. Materialise first — it is one row and the same
+name:
 
 ```
 (1..5).seq.sort            # type: sort expects an array, got seq
@@ -105,7 +141,9 @@ they are not seq rows. Materialise first — it is one row and the same name:
 ```
 
 That is deliberate: a row that quietly buffered a gigabyte would defeat the point of
-asking for a seq.
+asking for a seq. The rows that only remember — `uniq`, `tally`, `group_by`, `last(n)`,
+the batch of `each_slice`, the window of `each_cons` — are seq rows, and each keeps what it remembers, charged to
+`MaxCollection`, rather than the sequence.
 
 ## A seq is a recipe, not a cursor
 

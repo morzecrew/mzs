@@ -1141,6 +1141,11 @@
     "sem": "the materialisation, and the row that charges `MaxCollection`",
     "ex": ""
    },
+   "concat": {
+    "sig": "`(*others) -> seq`",
+    "sem": "the receiver, then each argument in turn; a new seq, where the array row appends in place. A later part is opened only when it is reached",
+    "ex": ""
+   },
    "count": {
     "sig": "`(v) | { (x) -> … } -> int`",
     "sem": "every element, the equal ones, or the ones a closure accepts",
@@ -1159,6 +1164,16 @@
    "each": {
     "sig": "`{ … } -> seq`",
     "sem": "returns the receiver",
+    "ex": ""
+   },
+   "each_cons": {
+    "sig": "`(n: int) [{ (window) -> … }] -> seq`",
+    "sem": "every window of `n` neighbours; none when there are fewer than `n`",
+    "ex": ""
+   },
+   "each_slice": {
+    "sig": "`(n: int) [{ (batch) -> … }] -> seq`",
+    "sem": "arrays of `n`, the last one short",
     "ex": ""
    },
    "each_with_index": {
@@ -1191,6 +1206,11 @@
     "sem": "flattens one level; an array, a range or a seq the closure returns is pulled through, anything else is one element",
     "ex": ""
    },
+   "group_by": {
+    "sig": "`{ (x) -> key } -> dict`",
+    "sem": "arrays of the elements, by key, in first-seen order",
+    "ex": ""
+   },
    "has": {
     "sig": "`(v) -> bool`",
     "sem": "membership by `==`, and therefore what `x in s` asks (§8.5)",
@@ -1199,6 +1219,11 @@
    "join": {
     "sig": "`(sep: string = \"\") -> string`",
     "sem": "`str` of each element",
+    "ex": ""
+   },
+   "last": {
+    "sig": "`(n: int = nil) -> any | array`",
+    "sem": "the last element, or the last `n`; keeps `n` elements, not the sequence",
     "ex": ""
    },
    "len": {
@@ -1216,9 +1241,19 @@
     "sem": "the optional comparator of §12.3",
     "ex": ""
    },
+   "max_by": {
+    "sig": "`{ (x) -> key } -> any`",
+    "sem": "the element with the least or greatest key, the first on a tie; `nil` when empty",
+    "ex": ""
+   },
    "min": {
     "sig": "`[{ (a, b) -> int }] -> any`",
     "sem": "the optional comparator of §12.3",
+    "ex": ""
+   },
+   "min_by": {
+    "sig": "`{ (x) -> key } -> any`",
+    "sem": "the element with the least or greatest key, the first on a tie; `nil` when empty",
     "ex": ""
    },
    "none": {
@@ -1249,6 +1284,21 @@
    "take_while": {
     "sig": "`{ (x) -> … } -> seq`",
     "sem": "",
+    "ex": ""
+   },
+   "tally": {
+    "sig": "`-> dict`",
+    "sem": "each distinct element and how often it came, in first-seen order",
+    "ex": ""
+   },
+   "uniq": {
+    "sig": "`[{ (x) -> key }] -> seq`",
+    "sem": "the first element of each key, by `==`. The one lazy row whose memory is not constant: it keeps every key it has seen, charged to `MaxCollection`",
+    "ex": ""
+   },
+   "zip": {
+    "sig": "`(*others) -> seq`",
+    "sem": "`[x, y, …]` rows, **stopping with the shortest** — unlike the array row, which pads with `nil`, because a seq may be endless. Each argument is anything `seq(x)` accepts. The receiver is pulled first, and an argument only once the receiver has given an element",
     "ex": ""
    }
   },

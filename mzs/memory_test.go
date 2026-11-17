@@ -107,6 +107,24 @@ d.map_values { "x" * 50000 + it.str }`},
 		{"a dict max_by's best key", `{a: 1, b: 2}.max_by { (k, _) -> "x" * 600000 + k }`},
 		{"an accumulate in progress", `(0..40).accumulate("") { (acc, x) -> "x" * 50000 + x.str }`},
 		{"a seq being collected", `(0..40).seq.map { "x" * 50000 + it.str }.array`},
+		{"a seq uniq's seen keys", `seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }.len`},
+		{"a seq uniq's seen keys under a for", `n = 0
+for x in (seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }) { n += 1 }`},
+		{"a seq each_slice batch being filled", `(0..40).seq.map { "x" * 50000 + it.str }.each_slice(41).len`},
+		{"a seq each_cons window", `(0..40).seq.map { "x" * 50000 + it.str }.each_cons(41).len`},
+		{"a seq last window", `(0..40).seq.map { "x" * 50000 + it.str }.last(41).len`},
+		{"a seq tally in progress", `(0..40).seq.map { "x" * 50000 + it.str }.tally`},
+		{"a seq group_by in progress", `(0..40).seq.group_by { "x" * 50000 + it.str }`},
+		{"a seq max_by's best key", `[1, 2].seq.max_by { "x" * 600000 + it.str }`},
+		{"a flat_map's inner array", `(0..0).seq.flat_map { (_) -> ["a", "b" * 600000] }
+.map { it.len < 100 ? ("z" * 500000).len : 0 }.sum`},
+		{"a flat_map's inner array beside another flat_map under a zip",
+			`(1..3).seq.flat_map { [it] }.zip((0..0).seq.flat_map { (_) -> [0, 0, "b" * 600000] })
+.map { it[0] == 2 ? ("z" * 600000).len : 0 }.sum`},
+		{"a zip row being built", `seq { (i) -> i < 1 ? "a" * 600000 : nil }
+.zip(seq { (i) -> i < 1 ? "b" * 600000 : nil }).len`},
+		{"a uniq beside a flat_map that releases its inner cursors",
+			`(1..40).seq.flat_map { [it] }.zip((0..40).seq.map { "x" * 50000 + it.str }.uniq { it }).len`},
 		{"a seq's source array", `keep = []
 for i in 0..40 { keep.push(("x" * 50000 + i.str).chars.first(1).join + ("y" * 50000)) }
 s = keep.seq; keep = nil
@@ -122,6 +140,33 @@ more = []; for i in 0..10 { more.push("z" * 50000 + i.str) }`},
 			_, err := memRun(t, memInterp(1<<20), tt.src, nil)
 			wantMemoryError(t, err)
 		})
+	}
+}
+
+// The state a lazy seq row keeps is held for the traversal that pulls it and no longer
+// (RFC 0016 §3): the hold is released with the frame of the `for` or the terminal that
+// pulled it, so eight traversals in one block, each keeping about 550 KB, run under a
+// 1 MiB budget.
+func TestMemorySeqStateEndsWithItsTraversal(t *testing.T) {
+	loop := `for x in ((0..10).seq.map { "%s" * 50000 + it.str }.uniq { it }) { n += 1 }
+`
+	src := "n = 0\n"
+	for _, c := range []string{"a", "b", "c", "d"} {
+		src += strings.Replace(loop, "%s", c, 1)
+	}
+	src += `for k in ["e", "f", "g", "h"] { n += (0..10).seq.map { k * 50000 + it.str }.uniq { it }.len }
+`
+	// Inside one traversal too: each inner cursor of a flat_map, and each part of a
+	// concat, releases what it kept when it ends.
+	src += `n += (1..2000).seq.flat_map { (_) -> (1..20).seq.map { "x" * 1000 + it.str }.uniq }.len / 1000
+n += (1..30).seq.map { "x" * 20000 + it.str }.uniq.concat((1..30).seq.map { "y" * 20000 + it.str }.uniq).len
+n`
+	res, err := memRun(t, memInterp(1<<20), src, nil)
+	if err != nil {
+		t.Fatalf("Run: %v; the keys of a finished traversal are not live", err)
+	}
+	if res.Value.Int() != 88+40+60 {
+		t.Errorf("n = %v; want every loop to have run", res.Value)
 	}
 }
 

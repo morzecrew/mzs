@@ -26,6 +26,13 @@ and the release is still ahead of it.
   - **Arrays and ranges** gain `mean`, `median`, `product`, `transpose`, `rotate`,
     `chunk_while`, `accumulate` (the running `reduce`) and `bsearch`.
   - `avg` and `average` now suggest `mean` (SPEC §12.3, §12.4).
+- **Seq rows for streaming pipelines** (RFC 0016, part 2).
+  - `zip`, `concat`, `uniq`, `each_slice` and `each_cons` are lazy. `zip` stops with the
+    shortest, because a seq may be endless, and `each_slice` / `each_cons` given a closure
+    walk the sequence as on an array.
+  - `last`, `min_by`, `max_by`, `tally` and `group_by` are terminals.
+  - The rows that remember charge what they keep to `MaxCollection` as it grows, so
+    `uniq` over an endless source of distinct keys ends on the cap (SPEC §12.14).
 - **The `args` module.** `include args` gives a script command-line flags of its own,
   declared in one dict: `args.parse({width: 800, force: {default: false, short: "f"}})`.
   The kind of each default decides the conversion: int, float, string, bool with

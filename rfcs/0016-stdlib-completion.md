@@ -1,6 +1,6 @@
 # RFC 0016 — Standard-library completion
 
-**Status:** Partly landed: §1–§2 (#32) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
+**Status:** Partly landed: §1–§3 (#32, #33) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
 
 ## Summary
 
@@ -195,3 +195,36 @@ apidoc regeneration, one corpus row per new function.
   unspecified.
 * **`transpose`** refuses a ragged table with an `argument` error naming the row, and
   charges a step per cell.
+
+### Part 2: seq (#33)
+
+§3 landed in `mzs/seq.go`, with SPEC §12.14, `docs/stdlib/sequences.md` and apidoc.
+Decisions:
+
+* **Lazy or terminal.** `zip`, `concat`, `uniq`, `each_slice` and `each_cons` are lazy
+  and return a seq. `last`, `min_by`, `max_by`, `tally` and `group_by` are terminals.
+  `each_slice` and `each_cons` given a closure walk the sequence and return the receiver,
+  as the array rows do. Without one they are a seq of arrays, which is what a stream in
+  batches wants.
+* **`zip` stops with the shortest**, as proposed. The array row pads with `nil`, which
+  over an endless argument would never end. The receiver is pulled first, and an
+  argument only after the receiver has given an element, so a stateful argument loses
+  nothing to a receiver that has run out. Each argument is converted as `seq(x)`
+  converts, when the row is built.
+* **`concat` makes a new seq.** The array row appends in place; a seq is a recipe, and
+  recipes are not edited. Each part is opened only when the one before it ends.
+* **What a row keeps is charged as it grows.** `uniq` charges its keys to
+  `MaxCollection`, as the RFC asks, and so do `tally`'s dict, `group_by`'s dict and each
+  bucket, `last(n)`'s window, and the batch of `each_slice` or `each_cons`. `uniq` over
+  an endless source of distinct keys ends on the cap.
+* **The memory walk sees what a lazy row keeps.** A lazy row's state lives in a Go
+  closure, which the walk of RFC 0011 cannot look inside. So every traversal has an
+  owner, made and rooted by the frame that pulls it, and a cursor registers what it keeps
+  with the owner it is opened under. A cursor opened mid-traversal — each inner sequence
+  of a `flat_map`, each part of a `concat` — gets a child owner, which is forgotten when
+  the cursor ends, so `(1..10000).seq.flat_map { s.uniq }` keeps one inner `uniq`'s keys
+  at a time. The owners form a tree rather than a stack: a cursor that ends takes only
+  what it kept, and its siblings under a `zip` keep theirs. A child owner also holds the
+  value the `flat_map` closure returned, which nothing else holds while it is pulled.
+* **`sort`, `reverse`, `shuffle` and `sample` stay array-only**, as proposed. They cannot
+  give their first element until they have seen the last.

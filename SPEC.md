@@ -3167,6 +3167,14 @@ nothing:
 | `flat_map` | `{ (x) -> … } -> seq` | flattens one level; an array, a range or a seq the closure returns is pulled through, anything else is one element |
 | `take` / `drop` | `(n: int) -> seq` | |
 | `take_while` / `drop_while` | `{ (x) -> … } -> seq` | |
+| `zip` | `(*others) -> seq` | `[x, y, …]` rows, **stopping with the shortest** — unlike the array row, which pads with `nil`, because a seq may be endless. Each argument is anything `seq(x)` accepts. The receiver is pulled first, and an argument only once the receiver has given an element |
+| `concat` | `(*others) -> seq` | the receiver, then each argument in turn; a new seq, where the array row appends in place. A later part is opened only when it is reached |
+| `uniq` | `[{ (x) -> key }] -> seq` | the first element of each key, by `==`. The one lazy row whose memory is not constant: it keeps every key it has seen, charged to `MaxCollection` |
+| `each_slice` | `(n: int) [{ (batch) -> … }] -> seq` | arrays of `n`, the last one short |
+| `each_cons` | `(n: int) [{ (window) -> … }] -> seq` | every window of `n` neighbours; none when there are fewer than `n` |
+
+`each_slice` and `each_cons` given a closure walk the sequence instead, call it with each
+batch, and return the receiver, as the array rows do.
 
 A **terminal** row pulls:
 
@@ -3185,14 +3193,20 @@ A **terminal** row pulls:
 | `sum` | `[{ (x) -> … }] -> number` | |
 | `min` / `max` | `[{ (a, b) -> int }] -> any` | the optional comparator of §12.3 |
 | `join` | `(sep: string = "") -> string` | `str` of each element |
+| `last` | `(n: int = nil) -> any \| array` | the last element, or the last `n`; keeps `n` elements, not the sequence |
+| `min_by` / `max_by` | `{ (x) -> key } -> any` | the element with the least or greatest key, the first on a tie; `nil` when empty |
+| `tally` | `-> dict` | each distinct element and how often it came, in first-seen order |
+| `group_by` | `{ (x) -> key } -> dict` | arrays of the elements, by key, in first-seen order |
 
-Every other array row — `sort`, `reverse`, `uniq`, `tally`, `group_by`, `last` — needs the
-whole sequence at once and is reached by materialising first: `s.array.sort`. That is
+A row that needs every element before it can give its first — `sort`, `reverse`,
+`shuffle`, `sample` — is reached by materialising first: `s.array.sort`. That is
 deliberate; a row that quietly buffered a gigabyte would defeat the point of asking for a
 seq. The diagnostic names the receiver's kind either way, and which of the two shapes it
 takes is UFCS (§4.3): a name that is also a §12.1 builtin falls through to it and reports
 `sort expects an array, got seq`, while a name that is only an array row reports
-`undefined method 'uniq' for seq`. The fix is one row long in both cases.
+`undefined method 'reverse' for seq`. The fix is one row long in both cases. The rows that
+only *remember* — `uniq`, `tally`, `group_by`, `last(n)`, a batch of `each_slice` or
+`each_cons` — are seq rows, and they keep what they remember, not the sequence.
 
 **A seq is a recipe, not a cursor.** Every terminal opens the source again, so `s.len` and
 then `s.array` both see the whole sequence. Where the source has state of its own — a
@@ -3205,8 +3219,11 @@ deadline and the step budget of §14.1 interrupt a lazy pipeline exactly as they
 `while` — including the runaway loop that lives *inside* a row, where a `filter` whose
 predicate never fires pulls without ever returning to the terminal. An endless seq is a
 `while true` with better manners and never a way around §14.1. `array` charges
-`MaxCollection` and `join` charges `MaxStringBytes`; the rows that only count charge
-neither, because they materialise nothing.
+`MaxCollection` and `join` charges `MaxStringBytes`. The rows that remember charge what
+they keep to `MaxCollection` as it grows — `uniq` its keys, `tally` its dict, `group_by`
+its dict and each bucket, `last(n)` and `each_slice` / `each_cons` their `n` — so `uniq`
+over an endless source of distinct keys ends on the cap. The rows that only count charge
+neither, because they keep nothing.
 
 **A seq is not an array.** `type(s) == "seq"` and `s.is("array")` is **false** — the one
 place a range and a seq disagree (§12.10), and deliberately: host code that accepts an
