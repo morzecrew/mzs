@@ -1,6 +1,7 @@
 package mzs
 
 import (
+	"math"
 	"sort"
 	"strings"
 )
@@ -73,6 +74,15 @@ func init() {
 		{Name: "array", Fn: arrArray},
 		{Name: "dict", Fn: arrDict},
 		{Name: "json", Fn: arrJSON},
+		// RFC 0016: statistics, reshaping and running folds.
+		{Name: "mean", Fn: arrMean},
+		{Name: "median", Fn: arrMedian},
+		{Name: "product", Max: 1, Fn: arrProduct},
+		{Name: "transpose", Fn: arrTranspose},
+		{Name: "rotate", Max: 1, Fn: arrRotate},
+		{Name: "chunk_while", Min: 1, Max: 1, Fn: arrChunkWhile},
+		{Name: "accumulate", Min: 1, Max: 2, Fn: arrAccumulate},
+		{Name: "bsearch", Min: 1, Max: 1, Fn: arrBsearch},
 		{Name: "sample", Fn: arrSample, NeedsRand: true},
 		{Name: "shuffle", Fn: arrShuffle, NeedsRand: true},
 	}
@@ -1848,4 +1858,271 @@ func rngStep(c *Ctx, recv Value, args []Value) (Value, error) {
 		return recv, nil
 	}
 	return arrayOf(out), nil
+}
+
+// ---------------------------------------------------------------------------
+// Statistics, reshaping and running folds (RFC 0016)
+// ---------------------------------------------------------------------------
+
+// arrNumbers is the receiver as float64s, for the rows whose answer is a float whatever
+// the elements were. A non-number is the same type error sum gives.
+func arrNumbers(c *Ctx, recv Value) ([]Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return nil, err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return nil, err
+	}
+	for _, x := range xs {
+		if !x.IsNum() {
+			return nil, c.TypeErrorf("%s expects numbers, got %s", c.Name(), x.TypeName())
+		}
+	}
+	return xs, nil
+}
+
+// arrMean is the arithmetic mean, always a float — `sum / len` on ints is integer
+// division (D9), which is the mistake this row exists to remove. nil for no elements.
+func arrMean(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrNumbers(c, recv)
+	if err != nil || len(xs) == 0 {
+		return Nil(), err
+	}
+	sum := 0.0
+	for _, x := range xs {
+		sum += x.Float()
+	}
+	return Float(sum / float64(len(xs))), nil
+}
+
+// arrMedian is the middle element of the sorted numbers — an int stays an int — or the
+// mean of the middle two, a float, for an even count. nil for no elements.
+func arrMedian(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrNumbers(c, recv)
+	if err != nil || len(xs) == 0 {
+		return Nil(), err
+	}
+	sorted := append([]Value(nil), xs...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Float() < sorted[j].Float() })
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid], nil
+	}
+	return Float((sorted[mid-1].Float() + sorted[mid].Float()) / 2), nil
+}
+
+// arrProduct multiplies the elements, or the closure's values, the way sum adds them:
+// ints stay ints until the product overflows, and nothing multiplies to 1.
+func arrProduct(c *Ctx, recv Value, args []Value) (Value, error) {
+	if err := arrOnlyClosure(c, args); err != nil {
+		return Nil(), err
+	}
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	acc := Int(1)
+	for _, x := range xs {
+		v := x
+		if c.HasClosure() {
+			if v, err = c.CallClosure(x); err != nil {
+				return Nil(), err
+			}
+		}
+		if acc, err = arrMul(c, acc, v); err != nil {
+			return Nil(), err
+		}
+	}
+	return acc, nil
+}
+
+// arrMul is arrAdd's partner: an int product that overflows becomes a float, as an int
+// sum that overflows does.
+func arrMul(c *Ctx, a, b Value) (Value, error) {
+	if !a.IsNum() || !b.IsNum() {
+		return Nil(), c.TypeErrorf("%s expects numbers, got %s and %s", c.Name(), a.TypeName(), b.TypeName())
+	}
+	if a.Kind() == KInt && b.Kind() == KInt {
+		x, y := a.Int(), b.Int()
+		if x == 0 || y == 0 {
+			return Int(0), nil
+		}
+		p := x * y
+		if p/y == x && !(x == -1 && y == math.MinInt64) && !(y == -1 && x == math.MinInt64) {
+			return Int(p), nil
+		}
+		return Float(float64(x) * float64(y)), nil
+	}
+	return Float(a.Float() * b.Float()), nil
+}
+
+// arrTranspose turns rows into columns. Every row is an array of the same length — a
+// ragged table has no transpose, and padding it with nil would invent cells — and []
+// transposes to [].
+func arrTranspose(c *Ctx, recv Value, args []Value) (Value, error) {
+	rows, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, rows); err != nil {
+		return Nil(), err
+	}
+	if len(rows) == 0 {
+		return Array(), nil
+	}
+	width := -1
+	for i, r := range rows {
+		if r.Kind() != KArray {
+			return Nil(), c.TypeErrorf("%s expects an array of arrays, got %s at index %d", c.Name(), r.TypeName(), i)
+		}
+		switch {
+		case width < 0:
+			width = r.Len()
+		case r.Len() != width:
+			return Nil(), c.ArgErrorf("%s: row %d has %d elements and row 0 has %d; a ragged table has no transpose", c.Name(), i, r.Len(), width)
+		}
+	}
+	if err := c.Step(int64(len(rows)) * int64(width+1)); err != nil {
+		return Nil(), err
+	}
+	if err := c.CheckCollection(width); err != nil {
+		return Nil(), err
+	}
+	cols := make([]Value, width)
+	for j := range cols {
+		col := make([]Value, len(rows))
+		for i, r := range rows {
+			col[i] = r.Elems()[j]
+		}
+		cols[j] = arrayOf(col)
+	}
+	return arrayOf(cols), nil
+}
+
+// arrRotate is a new array with the first n elements moved to the end; a negative n moves
+// the last ones to the front, and n wraps around the length.
+func arrRotate(c *Ctx, recv Value, args []Value) (Value, error) {
+	n := int64(1)
+	if len(args) == 1 {
+		if args[0].Kind() != KInt {
+			return Nil(), c.TypeErrorf("%s expects an int, got %s", c.Name(), args[0].TypeName())
+		}
+		n = args[0].Int()
+	}
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	out := make([]Value, len(xs))
+	if len(xs) == 0 {
+		return arrayOf(out), nil
+	}
+	k := int(((n % int64(len(xs))) + int64(len(xs))) % int64(len(xs)))
+	copy(out, xs[k:])
+	copy(out[len(xs)-k:], xs[:k])
+	return arrayOf(out), nil
+}
+
+// arrChunkWhile cuts the elements into runs: a neighbour joins the run while the closure
+// says yes for (previous, next). each_slice cuts by count; this cuts by content.
+func arrChunkWhile(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	var out []Value
+	if len(xs) == 0 {
+		return arrayOf(out), nil
+	}
+	run := []Value{xs[0]}
+	for i := 1; i < len(xs); i++ {
+		r, err := c.CallClosure(xs[i-1], xs[i])
+		if err != nil {
+			return Nil(), err
+		}
+		if !r.Truthy() {
+			out = append(out, arrayOf(run))
+			run = nil
+		}
+		run = append(run, xs[i])
+	}
+	return arrayOf(append(out, arrayOf(run))), nil
+}
+
+// arrAccumulate is reduce with every step kept: element i of the answer is what reduce
+// would return for the first i+1 elements. So the answer is as long as the receiver, and
+// its last element is the reduce. Without an initial value the first element seeds it,
+// as reduce's does. (Not `scan`: that is Ruby's spelling of `matches`, §19.2.)
+func arrAccumulate(c *Ctx, recv Value, args []Value) (Value, error) {
+	pos := arrArgs(c, args)
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	out := make([]Value, 0, len(xs))
+	if len(xs) == 0 {
+		return arrayOf(out), nil
+	}
+	var acc Value
+	start := 0
+	if len(pos) == 1 {
+		acc = pos[0]
+	} else {
+		acc, start = xs[0], 1
+		out = append(out, acc)
+	}
+	for _, x := range xs[start:] {
+		if acc, err = c.CallClosure(acc, x); err != nil {
+			return Nil(), err
+		}
+		out = append(out, acc)
+	}
+	return arrayOf(out), nil
+}
+
+// arrBsearch finds an index in a sorted array by asking the closure where each probe
+// stands: negative when the element sorts before what is sought, 0 on a match, positive
+// after — `xs.bsearch { it <=> 42 }`. nil when nothing matches. Which match, if several
+// do, is unspecified; the array must be sorted the way the closure compares.
+func arrBsearch(c *Ctx, recv Value, args []Value) (Value, error) {
+	xs, err := arrElems(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	lo, hi := 0, len(xs)-1
+	for lo <= hi {
+		if err := c.Step(1); err != nil {
+			return Nil(), err
+		}
+		mid := lo + (hi-lo)/2
+		r, err := c.CallClosure(xs[mid])
+		if err != nil {
+			return Nil(), err
+		}
+		if r.Kind() != KInt {
+			return Nil(), c.TypeErrorf("%s: the closure returns an int (negative, 0 or positive), got %s", c.Name(), r.TypeName())
+		}
+		switch n := r.Int(); {
+		case n < 0:
+			lo = mid + 1
+		case n > 0:
+			hi = mid - 1
+		default:
+			return Int(int64(mid)), nil
+		}
+	}
+	return Nil(), nil
 }

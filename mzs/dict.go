@@ -39,6 +39,19 @@ func init() {
 		Method{Name: "all", Min: 1, Max: 1, Fn: dictvAll},
 		Method{Name: "invert", Fn: dictvInvert},
 		Method{Name: "sort_by", Min: 1, Max: 1, Fn: dictvSortBy},
+		// The collection rows an array already has (RFC 0016): the closure takes the key
+		// and the value, as filter and each do.
+		Method{Name: "reduce", Min: 2, Max: 2, Fn: dictvReduce},
+		Method{Name: "count", Min: 1, Max: 1, Fn: dictvCount},
+		Method{Name: "none", Min: 1, Max: 1, Fn: dictvNone},
+		Method{Name: "sum", Min: 1, Max: 1, Fn: dictvSum},
+		Method{Name: "min_by", Min: 1, Max: 1, Fn: dictvMinBy},
+		Method{Name: "max_by", Min: 1, Max: 1, Fn: dictvMaxBy},
+		Method{Name: "group_by", Min: 1, Max: 1, Fn: dictvGroupBy},
+		Method{Name: "partition", Min: 1, Max: 1, Fn: dictvPartition},
+		Method{Name: "map_values", Min: 1, Max: 1, Fn: dictvMapValues},
+		Method{Name: "pick", Max: -1, Fn: dictvPick},
+		Method{Name: "omit", Max: -1, Fn: dictvOmit},
 		Method{Name: "array", Fn: dictvArray},
 		Method{Name: "json", Fn: dictvJSON},
 	)
@@ -439,4 +452,224 @@ func dictvJSON(c *Ctx, recv Value, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	return Str(s), nil
+}
+
+// ---------------------------------------------------------------------------
+// The rows arrays already had (RFC 0016)
+// ---------------------------------------------------------------------------
+
+// dictvEntries is the snapshot every closure row walks: the keys and values as they are
+// when the row starts, charged one step per entry. A closure that writes to the dict
+// changes what the next row sees, not this walk.
+func dictvEntries(c *Ctx, recv Value) (*OrderedDict, []Value, []Value, error) {
+	d, err := dictvOf(c, recv)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := dictvIter(c, d); err != nil {
+		return nil, nil, nil, err
+	}
+	return d, d.Keys(), d.Values(), nil
+}
+
+// dictvReduce is `d.reduce(init) { (acc, k, v) -> … }`. The initial value is required:
+// a dict has no first element that could stand in for it, as an array's does.
+func dictvReduce(c *Ctx, recv Value, args []Value) (Value, error) {
+	_, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	acc := args[0]
+	for i, k := range keys {
+		r, err := c.CallClosure(acc, k, vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		acc = r
+	}
+	return acc, nil
+}
+
+// dictvCount is how many entries the closure accepts. The entry count is `len`.
+func dictvCount(c *Ctx, recv Value, args []Value) (Value, error) {
+	_, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	n := 0
+	for i, k := range keys {
+		r, err := c.CallClosure(k, vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		if r.Truthy() {
+			n++
+		}
+	}
+	return Int(int64(n)), nil
+}
+
+// dictvNone is all's opposite: true when the closure accepts no entry, so true for {}.
+func dictvNone(c *Ctx, recv Value, args []Value) (Value, error) {
+	r, err := dictvQuantify(c, recv, "any")
+	if err != nil {
+		return Nil(), err
+	}
+	return Bool(!r.Truthy()), nil
+}
+
+// dictvSum adds up what the closure returns for each entry, as array sum does with one:
+// ints stay ints until they overflow, and {} sums to 0.
+func dictvSum(c *Ctx, recv Value, args []Value) (Value, error) {
+	_, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	acc := Int(0)
+	for i, k := range keys {
+		r, err := c.CallClosure(k, vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		if acc, err = arrAdd(c, acc, r); err != nil {
+			return Nil(), err
+		}
+	}
+	return acc, nil
+}
+
+func dictvMinBy(c *Ctx, recv Value, args []Value) (Value, error) { return dictvExtremeBy(c, recv, -1) }
+func dictvMaxBy(c *Ctx, recv Value, args []Value) (Value, error) { return dictvExtremeBy(c, recv, 1) }
+
+// dictvExtremeBy is min_by/max_by: the [key, value] pair whose closure value is least
+// (or greatest), the first such pair on a tie, and nil for {} — the shape `find` answers.
+func dictvExtremeBy(c *Ctx, recv Value, want int) (Value, error) {
+	_, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	best, bestKey := -1, Nil()
+	for i, k := range keys {
+		key, err := c.CallClosure(k, vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		if best >= 0 {
+			n, err := arrCompare(c, key, bestKey)
+			if err != nil {
+				return Nil(), err
+			}
+			if !(want < 0 && n < 0) && !(want > 0 && n > 0) {
+				continue
+			}
+		}
+		best, bestKey = i, key
+	}
+	if best < 0 {
+		return Nil(), nil
+	}
+	return Array(keys[best], vals[best]), nil
+}
+
+// dictvGroupBy is a dict from each closure value to a dict of the entries that produced
+// it, both in first-seen order (D11).
+func dictvGroupBy(c *Ctx, recv Value, args []Value) (Value, error) {
+	_, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	out := NewOrderedDict()
+	m := c.rootMark()
+	defer c.release(m)
+	c.hold(dictOf(out))
+	for i, k := range keys {
+		g, err := c.CallClosure(k, vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		bucket, ok := out.Get(g)
+		if !ok {
+			bucket = dictOf(NewOrderedDict())
+			if err := out.Set(g, bucket); err != nil {
+				return Nil(), c.TypeErrorf("%s: the closure returned %s, which cannot be a dict key", c.Name(), g.TypeName())
+			}
+		}
+		_ = bucket.odict().Set(k, vals[i])
+	}
+	return dictOf(out), nil
+}
+
+// dictvPartition is [the entries the closure accepts, the rest], each a dict in d's order.
+func dictvPartition(c *Ctx, recv Value, args []Value) (Value, error) {
+	_, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	yes, no := NewOrderedDict(), NewOrderedDict()
+	for i, k := range keys {
+		r, err := c.CallClosure(k, vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		if r.Truthy() {
+			_ = yes.Set(k, vals[i])
+		} else {
+			_ = no.Set(k, vals[i])
+		}
+	}
+	return Array(dictOf(yes), dictOf(no)), nil
+}
+
+// dictvMapValues is the same keys in the same order with each value replaced by what the
+// closure returns for it. The closure takes the value alone — the key is not changing.
+// Because the shape is the same, a record stays the record it was (§7.8), which
+// `d.map { … }.dict` cannot do: that rebuilds through pairs and drops the label.
+func dictvMapValues(c *Ctx, recv Value, args []Value) (Value, error) {
+	d, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	out := NewOrderedDictCap(len(keys))
+	out.rec = d.rec
+	for i, k := range keys {
+		r, err := c.CallClosure(vals[i])
+		if err != nil {
+			return Nil(), err
+		}
+		_ = out.Set(k, r)
+	}
+	return dictOf(out), nil
+}
+
+// dictvPick is the entries whose keys are named, in d's order, not the order they are
+// named in; a named key d does not have is skipped. dictvOmit is the rest. Neither keeps
+// a record label: fewer fields is another shape.
+func dictvPick(c *Ctx, recv Value, args []Value) (Value, error) {
+	return dictvSelect(c, recv, args, true)
+}
+func dictvOmit(c *Ctx, recv Value, args []Value) (Value, error) {
+	return dictvSelect(c, recv, args, false)
+}
+
+func dictvSelect(c *Ctx, recv Value, args []Value, keep bool) (Value, error) {
+	d, keys, vals, err := dictvEntries(c, recv)
+	if err != nil {
+		return Nil(), err
+	}
+	if err := c.Step(int64(len(args))); err != nil {
+		return Nil(), err
+	}
+	named := NewOrderedDictCap(len(args))
+	for _, a := range args {
+		if err := named.Set(a, Nil()); err != nil {
+			return Nil(), c.TypeErrorf("%s: %s", c.Name(), err.Error())
+		}
+	}
+	out := NewOrderedDictCap(d.Len())
+	for i, k := range keys {
+		if named.Has(k) == keep {
+			_ = out.Set(k, vals[i])
+		}
+	}
+	return dictOf(out), nil
 }

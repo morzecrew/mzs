@@ -492,6 +492,9 @@ var renameTable = map[string]string{
 	"gets":      "input",
 	"raw_input": "input",
 	"readline":  "input",
+	// The other languages' names for the arithmetic mean (RFC 0016).
+	"avg":     "mean",
+	"average": "mean",
 	// mzs's own former spelling: `say` was renamed to `println` so that the pair with
 	// `print` says which one adds the newline.
 	"say": "println",
