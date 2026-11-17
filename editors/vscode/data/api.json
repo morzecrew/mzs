@@ -581,8 +581,8 @@
     "ex": ""
    },
    "gcd": {
-    "sig": "`(b: int) -> int`",
-    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "sig": "`(b: int) -> number`",
+    "sem": "greatest common divisor, never negative; `gcd(0, 0) == 0`. Int receiver and argument only (a Float is a `type` error). An Int, except `gcd(MinInt64, 0)`, which is past MaxInt64 and promotes to Float (D9)",
     "ex": ""
    },
    "hours": {
@@ -597,12 +597,12 @@
    },
    "is_inf": {
     "sig": "`-> bool`",
-    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "sem": "true for both infinities. An Int is never infinite",
     "ex": ""
    },
    "is_nan": {
     "sig": "`-> bool`",
-    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "sem": "the IEEE test, which `==` cannot be: NaN equals nothing. An Int is never NaN",
     "ex": ""
    },
    "json": {
@@ -611,8 +611,8 @@
     "ex": "`{a: 1}.json`"
    },
    "lcm": {
-    "sig": "`(b: int) -> int`",
-    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "sig": "`(b: int) -> number`",
+    "sem": "least common multiple, never negative; `lcm` with a `0` is `0`. Int receiver and argument only (a Float is a `type` error). An Int, or a Float when the result overflows int64 (D9)",
     "ex": ""
    },
    "minutes": {
@@ -745,8 +745,8 @@
     "ex": ""
    },
    "gcd": {
-    "sig": "`(b: int) -> int`",
-    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "sig": "`(b: int) -> number`",
+    "sem": "greatest common divisor, never negative; `gcd(0, 0) == 0`. Int receiver and argument only (a Float is a `type` error). An Int, except `gcd(MinInt64, 0)`, which is past MaxInt64 and promotes to Float (D9)",
     "ex": ""
    },
    "hours": {
@@ -761,12 +761,12 @@
    },
    "is_inf": {
     "sig": "`-> bool`",
-    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "sem": "true for both infinities. An Int is never infinite",
     "ex": ""
    },
    "is_nan": {
     "sig": "`-> bool`",
-    "sem": "IEEE tests; an Int is never either. `is_inf` is true for both infinities",
+    "sem": "the IEEE test, which `==` cannot be: NaN equals nothing. An Int is never NaN",
     "ex": ""
    },
    "json": {
@@ -775,8 +775,8 @@
     "ex": "`{a: 1}.json`"
    },
    "lcm": {
-    "sig": "`(b: int) -> int`",
-    "sem": "Int receiver and argument only (a Float is a `type` error); both are non-negative, `gcd(0, 0) == 0` and `lcm` with a `0` is `0`. A result past MaxInt64 — `gcd(MinInt64, 0)`, an `lcm` that overflows — promotes to Float (D9)",
+    "sig": "`(b: int) -> number`",
+    "sem": "least common multiple, never negative; `lcm` with a `0` is `0`. Int receiver and argument only (a Float is a `type` error). An Int, or a Float when the result overflows int64 (D9)",
     "ex": ""
    },
    "minutes": {
@@ -2196,112 +2196,112 @@
   "math": {
    "acos": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "asin": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "atan": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "atan2": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "cbrt": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "cos": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "cosh": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "e": {
     "sig": "constants",
-    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
+    "sem": "π and Euler's number, as float64",
     "ex": ""
    },
    "exp": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "hypot": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "inf": {
     "sig": "constants",
-    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
+    "sem": "+Infinity and NaN, the two IEEE values with no literal (§3)",
     "ex": ""
    },
    "log": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "log10": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "log2": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "nan": {
     "sig": "constants",
-    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
+    "sem": "+Infinity and NaN, the two IEEE values with no literal (§3)",
     "ex": ""
    },
    "pi": {
     "sig": "constants",
-    "sem": "`inf` is +Infinity and `nan` is NaN, the two IEEE values with no literal (§3)",
+    "sem": "π and Euler's number, as float64",
     "ex": ""
    },
    "pow": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "sin": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "sinh": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "sqrt": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "tan": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    },
    "tanh": {
     "sig": "`(…) -> float`",
-    "sem": "out of domain is an IEEE value, not an error: `math.asin(2)` is NaN",
+    "sem": "angles in radians; an argument outside a function's domain gives NaN or an infinity, not an error",
     "ex": ""
    }
   },
