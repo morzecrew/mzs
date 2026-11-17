@@ -70,6 +70,47 @@ silent swap.
 2.clamp(3, 1)     # argument: clamp: min 3 is greater than max 1
 ```
 
+## div, sign, gcd, lcm
+
+`div` is **floored** division, the partner of `%`. `/` truncates toward zero and `%` takes
+the sign of the divisor, so `-7 / 2 * 2 + -7 % 2` is `-5`, not `-7`; `div` is the quotient
+that makes the identity hold — `div(a, b) * b + a % b == a` for every pair of ints whose
+product `div(a, b) * b` stays in the int64 range. Past it, as for `div(1, MinInt64) * MinInt64`,
+the product promotes to a float like any int overflow, and the identity holds only as far as
+float precision does.
+
+```
+-7 / 2            # -3      — truncated
+div(-7, 2)        # -4      — floored
+-7 % 2            # 1
+div(-7, 2) * 2 + -7 % 2   # -7
+div(7, 2)         # 3       — the same as / when the signs agree
+div(-7.5, 2)      # -4.0    — a float operand gives the float floor
+div(7, 0)         # zero-division: divided by 0
+```
+
+Bucketing a signed value is where it matters: `div(t, 60)` puts `-30` seconds in minute
+`-1`, where `/` would put it in minute `0` together with `+30`.
+
+`sign` is `-1`, `0` or `1`, an int for either kind. NaN has no sign and is an error.
+
+```
+sign(-5)          # -1
+sign(2.5)         # 1
+sign(-0.0)        # 0
+```
+
+`gcd` and `lcm` take ints only and are never negative. `gcd(0, 0)` is `0`, and `lcm` with a
+`0` is `0`. A result past the int64 range promotes to a float, as any int arithmetic does.
+
+```
+gcd(12, 18)       # 6
+gcd(-12, 18)      # 6
+lcm(4, 6)         # 12
+[12, 18, 30].reduce(0) { (g, x) -> gcd(g, x) }     # 6
+gcd(2.5, 1)       # type: gcd expects ints, got float
+```
+
 ## Predicates
 
 ```
@@ -83,6 +124,15 @@ silent swap.
 ```
 
 `even` and `odd` are int-only; the other three work on both kinds.
+
+`is_nan` and `is_inf` are the IEEE tests, and `==` is not: NaN equals nothing, itself
+included. An int is never either.
+
+```
+(0.0 / 0).is_nan  # true
+(-1.0 / 0).is_inf # true  — both infinities
+1.is_nan          # false
+```
 
 ## Iteration
 

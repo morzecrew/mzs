@@ -1,6 +1,6 @@
 # RFC 0016 — Standard-library completion
 
-**Status:** Partly landed: §1–§4 (#32, #33, #34) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
+**Status:** Partly landed: §1–§5 (#32, #33, #34, #35) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
 
 ## Summary
 
@@ -253,3 +253,32 @@ Decisions:
 * **`indent` leaves empty and whitespace-only lines alone**, as Python's `textwrap.indent`
   does, so it adds no trailing spaces, and it keeps `\r\n`. That is what "every
   non-empty line" means here.
+
+### Part 4: numbers and math (#35)
+
+§5 landed in `mzs/num.go` and the `math` module in `mzs/json.go`, with SPEC §12.5 and
+§12.8, `docs/stdlib/numbers.md`, `docs/modules/math.md` and apidoc. §6 (time) and §7
+(crypto) are the part still to come. Decisions:
+
+* **`div` follows `/` everywhere but the rounding.** Two ints give an int, an int divisor
+  of 0 is the same `zero-division` error, `div(MinInt64, -1)` promotes to a float as `/`
+  does (D9), and a float operand gives the float floor with IEEE on a zero divisor. The
+  only difference is the direction of rounding, which is what makes it `%`'s partner.
+  The identity `div(a, b) * b + a % b == a` is exact while the product stays an int; at
+  `a = 1, b = MinInt64` the product is past int64 and promotes, and the SPEC says so.
+* **`sign` is an int for either kind**, so it can multiply anything. `sign(-0.0)` is `0`.
+  NaN has no sign, and any answer would be a guess, so it is an `argument` error.
+* **`gcd` and `lcm` take ints only.** A float has no divisors, and truncating one would be
+  a guess. Both are non-negative, `gcd(0, 0)` is `0`, and `lcm` with a `0` is `0`. They
+  are computed on the magnitudes as unsigned ints, so `MinInt64` works, and a result past
+  `MaxInt64` promotes to a float as any int arithmetic does (D9): `gcd(MinInt64, 0)` and
+  `gcd(MinInt64, MinInt64)` are 2^63, and so can an `lcm` overflow.
+* **`is_nan` and `is_inf` are false on an int**, rather than undefined on one, so a test
+  does not need to know which kind it holds. `is_inf` is true for both infinities; the
+  sign is `sign`.
+* **`gcd` and `lcm` leave `TestNumberHasNoOldNames`.** That table had them as Ruby names
+  the library dropped with no replacement. They are now the operation itself, under the
+  name everyone uses, and the table's `nan`, `finite` and `infinite` rows point at
+  `is_nan` and `is_inf`.
+* **`math.inf` and `math.nan` are constants**, next to `pi` and `e`. The lexer still has
+  no `Inf` or `NaN` literal (SPEC §3).
