@@ -2452,8 +2452,8 @@ business. `debug` stays on stdout.
 | `capitalize` | `-> string` | first rune upper, rest lower | |
 | `swapcase` | `-> string` | | |
 | `casefold` | `-> string` | Unicode **full** case folding: the key two texts are equal by when case is not to be looked at. Stronger than `lower` — `ß` folds to `ss`, `ς` and `Σ` both to `σ`, `K` (U+212A) to `k` — and longer than what it folded, so it is a comparison key and not a rendering | `a.casefold == b.casefold` |
-| `trim` | `-> string` | trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF** | `"  ОПЕРАТОР ".lower.trim` |
-| `trim_start` / `trim_end` | `-> string` | | |
+| `trim` | `(cutset: string = nil) -> string` | trims Unicode whitespace **and NBSP (U+00A0), U+200B, U+FEFF**. With a cutset it trims the runes in it instead — a set, not a prefix: `"-=a=-".trim("=-")` is `a`. `nil` is whitespace, as with no argument, and `""` trims nothing | `"  ОПЕРАТОР ".lower.trim` |
+| `trim_start` / `trim_end` | `(cutset: string = nil) -> string` | one end, as `trim` | |
 | `chomp` | `(suffix: string = "\n") -> string` | | |
 | `chop` | `-> string` | drops the last rune | |
 | `squeeze` | `(set: string = "") -> string` | collapses runs of repeated runes | |
@@ -2478,6 +2478,10 @@ business. `debug` stays on stdout.
 | `reverse` | `-> string` | rune-wise | |
 | `first` / `last` | `(n: int = 1) -> string` | first/last `n` runes | |
 | `first_and_last` | `-> string` | `first(1) + last(1)` | |
+| `take` / `drop` | `(n: int) -> string` | the first `n` runes, or all but them, as on an array; a negative `n` is an argument error | `s.take(2) + s.drop(2) == s` |
+| `truncate` | `(width: int, tail: string = "…") -> string` | at most `width` **display columns**, ending in `tail` when anything was cut. The tail counts toward the width, and a tail wider than the width is an argument error. A combining mark stays with its letter | `"日本語テキスト".truncate(7) == "日本語…"` |
+| `wrap` | `(width: int) -> array` | words filled into lines of at most `width` display columns. Any whitespace, newlines included, separates two words, so the text is reflowed as one paragraph; a word wider than `width` gets a line of its own and is never split. No empty lines; text with no words gives `[]` | `"the quick brown fox".wrap(10)` |
+| `indent` | `(prefix: string) -> string` | `prefix` before every line that has something on it; a line that is empty or only whitespace is left alone, and line endings are kept | `body.indent("    ")` |
 | `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | pads to `width` **display columns** (`width` above), so a table stays aligned where the data is CJK or emoji. Padding wider than one column stops a column short rather than overrunning, and padding of no width at all is an argument error | `name.ljust(20)` |
 | `slice` | `(i: int, n: int = 1) -> string` | same as `s[i, n]` | |
 | `ord` | `-> int` | code point of the first rune | |
@@ -5214,7 +5218,7 @@ happen" — a quiet break is allowed at no version, and `0.1.1` never breaks `0.
 |---|---|
 | **Syntax** (§3, §4, §5) | a program that parses keeps parsing, and keeps parsing to the same tree. Reserved syntax (§20) is not a promise in the other direction: it is an error today and may become a feature. |
 | **Semantics** — D1–D19 (§2) and everything §7–§11 derives from them | the value of an expression does not change. `7 / 2` is `3`, `[]` is truthy, a dict iterates in insertion order, one goroutine of a Run evaluates at a time. |
-| **Standard-library names** (§12) | a name that exists keeps existing, keeps its arity and its meaning, and keeps working in both spellings UFCS gives it (D18). Removal is not a thing that happens — §21.3 is what happens instead. |
+| **Standard-library names** (§12) | a name that exists keeps existing and keeps working in both spellings UFCS gives it (D18), and a call to it that is valid stays valid and keeps its meaning. A name may gain an optional parameter — `trim` gained its cutset (RFC 0016) — because no call that worked changes; it may not lose one or make one required. Removal is not a thing that happens — §21.3 is what happens instead. |
 | **Module names and their members** (§12.8) | including which host capability each one is gated behind: a module that needs no `Options` field today will not start needing one. |
 | **The Go API** (§13) | `Value`, `Options`, `Interp`, `Program`, `Result`, `Error`, `FileSystem`, `ModuleLoader`, the sentinels, and every exported method of theirs. New `Options` fields are additive and keep the zero value meaning what it means now: the safe answer (D15). |
 | **The CLI** (§15) | the flags and subcommands that exist keep their spelling and meaning, `$ARGV` keeps its shape, and the exit codes keep theirs — `0`, `1`, `2`, `3` are what a supervisor already branches on. |

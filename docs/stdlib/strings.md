@@ -45,12 +45,17 @@ accents: `"Οδός".casefold` is `οδόσ`, the same way `ёж` is not `еж`.
 |---|---|---|---|
 | `trim` | `-> string` | both ends | `"  ОПЕРАТОР  ".trim` → `ОПЕРАТОР` |
 | `trim_start` / `trim_end` | `-> string` | one end | `"  x  ".trim_end` → `"  x"` |
+| `trim` and both ends | `(cutset: string) -> string` | the runes in `cutset` instead of whitespace | `"-=a=-".trim("=-")` → `a` |
 | `chomp` | `(suffix: string = "\n") -> string` | drops one trailing `\n`/`\r\n`, or a given suffix; `chomp("")` drops every trailing newline | `"file.txt".chomp(".txt")` → `file` |
 | `chop` | `-> string` | drops the last rune (`\r\n` counts as one) | `"abc".chop` → `ab` |
 | `squeeze` | `(set: string = "") -> string` | collapses runs of repeated runes, or only the named ones | `"aa  bb".squeeze(" ")` → `aa bb` |
 
 `trim` removes Unicode whitespace — which already covers NBSP (U+00A0) — **plus** U+200B and
 U+FEFF, the two invisibles that are not `White_Space` and still arrive in pasted text.
+
+A cutset is a set of runes, not a prefix: `"xxhixx".trim("x")` is `hi`, and
+`"ёёдаёё".trim("ё")` is `да`. `trim(nil)` is the whitespace trim, and `trim("")` trims
+nothing.
 
 ## Testing
 
@@ -136,6 +141,7 @@ match first, then one parameter per group.
 |---|---|---|---|
 | `first` / `last` | `(n: int = 1) -> string` | first/last `n` runes | `"привет".last(2)` → `ет` |
 | `first_and_last` | `-> string` | `first(1) + last(1)` | `"привет".first_and_last` → `пт` |
+| `take` / `drop` | `(n: int) -> string` | the first `n` runes, or the rest, as on an array | `"привет".drop(2)` → `ивет` |
 | `slice` | `(i: int, n: int = 1) -> string` | same as `s[i, n]`; negative `i` from the end | `"привет".slice(1, 3)` → `рив` |
 | `reverse` | `-> string` | rune-wise | `"👋 hi".reverse` → `ih 👋` |
 | `ljust` / `rjust` / `center` | `(width: int, pad: string = " ") -> string` | pads to `width` **columns** | `"ab".center(7, "-")` → `--ab---` |
@@ -158,6 +164,29 @@ emoji in it come out straight:
 rather than overrunning the width that was asked for (`"a".ljust(4, "日")` is `a日`), and
 padding of no width at all — `""`, or a lone combining mark — is an argument error rather
 than a loop that never ends.
+
+## Fitting text to a width
+
+| Method | Signature | Does | Example → value |
+|---|---|---|---|
+| `truncate` | `(width: int, tail: string = "…") -> string` | at most `width` columns, ending in `tail` if cut | `"hello world".truncate(8)` → `hello w…` |
+| `wrap` | `(width: int) -> array` | word-wraps into lines of at most `width` columns | `"the quick brown fox jumps".wrap(10)` → `["the quick","brown fox","jumps"]` |
+| `indent` | `(prefix: string) -> string` | `prefix` before every line with something on it | `"a\n\nb".indent("> ")` → `"> a\n\n> b"` |
+
+```
+"日本語テキスト".truncate(7)          # 日本語… — seven columns, the tail included
+"hello".truncate(5)                   # hello — it fits, so nothing is cut
+"hello world".truncate(8, "...")      # hello...
+"supercalifragilistic is long".wrap(5)
+# ["supercalifragilistic","is","long"] — a long word gets its own line, unsplit
+```
+
+`wrap` reflows the text as one paragraph, the way Python's `textwrap.wrap` does: a newline
+is whitespace like any other. To keep paragraphs, split them first:
+`text.split("\n\n").map { it.wrap(60).join("\n") }.join("\n\n")`. `truncate` and `wrap`
+measure columns, like the padding rows above, so CJK and emoji text fits the column it
+looks like it fits. `indent` leaves empty and whitespace-only lines alone, so indenting a
+block puts no trailing spaces on its blank lines.
 
 The unit is the code point, which is the unit Unicode gives a width to. An emoji sequence
 joined with U+200D is therefore counted emoji by emoji — `"👩‍🎨".width` is `4` — because

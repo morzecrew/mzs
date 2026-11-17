@@ -1,6 +1,6 @@
 # RFC 0016 — Standard-library completion
 
-**Status:** Partly landed: §1–§3 (#32, #33) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
+**Status:** Partly landed: §1–§4 (#32, #33, #34) · **Area:** stdlib · **Depends on:** — · **Audit:** S5–S8
 
 ## Summary
 
@@ -228,3 +228,28 @@ Decisions:
   value the `flat_map` closure returned, which nothing else holds while it is pulled.
 * **`sort`, `reverse`, `shuffle` and `sample` stay array-only**, as proposed. They cannot
   give their first element until they have seen the last.
+
+### Part 3: strings (#34)
+
+§4 landed in `mzs/str.go`, with SPEC §12.2 and §21.1, `docs/stdlib/strings.md`,
+`examples/14_text_layout.mzs` and apidoc. Decisions:
+
+* **A cutset is a set of runes**, as proposed. `trim(nil)` is the whitespace trim, so a
+  script can pass an optional cutset through unchanged, and `trim("")` trims nothing.
+* **§21.1 now says "a call that is valid stays valid"**, as the RFC asks. A name may gain
+  an optional parameter, but it may not lose one or make one required.
+* **`take` and `drop` count runes and refuse a negative count**, as the array rows do.
+  `first(n)` and `last(n)` keep their own rule, a negative `n` giving `""`, because they
+  already shipped with it.
+* **`truncate` counts the tail toward the width.** A tail wider than the width is an
+  `argument` error, not a result that overruns its column. A combining mark is kept or
+  dropped with the letter it follows.
+* **`wrap` reflows the text as one paragraph**, the way Python's `textwrap.wrap` does: a
+  newline is whitespace like any other. That is what the hand-rolled `wrap` in example 14
+  did, so the example now calls the row and prints exactly what it printed before. A word
+  wider than the width gets a line of its own and is never split, so no text is lost.
+  Text with no words gives `[]`. The example's hand-rolled `ellipsis` is `truncate(n)`
+  now too, with the same output.
+* **`indent` leaves empty and whitespace-only lines alone**, as Python's `textwrap.indent`
+  does, so it adds no trailing spaces, and it keeps `\r\n`. That is what "every
+  non-empty line" means here.

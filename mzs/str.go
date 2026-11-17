@@ -395,14 +395,16 @@ func init() {
 			}
 			return Str(foldString(s)), nil
 		}),
-		sm("trim", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
-			return Str(ownStr(strings.TrimFunc(s, isTrimSpace), s)), nil
+		// The trims take an optional cutset, a set of runes (RFC 0016 §4): without one,
+		// or with nil, they trim whitespace as they always have.
+		sm("trim", 0, 1, func(c *Ctx, s string, args []Value) (Value, error) {
+			return strTrim(c, s, args, strings.TrimFunc, strings.Trim)
 		}),
-		sm("trim_start", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
-			return Str(ownStr(strings.TrimLeftFunc(s, isTrimSpace), s)), nil
+		sm("trim_start", 0, 1, func(c *Ctx, s string, args []Value) (Value, error) {
+			return strTrim(c, s, args, strings.TrimLeftFunc, strings.TrimLeft)
 		}),
-		sm("trim_end", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
-			return Str(ownStr(strings.TrimRightFunc(s, isTrimSpace), s)), nil
+		sm("trim_end", 0, 1, func(c *Ctx, s string, args []Value) (Value, error) {
+			return strTrim(c, s, args, strings.TrimRightFunc, strings.TrimRight)
 		}),
 		sm("chomp", 0, 1, func(c *Ctx, s string, args []Value) (Value, error) {
 			if len(args) == 0 {
@@ -607,6 +609,25 @@ func init() {
 			}
 			return Str(string(rs[len(rs)-int(n):])), nil
 		}),
+		// take and drop count runes, as first and last do, and refuse a negative count
+		// as the array rows do (RFC 0016 §4).
+		sm("take", 1, 1, func(c *Ctx, s string, args []Value) (Value, error) {
+			n, err := strCount(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			return Str(ownStr(s[:runeOffset(s, n)], s)), nil
+		}),
+		sm("drop", 1, 1, func(c *Ctx, s string, args []Value) (Value, error) {
+			n, err := strCount(c, args[0])
+			if err != nil {
+				return Nil(), err
+			}
+			return Str(ownStr(s[runeOffset(s, n):], s)), nil
+		}),
+		sm("truncate", 1, 2, strTruncate),
+		sm("wrap", 1, 1, strWrap),
+		sm("indent", 1, 1, strIndent),
 		// first_and_last is the fingerprint the bot flows take of a value; it survives
 		// the rewrite because scripts in the corpus still call it.
 		sm("first_and_last", 0, 0, func(c *Ctx, s string, _ []Value) (Value, error) {
@@ -992,4 +1013,200 @@ func formatOne(c *Ctx, spec string, verb rune, arg Value) (string, error) {
 		return fmt.Sprintf(spec+"s", string(rune(arg.Int()))), nil
 	}
 	return "", c.ArgErrorf("unknown format verb '%%%c'", verb)
+}
+
+// ---------------------------------------------------------------------------
+// RFC 0016 §4: trim with a cutset, take, drop, truncate, wrap, indent
+// ---------------------------------------------------------------------------
+
+// strTrim is trim, trim_start and trim_end: whitespace without an argument or with nil,
+// and the runes of a cutset string with one. An empty cutset trims nothing.
+func strTrim(c *Ctx, s string, args []Value, byFunc func(string, func(rune) bool) string, bySet func(string, string) string) (Value, error) {
+	if len(args) == 0 || args[0].IsNil() {
+		return Str(ownStr(byFunc(s, isTrimSpace), s)), nil
+	}
+	set, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	return Str(ownStr(bySet(s, set), s)), nil
+}
+
+// strCount is a count of runes: an integer, never negative.
+func strCount(c *Ctx, v Value) (int64, error) {
+	n, err := argInt(c, v)
+	if err != nil {
+		return 0, err
+	}
+	if n < 0 {
+		return 0, c.ArgErrorf("%s expects a non-negative count, got %d", c.Name(), n)
+	}
+	return n, nil
+}
+
+// runeOffset is the byte offset of the n-th rune of s, or len(s) when s has fewer.
+func runeOffset(s string, n int64) int {
+	if n == 0 {
+		return 0
+	}
+	var i int64
+	for off := range s {
+		if i == n {
+			return off
+		}
+		i++
+	}
+	return len(s)
+}
+
+// strTruncate cuts s to at most w display columns (§12.2), ending in tail when anything
+// was cut, so a column of CJK or emoji text stays inside its column. A string that
+// already fits comes back as it is. The tail counts toward the width, so a tail wider
+// than the width is an argument error rather than a result that does not fit.
+func strTruncate(c *Ctx, s string, args []Value) (Value, error) {
+	w, err := argInt(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if w < 0 {
+		return Nil(), c.ArgErrorf("truncate expects a non-negative width, got %d", w)
+	}
+	tail := "…"
+	if len(args) > 1 {
+		if tail, err = argStr(c, args[1]); err != nil {
+			return Nil(), err
+		}
+	}
+	if err := c.Step(int64(len(s))/64 + 1); err != nil {
+		return Nil(), err
+	}
+	if int64(width.String(s)) <= w {
+		return Str(s), nil
+	}
+	room := w - int64(width.String(tail))
+	if room < 0 {
+		return Nil(), c.ArgErrorf("truncate: the tail %q is wider than the width %d", tail, w)
+	}
+	// Runes are kept while they fit. A zero-width rune — a combining mark — after a
+	// kept rune is kept with it; the first rune that does not fit ends the cut, and the
+	// marks after it go with it.
+	used, cut := int64(0), 0
+	for off, r := range s {
+		rw := int64(width.Rune(r))
+		if used+rw > room {
+			cut = off
+			break
+		}
+		used += rw
+		cut = off + utf8.RuneLen(r)
+	}
+	if err := c.allocString(cut + len(tail)); err != nil {
+		return Nil(), err
+	}
+	return Str(s[:cut] + tail), nil
+}
+
+// strWrap fills words into lines of at most w display columns, the way Python's
+// textwrap.wrap does: any run of whitespace, newlines included, separates two words, so
+// the text is reflowed as one paragraph. A word wider than w is never split; it gets a
+// line of its own. The result has no empty lines, and text with no words gives [].
+func strWrap(c *Ctx, s string, args []Value) (Value, error) {
+	w, err := argInt(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if w < 1 {
+		return Nil(), c.ArgErrorf("wrap expects a positive width, got %d", w)
+	}
+	if err := c.Step(int64(len(s))/64 + 1); err != nil {
+		return Nil(), err
+	}
+	// The result is rooted as it grows and each line is charged as it is made — its
+	// bytes, and its slot against MaxCollection — so a text of many short words meets
+	// the memory budget while it is being wrapped, not after (§14.2).
+	var out []Value
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdGrowing(&out)
+	var line strings.Builder
+	lineW := int64(0)
+	flush := func() error {
+		if err := c.allocString(line.Len()); err != nil {
+			return err
+		}
+		out = append(out, Str(line.String()))
+		if err := c.allocCollection(len(out), 1); err != nil {
+			return err
+		}
+		line.Reset()
+		lineW = 0
+		return nil
+	}
+	// The words are walked in place rather than split out first, so a long text of
+	// short words costs the lines it makes and not a slice of every word.
+	for rest := s; ; {
+		rest = strings.TrimLeftFunc(rest, isTrimSpace)
+		if rest == "" {
+			break
+		}
+		end := strings.IndexFunc(rest, isTrimSpace)
+		if end < 0 {
+			end = len(rest)
+		}
+		word := rest[:end]
+		rest = rest[end:]
+		ww := int64(width.String(word))
+		if line.Len() > 0 && lineW+1+ww > w {
+			if err := flush(); err != nil {
+				return Nil(), err
+			}
+		}
+		if line.Len() > 0 {
+			line.WriteByte(' ')
+			lineW++
+		}
+		line.WriteString(word)
+		lineW += ww
+	}
+	if line.Len() > 0 {
+		if err := flush(); err != nil {
+			return Nil(), err
+		}
+	}
+	if out == nil {
+		return Array(), nil
+	}
+	return arrayOf(out), nil
+}
+
+// strIndent puts prefix before every line that has something on it. A line that is
+// empty or only whitespace is left as it is, as Python's textwrap.indent leaves it, so
+// indenting does not leave trailing spaces on blank lines. Line endings are kept.
+func strIndent(c *Ctx, s string, args []Value) (Value, error) {
+	prefix, err := argStr(c, args[0])
+	if err != nil {
+		return Nil(), err
+	}
+	if err := c.Step(int64(len(s))/64 + 1); err != nil {
+		return Nil(), err
+	}
+	// The lines are walked twice with an iterator rather than split out into a slice.
+	n := 0
+	for l := range strings.SplitAfterSeq(s, "\n") {
+		if strings.TrimFunc(l, isTrimSpace) != "" {
+			n++
+		}
+	}
+	if err := c.allocString(len(s) + n*len(prefix)); err != nil {
+		return Nil(), err
+	}
+	var b strings.Builder
+	b.Grow(len(s) + n*len(prefix))
+	for l := range strings.SplitAfterSeq(s, "\n") {
+		if strings.TrimFunc(l, isTrimSpace) != "" {
+			b.WriteString(prefix)
+		}
+		b.WriteString(l)
+	}
+	return Str(b.String()), nil
 }

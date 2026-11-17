@@ -26,6 +26,15 @@ and the release is still ahead of it.
   - **Arrays and ranges** gain `mean`, `median`, `product`, `transpose`, `rotate`,
     `chunk_while`, `accumulate` (the running `reduce`) and `bsearch`.
   - `avg` and `average` now suggest `mean` (SPEC §12.3, §12.4).
+- **String rows for text that has to fit** (RFC 0016, part 3).
+  - `trim`, `trim_start` and `trim_end` take an optional cutset, a set of runes:
+    `"xxhixx".trim("x")` is `hi`.
+  - `take` and `drop` count runes, as on an array.
+  - `truncate(width, tail = "…")` and `wrap(width)` measure display columns, so CJK and
+    emoji text fits its column. `wrap` reflows the text as one paragraph.
+  - `indent(prefix)` prefixes every line that has something on it.
+  - SPEC §21.1 now promises that a valid call stays valid, which lets a row gain an
+    optional parameter (SPEC §12.2).
 - **Seq rows for streaming pipelines** (RFC 0016, part 2).
   - `zip`, `concat`, `uniq`, `each_slice` and `each_cons` are lazy. `zip` stops with the
     shortest, because a seq may be endless, and `each_slice` / `each_cons` given a closure
