@@ -1,6 +1,9 @@
 package mzs
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // Lazy sequences (§12.14).
 //
@@ -923,7 +926,8 @@ func (o *seqOwner) child(v Value) *seqOwner {
 func (o *seqOwner) drop(ch *seqOwner) {
 	for i := len(o.children) - 1; i >= 0; i-- {
 		if o.children[i] == ch {
-			o.children = append(o.children[:i], o.children[i+1:]...)
+			// slices.Delete clears the vacated slot, so the child's state is collectable.
+			o.children = slices.Delete(o.children, i, i+1)
 			return
 		}
 	}
@@ -968,6 +972,9 @@ func seqvZip(c *Ctx, recv Value, args []Value) (Value, error) {
 		for i, o := range others {
 			its[i] = o.open(owner)
 		}
+		// The row being built is held by nothing else while the arguments after the
+		// receiver are pulled, and a pull can allocate.
+		building := owner.keep()
 		done := false
 		return func(c *Ctx) (Value, bool, error) {
 			if done {
@@ -980,6 +987,8 @@ func seqvZip(c *Ctx, recv Value, args []Value) (Value, error) {
 			}
 			row := make([]Value, 1, len(its)+1)
 			row[0] = x
+			building.vals = row
+			defer func() { building.vals = nil }()
 			for _, o := range its {
 				y, ok, err := o(c)
 				if err != nil || !ok {
@@ -987,6 +996,7 @@ func seqvZip(c *Ctx, recv Value, args []Value) (Value, error) {
 					return Nil(), false, err
 				}
 				row = append(row, y)
+				building.vals = row
 			}
 			return arrayOf(row), true, nil
 		}
