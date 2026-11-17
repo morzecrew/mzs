@@ -123,3 +123,35 @@ func TestCryptoRandomIsAbsentWithoutCryptoRand(t *testing.T) {
 		t.Errorf("crypto.random without CryptoRand: error = %v; want it to name Options.CryptoRand", err)
 	}
 }
+
+// The guards a script cannot reach through the module: a count past what one string may
+// hold, a step budget the bytes overrun, a row called without its source, and t.ms on a
+// value that is not a time.
+func TestCryptoRandomAndTimeGuards(t *testing.T) {
+	t.Parallel()
+	o := DefaultOptions()
+	o.CryptoRand = bytes.NewReader(make([]byte, 1<<20))
+	in := New(o)
+	_, err := in.Eval(context.Background(), `include crypto; crypto.random(3000000000)`, nil)
+	if err == nil || !strings.Contains(err.Error(), "is too many") {
+		t.Errorf("crypto.random(3000000000): error = %v; want the count refused", err)
+	}
+
+	o.StepBudget = 50
+	o.MaxStringBytes = 1 << 22
+	_, err = New(o).Eval(context.Background(), `include crypto; crypto.random(1000000)`, nil)
+	if err == nil || !strings.Contains(err.Error(), "step") {
+		t.Errorf("crypto.random past the step budget: error = %v; want a step limit", err)
+	}
+
+	c := colCtx(t, DefaultOptions())
+	_, err = cryRandom(c, []Value{Int(4)})
+	if err == nil || !strings.Contains(err.Error(), "Options.CryptoRand") {
+		t.Errorf("cryRandom with no source: error = %v; want it to name Options.CryptoRand", err)
+	}
+
+	tc := colCtx(t, colTimeOpts())
+	if _, err := colInvoke(tc, KTime, "ms", Int(1)); err == nil {
+		t.Error("ms on an int: want an error, got none")
+	}
+}

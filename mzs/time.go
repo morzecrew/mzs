@@ -75,10 +75,7 @@ func timevMono(c *Ctx, args []Value) (Value, error) {
 	if c.rs.opts.Now == nil {
 		return Nil(), nameErrorf("undefined function 'time.mono' (the host did not enable a clock)")
 	}
-	t, err := c.Now()
-	if err != nil {
-		return Nil(), err
-	}
+	t := c.rs.opts.Now()
 	sh := c.rs.sh
 	if !sh.monoSet {
 		sh.monoBase, sh.monoSet = t, true
