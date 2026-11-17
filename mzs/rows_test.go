@@ -111,6 +111,10 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		{`[4, 1, 3, 2].median`, `2.5`},
 		{`[1.5].median`, `1.5`},
 		{`[].median`, `nil`},
+		// Sorted as numbers compare, not as float64s: past 2^53 those collapse.
+		{`n = 2 ** 53; [n + 1, n, n + 2].median == n + 1`, `true`},
+		// The two middles are halved before they are added, so they cannot overflow.
+		{`[1.7e308, 1.7e308].median`, `1.7e+308`},
 		{`[2, 3, 4].product`, `24`},
 		{`[2, 0.5].product`, `1.0`},
 		{`["a", "bb"].product { it.len }`, `2`},

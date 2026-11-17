@@ -1885,12 +1885,21 @@ func arrNumbers(c *Ctx, recv Value) ([]Value, error) {
 // arrMean is the arithmetic mean, always a float — `sum / len` on ints is integer
 // division (D9), which is the mistake this row exists to remove. nil for no elements.
 func arrMean(c *Ctx, recv Value, args []Value) (Value, error) {
-	xs, err := arrNumbers(c, recv)
-	if err != nil || len(xs) == 0 {
+	xs, err := arrElems(c, recv)
+	if err != nil {
 		return Nil(), err
+	}
+	if err := arrIter(c, xs); err != nil {
+		return Nil(), err
+	}
+	if len(xs) == 0 {
+		return Nil(), nil
 	}
 	sum := 0.0
 	for _, x := range xs {
+		if !x.IsNum() {
+			return Nil(), c.TypeErrorf("%s expects numbers, got %s", c.Name(), x.TypeName())
+		}
 		sum += x.Float()
 	}
 	return Float(sum / float64(len(xs))), nil
@@ -1903,13 +1912,19 @@ func arrMedian(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil || len(xs) == 0 {
 		return Nil(), err
 	}
+	// Sorted the way `<` compares numbers, not by their float64 values, which would
+	// collapse ints past 2^53 into one another and pick the wrong middle.
 	sorted := append([]Value(nil), xs...)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Float() < sorted[j].Float() })
+	sort.SliceStable(sorted, func(i, j int) bool {
+		n, _ := compare(sorted[i], sorted[j])
+		return n < 0
+	})
 	mid := len(sorted) / 2
 	if len(sorted)%2 == 1 {
 		return sorted[mid], nil
 	}
-	return Float((sorted[mid-1].Float() + sorted[mid].Float()) / 2), nil
+	// Halved before they are added, so two finite middles cannot overflow to +Inf.
+	return Float(sorted[mid-1].Float()/2 + sorted[mid].Float()/2), nil
 }
 
 // arrProduct multiplies the elements, or the closure's values, the way sum adds them:
@@ -2045,6 +2060,10 @@ func arrChunkWhile(c *Ctx, recv Value, args []Value) (Value, error) {
 		return arrayOf(out), nil
 	}
 	run := []Value{xs[0]}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdGrowing(&out)
+	c.holdGrowing(&run)
 	for i := 1; i < len(xs); i++ {
 		r, err := c.CallClosure(xs[i-1], xs[i])
 		if err != nil {
@@ -2076,6 +2095,9 @@ func arrAccumulate(c *Ctx, recv Value, args []Value) (Value, error) {
 	if len(xs) == 0 {
 		return arrayOf(out), nil
 	}
+	m := c.rootMark()
+	defer c.release(m)
+	c.holdGrowing(&out)
 	var acc Value
 	start := 0
 	if len(pos) == 1 {

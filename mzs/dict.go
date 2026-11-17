@@ -606,6 +606,10 @@ func dictvPartition(c *Ctx, recv Value, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	yes, no := NewOrderedDict(), NewOrderedDict()
+	m := c.rootMark()
+	defer c.release(m)
+	c.hold(dictOf(yes))
+	c.hold(dictOf(no))
 	for i, k := range keys {
 		r, err := c.CallClosure(k, vals[i])
 		if err != nil {
@@ -631,6 +635,10 @@ func dictvMapValues(c *Ctx, recv Value, args []Value) (Value, error) {
 	}
 	out := NewOrderedDictCap(len(keys))
 	out.rec = d.rec
+	// The values already replaced are live while the next closure runs (§14.2).
+	m := c.rootMark()
+	defer c.release(m)
+	c.hold(dictOf(out))
 	for i, k := range keys {
 		r, err := c.CallClosure(vals[i])
 		if err != nil {

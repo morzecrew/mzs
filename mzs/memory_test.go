@@ -101,6 +101,9 @@ f(40)`},
 		{"a dict map in progress", `d = {}; for i in 0..40 { d[i.str] = i }
 d.map { (k, v) -> "x" * 50000 + k }`},
 		{"a group_by in progress", `(0..40).group_by { "x" * 50000 + it.str }`},
+		{"a dict map_values in progress", `d = {}; for i in 0..40 { d[i.str] = i }
+d.map_values { "x" * 50000 + it.str }`},
+		{"an accumulate in progress", `(0..40).accumulate("") { (acc, x) -> "x" * 50000 + x.str }`},
 		{"a seq being collected", `(0..40).seq.map { "x" * 50000 + it.str }.array`},
 		{"a seq's source array", `keep = []
 for i in 0..40 { keep.push(("x" * 50000 + i.str).chars.first(1).join + ("y" * 50000)) }
