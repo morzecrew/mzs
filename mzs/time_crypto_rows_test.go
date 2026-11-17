@@ -137,6 +137,12 @@ func TestCryptoRandomAndTimeGuards(t *testing.T) {
 		t.Errorf("crypto.random(3000000000): error = %v; want the count refused", err)
 	}
 
+	// Past half of MaxInt32 the hex length would not fit a 32-bit int.
+	_, err = in.Eval(context.Background(), `include crypto; crypto.random(1073741824)`, nil)
+	if err == nil || !strings.Contains(err.Error(), "is too many") {
+		t.Errorf("crypto.random(2^30): error = %v; want the count refused", err)
+	}
+
 	o.StepBudget = 50
 	o.MaxStringBytes = 1 << 22
 	_, err = New(o).Eval(context.Background(), `include crypto; crypto.random(1000000)`, nil)
@@ -153,5 +159,73 @@ func TestCryptoRandomAndTimeGuards(t *testing.T) {
 	tc := colCtx(t, colTimeOpts())
 	if _, err := colInvoke(tc, KTime, "ms", Int(1)); err == nil {
 		t.Error("ms on an int: want an error, got none")
+	}
+}
+
+// strftime stops building once its output passes the string cap: fifty `%s` are a
+// 100-byte layout that would render as 500 bytes.
+func TestTimeStrftimeStopsAtTheStringCap(t *testing.T) {
+	t.Parallel()
+	o := colTimeOpts()
+	o.MaxStringBytes = 100
+	c := colCtx(t, o)
+	_, err := colInvoke(c, KTime, "strftime", timeOf(colClock()), Str(strings.Repeat("%s", 50)))
+	if err == nil || !strings.Contains(err.Error(), "string too large") {
+		t.Errorf("strftime past the cap: error = %v; want the string limit", err)
+	}
+	if out, _ := timevStrftime(colClock(), strings.Repeat("%s", 50), 100); len(out) > 100+20 {
+		t.Errorf("timevStrftime built %d bytes past a cap of 100; want it to stop within one directive", len(out))
+	}
+	got, err := colInvoke(c, KTime, "strftime", timeOf(colClock()), Str(strings.Repeat("%s", 9)))
+	if err != nil || len(got.Str()) != 90 {
+		t.Errorf("nine %%s under the cap = %q, %v; want 90 digits", got.Str(), err)
+	}
+}
+
+// gateReader blocks until open is closed, then answers zeros.
+type gateReader struct{ open chan struct{} }
+
+func (g gateReader) Read(p []byte) (int, error) {
+	<-g.open
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
+}
+
+// crypto.random reads with the Run's lock released, as io and http do: a source that
+// waits on a task gets its answer instead of holding the lock the task needs.
+func TestCryptoRandomReadsOutsideTheRunLock(t *testing.T) {
+	t.Parallel()
+	g := gateReader{open: make(chan struct{})}
+	o := DefaultOptions()
+	o.CryptoRand = g
+	o.Timeout = 5 * time.Second
+	in := New(o)
+	in.Register("release", 0, func(c *Ctx, _ []Value) (Value, error) {
+		close(g.open)
+		return Nil(), nil
+	})
+	src := `include crypto
+async fn opener() { release() }
+t = opener()
+crypto.random(2)`
+	type result struct {
+		v   Value
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := in.Eval(context.Background(), src, nil)
+		done <- result{v, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil || r.v.Str() != "0000" {
+			t.Errorf("crypto.random while a task opens its source = %q, %v; want \"0000\"", r.v.Str(), r.err)
+		}
+	case <-time.After(3 * time.Second):
+		close(g.open) // let the stuck Run finish, so the goroutine does not outlive the test
+		t.Fatal("crypto.random held the Run's lock while it waited on its source: the task that opens it never ran")
 	}
 }

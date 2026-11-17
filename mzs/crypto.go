@@ -388,7 +388,8 @@ func cryRandom(c *Ctx, args []Value) (Value, error) {
 	if n < 0 {
 		return Nil(), c.ArgErrorf("crypto.random expects a non-negative byte count, got %d", n)
 	}
-	if n > math.MaxInt32 {
+	// Half of MaxInt32, so the hex length below is an int even on a 32-bit build.
+	if n > math.MaxInt32/2 {
 		return Nil(), c.ArgErrorf("crypto.random: %d bytes is too many", n)
 	}
 	if err := c.CheckString(hex.EncodedLen(int(n))); err != nil {
@@ -401,9 +402,14 @@ func cryRandom(c *Ctx, args []Value) (Value, error) {
 	if src == nil {
 		return Nil(), nameErrorf("undefined member 'random' in module 'crypto' (the host did not set Options.CryptoRand)")
 	}
+	// The read is the host's I/O, so it runs with the Run's lock released, as io and
+	// http do: a source that blocks stalls this call, not every task (§8.14). buf is Go
+	// memory the interpreter does not own.
 	buf := make([]byte, n)
-	if _, err := io.ReadFull(src, buf); err != nil {
-		return Nil(), c.ArgErrorf("crypto.random: the host's source of randomness failed: %s", err.Error())
+	var rerr error
+	c.blocking(func() { _, rerr = io.ReadFull(src, buf) })
+	if rerr != nil {
+		return Nil(), c.ArgErrorf("crypto.random: the host's source of randomness failed: %s", rerr.Error())
 	}
 	return cryHexValue(c, buf)
 }

@@ -250,7 +250,7 @@ func timevStrftimeMethod(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	out, bad := timevStrftime(t, layout)
+	out, bad := timevStrftime(t, layout, c.rs.opts.MaxStringBytes)
 	if bad != "" {
 		if bad == "%" {
 			return Nil(), c.ArgErrorf("strftime: the layout ends in a lone %%; write %%%% for a percent sign")
@@ -271,12 +271,17 @@ func timevStrftimeMethod(c *Ctx, recv Value, args []Value) (Value, error) {
 // unpadded number (`%-d`, `%-m`). An unknown directive is not rendered: it is returned as
 // bad, and the row raises an `argument` error naming it (audit B6, D16), because echoing
 // `%G` back hides a typo until someone reads the output. A `%` with nothing after it is
-// bad as "%".
-func timevStrftime(t time.Time, layout string) (out, bad string) {
+// bad as "%". It stops once the output passes max, so a layout of repeated `%s` — two
+// bytes that render as up to twenty — never builds more than the cap it is checked
+// against; the caller's CheckString then refuses what came back.
+func timevStrftime(t time.Time, layout string, max int) (out, bad string) {
 	var sb strings.Builder
 	sb.Grow(len(layout) + 16)
 	rs := []rune(layout)
 	for i := 0; i < len(rs); i++ {
+		if sb.Len() > max {
+			return sb.String(), ""
+		}
 		if rs[i] != '%' {
 			sb.WriteRune(rs[i])
 			continue
