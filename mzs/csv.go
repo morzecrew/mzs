@@ -554,11 +554,11 @@ func csvvParse(c *Ctx, args []Value) (Value, error) {
 // string. Each traversal reads the source again from its start, as every seq does.
 func csvvRows(c *Ctx, args []Value) (Value, error) {
 	src := args[0]
-	var lines func() seqIter
+	var lines func(*seqOwner) seqIter
 	switch src.Kind() {
 	case KString:
 		s := src.Str()
-		lines = func() seqIter {
+		lines = func(*seqOwner) seqIter {
 			given := false
 			return func(*Ctx) (Value, bool, error) {
 				if given {
@@ -580,8 +580,8 @@ func csvvRows(c *Ctx, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	name := c.Name()
-	s := seqSource(func() func(*Ctx) (Value, bool, error) {
-		next := lines()
+	s := seqSourceOwned(func(owner *seqOwner) func(*Ctx) (Value, bool, error) {
+		next := lines(owner)
 		r := newCSVReader(name, func(c *Ctx) (string, bool, error) {
 			v, ok, err := next(c)
 			if err != nil || !ok {

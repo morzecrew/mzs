@@ -99,7 +99,7 @@ type seqIter func(c *Ctx) (Value, bool, error)
 // else. It holds no elements and no position, which is what makes a chain of lazy rows a
 // description that costs nothing until something pulls it.
 type Seq struct {
-	open func() seqIter
+	open func(o *seqOwner) seqIter
 	// refs are the values the cursors read from — the array a view walks, the generator,
 	// the sequence a row is layered over, the row's closure. The sequence does nothing
 	// with them; they are what the memory walk follows (RFC 0011), since a Go closure
@@ -112,8 +112,14 @@ type Seq struct {
 // can run away is *inside* a lazy row — a `filter` whose predicate never fires pulls
 // forever without ever returning to the terminal that started it (§14.1).
 func seqSource(open func() func(c *Ctx) (Value, bool, error)) *Seq {
-	return &Seq{open: func() seqIter {
-		next := open()
+	return seqSourceOwned(func(*seqOwner) func(c *Ctx) (Value, bool, error) { return open() })
+}
+
+// seqSourceOwned is seqSource for a source that opens another sequence of its own — a
+// `csv.rows` over `io.lines` — and so needs the owner to open it under.
+func seqSourceOwned(open func(o *seqOwner) func(c *Ctx) (Value, bool, error)) *Seq {
+	return &Seq{open: func(o *seqOwner) seqIter {
+		next := open(o)
 		return func(c *Ctx) (Value, bool, error) {
 			if err := c.Step(1); err != nil {
 				return Nil(), false, err
@@ -133,7 +139,13 @@ func (s *Seq) with(v Value) *Seq {
 // state a row needs — how many are left to take, whether the `drop_while` is over — is
 // per-cursor and a second run of the same chain starts with it fresh.
 func seqStage(s *Seq, wrap func(seqIter) seqIter) *Seq {
-	return &Seq{open: func() seqIter { return wrap(s.open()) }, refs: []Value{seqOf(s)}}
+	return seqStageOwned(s, func(_ *seqOwner, it seqIter) seqIter { return wrap(it) })
+}
+
+// seqStageOwned is seqStage for a row whose cursor keeps state, or opens cursors of its
+// own: wrap is given the owner of the traversal it is opened in (seqOwner).
+func seqStageOwned(s *Seq, wrap func(o *seqOwner, it seqIter) seqIter) *Seq {
+	return &Seq{open: func(o *seqOwner) seqIter { return wrap(o, s.open(o)) }, refs: []Value{seqOf(s)}}
 }
 
 // toSeq is the `seq` conversion (§12.1): an array or a range becomes a lazy view of
@@ -255,7 +267,12 @@ func seqFn(c *Ctx, args []Value) (Value, error) {
 // says so, when the sequence ends, or when anything fails. Every terminal row is this
 // loop and a little bookkeeping.
 func seqRun(c *Ctx, s *Seq, f func(Value) (bool, error)) error {
-	it := s.open()
+	// The traversal's owner is rooted for exactly as long as the traversal runs.
+	o := &seqOwner{}
+	m := c.rootMark()
+	defer c.release(m)
+	c.rs.holdOwner(o)
+	it := s.open(o)
 	for {
 		v, ok, err := it(c)
 		if err != nil {
@@ -356,19 +373,22 @@ func seqSieve(s *Seq, fn Value, keep bool) *Seq {
 // `s.flat_map { (1..it) }` costs nothing per element it does not reach.
 func seqvFlatMap(c *Ctx, recv Value, args []Value) (Value, error) {
 	return seqLazy(c, recv, args, func(s *Seq, fn Value) *Seq {
-		return seqStage(s, func(it seqIter) seqIter {
-			var inner seqScoped
+		return seqStageOwned(s, func(o *seqOwner, it seqIter) seqIter {
+			var inner seqIter
+			var innerOwner *seqOwner
 			return func(c *Ctx) (Value, bool, error) {
 				for {
-					if inner.it != nil {
-						v, ok, err := inner.it(c)
+					if inner != nil {
+						v, ok, err := inner(c)
 						if err != nil {
 							return Nil(), false, err
 						}
 						if ok {
 							return v, true, nil
 						}
-						inner.done(c)
+						// What the inner cursor kept goes with it.
+						o.drop(innerOwner)
+						inner, innerOwner = nil, nil
 					}
 					v, ok, err := it(c)
 					if err != nil || !ok {
@@ -385,8 +405,9 @@ func seqvFlatMap(c *Ctx, recv Value, args []Value) (Value, error) {
 							return Nil(), false, err
 						}
 						// The closure's value is held by nothing but this cursor while
-						// it is pulled, and what the cursor roots ends with it.
-						inner = seqOpenScoped(c, sv.seq(), out)
+						// it is pulled, and what the cursor keeps ends with it.
+						innerOwner = o.child(out)
+						inner = sv.seq().open(innerOwner)
 					default:
 						return out, true, nil
 					}
@@ -864,55 +885,48 @@ func seqvJoin(c *Ctx, recv Value, args []Value) (Value, error) {
 // RFC 0016 §3: what a streaming pipeline needs
 // ---------------------------------------------------------------------------
 
-// seqKept is state a cursor keeps between pulls — a batch being filled, a window, the
-// keys `uniq` has seen. The memory walk cannot look inside a Go closure (RFC 0011), so a
-// pull roots the slice. The traversal runs inside the call of the terminal or the `for`
-// that pulls it, and the hold is released with that frame — or sooner, when a `flat_map`
-// or a `concat` is done with the cursor and releases what it pushed (seqScoped). A
-// release of that kind may also drop the hold of a cursor that is still running beside
-// it, as `zip` runs one, so every pull checks that its root is still in place and pushes
-// it again when it is not.
-type seqKept struct {
-	vals []Value
-	idx  int // where the root was pushed, valid only while it is still there
+// seqOwner owns what the cursors of one traversal keep between pulls — a batch being
+// filled, a window, the keys `uniq` has seen, the value a `flat_map` closure returned.
+// The memory walk cannot look inside a Go closure (RFC 0011), so this is where it looks.
+//
+// A traversal's owner is made, and rooted, by the frame that pulls it (seqRun), and is
+// dropped with that frame. A cursor opened mid-traversal — each inner sequence of a
+// `flat_map`, each part of a `concat` — gets a child owner, which its parent forgets when
+// the cursor ends: `(1..10000).seq.flat_map { s.uniq }` keeps one inner `uniq`'s keys at
+// a time, not ten thousand. Ownership is a tree, not a stack, so a cursor that ends takes
+// only what it kept, whatever its siblings under a `zip` have kept since.
+type seqOwner struct {
+	kept     []*seqKept
+	vals     []Value
+	children []*seqOwner
 }
 
-func (k *seqKept) root(c *Ctx) {
-	rs := c.rs
-	if !rs.memOn() {
-		return
-	}
-	if k.idx < len(rs.roots) {
-		if p, ok := rs.roots[k.idx].ref.(*[]Value); ok && p == &k.vals {
+// seqKept is one cursor's kept slice.
+type seqKept struct{ vals []Value }
+
+// keep registers a slice for a cursor being opened under o.
+func (o *seqOwner) keep() *seqKept {
+	k := &seqKept{}
+	o.kept = append(o.kept, k)
+	return k
+}
+
+// child is the owner of a cursor opened under o, holding v — the value the cursor reads
+// from, which may be held by nothing else.
+func (o *seqOwner) child(v Value) *seqOwner {
+	ch := &seqOwner{vals: []Value{v}}
+	o.children = append(o.children, ch)
+	return ch
+}
+
+// drop forgets a child whose cursor has ended. The child is usually the last one made.
+func (o *seqOwner) drop(ch *seqOwner) {
+	for i := len(o.children) - 1; i >= 0; i-- {
+		if o.children[i] == ch {
+			o.children = append(o.children[:i], o.children[i+1:]...)
 			return
 		}
 	}
-	k.idx = len(rs.roots)
-	rs.holdGrowing(&k.vals)
-}
-
-// seqScoped is a cursor opened in the middle of a traversal — each inner sequence of a
-// `flat_map`, each part of a `concat` — together with the root mark taken before it was
-// opened. Whatever the cursor roots while it runs is released when it ends, rather than
-// piling up until the traversal does: `(1..10000).seq.flat_map { s.uniq }` keeps one
-// inner `uniq`'s keys at a time, not ten thousand.
-type seqScoped struct {
-	it   seqIter
-	mark memMark
-}
-
-// open takes the mark, roots v (the value the cursor reads from, which may be held by
-// nothing else), and opens s.
-func seqOpenScoped(c *Ctx, s *Seq, v Value) seqScoped {
-	m := c.rootMark()
-	c.hold(v)
-	return seqScoped{it: s.open(), mark: m}
-}
-
-// done releases what the cursor pushed.
-func (sc *seqScoped) done(c *Ctx) {
-	c.release(sc.mark)
-	sc.it = nil
 }
 
 // seqSources converts the arguments of zip and concat when the row is built, so
@@ -948,11 +962,11 @@ func seqvZip(c *Ctx, recv Value, args []Value) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	out := &Seq{open: func() seqIter {
-		it := s.open()
+	out := &Seq{open: func(owner *seqOwner) seqIter {
+		it := s.open(owner)
 		its := make([]seqIter, len(others))
 		for i, o := range others {
-			its[i] = o.open()
+			its[i] = o.open(owner)
 		}
 		done := false
 		return func(c *Ctx) (Value, bool, error) {
@@ -996,25 +1010,28 @@ func seqvConcat(c *Ctx, recv Value, args []Value) (Value, error) {
 		return Nil(), err
 	}
 	parts := append([]*Seq{s}, others...)
-	out := &Seq{open: func() seqIter {
+	out := &Seq{open: func(o *seqOwner) seqIter {
 		i := 0
-		var cur seqScoped
+		var it seqIter
+		var part *seqOwner
 		return func(c *Ctx) (Value, bool, error) {
 			for i < len(parts) {
-				if cur.it == nil {
+				if it == nil {
 					// Each part is opened when the one before it ends, so a stateful
-					// source later in the chain is not touched until it is reached.
-					cur = seqOpenScoped(c, parts[i], seqOf(parts[i]))
+					// source later in the chain is not touched until it is reached,
+					// and under an owner of its own, so what it kept goes when it ends.
+					part = o.child(Nil())
+					it = parts[i].open(part)
 				}
-				v, ok, err := cur.it(c)
+				v, ok, err := it(c)
 				if err != nil {
 					return Nil(), false, err
 				}
 				if ok {
 					return v, true, nil
 				}
-				cur.done(c)
-				i++
+				o.drop(part)
+				i, it, part = i+1, nil, nil
 			}
 			return Nil(), false, nil
 		}
@@ -1041,11 +1058,10 @@ func seqvUniq(c *Ctx, recv Value, args []Value) (Value, error) {
 		}
 		fn = args[0]
 	}
-	out := seqStage(s, func(it seqIter) seqIter {
+	out := seqStageOwned(s, func(o *seqOwner, it seqIter) seqIter {
 		seen := newArrSeen(0)
-		kept := &seqKept{}
+		kept := o.keep()
 		return func(c *Ctx) (Value, bool, error) {
-			kept.root(c)
 			for {
 				v, ok, err := it(c)
 				if err != nil || !ok {
@@ -1096,11 +1112,10 @@ func seqBatches(c *Ctx, recv Value, args []Value, windows bool) (Value, error) {
 	if err != nil {
 		return Nil(), err
 	}
-	batches := seqStage(s, func(it seqIter) seqIter {
-		kept := &seqKept{}
+	batches := seqStageOwned(s, func(o *seqOwner, it seqIter) seqIter {
+		kept := o.keep()
 		done := false
 		return func(c *Ctx) (Value, bool, error) {
-			kept.root(c)
 			if done {
 				return Nil(), false, nil
 			}

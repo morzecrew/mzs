@@ -62,7 +62,7 @@ const (
 // instead, so the common push copies forty bytes, not a whole Value more.
 type memRoot struct {
 	vals []Value // the arguments of a call in progress, or a result being built in place
-	ref  any     // *Env: a scope that is executing; *[]Value: a result a row appends to
+	ref  any     // *Env: a scope that is executing; *[]Value: a result a row appends to; *seqOwner: what a seq traversal keeps
 }
 
 // memMark is a position on both root stacks.
@@ -108,6 +108,13 @@ func (rs *runState) pushVals(vs []Value) {
 func (rs *runState) holdGrowing(p *[]Value) {
 	if rs.memOn() {
 		rs.roots = append(rs.roots, memRoot{ref: p})
+	}
+}
+
+// holdOwner roots what the cursors of one seq traversal keep (seqOwner).
+func (rs *runState) holdOwner(o *seqOwner) {
+	if rs.memOn() {
+		rs.roots = append(rs.roots, memRoot{ref: o})
 	}
 }
 
@@ -361,12 +368,30 @@ func (w *memWalker) state(s *runState) {
 		case *[]Value:
 			w.total += int64(cap(*p)) * valueBytes
 			w.push(*p)
+		case *seqOwner:
+			w.owner(p)
 		default:
 			w.push(r.vals)
 		}
 	}
 	w.push(s.held)
 	w.drain()
+}
+
+// owner weighs what the cursors of a traversal keep (seqOwner): every kept slice and
+// held value of the owner and of each child still running, without recursion.
+func (w *memWalker) owner(o *seqOwner) {
+	stack := []*seqOwner{o}
+	for len(stack) > 0 {
+		o := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, k := range o.kept {
+			w.total += int64(cap(k.vals)) * valueBytes
+			w.push(k.vals)
+		}
+		w.push(o.vals)
+		stack = append(stack, o.children...)
+	}
 }
 
 // values weighs a slice of values and everything they reach.

@@ -118,6 +118,9 @@ for x in (seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }) { n += 
 		{"a seq max_by's best key", `[1, 2].seq.max_by { "x" * 600000 + it.str }`},
 		{"a flat_map's inner array", `(0..0).seq.flat_map { (_) -> ["a", "b" * 600000] }
 .map { it.len < 100 ? ("z" * 500000).len : 0 }.sum`},
+		{"a flat_map's inner array beside another flat_map under a zip",
+			`(1..3).seq.flat_map { [it] }.zip((0..0).seq.flat_map { (_) -> [0, 0, "b" * 600000] })
+.map { it[0] == 2 ? ("z" * 600000).len : 0 }.sum`},
 		{"a uniq beside a flat_map that releases its inner cursors",
 			`(1..40).seq.flat_map { [it] }.zip((0..40).seq.map { "x" * 50000 + it.str }.uniq { it }).len`},
 		{"a seq's source array", `keep = []

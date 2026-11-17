@@ -218,13 +218,13 @@ Decisions:
   bucket, `last(n)`'s window, and the batch of `each_slice` or `each_cons`. `uniq` over
   an endless source of distinct keys ends on the cap.
 * **The memory walk sees what a lazy row keeps.** A lazy row's state lives in a Go
-  closure, which the walk of RFC 0011 cannot look inside. So a cursor's pull roots that
-  state, and the frame of the `for` or the terminal that pulls it releases it. A cursor
-  opened mid-traversal — each inner sequence of a `flat_map`, each part of a `concat` —
-  releases what it rooted when it ends, so `(1..10000).seq.flat_map { s.uniq }` keeps one
-  inner `uniq`'s keys at a time. Because that release can drop the root of a cursor
-  running beside it (one `zip` pulls), every pull checks its root and pushes it again if
-  it is gone. `flat_map` also roots the value its closure returned while it is pulled,
-  which nothing else holds.
+  closure, which the walk of RFC 0011 cannot look inside. So every traversal has an
+  owner, made and rooted by the frame that pulls it, and a cursor registers what it keeps
+  with the owner it is opened under. A cursor opened mid-traversal — each inner sequence
+  of a `flat_map`, each part of a `concat` — gets a child owner, which is forgotten when
+  the cursor ends, so `(1..10000).seq.flat_map { s.uniq }` keeps one inner `uniq`'s keys
+  at a time. The owners form a tree rather than a stack: a cursor that ends takes only
+  what it kept, and its siblings under a `zip` keep theirs. A child owner also holds the
+  value the `flat_map` closure returned, which nothing else holds while it is pulled.
 * **`sort`, `reverse`, `shuffle` and `sample` stay array-only**, as proposed. They cannot
   give their first element until they have seen the last.
