@@ -1,6 +1,8 @@
 package mzs
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -159,9 +161,10 @@ func TestTimeStrftime(t *testing.T) {
 		{name: "zone offset", layout: "%z", want: "+0000"},
 		{name: "zone name", layout: "%Z", want: "UTC"},
 		{name: "a literal percent", layout: "100%%", want: "100%"},
-		{name: "an unknown directive is kept", layout: "%Q", want: "%Q"},
 		{name: "cyrillic literal text", layout: "%d марта %Y", want: "12 марта 2025"},
-		{name: "a trailing percent", layout: "abc%", want: "abc%"},
+		{name: "unix seconds", layout: "%s", want: "1741789815"},
+		{name: "milliseconds", layout: "%L", want: "000"},
+		{name: "microseconds", layout: "%f", want: "000000"},
 	}
 
 	for _, tt := range tests {
@@ -174,6 +177,62 @@ func TestTimeStrftime(t *testing.T) {
 				t.Errorf("strftime(%q) = %q; want %q", tt.layout, got.Str(), tt.want)
 			}
 		})
+	}
+}
+
+// RFC 0016 §6 and audit B6: an unknown directive used to come back verbatim, which hid a
+// typo until someone read the output. It is an `argument` error naming the directive now,
+// and so is a `%` with nothing after it.
+func TestTimeStrftimeRefusesUnknownDirectives(t *testing.T) {
+	c := colCtx(t, colTimeOpts())
+	now := timeOf(colClock())
+	for layout, want := range map[string]string{
+		"%Q":       `unknown directive "%Q"`,
+		"%Y-%G":    `unknown directive "%G"`,
+		"%-Q":      `unknown directive "%-Q"`,
+		"abc%":     "the layout ends in a lone %",
+		"%-":       `unknown directive "%-"`,
+		"x %q y":   `unknown directive "%q"`,
+		"%Y %% %x": `unknown directive "%x"`,
+	} {
+		_, err := colInvoke(c, KTime, "strftime", now, Str(layout))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("strftime(%q) error = %v; want it to contain %q", layout, err, want)
+		}
+		var e *Error
+		if !errors.As(err, &e) || e.Kind != ErrKindArgument {
+			t.Errorf("strftime(%q) error kind = %v; want argument", layout, err)
+		}
+	}
+}
+
+// %L and %f are the sub-second digits, and t.ms the unix milliseconds (RFC 0016 §6).
+func TestTimeSubsecondRows(t *testing.T) {
+	c := colCtx(t, colTimeOpts())
+	at := timeOf(time.Date(2025, 3, 12, 14, 30, 15, 123456789, time.UTC))
+	for layout, want := range map[string]string{
+		"%S.%L":       "15.123",
+		"%S.%f":       "15.123456",
+		"%s":          "1741789815",
+		"%-L":         "123",
+		"%H:%M:%S.%L": "14:30:15.123",
+	} {
+		got, err := colInvoke(c, KTime, "strftime", at, Str(layout))
+		if err != nil || got.Str() != want {
+			t.Errorf("strftime(%q) = %q, %v; want %q", layout, got.Str(), err, want)
+		}
+	}
+	early := timeOf(time.Date(2025, 3, 12, 14, 30, 15, 7_000_000, time.UTC))
+	if got, _ := colInvoke(c, KTime, "strftime", early, Str("%L %f")); got.Str() != "007 007000" {
+		t.Errorf("strftime(%%L %%f) = %q; want the digits zero-padded", got.Str())
+	}
+	ms, err := colInvoke(c, KTime, "ms", at)
+	if err != nil || !stdSame(ms, Int(1741789815123)) {
+		t.Errorf("t.ms = %s, %v; want 1741789815123", ms.Inspect(), err)
+	}
+	before := timeOf(time.Date(1969, 12, 31, 23, 59, 59, 500_000_000, time.UTC))
+	if ms, _ := colInvoke(c, KTime, "ms", before); !stdSame(ms, Int(-500)) {
+		t.Errorf("t.ms before the epoch = %s; want -500", ms.Inspect())
 	}
 }
 

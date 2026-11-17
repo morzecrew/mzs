@@ -22,16 +22,20 @@ pass and nothing for a sandbox to take away ([sandbox](../reference/sandbox.md))
 | `crypto.hex(s)` / `crypto.unhex(s)` | `(string) -> string` | the bytes as lowercase hex, and back |
 | `crypto.base64(s, alphabet = "std")` | `(string, string) -> string` | RFC 4648 §4, or §5 under `"url"` |
 | `crypto.unbase64(s)` | `(string) -> string` | either alphabet, padded or not |
-| `crypto.sha256(s)` / `crypto.sha1(s)` / `crypto.md5(s)` | `(string) -> string` | the digest, in hex |
+| `crypto.sha256(s)` / `crypto.sha512(s)` / `crypto.sha384(s)` | `(string) -> string` | the digest, in hex |
+| `crypto.sha1(s)` / `crypto.md5(s)` | `(string) -> string` | the digest, in hex — for reading what already exists |
 | `crypto.hmac(key, msg, alg = "sha256")` | `(string, string, string) -> string` | the signature, in hex |
 | `crypto.crc32(s)` | `(string) -> int` | the IEEE checksum, `0..4294967295` |
 | `crypto.equal(a, b)` | `(string, string) -> bool` | `==` in constant time |
+| `crypto.random(n)` | `(int) -> string` | `n` secure random bytes, in hex; only when the host sets `Options.CryptoRand` |
 
 ```
 include crypto
 crypto.keys.json
-# ["hex","unhex","base64","unbase64","sha256","sha1","md5","hmac","crc32","equal"]
+# ["hex","unhex","base64","unbase64","sha256","sha512","sha384","sha1","md5","hmac","crc32","equal"]
 ```
+
+With `Options.CryptoRand` set (`--rand` on the command line) the list ends in `"random"`.
 
 ## Why it is not called `hash`
 
@@ -129,8 +133,8 @@ saying so is better than decoding something else.
 
 ## The algorithms are the member list
 
-`sha256`, `sha1` and `md5` — what `crypto.sha256` computes is what `crypto.hmac` signs with,
-and there is no fourth name for either list. `sha1` and `md5` are here to read what already
+`sha256`, `sha512`, `sha384`, `sha1` and `md5` — what `crypto.sha512` computes is what
+`crypto.hmac(k, m, "sha512")` signs with, and there is no second name for either list. `sha1` and `md5` are here to read what already
 exists: a webhook signed with sha1 is still a webhook that has to be verified, and neither
 is a choice worth making for something new.
 
@@ -144,6 +148,12 @@ include crypto
 #  "18e3548c59ad40dd03907b7aeee71d67"]
 ```
 
+```
+include crypto
+crypto.hmac("Jefe", "what do ya want for nothing?", "sha384")
+# af45d2e376484031617f78d2b58a6b1b9c7ef464f5a01b47e42ec3736322445e8e2240ca5e69e2c78b3239ecfab21649
+```
+
 `crc32` is the IEEE polynomial — the one `crc32` means in zip, gzip and everywhere else a
 script meets one — and it is a checksum, not a signature: it says a byte flipped, never who
 sent it.
@@ -151,6 +161,26 @@ sent it.
 ```
 include crypto
 crypto.crc32("mzs")        # 2744266907
+```
+
+## Secure random bytes
+
+`crypto.random(n)` is `n` bytes from a cryptographically secure source, as hex — a session
+token, a nonce, a password reset link:
+
+```sh
+mzs --rand -e 'include crypto; crypto.random(16)'    # 32 hex digits, 128 bits
+```
+
+It is not `rand()`. `Options.Rand` may be seeded so a run can be replayed (`--rand 7`), and
+a token a seed can replay is not a secret. So the secure source is a capability of its own:
+a host passes `crypto/rand.Reader` as `Options.CryptoRand`, and the CLI's `--rand` sets it
+from the operating system whatever seed it was given. Without it `crypto.random` is absent
+and says which option is missing:
+
+```sh
+mzs -e 'include crypto; crypto.random(16)'
+# name: crypto.random needs a source of secure randomness (Options.CryptoRand; on the command line, --rand)
 ```
 
 ## Errors
@@ -171,8 +201,8 @@ try crypto.unbase64("a-b+c") else (e) -> e["message"]
 try crypto.base64("x", "base64url") else (e) -> e["message"]
 # crypto.base64: unknown alphabet "base64url"; the alphabets are "std" and "url"
 
-try crypto.hmac("k", "m", "sha512") else (e) -> e["message"]
-# crypto.hmac: unknown algorithm "sha512"; the algorithms are "sha256", "sha1" and "md5"
+try crypto.hmac("k", "m", "sha3") else (e) -> e["message"]
+# crypto.hmac: unknown algorithm "sha3"; the algorithms are "sha256", "sha512", "sha384", "sha1" and "md5"
 ```
 
 A byte that is not a hex digit is named in hex when it is not printable, because the first

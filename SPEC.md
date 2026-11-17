@@ -109,7 +109,7 @@ These are decided. No alternatives are offered anywhere in this document.
 | D12 | Regex: two backends behind one interface. RE2 (`regexp`) is used when the pattern is RE2-safe and contains no `\b`/`\B`; otherwise a bundled backtracking engine with Unicode-aware `\b` and lookaround. Same syntax accepted either way. |
 | D13 | Errors are Go `error` values with position info and a kind from a closed list (§13.5). Scripts raise with `raise`, catch with `try … else …`, release with `ensure`. Internal panics are recovered at the API boundary. |
 | D14 | Parameter lists are **always parenthesised**: `fn f(a, b) { … }` and `{ (a, b) -> … }`. A closure with no parameter list implicitly binds `it`. |
-| D15 | Determinism by default: no clock, no RNG, no I/O unless the host supplies them via `Options` (`Now`, `Rand`, `Stdout`, `FS`, `Stdin`, `Env`, `Register`). |
+| D15 | Determinism by default: no clock, no RNG, no I/O unless the host supplies them via `Options` (`Now`, `Rand`, `CryptoRand`, `Stdout`, `FS`, `Stdin`, `Env`, `Register`). |
 | D16 | Ambiguity is a diagnostic, never a silent reading. Every construct that another language resolves by a surprising precedence rule is rejected with a fix-it message (§5.6). |
 | D17 | Every operation has exactly one name. There are no aliases anywhere in the standard library. |
 | D18 | Function-call syntax and method syntax are the same thing: `x.f(y)` ≡ `f(x, y)` (UFCS). The library is one flat namespace. |
@@ -2854,13 +2854,14 @@ Module names are lowercase; there is no `CONST` kind and no `::` operator.
 | `time` | `now` | `-> time` | requires `Options.Now` |
 | `time` | `parse` | `(s: string, layout: string = auto) -> time` | accepts RFC3339, `YYYY-MM-DD{ HH:MM[:SS]}`, `DD/MM/YY`, `DD.MM.YYYY` |
 | `time` | `at` | `(unix: int) -> time` | |
+| `time` | `mono` | `() -> float` | seconds on a monotonic clock, for measuring an interval; requires `Options.Now`. The origin is the Run's first reading, so the first call is `0.0` |
 | `date` | `today` | `-> time` (midnight) | requires `Options.Now` |
 | `date` | `parse` | `(s: string) -> time` | |
 | `http` | `serve stop json text get post request` | see §12.11 | no host option |
 | `tasks` | `all race` | see §12.12 | no host option |
 | `io` | `stdin lines read write append exists ls env stat walk rm mkdir mv` | see §12.13 | requires `Options.FS`; `walk rm mkdir mv` need optional interfaces, and `rm mkdir mv` `Options.FSMutations` |
 | `decimal` | `of plus minus times div neg abs cmp round str float int sum split` | see §12.15 | no host option |
-| `crypto` | `hex unhex base64 unbase64 sha256 sha1 md5 hmac crc32 equal` | see §12.16 | no host option |
+| `crypto` | `hex unhex base64 unbase64 sha256 sha512 sha384 sha1 md5 hmac crc32 equal random` | see §12.16 | no host option, except `random`, which requires `Options.CryptoRand` |
 | `url` | `parse build encode decode query parse_query` | see §12.17 | no host option |
 | `test` | `case eq ne near raises skip group` | see §12.18 | no host option |
 | `csv` | `parse rows str line` | see §12.19 | no host option |
@@ -2874,7 +2875,10 @@ with kind `json` (§13.5): bad input on the way in, a cycle or too much nesting 
 out.
 
 Time values: `strftime(layout)` (C-style `%Y %y %m %d %H %M %S %a %A %b %B %j %p %z %Z %%`,
-plus `%-d`/`%-m` for no padding), `to_date`, `int` (unix seconds), `in_time_zone(tz)` (uses
+`%s` unix seconds, `%L` milliseconds and `%f` microseconds as 3 and 6 zero-padded digits,
+plus `%-d`/`%-m` for no padding; any other directive, and a `%` that ends the layout, is an
+`argument` error naming it), `to_date`, `int` (unix seconds), `ms` (unix milliseconds),
+`in_time_zone(tz)` (uses
 `time.LoadLocation` with the embedded `time/tzdata` — stdlib, still zero external deps),
 `year month day hour min sec wday yday`, and `+`/`-` with a duration or an int (seconds).
 
@@ -3383,10 +3387,11 @@ http.serve(":8080", {"POST /hook": { (req) ->
 | `hex` / `unhex` | `(s: string) -> string` | the string's bytes as lowercase hex, and back; `unhex` reads either case |
 | `base64` | `(s: string, alphabet: string = "std") -> string` | RFC 4648 §4, or §5 under `"url"`: `-_` and no padding |
 | `unbase64` | `(s: string) -> string` | one decoder: either alphabet, padded or not |
-| `sha256` / `sha1` / `md5` | `(s: string) -> string` | the digest, in hex |
-| `hmac` | `(key: string, msg: string, alg: string = "sha256") -> string` | the signature, in hex; `alg` is `"sha256"`, `"sha1"` or `"md5"` |
+| `sha256` / `sha512` / `sha384` / `sha1` / `md5` | `(s: string) -> string` | the digest, in hex |
+| `hmac` | `(key: string, msg: string, alg: string = "sha256") -> string` | the signature, in hex; `alg` is `"sha256"`, `"sha512"`, `"sha384"`, `"sha1"` or `"md5"` |
 | `crc32` | `(s: string) -> int` | the IEEE checksum, `0..4294967295` |
 | `equal` | `(a: string, b: string) -> bool` | `==` in time that does not depend on where the two differ |
+| `random` | `(n: int) -> string` | `n` bytes from `Options.CryptoRand`, in hex, so `random(16)` is a 128-bit token of 32 digits. **Absent unless the host sets `Options.CryptoRand`**; a negative `n` is an `argument` error, and so is a source that fails or runs short |
 
 **The name is `crypto`, not `hash`.** §12.1 spends `hash` on the FNV-1a of a value, and an
 include gives a name to its module for the whole file (§12.8): `include hash` would make
@@ -3416,8 +3421,16 @@ is why it stands next to `hmac` rather than in a note.
 
 **`md5` and `sha1` are for reading what already exists.** A webhook signed with sha1 is
 still a webhook that has to be verified. Neither is a choice worth making today, and there
-is no fourth algorithm: what `crypto.sha256` computes is what `hmac` signs with, and the
-member list *is* the algorithm list (D17).
+is no other algorithm: what `crypto.sha256` computes is what `hmac` signs with, and the
+digest members *are* the algorithm list (D17).
+
+**`random` is not `rand`.** `Options.Rand` may be seeded, which is what a test that replays
+a run wants and exactly what a token must never come from: a secret a seed can replay is not
+a secret. So the secure source is a capability of its own, `Options.CryptoRand`, an
+`io.Reader` the host fills with `crypto/rand.Reader`. Without it the member is absent, as
+`io.rm` is without `FSMutations` (§12.13), and `crypto.random` fails as an unknown member
+whose message names the option. The answer is hex because a token travels as text, and
+`crypto.unhex` gives the bytes back when a script needs them.
 
 **Limits.** Every row charges the walk over its bytes against the step budget, so hashing a
 megabyte is interruptible like any other loop (§14.1), and every row that builds a string
@@ -3902,6 +3915,7 @@ type Options struct {
     Stderr          io.Writer     // warnings. nil => discard.
     Now             func() time.Time // enables now()/time.now/date.today
     Rand            *rand.Rand       // enables rand()/uuid()/sample/shuffle
+    CryptoRand      io.Reader        // enables crypto.random (§12.16); never the same source as a seeded Rand
     EnableTime      bool             // installs the time/date modules (needs Now for now/today)
     ModuleLoader    ModuleLoader     // enables `include x from "path"` (§12.8); nil => error
     CompileIncludes bool             // Compile reads top-level includes for their records' fields (§7.8); false => never
@@ -4345,8 +4359,8 @@ either until a host hands one over. There is no `require`, no `import`, no `load
 module (§12.13), and neither is ambient. The one thread-shaped thing a script may ask for
 is a task (§8.14), and it buys concurrency without parallelism: `Options.MaxTasks` bounds
 how many exist, they end when the Run does, and no two of them evaluate at once.
-`Options.Now` and `Options.Rand` are the only sources of nondeterminism, both off by
-default. Any capability beyond those is opt-in, host-supplied, and named by the host
+`Options.Now`, `Options.Rand` and `Options.CryptoRand` are the only sources of
+nondeterminism, all off by default. Any capability beyond those is opt-in, host-supplied, and named by the host
 (`in.Register("http_get", …)`).
 
 Reading a **file** and reading another **script** are off by default and work the same way
@@ -4444,7 +4458,7 @@ file is `fmt.mzs`, not `fmt`.
 | `--mem <size>` | live memory budget, `64m`, `1g` (§14.2); `0` disables |
 | `--tasks <n>` | tasks running at once, for `async fn` (§8.14); `0` forbids them |
 | `--time` | enable the `time`/`date` modules and a real clock |
-| `--rand [seed]` | enable rand/uuid; with a seed for reproducibility |
+| `--rand [seed]` | enable rand/uuid, with a seed for reproducibility, and `crypto.random` from the operating system (never from the seed) |
 | `--stats` | print steps, elapsed time and peak live memory to stderr |
 | `--no-trace` | print a runtime error's three lines without the stack under them |
 | `--tokens` | dump the token stream and exit |

@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -419,6 +420,10 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 	}
 	if cfg.randOn {
 		o.Rand = rand.New(rand.NewSource(cfg.randSeed))
+		// --rand turns randomness on as a whole: rand() from the seed, so a run can be
+		// replayed, and crypto.random from the operating system, because a secret that
+		// a seed could replay is not a secret (RFC 0016 §7).
+		o.CryptoRand = crand.Reader
 	}
 	// options only reads cfg: it is called more than once per config (the REPL's completer
 	// builds Options of its own), so the record of loaded sources is made with the config.

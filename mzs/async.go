@@ -73,6 +73,12 @@ type runShared struct {
 	// test.case ends at once, and the Run answers ErrFailFast.
 	failedFast bool
 
+	// monoBase is the origin of time.mono (RFC 0016 §6): the host clock's first reading
+	// in this Run. One origin per Run, shared by its tasks, so two readings anywhere in
+	// the Run subtract to the interval between them.
+	monoBase time.Time
+	monoSet  bool
+
 	// cancel ends the context every task derives from. RunResult calls it before joining,
 	// so a task blocked on the network or on another task stops instead of holding the
 	// Run open.
