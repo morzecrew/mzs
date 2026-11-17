@@ -116,6 +116,10 @@ for x in (seq { (i) -> i < 40 ? i : nil }.uniq { "x" * 50000 + it.str }) { n += 
 		{"a seq tally in progress", `(0..40).seq.map { "x" * 50000 + it.str }.tally`},
 		{"a seq group_by in progress", `(0..40).seq.group_by { "x" * 50000 + it.str }`},
 		{"a seq max_by's best key", `[1, 2].seq.max_by { "x" * 600000 + it.str }`},
+		{"a flat_map's inner array", `(0..0).seq.flat_map { (_) -> ["a", "b" * 600000] }
+.map { it.len < 100 ? ("z" * 500000).len : 0 }.sum`},
+		{"a uniq beside a flat_map that releases its inner cursors",
+			`(1..40).seq.flat_map { [it] }.zip((0..40).seq.map { "x" * 50000 + it.str }.uniq { it }).len`},
 		{"a seq's source array", `keep = []
 for i in 0..40 { keep.push(("x" * 50000 + i.str).chars.first(1).join + ("y" * 50000)) }
 s = keep.seq; keep = nil
@@ -146,12 +150,17 @@ func TestMemorySeqStateEndsWithItsTraversal(t *testing.T) {
 		src += strings.Replace(loop, "%s", c, 1)
 	}
 	src += `for k in ["e", "f", "g", "h"] { n += (0..10).seq.map { k * 50000 + it.str }.uniq { it }.len }
+`
+	// Inside one traversal too: each inner cursor of a flat_map, and each part of a
+	// concat, releases what it kept when it ends.
+	src += `n += (1..2000).seq.flat_map { (_) -> (1..20).seq.map { "x" * 1000 + it.str }.uniq }.len / 1000
+n += (1..30).seq.map { "x" * 20000 + it.str }.uniq.concat((1..30).seq.map { "y" * 20000 + it.str }.uniq).len
 n`
 	res, err := memRun(t, memInterp(1<<20), src, nil)
 	if err != nil {
 		t.Fatalf("Run: %v; the keys of a finished traversal are not live", err)
 	}
-	if res.Value.Int() != 88 {
+	if res.Value.Int() != 88+40+60 {
 		t.Errorf("n = %v; want every loop to have run", res.Value)
 	}
 }

@@ -357,18 +357,18 @@ func seqSieve(s *Seq, fn Value, keep bool) *Seq {
 func seqvFlatMap(c *Ctx, recv Value, args []Value) (Value, error) {
 	return seqLazy(c, recv, args, func(s *Seq, fn Value) *Seq {
 		return seqStage(s, func(it seqIter) seqIter {
-			var inner seqIter
+			var inner seqScoped
 			return func(c *Ctx) (Value, bool, error) {
 				for {
-					if inner != nil {
-						v, ok, err := inner(c)
+					if inner.it != nil {
+						v, ok, err := inner.it(c)
 						if err != nil {
 							return Nil(), false, err
 						}
 						if ok {
 							return v, true, nil
 						}
-						inner = nil
+						inner.done(c)
 					}
 					v, ok, err := it(c)
 					if err != nil || !ok {
@@ -384,7 +384,9 @@ func seqvFlatMap(c *Ctx, recv Value, args []Value) (Value, error) {
 						if err != nil {
 							return Nil(), false, err
 						}
-						inner = sv.seq().open()
+						// The closure's value is held by nothing but this cursor while
+						// it is pulled, and what the cursor roots ends with it.
+						inner = seqOpenScoped(c, sv.seq(), out)
 					default:
 						return out, true, nil
 					}
@@ -863,20 +865,54 @@ func seqvJoin(c *Ctx, recv Value, args []Value) (Value, error) {
 // ---------------------------------------------------------------------------
 
 // seqKept is state a cursor keeps between pulls — a batch being filled, a window, the
-// keys `uniq` has seen. The memory walk cannot look inside a Go closure (RFC 0011), so the
-// first pull roots the slice for the rest of the traversal: the traversal runs inside the
-// call of the terminal or the `for` that pulls it, and the hold is released with that
-// frame. Every later pull happens inside the same frame, so one hold is enough.
+// keys `uniq` has seen. The memory walk cannot look inside a Go closure (RFC 0011), so a
+// pull roots the slice. The traversal runs inside the call of the terminal or the `for`
+// that pulls it, and the hold is released with that frame — or sooner, when a `flat_map`
+// or a `concat` is done with the cursor and releases what it pushed (seqScoped). A
+// release of that kind may also drop the hold of a cursor that is still running beside
+// it, as `zip` runs one, so every pull checks that its root is still in place and pushes
+// it again when it is not.
 type seqKept struct {
 	vals []Value
-	held bool
+	idx  int // where the root was pushed, valid only while it is still there
 }
 
 func (k *seqKept) root(c *Ctx) {
-	if !k.held {
-		c.holdGrowing(&k.vals)
-		k.held = true
+	rs := c.rs
+	if !rs.memOn() {
+		return
 	}
+	if k.idx < len(rs.roots) {
+		if p, ok := rs.roots[k.idx].ref.(*[]Value); ok && p == &k.vals {
+			return
+		}
+	}
+	k.idx = len(rs.roots)
+	rs.holdGrowing(&k.vals)
+}
+
+// seqScoped is a cursor opened in the middle of a traversal — each inner sequence of a
+// `flat_map`, each part of a `concat` — together with the root mark taken before it was
+// opened. Whatever the cursor roots while it runs is released when it ends, rather than
+// piling up until the traversal does: `(1..10000).seq.flat_map { s.uniq }` keeps one
+// inner `uniq`'s keys at a time, not ten thousand.
+type seqScoped struct {
+	it   seqIter
+	mark memMark
+}
+
+// open takes the mark, roots v (the value the cursor reads from, which may be held by
+// nothing else), and opens s.
+func seqOpenScoped(c *Ctx, s *Seq, v Value) seqScoped {
+	m := c.rootMark()
+	c.hold(v)
+	return seqScoped{it: s.open(), mark: m}
+}
+
+// done releases what the cursor pushed.
+func (sc *seqScoped) done(c *Ctx) {
+	c.release(sc.mark)
+	sc.it = nil
 }
 
 // seqSources converts the arguments of zip and concat when the row is built, so
@@ -962,22 +998,23 @@ func seqvConcat(c *Ctx, recv Value, args []Value) (Value, error) {
 	parts := append([]*Seq{s}, others...)
 	out := &Seq{open: func() seqIter {
 		i := 0
-		var it seqIter
+		var cur seqScoped
 		return func(c *Ctx) (Value, bool, error) {
 			for i < len(parts) {
-				if it == nil {
+				if cur.it == nil {
 					// Each part is opened when the one before it ends, so a stateful
 					// source later in the chain is not touched until it is reached.
-					it = parts[i].open()
+					cur = seqOpenScoped(c, parts[i], seqOf(parts[i]))
 				}
-				v, ok, err := it(c)
+				v, ok, err := cur.it(c)
 				if err != nil {
 					return Nil(), false, err
 				}
 				if ok {
 					return v, true, nil
 				}
-				i, it = i+1, nil
+				cur.done(c)
+				i++
 			}
 			return Nil(), false, nil
 		}
@@ -1082,12 +1119,19 @@ func seqBatches(c *Ctx, recv Value, args []Value, windows bool) (Value, error) {
 					if windows || len(kept.vals) == 0 {
 						return Nil(), false, nil
 					}
+					if err := c.allocCollection(len(kept.vals), len(kept.vals)); err != nil {
+						return Nil(), false, err
+					}
 					return arrCopy(kept.vals), true, nil
 				}
 				if err := c.allocCollection(len(kept.vals)+1, 1); err != nil {
 					return Nil(), false, err
 				}
 				kept.vals = append(kept.vals, v)
+			}
+			// The batch is a second slice beside the one kept, and is charged as one.
+			if err := c.allocCollection(len(kept.vals), len(kept.vals)); err != nil {
+				return Nil(), false, err
 			}
 			batch := arrCopy(kept.vals)
 			if !windows {
