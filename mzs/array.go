@@ -2,7 +2,7 @@ package mzs
 
 import (
 	"math"
-	"math/bits"
+	"math/big"
 	"sort"
 	"strings"
 )
@@ -1916,16 +1916,25 @@ func arrMean(c *Ctx, recv Value, args []Value) (Value, error) {
 	n := float64(len(xs))
 	if math.IsInf(sum, 0) && finite {
 		// Finite numbers whose sum overflows can still have a mean that does not:
-		// [1.7e308, 1.7e308]. Each is scaled by 2^-k with 2^k ≥ 2n, which is exact for a
-		// normal float, so every partial sum is at most n·max/2^k ≤ max/2 and cannot
-		// round up past max — dividing each by n first can, because n rounded-up
-		// quotients may add to more than max. The mean is scaled back at the end.
-		k := bits.Len(uint(len(xs))) + 1
-		sum = 0
-		for _, x := range xs {
-			sum += math.Ldexp(x.Float(), -k)
+		// [1.7e308, 1.7e308]. No reordering of float64 additions is right for every input
+		// — scaling down to dodge the overflow loses the subnormal residue that is left
+		// when large values cancel — so this path, which only runs once a sum has
+		// overflowed, adds exactly instead. A float64 has 2098 bits from its largest
+		// exponent to its smallest subnormal; with 64 more for the carries, every partial
+		// sum is exact, and the one division by n is the only rounding before the result
+		// is rounded to the nearest float64. It is a second walk, and charged as one.
+		if err := arrIter(c, xs); err != nil {
+			return Nil(), err
 		}
-		return Float(math.Ldexp(sum/n, k)), nil
+		exact := new(big.Float).SetPrec(2098 + 64)
+		var f big.Float
+		f.SetPrec(53)
+		for _, x := range xs {
+			exact.Add(exact, f.SetFloat64(x.Float()))
+		}
+		exact.Quo(exact, new(big.Float).SetPrec(64).SetInt64(int64(len(xs))))
+		mean, _ := exact.Float64()
+		return Float(mean), nil
 	}
 	return Float(sum / n), nil
 }

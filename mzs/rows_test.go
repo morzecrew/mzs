@@ -111,6 +111,9 @@ func TestArrayStatisticsAndFolds(t *testing.T) {
 		// n quotients x/n can each round up and add past max; scaling by 2^-k cannot.
 		{`m = 1.7976931348623157e308; [m, m, m].mean == m`, `true`},
 		{`m = 1.7976931348623157e308; (0..<99).map { m }.mean == m`, `true`},
+		// Large values that cancel leave a subnormal residue; the exact fallback keeps it.
+		{`m = 1.7976931348623157e308; [m, m, -m, -m, 5e-323].mean == 1e-323`, `true`},
+		{`m = 1.7976931348623157e308; [m, m, -m, 3.0].mean == m / 4 + 0.75`, `true`},
 		{`[1.0e308, -1.0e308, 2.0].mean`, `0.6666666666666666`},
 		{`(1..4).mean`, `2.5`},
 		{`[3, 1, 2].median`, `2`},
