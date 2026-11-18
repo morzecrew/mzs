@@ -2980,8 +2980,11 @@ same timeouts, same limits, same errors.
 (500) and the server keeps serving. Every step taken while it serves is added back to the
 Run's counter when `serve` returns: the handlers', the `ready` closure's, and those of the
 Run's tasks while it waits. A handler error is 500 with the diagnostic on `Stderr` and
-never in the body (§13.5). A canceled context ends the Run with `ErrCanceled` (§14.1) and
-takes the listener down with it.
+never in the body (§13.5). The live set is not a request's: what a handler keeps outlives
+it, so going over `MaxMemory` ends the Run with `ErrMemory` (§14.2), and a canceled context
+ends it with `ErrCanceled` (§14.1). Either takes the listener down with it, and that request
+is answered 503. The server is the Run's, so any of its tasks reaches it with `http.stop()`,
+and once it has stopped any of them may serve again.
 
 Signing what goes out and checking what comes in is §12.16; taking a URL apart and putting
 it back together is §12.17. Both were written for this section and neither needs it.

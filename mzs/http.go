@@ -120,7 +120,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	}
 
 	rs := c.rs
-	if rs.srv != nil || rs.sh.serving {
+	if rs.sh.srv != nil {
 		return Nil(), c.ArgErrorf("http.serve: a server is already running in this run")
 	}
 
@@ -144,8 +144,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	hs := &http.Server{Handler: mux, ReadHeaderTimeout: httpReadHeaderTimeout}
 	go func() { _ = hs.Serve(ln) }()
 
-	rs.srv = srv
-	rs.sh.serving = true
+	rs.sh.srv = srv
 	// Steps are re-armed per request below, so the Run's own counter is restored on
 	// the way out. What the server cost is every step taken while it served: its
 	// handlers, `ready`, and the Run's tasks while it waited. Waiting itself costs
@@ -160,8 +159,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 		mark = 0
 	}
 	defer func() {
-		rs.srv = nil
-		rs.sh.serving = false
+		rs.sh.srv = nil
 		settle()
 		rs.sh.setSteps(baseSteps + spent)
 		rs.tick = 0
@@ -233,10 +231,10 @@ func httpHandle(mux *http.ServeMux, pattern string, h http.Handler) (err error) 
 // httpStop ends the http.serve loop of this Run after the current request. It is an
 // argument error outside a handler, because there would be nothing to stop.
 func httpStop(c *Ctx, args []Value) (Value, error) {
-	if c.rs.srv == nil {
+	if c.rs.sh.srv == nil {
 		return Nil(), c.ArgErrorf("http.stop: no server is running in this run")
 	}
-	c.rs.srv.stop = true
+	c.rs.sh.srv.stop = true
 	return Nil(), nil
 }
 
@@ -276,7 +274,11 @@ func (s *httpServer) dispatch(c *Ctx, job *httpJob) (fatal error) {
 	}
 	v, err := httpCall(c, job.fn, req)
 	if err != nil {
-		if errors.Is(err, ErrCanceled) {
+		// The budget and the deadline are the request's, so running out of them is that
+		// request's 500. The live set is the Run's: what a handler keeps outlives it, so
+		// going over MaxMemory ends the Run as it does anywhere else (§14.2), and a
+		// canceled context ends it too (§14.1).
+		if errors.Is(err, ErrCanceled) || errors.Is(err, ErrMemory) {
 			httpFail(rs, job, http.StatusServiceUnavailable, err)
 			return err
 		}

@@ -115,17 +115,17 @@ jobs:
         run: |
           number=$NUMBER
           echo "number=$number" >> "$GITHUB_OUTPUT"
-          # Only a release GitHub says is not there is missing: any other failure of the
-          # lookup stops the run with its diagnostic, rather than rebuilding a release
-          # that may exist.
-          if out=$(gh release view "v$number" --json isDraft \
-              --jq 'if .isDraft then "draft" else "published" end' 2>&1); then
-            state=$out
-          elif printf '%s' "$out" | grep -q 'release not found'; then
-            state=none
+          # Every release, drafts included, is listed in one read. A failed read stops
+          # the run (bash -e) rather than reading as "no release": only a list that
+          # was read whole and has no v$number in it is a release still to make.
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | (if .draft then "draft" else "published" end) + " " + .tag_name')
+          if grep -qxF "published v$number" <<<"$releases"; then
+            state=published
+          elif grep -qxF "draft v$number" <<<"$releases"; then
+            state=draft
           else
-            echo "looking up v$number failed: $out"
-            exit 1
+            state=none
           fi
           if [ "$state" = published ]; then
             echo "v$number is released already; nothing to do"
@@ -137,8 +137,15 @@ jobs:
             echo "v$number already tags $tagged, not $SHA; bump the version or move the tag by hand"
             exit 1
           fi
+          # "Latest" is the newest version published, never whichever was published
+          # last: finishing an older version's draft must not take the mark from a
+          # newer release.
+          newest=$( { sed -n 's/^published v//p' <<<"$releases"; echo "$number"; } |
+            sort -V | tail -n 1)
+          if [ "$newest" = "$number" ]; then latest=true; else latest=false; fi
           echo "new=true" >> "$GITHUB_OUTPUT"
           echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
       # The notes are the version's own section of the changelog, without its heading:
       # the release title says the version already.
@@ -188,24 +195,31 @@ jobs:
         env:
           NUMBER: ${{ steps.version.outputs.number }}
           STATE: ${{ steps.version.outputs.state }}
+          LATEST: ${{ steps.version.outputs.latest }}
         run: |
-          # The commit the tag v$NUMBER names, read from the tag namespace only (a branch
-          # of that name is not it), or nothing when there is no such tag.
+          # The commit the tag v$NUMBER names, or nothing when there is no such tag.
+          # ls-remote matches the full ref, so a branch of that name or a v$NUMBER-rc
+          # tag is not it; an annotated tag is peeled (^{}) to its commit. A failed
+          # read returns 1 (bash -e does not reach inside $(…)), and every caller
+          # assigns the result, so the run stops there instead of reading the failure
+          # as a missing tag.
           tag_target() {
-            ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$NUMBER" \
-              --jq '.object.type + " " + .object.sha' 2>/dev/null) || return 0
-            if [ "${ref%% *}" = tag ]; then
-              gh api "repos/$GITHUB_REPOSITORY/git/tags/${ref#* }" --jq .object.sha
+            refs=$(git ls-remote --tags origin "refs/tags/v$NUMBER" "refs/tags/v$NUMBER^{}") ||
+              return 1
+            peeled=$(awk '$2 ~ /\^\{\}$/ { print $1 }' <<<"$refs")
+            if [ -n "$peeled" ]; then
+              echo "$peeled"
             else
-              echo "${ref#* }"
+              awk 'NF { print $1; exit }' <<<"$refs"
             fi
           }
-          if [ -z "$(tag_target)" ]; then
+          tagged=$(tag_target)
+          if [ -z "$tagged" ]; then
             gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
               -f ref="refs/tags/v$NUMBER" -f sha="$SHA" >/dev/null ||
               echo "v$NUMBER could not be created; checking who made it"
+            tagged=$(tag_target)
           fi
-          tagged=$(tag_target)
           if [ "$tagged" != "$SHA" ]; then
             echo "v$NUMBER tags ${tagged:-nothing}, not $SHA; not publishing $SHA's executables"
             exit 1
@@ -220,10 +234,11 @@ jobs:
             fi
             gh release upload "v$NUMBER" dist/* --clobber
             gh release edit "v$NUMBER" --title "mzs $NUMBER" \
-              --notes-file /tmp/notes.md --draft=false
+              --notes-file /tmp/notes.md --draft=false --latest="$LATEST"
           else
             gh release create "v$NUMBER" dist/* \
               --verify-tag \
               --title "mzs $NUMBER" \
-              --notes-file /tmp/notes.md
+              --notes-file /tmp/notes.md \
+              --latest="$LATEST"
           fi

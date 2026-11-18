@@ -685,9 +685,13 @@ func TestHTTPServeIsSingleUsePerRunAcrossTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// If the guard regresses, the second listener holds the Run open and /quit is never
+	// sent: cancelling on cleanup is what takes both listeners down then.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() {
-		_, err := in.Run(context.Background(), prog, nil)
+		_, err := in.Run(ctx, prog, nil)
 		done <- err
 	}()
 	var url string
@@ -714,5 +718,84 @@ func TestHTTPServeIsSingleUsePerRunAcrossTasks(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("server did not stop")
+	}
+}
+
+// TestHTTPServeAgainFromATaskForkedDuringTheFirst pins the other side of one listener
+// at a time: once the first server has stopped, a task may serve, even one forked by a
+// handler of that first server. A task copies its parent's state, so a server pointer
+// kept per state would still name the stopped loop there and refuse it.
+func TestHTTPServeAgainFromATaskForkedDuringTheFirst(t *testing.T) {
+	t.Parallel()
+
+	in := New(netOpts())
+	urls := make(chan string, 2)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn later() {
+		  http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); "bye again" }}, { (u) -> __ready(u) })
+		}
+		http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); later(); "bye" }}, { (u) -> __ready(u) })
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Run(ctx, prog, nil)
+		done <- err
+	}()
+	next := func(which string) string {
+		t.Helper()
+		select {
+		case u := <-urls:
+			return u
+		case err := <-done:
+			t.Fatalf("the Run ended before the %s server was ready: %v", which, err)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the %s server did not become ready", which)
+		}
+		return ""
+	}
+	if status, body, _ := do(t, "GET", next("first")+"/quit", ""); status != 200 || body != "bye" {
+		t.Fatalf("first /quit = %d %q", status, body)
+	}
+	if status, body, _ := do(t, "GET", next("second")+"/quit", ""); status != 200 || body != "bye again" {
+		t.Fatalf("second /quit = %d %q", status, body)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Run did not end")
+	}
+}
+
+// TestHTTPServeEndsTheRunOverMaxMemory pins that the live set is the Run's, not the
+// request's: unlike the step budget and the deadline, MaxMemory is not re-armed per
+// request, so a handler that goes over it ends the Run with ErrMemory (§14.2) instead of
+// a 500 and a server that keeps going.
+func TestHTTPServeEndsTheRunOverMaxMemory(t *testing.T) {
+	t.Parallel()
+
+	o := netOpts()
+	o.MaxMemory = 1 << 20
+	s := startServer(t, `
+		include http
+		http.serve("127.0.0.1:0", {"GET /big": { (req) -> s = "x" * 3000000; s.len }}, { (u) -> __ready(u) })
+	`, o)
+	if status, _, _ := do(t, "GET", s.url+"/big", ""); status != http.StatusServiceUnavailable {
+		t.Errorf("/big = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+	if err := s.wait(t); !errors.Is(err, ErrMemory) {
+		t.Fatalf("Run = %v, want ErrMemory", err)
 	}
 }

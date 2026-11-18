@@ -60,10 +60,11 @@ type runShared struct {
 	// prof is the root of the profile's call tree when Options.Profile is set. Every
 	// task adds to it, under the lock, as the step counter is.
 	prof *profNode
-	// serving says an http.serve loop is running in this Run. srv is per state and a
-	// task forked before the serve started has none, so the one-listener rule (§12.9)
-	// is checked here, where every task of the Run sees it.
-	serving bool
+	// srv is the http.serve loop running in this Run, or nil. It is the Run's, not a
+	// state's: a task forked before the serve must see it to be refused a second
+	// listener (§12.9) and to reach it with http.stop(), and a task forked during it
+	// must not keep a copy that outlives the loop.
+	srv *httpServer
 
 	wg   sync.WaitGroup
 	live int // tasks started and not yet finished, against Options.MaxTasks

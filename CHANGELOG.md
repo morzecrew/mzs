@@ -251,7 +251,16 @@ Nothing yet.
 
 - **A task could start a second `http.serve` in the same Run.** A task started before the
   server did not see it, so its own serve passed the one-listener check (§12.9) and ran
-  beside it. The check now covers every task of the Run.
+  beside it. The check now covers every task of the Run, and so does `http.stop()`.
+- **A task could not serve after the server it was started from stopped.** A task started
+  by a handler kept its own copy of the running server, so its `http.serve`, after that
+  server had stopped, was refused as "already running". The server is now the Run's, not a
+  task's.
+- **Going over `MaxMemory` in an `http.serve` handler did not end the Run.** It was answered
+  as an ordinary handler error, a 500, and the server kept going with the live set still
+  over the limit. The step budget and the deadline are a request's; the live set is the
+  Run's, so it now ends the Run with `ErrMemory` (503 to that request), as it does anywhere
+  else (§14.2).
 - **`http.serve` dropped steps from `Result.Steps`.** The steps of its `ready` closure,
   and of the Run's tasks while it waited, are now counted with the handlers'.
 - **A write into a module stays in the Run that made it.** A module is a dict a script may

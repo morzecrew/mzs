@@ -303,11 +303,6 @@ type runState struct {
 	loading []string
 	exports []string
 
-	// srv is the http.serve loop running in this Run, or nil. It lives here because
-	// http.stop() is called from inside a handler and has to find the server it is
-	// nested in, and because one Run serves at most one listener (§12.9).
-	srv *httpServer
-
 	// roots is what this state is holding right now, for the memory walk (§14.2): the
 	// scopes that are executing, the arguments of the calls in progress, and the values
 	// the evaluator and the stdlib hold in Go variables while they call back into the
