@@ -167,3 +167,43 @@ func TestDocContinuesPastAMissingPath(t *testing.T) {
 		t.Errorf("good.mzs was not documented:\n%s", out)
 	}
 }
+
+// A directory that cannot be read is reported, and the files around it are still found.
+func TestDocContinuesPastAnUnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory whatever its mode")
+	}
+	dir := t.TempDir()
+	for name, src := range map[string]string{
+		"a.mzs":        "## A.\nfn a() { 1 }\n",
+		"z.mzs":        "## Z.\nfn z() { 1 }\n",
+		"locked/b.mzs": "## B.\nfn b() { 1 }\n",
+		"open/c.mzs":   "## C.\nfn c() { 1 }\n",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	locked := filepath.Join(dir, "locked")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	code, out, errOut := exec([]string{"doc", dir}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(errOut, "locked") {
+		t.Errorf("stderr = %q, want the unreadable directory named", errOut)
+	}
+	for _, want := range []string{"A.", "C.", "Z."} {
+		if !strings.Contains(out, "\n"+want+"\n") {
+			t.Errorf("%s is missing from the output:\n%s", want, out)
+		}
+	}
+}

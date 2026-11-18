@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"mzs/internal/doccomment"
@@ -124,31 +127,55 @@ func reportDocErr(stderr io.Writer, err error) {
 	}
 }
 
-// docFiles is mzsFiles without the test files a directory holds: a `_test.mzs` file is
-// the runner's, not part of anything's interface. A file named on the command line is
-// documented whatever it is called. A path that cannot be read is reported and the
-// others are still expanded; ok says whether every one could be.
+// docFiles expands the arguments as mzsFiles does — a file is itself, a directory every
+// `.mzs` file under it in a stable order — leaving out the test files a directory holds:
+// a `_test.mzs` file is the runner's, not part of anything's interface. A file named on
+// the command line is documented whatever it is called.
+//
+// Unlike mzsFiles it does not stop at the first error. A path that cannot be read, or an
+// entry of a directory that cannot be, is reported, and the walk goes on with the rest;
+// ok says whether everything could be read.
 func docFiles(paths []string, stderr io.Writer) (out []string, ok bool) {
 	ok = true
+	report := func(err error) {
+		fmt.Fprintf(stderr, "mzs doc: %v\n", err)
+		ok = false
+	}
 	for _, p := range paths {
 		st, err := os.Stat(p)
 		if err != nil {
-			fmt.Fprintf(stderr, "mzs doc: %v\n", err)
-			ok = false
+			report(err)
 			continue
 		}
-		found, err := mzsFiles([]string{p})
-		if err != nil {
-			fmt.Fprintf(stderr, "mzs doc: %v\n", err)
-			ok = false
+		if !st.IsDir() {
+			out = append(out, p)
 			continue
 		}
-		for _, f := range found {
-			if st.IsDir() && strings.HasSuffix(f, "_test.mzs") {
-				continue
+		var found []string
+		// The callback never returns an error, so WalkDir's own result is always nil.
+		_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				// A directory that cannot be read is called back a second time with the
+				// error; skipping it keeps its siblings in the walk.
+				report(err)
+				if d != nil && d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
 			}
-			out = append(out, f)
-		}
+			if d.IsDir() {
+				if name := d.Name(); path != p && strings.HasPrefix(name, ".") {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if strings.HasSuffix(path, ".mzs") && !strings.HasSuffix(path, "_test.mzs") {
+				found = append(found, path)
+			}
+			return nil
+		})
+		sort.Strings(found)
+		out = append(out, found...)
 	}
 	return out, ok
 }
