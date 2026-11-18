@@ -151,33 +151,44 @@ func docFiles(paths []string, stderr io.Writer) (out []string, ok bool) {
 			out = append(out, p)
 			continue
 		}
-		var found []string
-		// The callback never returns an error, so WalkDir's own result is always nil.
-		_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				// A directory that cannot be read is called back a second time with the
-				// error; skipping it keeps its siblings in the walk.
-				report(err)
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if d.IsDir() {
-				if name := d.Name(); path != p && strings.HasPrefix(name, ".") {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if strings.HasSuffix(path, ".mzs") && !strings.HasSuffix(path, "_test.mzs") {
-				found = append(found, path)
-			}
-			return nil
-		})
-		sort.Strings(found)
+		found := walkDocDir(os.DirFS(p), p, report)
 		out = append(out, found...)
 	}
 	return out, ok
+}
+
+// walkDocDir lists the documentable files under fsys, which is the directory base,
+// sorted. Every error is reported and the walk goes on: the callback returns nil after
+// one, so a directory that could be read in part still has the entries that were read
+// visited, and its siblings are walked as well.
+func walkDocDir(fsys fs.FS, base string, report func(error)) []string {
+	var found []string
+	// The callback never returns an error, so WalkDir's own result is always nil.
+	_ = fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// fs.FS errors name the path inside fsys; the reader wants the one they
+			// typed.
+			var pe *fs.PathError
+			if errors.As(err, &pe) {
+				pe.Path = filepath.Join(base, filepath.FromSlash(pe.Path))
+			}
+			report(err)
+			return nil
+		}
+		if d.IsDir() {
+			// A dot directory is somebody else's (.git), as for mzs fmt.
+			if name != "." && strings.HasPrefix(d.Name(), ".") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(name, ".mzs") && !strings.HasSuffix(name, "_test.mzs") {
+			found = append(found, filepath.Join(base, filepath.FromSlash(name)))
+		}
+		return nil
+	})
+	sort.Strings(found)
+	return found
 }
 
 // ordered is the file's items with the exported names first, each group in source order.

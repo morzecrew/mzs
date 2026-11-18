@@ -2,10 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // RFC 0019 §2: `mzs doc`, driven through run() as the command line types it.
@@ -205,5 +209,40 @@ func TestDocContinuesPastAnUnreadableDirectory(t *testing.T) {
 		if !strings.Contains(out, "\n"+want+"\n") {
 			t.Errorf("%s is missing from the output:\n%s", want, out)
 		}
+	}
+}
+
+// partialFS answers ReadDir("sub") with its first entry and an error, which is what
+// os.ReadDir does when a directory fails part way through.
+type partialFS struct{ fstest.MapFS }
+
+func (p partialFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := p.MapFS.ReadDir(name)
+	if name == "sub" && err == nil {
+		return entries[:1], &fs.PathError{Op: "readdirent", Path: name, Err: errors.New("injected")}
+	}
+	return entries, err
+}
+
+// The entries a failed read did return are still visited, and so are its siblings.
+func TestDocWalkKeepsAPartialDirectory(t *testing.T) {
+	fsys := partialFS{fstest.MapFS{
+		"a.mzs":     {Data: []byte("fn a() { 1 }\n")},
+		"sub/b.mzs": {Data: []byte("fn b() { 1 }\n")},
+		"sub/c.mzs": {Data: []byte("fn c() { 1 }\n")},
+		"z/d.mzs":   {Data: []byte("fn d() { 1 }\n")},
+	}}
+	var errs []error
+	got := walkDocDir(fsys, "base", func(err error) { errs = append(errs, err) })
+	want := []string{
+		filepath.Join("base", "a.mzs"),
+		filepath.Join("base", "sub", "b.mzs"),
+		filepath.Join("base", "z", "d.mzs"),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("found %v, want %v", got, want)
+	}
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), filepath.Join("base", "sub")) {
+		t.Errorf("errors = %v, want one naming base/sub", errs)
 	}
 }
