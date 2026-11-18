@@ -697,11 +697,17 @@ func includeURI(d *document, path string) (string, bool) {
 //
 // A path with `./` or `../` is a file next to the document. The CLI confines it to the
 // directory of the script that was started, which an editor cannot know: the document
-// may be a module of a script one directory up. The server takes the workspace folder
-// that holds the document as that root. Any script the CLI may start from inside the
-// workspace has its root inside it too, so nothing the CLI accepts is refused here, and
-// nothing outside the workspace is read. With no workspace the root is the document's
-// own directory.
+// may be a module of a script one directory up. The server takes the outermost workspace
+// folder that holds the document as that root — outermost, because a folder nested in
+// another may hold the module while the script that includes it sits in the outer one.
+// Any script the CLI may start from inside the workspace has its root inside that
+// folder, so nothing the CLI accepts from there is refused, and nothing outside the
+// workspace is read.
+//
+// With no workspace folder holding the document, the root is the document's own
+// directory. That is narrower than the CLI on purpose: without a workspace there is no
+// boundary to widen to that is not a guess, and a `../` include then shows no
+// documentation rather than reading wherever the path points.
 //
 // Any other path is a library name, looked for on $MZSPATH — `name.mzs`, then
 // `name/main.mzs` — and the first directory that has something under the name answers,
@@ -750,11 +756,11 @@ func resolveInclude(d *document, path string) (dir, rel string, ok bool) {
 	return "", "", false
 }
 
-// workspaceRoot is the deepest workspace folder holding dir, or dir itself.
+// workspaceRoot is the outermost workspace folder holding dir, or dir itself.
 func workspaceRoot(roots []string, dir string) string {
 	best := ""
 	for _, r := range roots {
-		if _, ok := within(r, dir); ok && len(r) > len(best) {
+		if _, ok := within(r, dir); ok && (best == "" || len(r) < len(best)) {
 			best = r
 		}
 	}

@@ -4765,10 +4765,11 @@ here. The one thing read from an included file is its text, for the doc comments
 exports: a file of declarations, parsed and never run. It is found by the CLI loader's rules
 — a `./` or `../` path is a neighbour, any other path a library on `$MZSPATH`, where the
 first directory holding the name answers — and read through `os.Root`, so a link cannot
-lead the read out of the tree. A neighbour may not leave the workspace folder that holds
-the document, or the document's own directory when the editor names no workspace: the
-CLI's root is the directory of the script it starts, which a buffer cannot know, and any
-such script inside the workspace has its root inside it too.
+lead the read out of the tree. A neighbour may not leave the outermost workspace folder
+that holds the document: the CLI's root is the directory of the script it starts, which a
+buffer cannot know, and any such script inside the workspace has its root inside that
+folder. With no workspace folder the root is the document's own directory, on purpose
+narrower than the CLI: a `../` include then shows nothing rather than a guess.
 
 Positions cross a boundary in both directions: the protocol counts lines from zero and
 characters in UTF-16 code units, and mzs counts lines from one and columns in runes (§3.1).

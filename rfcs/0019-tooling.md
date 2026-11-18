@@ -217,10 +217,12 @@ Decisions:
   a library on `$MZSPATH` where the first directory holding the name answers, and the
   read goes through `os.Root`. The CLI confines a neighbour to the directory of the
   script it starts, which an editor cannot know, so the server confines it to the
-  workspace folder that holds the document: every script the CLI could start from inside
-  the workspace has its root inside it, so no include the CLI accepts is refused, and
-  nothing outside the workspace is read. With no workspace the root is the document's
-  own directory.
+  outermost workspace folder that holds the document: every script the CLI could start
+  from inside the workspace has its root inside that folder, nested folders included, so
+  no include the CLI accepts from there is refused, and nothing outside the workspace is
+  read. With no workspace the root is the document's own directory. That is narrower
+  than the CLI on purpose: there is then no boundary that is not a guess, and a `../`
+  include shows no documentation rather than reading wherever it points.
 * **A destructuring line documents every name it binds**, and a comment above a bare
   `export name` documents that name wherever its declaration stands, since a `fn` is
   hoisted. A signature with a backtick in a default gets a longer code-span fence.

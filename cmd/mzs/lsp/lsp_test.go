@@ -963,4 +963,15 @@ func TestIncludeRootsAndLibraryLayouts(t *testing.T) {
 	if got := hovers(map[string]any{}); strings.Contains(got[0], "Common.") {
 		t.Errorf("../ with no workspace = %q, want it refused", got[0])
 	}
+
+	// With proj/sub a workspace folder of its own inside proj, the outer folder is the
+	// root: the script that includes sub/worker.mzs may be proj/main.mzs.
+	folders := []map[string]any{{"uri": pathToURI(sub), "name": "sub"}, {"uri": pathToURI(proj), "name": "proj"}}
+	got = hovers(map[string]any{"workspaceFolders": folders})
+	if !strings.Contains(got[0], "Common.") {
+		t.Errorf("../common.mzs under nested workspace folders = %q, want its doc", got[0])
+	}
+	if strings.Contains(got[1], "Outside.") {
+		t.Errorf("nested folders let a path out of the workspace: %q", got[1])
+	}
 }

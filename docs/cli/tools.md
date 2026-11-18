@@ -194,7 +194,8 @@ command line. And **the server never runs a program** — it compiles — so an 
 is not compiled and nothing in the file has an effect. The included file's text is read for
 one thing only: the doc comments of what it exports. It is found the way `mzs` finds it:
 `./lib.mzs` and `../lib.mzs` next to the file, but never outside the editor's workspace
-folder, and `lib` on `$MZSPATH`.
+folder (with no workspace, never above the file's own directory), and `lib` on
+`$MZSPATH`.
 
 ## `mzs doc`
 
