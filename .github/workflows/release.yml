@@ -18,15 +18,18 @@ on:
   # keeps re-runs for 30 days): it releases the commit it was started for.
   workflow_dispatch:
 
+# Each job declares what it uses; nothing has write access by default.
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 jobs:
   # Which version this commit is, and whether it may be released at all. It is a job of
   # its own so the release job below can be serialized by version.
   version:
     name: version
+    permissions:
+      contents: read
+      actions: read
     # A workflow_run fires for failures too: only a green push to main releases.
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -34,7 +37,6 @@ jobs:
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ github.token }}
       # The commit CI tested, not whatever main points at by now.
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     outputs:
@@ -45,6 +47,8 @@ jobs:
       # own push run of CI passed.
       - name: a manual run is for a green main commit
         if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "run this from main, not $GITHUB_REF"
@@ -60,6 +64,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SHA }}
+          persist-credentials: false
 
       - uses: actions/setup-go@v5
         with:
@@ -77,6 +82,8 @@ jobs:
   release:
     name: release
     needs: version
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     # One group per version: a run never cancels a run for another version, which would
     # skip it, and two commits that print one version publish it once — the second
