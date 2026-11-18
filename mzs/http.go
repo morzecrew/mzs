@@ -156,13 +156,15 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	spent, mark := int64(0), baseSteps
 	settle := func() {
 		spent += rs.sh.steps - mark
-		rs.sh.steps, mark = 0, 0
+		rs.sh.setSteps(0)
+		mark = 0
 	}
 	defer func() {
 		rs.srv = nil
 		rs.sh.serving = false
 		settle()
-		rs.sh.steps, rs.tick = baseSteps+spent, 0
+		rs.sh.setSteps(baseSteps + spent)
+		rs.tick = 0
 		if rs.hasDL {
 			rs.deadline = time.Now().Add(rs.opts.Timeout)
 		}

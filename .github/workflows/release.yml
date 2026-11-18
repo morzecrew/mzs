@@ -13,7 +13,9 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [main]
-  # A manual retry, for a main commit whose CI passed but whose release did not finish.
+  # A manual retry releases main's tip, once its CI passed. To finish the release of an
+  # older commit, re-run that commit's own Release run from the Actions tab (GitHub
+  # keeps re-runs for 30 days): it releases the commit it was started for.
   workflow_dispatch:
 
 permissions:
@@ -106,8 +108,18 @@ jobs:
         run: |
           number=$NUMBER
           echo "number=$number" >> "$GITHUB_OUTPUT"
-          state=$(gh release view "v$number" --json isDraft \
-            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)
+          # Only a release GitHub says is not there is missing: any other failure of the
+          # lookup stops the run with its diagnostic, rather than rebuilding a release
+          # that may exist.
+          if out=$(gh release view "v$number" --json isDraft \
+              --jq 'if .isDraft then "draft" else "published" end' 2>&1); then
+            state=$out
+          elif printf '%s' "$out" | grep -q 'release not found'; then
+            state=none
+          else
+            echo "looking up v$number failed: $out"
+            exit 1
+          fi
           if [ "$state" = published ]; then
             echo "v$number is released already; nothing to do"
             echo "new=false" >> "$GITHUB_OUTPUT"
@@ -170,8 +182,16 @@ jobs:
           NUMBER: ${{ steps.version.outputs.number }}
           STATE: ${{ steps.version.outputs.state }}
         run: |
+          # The commit the tag v$NUMBER names, read from the tag namespace only (a branch
+          # of that name is not it), or nothing when there is no such tag.
           tag_target() {
-            gh api "repos/$GITHUB_REPOSITORY/commits/v$NUMBER" --jq .sha 2>/dev/null || true
+            ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$NUMBER" \
+              --jq '.object.type + " " + .object.sha' 2>/dev/null) || return 0
+            if [ "${ref%% *}" = tag ]; then
+              gh api "repos/$GITHUB_REPOSITORY/git/tags/${ref#* }" --jq .object.sha
+            else
+              echo "${ref#* }"
+            fi
           }
           if [ -z "$(tag_target)" ]; then
             gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
@@ -184,6 +204,13 @@ jobs:
             exit 1
           fi
           if [ "$STATE" = draft ]; then
+            # Replacing a draft's assets is finishing it; a release published meanwhile
+            # is someone else's, and its assets are left alone.
+            now=$(gh release view "v$NUMBER" --json isDraft --jq .isDraft)
+            if [ "$now" != true ]; then
+              echo "v$NUMBER was published while this ran; leaving its assets unchanged"
+              exit 1
+            fi
             gh release upload "v$NUMBER" dist/* --clobber
             gh release edit "v$NUMBER" --title "mzs $NUMBER" \
               --notes-file /tmp/notes.md --draft=false

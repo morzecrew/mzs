@@ -388,3 +388,18 @@ func TestMemoryBudgetCutsCopy(t *testing.T) {
 		}
 	}
 }
+
+// Moving the step counter, as http.serve does per request, keeps the memory charge in
+// step: what was owed stays owed, and nothing already charged is charged again.
+func TestSetStepsKeepsTheMemoryChargeOwed(t *testing.T) {
+	sh := &runShared{steps: 500, memSteps: 300} // 200 steps not yet charged
+	sh.setSteps(0)
+	if owed := sh.steps - sh.memSteps; owed != 200 {
+		t.Errorf("after a reset %d steps are owed, want 200", owed)
+	}
+	sh.steps += 50
+	sh.setSteps(1000) // the Run's total, restored
+	if owed := sh.steps - sh.memSteps; owed != 250 {
+		t.Errorf("after a restore %d steps are owed, want 250", owed)
+	}
+}

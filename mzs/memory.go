@@ -194,6 +194,14 @@ func (rs *runState) collect(pending int64) error {
 	return nil
 }
 
+// setSteps moves the step counter to v, as http.serve does when it re-arms a request's
+// budget and restores the Run's count. The memory baseline moves with it: the steps not
+// yet charged to the allowance stay owed, and none already charged are charged again.
+func (sh *runShared) setSteps(v int64) {
+	sh.memSteps += v - sh.steps
+	sh.steps = v
+}
+
 // stepCharge charges the allowance for the steps the Run has taken since the last
 // check. It runs at the sampling interval (§14.1) rather than on every step, so the
 // common path of step costs nothing more than it did.

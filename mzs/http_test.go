@@ -655,21 +655,64 @@ func TestHTTPServeCountsEveryStep(t *testing.T) {
 	}
 }
 
-// One Run serves at most one listener (§12.9), from whichever of its tasks: a task
+// One Run serves one listener at a time (§12.11), from whichever of its tasks: a task
 // started before the server is not let past the check by the state it was forked from.
+// The task reports what its serve answered, and the test stops the server only after
+// that, so the refusal is always made while the server runs.
 func TestHTTPServeIsSingleUsePerRunAcrossTasks(t *testing.T) {
 	t.Parallel()
 
-	s := startServer(t, `
+	in := New(netOpts())
+	urls := make(chan string, 1)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	answers := make(chan string, 1)
+	in.Register("__answer", 1, func(c *Ctx, args []Value) (Value, error) {
+		answers <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
 		include http
-		async fn second() { http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}) }
+		async fn second() {
+		  __answer(try (http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}); "served") else (e) -> e["message"])
+		}
 		t = second()
 		http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); "bye" }}, { (u) -> __ready(u) })
 		t.await
-	`, netOpts())
-	do(t, "GET", s.url+"/quit", "")
-	err := s.wait(t)
-	if err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("Run: %v; want the task's serve refused as already running", err)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Run(context.Background(), prog, nil)
+		done <- err
+	}()
+	var url string
+	select {
+	case url = <-urls:
+	case err := <-done:
+		t.Fatalf("server exited before it was ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not become ready")
+	}
+	select {
+	case got := <-answers:
+		if !strings.Contains(got, "already running") {
+			t.Errorf("the task's serve answered %q; want it refused as already running", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task's serve did not answer while the server ran")
+	}
+	do(t, "GET", url+"/quit", "")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop")
 	}
 }

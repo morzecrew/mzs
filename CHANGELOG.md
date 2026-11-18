@@ -19,8 +19,9 @@ only fixes bumps the PATCH, and its entries go under the new version's section. 
 commit passes CI on `main` and its version has no published release yet, the release workflow
 tags it `vX.Y.Z` and publishes the section as the release notes, with an `mzs` executable for
 Linux, macOS and Windows. A tag that already points at another commit stops the workflow
-instead; a release left as a draft is finished by the next run, or by running the workflow
-by hand on `main`. `0.1.0` was never tagged: `0.2.0` is the first release, and it carries
+instead; a release left as a draft is finished by re-running that commit's Release run
+(GitHub keeps re-runs for 30 days), or by running the workflow by hand while that commit is
+`main`'s tip. `0.1.0` was never tagged: `0.2.0` is the first release, and it carries
 everything since.
 
 ## Unreleased
