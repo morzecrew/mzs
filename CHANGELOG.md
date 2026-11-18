@@ -19,6 +19,18 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Warning codes, suppression, and seven new warnings** (RFC 0019, part 1).
+  - Every warning has a stable code, printed in brackets after the message, and as the
+    `code` of an LSP diagnostic: `… never used [unused-variable]`. `Warning.Code` carries
+    it in the Go API.
+  - `# mzs:allow code` allows a code on the line it follows, or on the next line when it
+    stands alone. `Options.AllowWarnings` allows a code everywhere, before
+    `StrictWarnings` sees it.
+  - New: `unused-variable` (a function's local that is never read), `unreachable`,
+    `constant-condition`, `duplicate-key`, `self-compare`, `empty-else` and
+    `empty-ensure`. A host with `StrictWarnings` set may see a program that compiled
+    before fail now, and can allow the new codes (SPEC §17, §21.1).
+
 - **Dict and array rows that their neighbours already had** (RFC 0016, part 1).
   - **Dicts** gain `reduce(init)`, `count`, `none`, `sum`, `min_by`, `max_by`, `group_by`
     and `partition`, with closures that take `(k, v)`. They also gain `map_values`, which

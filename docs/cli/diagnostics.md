@@ -183,22 +183,44 @@ $ mzs -e '{ |x| x }'
 
 ## Warnings
 
-Warnings print in the same format and never fail a compile (an embedder can set
-`StrictWarnings` to make them fatal). The current set:
+Warnings print in the same format, with the rule's **code** in brackets at the end, and
+never fail a compile (an embedder can set `StrictWarnings` to make them fatal). The code
+is stable; the wording is not. The current set:
 
-| Message |
-|---|
-| `"\\b" matches a literal backslash; did you mean "\b"? (pattern probably came from a JSON string)` |
-| `'=' assigns; did you mean '==' ?` — an assignment as a whole `if` condition |
-| `closure parameter 'x' is never used` |
-| `closure literal in statement position: its value is discarded` |
-| `anonymous 'fn' in statement position: its value is discarded` |
-| `'<name>' is already bound; the include replaces it` |
-| `record field 'len' shadows the method of that name: on a Page, '.len' reads the field — write len(m) for the method` |
+| Code | Example message |
+|---|---|
+| `regex-word-boundary` | `"\\b" matches a literal backslash; did you mean "\b"? (pattern probably came from a JSON string)` |
+| `assign-in-condition` | `'=' assigns; did you mean '==' ?` — an assignment as a whole `if` condition |
+| `unused-parameter` | `closure parameter 'x' is never used` |
+| `discarded-closure` | `closure literal in statement position: its value is discarded` |
+| `include-rebinds` | `'<name>' is already bound; the include replaces it` |
+| `field-shadows-method` | `record field 'len' shadows the method of that name: on a Page, '.len' reads the field — write len(m) for the method` |
+| `function-shadows-field` | `'total' is also a field of money.Money; this calls the function — read the field with m["total"]` |
+| `unused-variable` | `'y' is assigned and never used` — a local inside a function; `_y` says unused on purpose |
+| `unreachable` | `unreachable: the statement above always leaves` — after `return`, `break`, `next`, `raise(…)` or `exit(…)` |
+| `constant-condition` | `the condition is always true: write the branch that runs, or remove the 'if'`; also `'while false' never runs its body` |
+| `duplicate-key` | `key "a" is written twice; the second wins` |
+| `self-compare` | `'x == x' compares a value with itself; to test for NaN write x.is_nan` |
+| `empty-else` | `this 'else { }' discards every error and answers {}; write 'else nil' to discard on purpose` |
+| `empty-ensure` | `this 'ensure' block is empty and does nothing` |
+
+A rule can be allowed where it is deliberate. `# mzs:allow` and the codes, after code on
+the same line or alone on the line above, silence those codes there:
+
+```sh
+$ mzs --check -e 'fn f() {
+  scratch = 1   # mzs:allow unused-variable
+  2
+}
+f()'
+-e: ok
+```
+
+An embedder can allow a code everywhere with `Options.AllowWarnings`.
 
 ```sh
 $ mzs -e '"food" ~ /\\bfood\\b/'
--e:1:10: warning: "\\b" matches a literal backslash; did you mean "\b"? (pattern probably came from a JSON string)
+-e:1:10: warning: "\\b" matches a literal backslash; did you mean "\b"? (pattern probably came from a JSON string) [regex-word-boundary]
   "food" ~ /\\bfood\\b/
            ^
 false
@@ -215,7 +237,7 @@ examples/05_arrays_pipeline.mzs: ok
 
 $ mzs --check -e 'x = 1
 if x = 2 { 3 }'
--e:2:6: warning: '=' assigns; did you mean '==' ?
+-e:2:6: warning: '=' assigns; did you mean '==' ? [assign-in-condition]
   if x = 2 { 3 }
        ^
 -e: ok

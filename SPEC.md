@@ -3897,6 +3897,7 @@ promotion an overflowing `+` performs, and never a wrap into a negative. `uint8`
 type Options struct {
     // Semantics
     StrictWarnings  bool          // promote Program.Warnings to compile errors
+    AllowWarnings   []string      // warning codes (§17) dropped before StrictWarnings sees them
 
     // Resource limits (0 means "use the default")
     Timeout         time.Duration // wall clock per Run. Default 1s. 0 disables (not recommended).
@@ -4987,12 +4988,32 @@ Rules:
   back.
 * Every row of §5.6 is a diagnostic with a fixed message, produced by the lexer or parser
   before any other error can cascade from it.
-* Warnings never fail a compile unless `StrictWarnings`. Current warnings:
-  `\\b` in a regex (§11.5); an unused closure parameter; a closure literal — or an
-  anonymous `fn` (§4.1) — in statement position whose value is discarded; `=` used where
-  `==` was likely meant (an assignment as the whole condition of an `if`); a `record` field
-  that shadows a stdlib method of the same name (§7.8) — the field wins on that shape, and
-  the warning names the prefix spelling that still reaches the method.
+* Warnings never fail a compile unless `StrictWarnings`. Each has a **code**, printed in
+  brackets after the message (`… never used [unused-variable]`). The code is stable
+  (§21.1) and the message is not (§21.2), so the code is what a program, a host and an
+  editor key on. The current warnings:
+
+  | Code | Fires on |
+  |---|---|
+  | `regex-word-boundary` | `\\b` in a regex (§11.5) |
+  | `unused-parameter` | a closure parameter that is never read; `_` and the implicit `it` are exempt |
+  | `discarded-closure` | a closure literal, or an anonymous `fn` (§4.1), in statement position whose value is discarded |
+  | `assign-in-condition` | `=` as the whole condition of an `if`, where `==` was likely meant |
+  | `field-shadows-method` | a `record` field named like a stdlib method (§7.8): the field wins on that shape, and the warning names the prefix spelling that still reaches the method |
+  | `function-shadows-field` | a call of a function this unit can see whose name is also a field of an included module's record (RFC 0003) |
+  | `include-rebinds` | an `include` whose name is already bound |
+  | `unused-variable` | a local created inside a function, by an assignment or a destructuring one, and never read. A `_`-prefixed name is exempt, and so is an assignment that is the last statement of its block, which is the block's value (§8.1). Names at file scope are the program's and are not locals, and a `for` header's names are loop variables |
+  | `unreachable` | a statement after `return`, `break`, `next`, or a call of the built-in `raise` or `exit`, in the same block; once per block |
+  | `constant-condition` | `if true`, `if false` and `while false` written as literals. `while true` is how a loop that ends by `break` is spelled and is not warned about |
+  | `duplicate-key` | a dict literal that writes the same constant key twice; the second wins |
+  | `self-compare` | `x == x` or `x != x` on one name: true (or false) for every value but NaN, so a typo or a NaN test, which is `is_nan` (§12.5) |
+  | `empty-else` | `try { … } else { }`, which discards every error and answers `{}`; `else nil` says that on purpose. The expression form `try x else {}` is a default value and is not warned about |
+  | `empty-ensure` | an `ensure { }` with nothing in it |
+
+  A comment `# mzs:allow code[, code…]` allows those codes on its own line when it follows
+  code there, and on the next line when it stands alone. `Options.AllowWarnings` allows a
+  code everywhere. Both act before `StrictWarnings`, so an allowed rule never fails a
+  compile. Warnings are reported in source order.
 
 ---
 
@@ -5243,6 +5264,7 @@ happen" — a quiet break is allowed at no version, and `0.1.1` never breaks `0.
 | **Module names and their members** (§12.8) | including which host capability each one is gated behind: a module that needs no `Options` field today will not start needing one. |
 | **The Go API** (§13) | `Value`, `Options`, `Interp`, `Program`, `Result`, `Error`, `FileSystem`, `ModuleLoader`, the sentinels, and every exported method of theirs. New `Options` fields are additive and keep the zero value meaning what it means now: the safe answer (D15). |
 | **The CLI** (§15) | the flags and subcommands that exist keep their spelling and meaning, `$ARGV` keeps its shape, and the exit codes keep theirs — `0`, `1`, `2`, `3` are what a supervisor already branches on. |
+| **Warning codes** (§17) | a code that exists keeps naming the same rule, so a `# mzs:allow` comment and an `Options.AllowWarnings` list keep working. A new rule gets a new code; a release may add warnings, which is why `StrictWarnings` hosts read the CHANGELOG. |
 
 ### 21.2 What may change in any release
 

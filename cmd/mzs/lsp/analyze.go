@@ -78,6 +78,7 @@ func diagnose(d *document) []diagnostic {
 				Range:    d.spanAt(w.Line, w.Col),
 				Severity: severityWarning,
 				Source:   "mzs",
+				Code:     w.Code,
 				Message:  w.Msg,
 			})
 		}

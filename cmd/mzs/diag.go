@@ -67,7 +67,11 @@ func sourceOf(name, src, file string, loaded map[string]string) string {
 // host sets StrictWarnings (§17).
 func reportWarnings(w io.Writer, name, src string, ws []mzs.Warning) {
 	for _, warn := range ws {
-		fmt.Fprintf(w, "%s:%d:%d: warning: %s\n", name, warn.Line, warn.Col, warn.Msg)
+		code := ""
+		if warn.Code != "" {
+			code = " [" + warn.Code + "]"
+		}
+		fmt.Fprintf(w, "%s:%d:%d: warning: %s%s\n", name, warn.Line, warn.Col, warn.Msg, code)
 		writeCaret(w, src, warn.Line, warn.Col)
 	}
 }
