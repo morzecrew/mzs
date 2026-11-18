@@ -147,3 +147,23 @@ func TestDocCodeSpanSurvivesABacktick(t *testing.T) {
 		t.Errorf("code %d, stdout %q", code, out)
 	}
 }
+
+// A path that cannot be read is reported, and the files that can are still documented.
+func TestDocContinuesPastAMissingPath(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.mzs")
+	if err := os.WriteFile(good, []byte("## Good.\nfn g() { 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing.mzs")
+	code, out, errOut := exec([]string{"doc", missing, good}, "")
+	if code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(errOut, "missing.mzs") {
+		t.Errorf("stderr = %q, want the missing path named", errOut)
+	}
+	if !strings.Contains(out, "## `fn g()`\n\nGood.\n") {
+		t.Errorf("good.mzs was not documented:\n%s", out)
+	}
+}

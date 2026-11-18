@@ -668,18 +668,26 @@ func (c *compiler) stmtsValued(list []ast.Stmt, valued bool) {
 	}
 }
 
-// takesValue reports whether s is a group, an `if` or a bare block: a statement whose
-// own last statement is its value, and so can be thrown away along with it.
-func takesValue(s ast.Stmt) bool {
-	var n ast.Node = s
-	if x, ok := s.(*ast.ExprStmt); ok {
+// takesValue reports whether n is a group, an `if`, a `try` or a bare block: a node whose
+// value is the last statement of a block inside it, and so can be thrown away with it.
+func takesValue(n ast.Node) bool {
+	if x, ok := n.(*ast.ExprStmt); ok {
 		n = x.X
 	}
 	switch n.(type) {
-	case *ast.GroupExpr, *ast.IfExpr, *ast.BlockStmt:
+	case *ast.GroupExpr, *ast.IfExpr, *ast.TryExpr, *ast.BlockStmt:
 		return true
 	}
 	return false
+}
+
+// exprValued compiles x, telling a group, `if`, `try` or block in it whether its value is
+// received.
+func (c *compiler) exprValued(x ast.Expr, valued bool) ast.Expr {
+	c.discarded = !valued && takesValue(x)
+	x = c.expr(x)
+	c.discarded = false
+	return x
 }
 
 // takeDiscarded reads and clears discarded, so the flag reaches the one node it was set
@@ -837,7 +845,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 	case *ast.BlockStmt:
 		// A braced `try` clause (§8.11): a block in expression position, and a scope
 		// like every other brace.
-		c.block(n)
+		c.blockValued(n, !c.takeDiscarded())
 		return n
 	case *ast.RegexLit:
 		c.compileRegex(n)
@@ -988,15 +996,18 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		}
 		return n
 	case *ast.TryExpr:
-		n.X = c.expr(n.X)
+		// The value of a `try` is its body's or its fallback's, so both are thrown away
+		// when it is.
+		valued := !c.takeDiscarded()
+		n.X = c.exprValued(n.X, valued)
 		if n.Var == "" {
-			n.Fallback = c.expr(n.Fallback)
+			n.Fallback = c.exprValued(n.Fallback, valued)
 		} else {
 			// `(e) -> …` binds the error dict for the fallback only, in a scope of its
 			// own so that a braced fallback still opens its own on top of it.
 			c.push()
 			c.declare(n.Var)
-			n.Fallback = c.expr(n.Fallback)
+			n.Fallback = c.exprValued(n.Fallback, valued)
 			c.warnUnusedVars()
 			c.pop()
 		}

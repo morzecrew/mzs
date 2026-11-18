@@ -124,6 +124,18 @@ type textEdit struct {
 	NewText string `json:"newText"`
 }
 
+// initializeParams is the part of `initialize` the server reads: where the workspace is,
+// which bounds what an include may reach. workspaceFolders supersedes rootUri, and both
+// may be absent — an editor with a single loose file open has no workspace.
+type initializeParams struct {
+	RootURI          string            `json:"rootUri"`
+	WorkspaceFolders []workspaceFolder `json:"workspaceFolders"`
+}
+
+type workspaceFolder struct {
+	URI string `json:"uri"`
+}
+
 // initializeResult tells the client what this server can do. Everything listed here is
 // implemented; nothing implemented is left out.
 type initializeResult struct {

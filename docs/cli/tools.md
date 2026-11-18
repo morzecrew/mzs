@@ -192,8 +192,9 @@ time` is not an error in an editor: which flags the program will be run with is 
 something a buffer knows, and a diagnostic that depends on a flag is a diagnostic about a
 command line. And **the server never runs a program** — it compiles — so an `include … from`
 is not compiled and nothing in the file has an effect. The included file's text is read for
-one thing only: the doc comments of what it exports. It is found the way `mzs` finds it —
-`./lib.mzs` next to the file and never outside its directory, `lib` on `$MZSPATH`.
+one thing only: the doc comments of what it exports. It is found the way `mzs` finds it:
+`./lib.mzs` and `../lib.mzs` next to the file, but never outside the editor's workspace
+folder, and `lib` on `$MZSPATH`.
 
 ## `mzs doc`
 

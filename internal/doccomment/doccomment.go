@@ -100,7 +100,7 @@ func docText(c lexer.Comment) (string, bool) {
 	case rest == "":
 		return "", true
 	case rest[0] == ' ':
-		return strings.TrimRight(rest[1:], " \t"), true
+		return rest[1:], true
 	}
 	return "", false
 }

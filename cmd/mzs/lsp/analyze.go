@@ -692,11 +692,21 @@ func includeURI(d *document, path string) (string, bool) {
 }
 
 // resolveInclude finds the file `include … from "path"` names, by the CLI loader's two
-// rules (cmd/mzs/include.go, SPEC §15). A path with `./` or `../` is a file next to the
-// document and may not leave the document's directory. Any other path is a library
-// name, looked for on $MZSPATH — `name.mzs`, then `name/main.mzs` — in the first
-// directory that has it. The answer is a root and a path inside it, so the read goes
-// through os.Root and a symbolic link cannot lead it out of the tree either.
+// rules (cmd/mzs/include.go, SPEC §15). The answer is a root and a path inside it, so
+// the read goes through os.Root and a symbolic link cannot lead it out of the tree.
+//
+// A path with `./` or `../` is a file next to the document. The CLI confines it to the
+// directory of the script that was started, which an editor cannot know: the document
+// may be a module of a script one directory up. The server takes the workspace folder
+// that holds the document as that root. Any script the CLI may start from inside the
+// workspace has its root inside it too, so nothing the CLI accepts is refused here, and
+// nothing outside the workspace is read. With no workspace the root is the document's
+// own directory.
+//
+// Any other path is a library name, looked for on $MZSPATH — `name.mzs`, then
+// `name/main.mzs` — and the first directory that has something under the name answers,
+// as the CLI's does: a candidate that is there and cannot be read ends the search rather
+// than letting a later directory supply a different library.
 func resolveInclude(d *document, path string) (dir, rel string, ok bool) {
 	slashed := filepath.ToSlash(path)
 	if path == "" || filepath.IsAbs(path) || strings.HasPrefix(slashed, "/") {
@@ -711,14 +721,12 @@ func resolveInclude(d *document, path string) (dir, rel string, ok bool) {
 		if err != nil {
 			return "", "", false
 		}
-		rel, err := filepath.Rel(dir, filepath.Join(dir, path))
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		root := workspaceRoot(d.roots, dir)
+		rel, ok := within(root, filepath.Join(dir, path))
+		if !ok || !isFileIn(root, rel) {
 			return "", "", false
 		}
-		if !isFileIn(dir, rel) {
-			return "", "", false
-		}
-		return dir, rel, true
+		return root, rel, true
 	}
 	if strings.HasSuffix(slashed, ".mzs") {
 		return "", "", false
@@ -731,12 +739,63 @@ func resolveInclude(d *document, path string) (dir, rel string, ok bool) {
 	name := filepath.FromSlash(slashed)
 	for _, dir := range libDirs() {
 		for _, candidate := range []string{name + ".mzs", filepath.Join(name, "main.mzs")} {
-			if isFileIn(dir, candidate) {
+			switch libCandidate(dir, candidate) {
+			case candidateFound:
 				return dir, candidate, true
+			case candidateBlocked:
+				return "", "", false
 			}
 		}
 	}
 	return "", "", false
+}
+
+// workspaceRoot is the deepest workspace folder holding dir, or dir itself.
+func workspaceRoot(roots []string, dir string) string {
+	best := ""
+	for _, r := range roots {
+		if _, ok := within(r, dir); ok && len(r) > len(best) {
+			best = r
+		}
+	}
+	if best == "" {
+		return dir
+	}
+	return best
+}
+
+// within reports whether target is root or under it, and its path relative to root.
+func within(root, target string) (string, bool) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return rel, true
+}
+
+const (
+	candidateAbsent = iota
+	candidateFound
+	candidateBlocked
+)
+
+// libCandidate is the CLI's searchDir distinction: a name that is not there, or is a
+// directory, is absent and the search moves on; a name that is there is this
+// directory's answer, and blocked when it cannot be read inside the tree.
+func libCandidate(dir, rel string) int {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return candidateAbsent
+	}
+	defer root.Close()
+	info, err := root.Lstat(rel)
+	if err != nil || info.IsDir() {
+		return candidateAbsent
+	}
+	if info, err := root.Stat(rel); err != nil || info.IsDir() {
+		return candidateBlocked
+	}
+	return candidateFound
 }
 
 // isFileIn reports whether rel names a file inside dir, through os.Root: a link that

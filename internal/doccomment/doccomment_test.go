@@ -110,3 +110,14 @@ func TestExportFirstAndDestructuring(t *testing.T) {
 		t.Errorf("items =\n%+v\nwant\n%+v", items, want)
 	}
 }
+
+// The text goes out as it came in: two trailing spaces are a Markdown hard break.
+func TestDocTextKeepsTrailingSpaces(t *testing.T) {
+	items, err := Parse("t.mzs", "## First.  \n## Second.\nfn f() { 1 }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "First.  \nSecond."; len(items) != 1 || items[0].Doc != want {
+		t.Errorf("items = %+v, want one with doc %q", items, want)
+	}
+}

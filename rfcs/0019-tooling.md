@@ -213,11 +213,14 @@ Decisions:
   a doc comment in yet; §5 brings it. Completion after `lib.` reads the include from the
   tokens, because a file being typed does not parse and that is when completion is asked
   for. The included file is parsed for its doc comments and never compiled or run, and it
-  is found by the CLI loader's rules: a `./` path is a neighbour confined to the
-  document's directory, a bare name is a library on `$MZSPATH`, and the read goes through
-  `os.Root`. The one difference is the root of a document that is itself a library: the
-  CLI roots it in its search directory, and the server, which does not know it was found
-  there, in the document's own directory — narrower, never wider.
+  is found by the CLI loader's rules: a `./` or `../` path is a neighbour, a bare name is
+  a library on `$MZSPATH` where the first directory holding the name answers, and the
+  read goes through `os.Root`. The CLI confines a neighbour to the directory of the
+  script it starts, which an editor cannot know, so the server confines it to the
+  workspace folder that holds the document: every script the CLI could start from inside
+  the workspace has its root inside it, so no include the CLI accepts is refused, and
+  nothing outside the workspace is read. With no workspace the root is the document's
+  own directory.
 * **A destructuring line documents every name it binds**, and a comment above a bare
   `export name` documents that name wherever its declaration stands, since a `fn` is
   hoisted. A signature with a backtick in a default gets a longer code-span fence.

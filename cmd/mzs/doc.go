@@ -66,10 +66,9 @@ func runDoc(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		}
 		files = append(files, docFile{path: "<stdin>", items: items})
 	} else {
-		paths, err := docFiles(cfg.paths)
-		if err != nil {
-			fmt.Fprintf(stderr, "mzs doc: %v\n", err)
-			return exitError
+		paths, ok := docFiles(cfg.paths, stderr)
+		if !ok {
+			code = exitError
 		}
 		for _, path := range paths {
 			b, err := os.ReadFile(path)
@@ -127,17 +126,22 @@ func reportDocErr(stderr io.Writer, err error) {
 
 // docFiles is mzsFiles without the test files a directory holds: a `_test.mzs` file is
 // the runner's, not part of anything's interface. A file named on the command line is
-// documented whatever it is called.
-func docFiles(paths []string) ([]string, error) {
-	var out []string
+// documented whatever it is called. A path that cannot be read is reported and the
+// others are still expanded; ok says whether every one could be.
+func docFiles(paths []string, stderr io.Writer) (out []string, ok bool) {
+	ok = true
 	for _, p := range paths {
 		st, err := os.Stat(p)
 		if err != nil {
-			return nil, err
+			fmt.Fprintf(stderr, "mzs doc: %v\n", err)
+			ok = false
+			continue
 		}
 		found, err := mzsFiles([]string{p})
 		if err != nil {
-			return nil, err
+			fmt.Fprintf(stderr, "mzs doc: %v\n", err)
+			ok = false
+			continue
 		}
 		for _, f := range found {
 			if st.IsDir() && strings.HasSuffix(f, "_test.mzs") {
@@ -146,7 +150,7 @@ func docFiles(paths []string) ([]string, error) {
 			out = append(out, f)
 		}
 	}
-	return out, nil
+	return out, ok
 }
 
 // ordered is the file's items with the exported names first, each group in source order.

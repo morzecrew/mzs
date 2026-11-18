@@ -4763,9 +4763,12 @@ a command line. And **the server never runs a program**: it compiles, which is w
 `include … from` is not compiled and a `record` with a side effect in its default has none
 here. The one thing read from an included file is its text, for the doc comments of what it
 exports: a file of declarations, parsed and never run. It is found by the CLI loader's rules
-— a `./` or `../` path is a neighbour that may not leave the document's directory, any
-other path a library on `$MZSPATH` — and read through `os.Root`, so a link cannot lead
-the read out of the tree.
+— a `./` or `../` path is a neighbour, any other path a library on `$MZSPATH`, where the
+first directory holding the name answers — and read through `os.Root`, so a link cannot
+lead the read out of the tree. A neighbour may not leave the workspace folder that holds
+the document, or the document's own directory when the editor names no workspace: the
+CLI's root is the directory of the script it starts, which a buffer cannot know, and any
+such script inside the workspace has its root inside it too.
 
 Positions cross a boundary in both directions: the protocol counts lines from zero and
 characters in UTF-16 code units, and mzs counts lines from one and columns in runes (§3.1).

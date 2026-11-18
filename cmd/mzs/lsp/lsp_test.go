@@ -878,3 +878,89 @@ func TestIncludeDocsFollowTheLoaderRules(t *testing.T) {
 		t.Errorf("definition of a library include = %q, want %q", loc.URI, want)
 	}
 }
+
+// A module one directory down may include `../common.mzs` when the script the CLI starts
+// is above it; the workspace folder is the root that allows that, and nothing outside it
+// is read. On $MZSPATH the first directory with something under the name answers, even
+// when that something cannot be read; `name/main.mzs` is the second layout; a name with
+// `.mzs` or `..` in it is not a library name.
+func TestIncludeRootsAndLibraryLayouts(t *testing.T) {
+	base := t.TempDir()
+	proj := filepath.Join(base, "proj")
+	sub := filepath.Join(proj, "sub")
+	a, b := filepath.Join(base, "a"), filepath.Join(base, "b")
+	for _, d := range []string{sub, a, b, filepath.Join(b, "pkg")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, src string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc := func(text string) string { return "## " + text + "\nexport fn f() { 1 }\n" }
+	write(filepath.Join(proj, "common.mzs"), doc("Common."))
+	write(filepath.Join(base, "outside.mzs"), doc("Outside."))
+	write(filepath.Join(base, "secret.mzs"), doc("Secret."))
+	write(filepath.Join(b, "money.mzs"), doc("Later money."))
+	write(filepath.Join(b, "pkg", "main.mzs"), doc("Package entry."))
+	if err := os.Symlink(filepath.Join(base, "secret.mzs"), filepath.Join(a, "money.mzs")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	t.Setenv("MZSPATH", a+string(os.PathListSeparator)+b)
+
+	src := "include common from \"../common.mzs\"\n" +
+		"include outside from \"../../outside.mzs\"\n" +
+		"include money from \"money\"\n" +
+		"include pkg from \"pkg\"\n" +
+		"include ext from \"pkg.mzs\"\n" +
+		"include climb from \"pkg/../money\"\n" +
+		"x = [common.f, outside.f, money.f, pkg.f, ext.f, climb.f]\n"
+	workerURI := pathToURI(filepath.Join(sub, "worker.mzs"))
+	hovers := func(init map[string]any) []string {
+		s := run(t,
+			msg("initialize", 1, init),
+			open(workerURI, src),
+			at("textDocument/hover", workerURI, 2, 6, 12), // common.f
+			at("textDocument/hover", workerURI, 3, 6, 23), // outside.f
+			at("textDocument/hover", workerURI, 4, 6, 32), // money.f
+			at("textDocument/hover", workerURI, 5, 6, 39), // pkg.f
+			at("textDocument/hover", workerURI, 6, 6, 46), // ext.f
+			at("textDocument/hover", workerURI, 7, 6, 55), // climb.f
+			msg("exit", nil, nil),
+		)
+		var out []string
+		for id := 2; id <= 7; id++ {
+			var h hover
+			into(t, s.reply(float64(id))["result"], &h)
+			out = append(out, h.Contents.Value)
+		}
+		return out
+	}
+
+	got := hovers(map[string]any{"rootUri": pathToURI(proj)})
+	if !strings.Contains(got[0], "Common.") {
+		t.Errorf("../common.mzs inside the workspace = %q, want its doc", got[0])
+	}
+	if strings.Contains(got[1], "Outside.") {
+		t.Errorf("a path out of the workspace was read: %q", got[1])
+	}
+	if strings.Contains(got[2], "Secret.") || strings.Contains(got[2], "Later money.") {
+		t.Errorf("money resolved past the first directory that claims it: %q", got[2])
+	}
+	if !strings.Contains(got[3], "Package entry.") {
+		t.Errorf("pkg = %q, want pkg/main.mzs", got[3])
+	}
+	for i, name := range map[int]string{4: "pkg.mzs", 5: "pkg/../money"} {
+		if strings.Contains(got[i], "##") || strings.Contains(got[i], "entry") || strings.Contains(got[i], "money.") {
+			t.Errorf("%s is not a library name, got %q", name, got[i])
+		}
+	}
+
+	// With no workspace, the document's own directory is the root.
+	if got := hovers(map[string]any{}); strings.Contains(got[0], "Common.") {
+		t.Errorf("../ with no workspace = %q, want it refused", got[0])
+	}
+}
