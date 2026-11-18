@@ -548,8 +548,10 @@ Flags:
                      scripts print goes to stderr
       --cover        after the summary, the share of each included file's statements
                      that ran, with the lines that did not
-      --cover-out <f>  --cover, and write LCOV to f for a CI or an editor to read
-      --cover-min <p>  --cover, and exit 1 when the total is below p percent
+      --cover-out <f>
+                     --cover, and write LCOV to f for a CI or an editor to read
+      --cover-min <p>
+                     --cover, and exit 1 when the total is below p percent
   -v, --verbose      print what each case printed under it (a failed case's always is)
   -h, --help         this text
 

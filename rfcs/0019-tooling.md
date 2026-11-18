@@ -1,6 +1,6 @@
 # RFC 0019 — Tooling: lint, doc comments, coverage, profile, and the rest of the LSP
 
-**Status:** Partly landed: §1 (#37), §2 (#38) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
+**Status:** Partly landed: §1 (#37), §2 (#38), §3 (#39) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
 
 ## Summary
 
@@ -185,7 +185,7 @@ Decisions:
 ### Part 2: doc comments (#38)
 
 §2 landed in `internal/doccomment`, `cmd/mzs/doc.go` and `cmd/mzs/lsp`, with SPEC §3.2 and
-§15.4 and `docs/cli/tools.md`. §3–§5 are still to come. Decisions:
+§15.4 and `docs/cli/tools.md`. Decisions:
 
 * **The comments are read beside the tree, not stored in it.** The lexer already records
   every comment it skips, with whether it stands on a line of its own. `doccomment` pairs
@@ -232,3 +232,37 @@ Decisions:
   `ensure` never give their last statement as a value — `for` gives its iterable, `while`
   nil, and an `ensure`'s value is discarded — so their final assignment is not exempt
   either.
+
+### Part 3: coverage (#39)
+
+§3 landed in `mzs/coverage.go`, `mzs/eval.go` and `cmd/mzs/cover.go`, with SPEC §13.2 and
+§15.2, `docs/cli/tools.md` and `docs/embedding/README.md`. §4 and §5 are still to come.
+Decisions:
+
+* **A file is registered when a Run starts it, not when it compiles.** `runProgram` is
+  where the main program and every `include … from` begin, under the name the loader
+  resolved, so each file's statements and branches are put in at zero there and counted
+  as `execStmts` reaches them. A file no test ever loaded is not in the report: nothing
+  in the run knew it existed.
+* **The unit is the statement of a statement list**, which is exactly what `execStmts`
+  runs: a file, a block, a function body, a `( … )` group, a `match` arm. A statement the
+  compile pass folds away is not there to be counted. A **line** is covered when its
+  least-run statement ran, so `if c { a() }` on one line is not covered when `a()` never
+  was.
+* **Branches** are each side of an `if` (an `if` with no `else` still has a false side),
+  of a ternary and of `&&`, `||` and `??` (the short circuit, and the right side), and
+  each arm of a `match`. They are keyed by the node's kind as well as its position,
+  because a ternary and the `&&` that is its condition start at the same place. The text
+  report shows statements, as the RFC's sample does; the branch counts go to LCOV `BRDA`
+  lines and the `--json` object.
+* **One `Coverage`, shared and locked.** Every Run that holds it adds to the same counts,
+  and a mutex makes it safe across Runs and interpreters. With none, the cost is one nil
+  check per statement and per branch.
+* **`--cover-out` and `--cover-min` imply `--cover`**, and a percentage may be written
+  with or without `%`. `--cover-min` compares the total of the included files, so a run
+  that includes nothing is at 100% and says that it covered nothing.
+* **Open question, answered narrowly:** a `-e` one-liner and a script loaded by an
+  embedder's own loader are covered when the host passes a `Coverage`. The CLI offers
+  coverage only under `mzs test`.
+* **Carried from part 2:** a reassignment declares nothing for `mzs doc`. `x = 2` after
+  `x = 1` is not listed, and its comment does not document the first binding.

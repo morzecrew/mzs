@@ -19,6 +19,13 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Coverage: `mzs test --cover` and `Options.Coverage`** (RFC 0019, part 3).
+  - `--cover` prints, after the summary, the statement coverage of every file the tests
+    included, with the lines that did not run. The test files are left out.
+  - `--cover-out <file>` writes LCOV with line and branch counts. `--cover-min <pct>`
+    exits 1 below a threshold. Both imply `--cover`.
+  - For embedders: `Options.Coverage` takes a `mzs.NewCoverage()`, and `Files()` reports
+    each file's statements, lines and branches after the Runs (SPEC §13.2, §15.2).
 - **Doc comments and `mzs doc`** (RFC 0019, part 2).
   - A run of `##` lines directly above a top-level `fn`, `record`, `export` or binding is
     that declaration's documentation. A plain `#` stays an ordinary comment.

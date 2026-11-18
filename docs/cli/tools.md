@@ -170,6 +170,30 @@ A file that raises **outside** a case did not finish, and the summary counts tha
 a case that failed — the fixes are different. Exit codes: `0` every case passed or was
 skipped, `1` a case failed or a file did not finish, `2` usage.
 
+### Coverage
+
+`--cover` adds a report after the summary, for every file the tests reached through
+`include … from`. The test files themselves are what does the covering and are left out.
+
+```
+lib/cart.mzs     87.5%   (28/32)   missed: 41-43, 57
+lib/money.mzs   100.0%   (19/19)
+total            92.2%
+```
+
+- **What is counted:** statements: each one of a file, a block, a function body, a
+  `( … )` group or a `match` arm. A line counts as covered only when every statement on it
+  ran.
+- **`--cover-out cover.lcov`:** writes the same counts as an LCOV file, which coverage
+  services and editor gutters read. It also has a count for each branch: both sides of an
+  `if`, a ternary and `&&`, `||` and `??`, and every arm of a `match`.
+- **`--cover-min 80`:** makes the run exit 1 when the total is below 80%, so CI can hold a
+  floor.
+- **`--json`:** the report is one more object on the stream:
+  `{"coverage": [{"file", "statements", "run", "branches", "taken", "missed"}], "total"}`.
+
+Both `--cover-out` and `--cover-min` turn `--cover` on.
+
 ## `mzs lsp`
 
 The language server. It is started by an editor, not by a person, and it speaks the
