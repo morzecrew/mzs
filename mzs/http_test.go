@@ -44,9 +44,13 @@ func startServer(t *testing.T, src string, opts Options) *server {
 		t.Fatalf("Compile: %v", err)
 	}
 
+	// A test that fails before its server stops would otherwise leave the listener
+	// running for the rest of the package: cancelling on cleanup takes it down.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	s := &server{done: make(chan error, 1), in: in}
 	go func() {
-		_, rerr := in.Run(context.Background(), prog, nil)
+		_, rerr := in.Run(ctx, prog, nil)
 		s.done <- rerr
 	}()
 	select {
@@ -71,6 +75,10 @@ func (s *server) wait(t *testing.T) error {
 	}
 }
 
+// testClient bounds every request a test makes, the body included, so a server that
+// accepts a request and never answers fails the test instead of hanging it.
+var testClient = &http.Client{Timeout: 10 * time.Second}
+
 // do performs one request and returns the status, the body and the response headers.
 func do(t *testing.T, method, url, body string) (int, string, http.Header) {
 	t.Helper()
@@ -82,7 +90,7 @@ func do(t *testing.T, method, url, body string) (int, string, http.Header) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, url, err)
 	}
@@ -206,7 +214,7 @@ func TestHTTPServe(t *testing.T) {
 	t.Run("request headers are lowercased", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", s.url+"/agent", nil)
 		req.Header.Set("X-Test", "да")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := testClient.Do(req)
 		if err != nil {
 			t.Fatalf("GET /agent: %v", err)
 		}
@@ -791,6 +799,82 @@ func TestHTTPServeEndsTheRunOverMaxMemory(t *testing.T) {
 	s := startServer(t, `
 		include http
 		http.serve("127.0.0.1:0", {"GET /big": { (req) -> s = "x" * 3000000; s.len }}, { (u) -> __ready(u) })
+	`, o)
+	if status, _, _ := do(t, "GET", s.url+"/big", ""); status != http.StatusServiceUnavailable {
+		t.Errorf("/big = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+	if err := s.wait(t); !errors.Is(err, ErrMemory) {
+		t.Fatalf("Run = %v, want ErrMemory", err)
+	}
+}
+
+// TestHTTPStopFromATaskEndsAWaitingServe pins that http.stop() from a task stops a
+// server that is waiting for a request: with no request in flight, the loop must wake
+// for the stop rather than serve on until one arrives.
+func TestHTTPStopFromATaskEndsAWaitingServe(t *testing.T) {
+	t.Parallel()
+
+	gate := make(chan struct{})
+	o := netOpts()
+	in := New(o)
+	in.Register("__gate", 0, func(c *Ctx, args []Value) (Value, error) {
+		c.Blocking(func() { <-gate })
+		return Nil(), nil
+	})
+	urls := make(chan string, 1)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn stopper() { __gate(); http.stop() }
+		t = stopper()
+		http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}, { (u) -> __ready(u) })
+		t.await
+		"stopped"
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Run(ctx, prog, nil)
+		done <- err
+	}()
+	select {
+	case <-urls:
+	case err := <-done:
+		t.Fatalf("server exited before it was ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not become ready")
+	}
+	close(gate)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("http.stop() from a task did not end a serve that was waiting for a request")
+	}
+}
+
+// TestHTTPServeInAnUnawaitedTaskEndsTheRunOverMaxMemory is the same rule from a server
+// a task runs, and that the program never awaits.
+func TestHTTPServeInAnUnawaitedTaskEndsTheRunOverMaxMemory(t *testing.T) {
+	t.Parallel()
+
+	o := netOpts()
+	o.MaxMemory = 1 << 20
+	s := startServer(t, `
+		include http
+		async fn serve() {
+		  http.serve("127.0.0.1:0", {"GET /big": { (req) -> s = "x" * 3000000; s.len }}, { (u) -> __ready(u) })
+		}
+		serve()
 	`, o)
 	if status, _, _ := do(t, "GET", s.url+"/big", ""); status != http.StatusServiceUnavailable {
 		t.Errorf("/big = %d, want %d", status, http.StatusServiceUnavailable)

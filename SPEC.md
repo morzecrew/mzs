@@ -2934,7 +2934,7 @@ someone else authored.
 | Member | Signature | Semantics |
 |---|---|---|
 | `serve` | `(addr: string, routes: dict, ready: fn?) -> nil` | binds `addr` and serves until `http.stop()` or context cancel |
-| `stop` | `() -> nil` | ends the `serve` of this Run after the current request; an argument error outside one |
+| `stop` | `() -> nil` | ends the `serve` of this Run after the current request, or at once if it is waiting for one; an argument error outside one |
 | `json` | `(body: any, status: int = 200, headers: dict = {}) -> dict` | response whose body is `body` encoded as JSON |
 | `text` | `(body: any, status: int = 200, headers: dict = {}) -> dict` | response whose body is `str(body)` |
 | `get` | `(url: string, opts: dict = {}) -> dict` | request; returns `{status:, body:, headers:}` |
@@ -4331,7 +4331,8 @@ Recursion is bounded by `MaxDepth`; the Go stack is never allowed to overflow.
 **The live set is bounded too.** `MaxMemory` (default 64 MiB; negative disables) bounds the
 bytes a Run holds *live* in script values at once, which is what the two per-operation caps
 cannot: a million 1 MB strings in one array break neither of them. Exceeding it ends the Run
-with `ErrMemory`, `Kind == "limit"` — not catchable, and no `ensure` runs (§8.11):
+with `ErrMemory`, `Kind == "limit"` — not catchable, and no `ensure` runs (§8.11). In a task
+it ends the Run too, whether or not the program awaits that task (§8.14):
 
 ```
 -e:2:24: limit: memory budget exceeded (64.85 MiB live, the limit is 64 MiB)

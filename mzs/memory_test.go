@@ -403,3 +403,25 @@ func TestSetStepsKeepsTheMemoryChargeOwed(t *testing.T) {
 		t.Errorf("after a restore %d steps are owed, want 250", owed)
 	}
 }
+
+// The live set is the Run's: a task that goes over MaxMemory ends the Run with
+// ErrMemory whether or not the program awaits it (§14.2). Without that, a task nobody
+// awaited would keep the limit to itself, and the Run would report success.
+func TestMemoryBudgetEndsTheRunFromAnUnawaitedTask(t *testing.T) {
+	t.Parallel()
+	o := DefaultOptions()
+	o.MaxMemory = 1 << 20
+	_, err := memRun(t, New(o), `async fn hog() { s = "x" * 3000000; s.len }
+hog()
+"done"`, nil)
+	wantMemoryError(t, err)
+
+	// A task the script cancelled ended on the cancel, not on the budget.
+	_, err = memRun(t, New(o), `async fn hog() { s = "x" * 3000000; s.len }
+t = hog()
+t.cancel
+"done"`, nil)
+	if err != nil {
+		t.Fatalf("a cancelled task failed the Run: %v", err)
+	}
+}

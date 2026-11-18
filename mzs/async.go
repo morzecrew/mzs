@@ -436,6 +436,18 @@ func (rs *runState) drainTasks() {
 	_ = rs.waitFor(waited)
 }
 
+// unawaitedMemoryError is the first ErrMemory a task nobody awaited ended on, or nil.
+// The tasks must be joined, so that the list is final. A task the script cancelled is
+// not one: what it ended on is the cancel.
+func (rs *runState) unawaitedMemoryError() error {
+	for _, t := range rs.sh.all {
+		if t.err != nil && !t.read && !t.canceled && errors.Is(t.err, ErrMemory) {
+			return t.err
+		}
+	}
+	return nil
+}
+
 // reportUnawaited writes the errors nobody asked for to Stderr. A task whose value was
 // never awaited swallows its failure otherwise, and a script that fires one off for its
 // effect deserves to learn that the effect did not happen. Limit errors are the one thing

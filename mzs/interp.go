@@ -1804,6 +1804,14 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 			// and the Run still says it stopped for it (§12.18).
 			res.Value, err = Nil(), &testSignal{}
 		}
+		if err == nil && r == nil {
+			// The live set is the Run's, so going over MaxMemory ends the Run in a task
+			// as anywhere else (§14.2), awaited or not: a task nobody awaited would
+			// otherwise keep the limit to itself.
+			if terr := rs.unawaitedMemoryError(); terr != nil {
+				res.Value, err = Nil(), terr
+			}
+		}
 		rs.stopMemory()
 		rs.unlock()
 		res.Steps, res.Elapsed, res.Tests = rs.sh.steps, time.Since(start), rs.sh.tests

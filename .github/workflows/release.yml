@@ -197,19 +197,21 @@ jobs:
           STATE: ${{ steps.version.outputs.state }}
         run: |
           # The commit the tag v$NUMBER names, or nothing when there is no such tag.
-          # ls-remote matches the full ref, so a branch of that name or a v$NUMBER-rc
-          # tag is not it; an annotated tag is peeled (^{}) to its commit. A failed
+          # ls-remote matches a pattern against the tail of a ref, so the ref field
+          # is compared whole: a branch of that name, a v$NUMBER-rc tag or a nested
+          # refs/tags/x/v$NUMBER is not it. An annotated tag is peeled (^{}) to its
+          # commit. A failed
           # read returns 1 (bash -e does not reach inside $(…)), and every caller
           # assigns the result, so the run stops there instead of reading the failure
           # as a missing tag.
           tag_target() {
             refs=$(git ls-remote --tags origin "refs/tags/v$NUMBER" "refs/tags/v$NUMBER^{}") ||
               return 1
-            peeled=$(awk '$2 ~ /\^\{\}$/ { print $1 }' <<<"$refs")
+            peeled=$(awk -v ref="refs/tags/v$NUMBER^{}" '$2 == ref { print $1 }' <<<"$refs")
             if [ -n "$peeled" ]; then
               echo "$peeled"
             else
-              awk 'NF { print $1; exit }' <<<"$refs"
+              awk -v ref="refs/tags/v$NUMBER" '$2 == ref { print $1; exit }' <<<"$refs"
             fi
           }
           tagged=$(tag_target)
@@ -262,11 +264,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # Only a vX.Y.Z tag is a version: another release (v9999-tools) never takes the
+      # mark.
       - name: mark the newest published release Latest
         run: |
           newest=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
               --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' |
-            sed -n 's/^v//p' | sort -V | tail -n 1)
+            sed -n -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort -V | tail -n 1)
           if [ -z "$newest" ]; then
             echo "no published release yet"
             exit 0

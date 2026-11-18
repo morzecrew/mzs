@@ -261,6 +261,12 @@ Nothing yet.
   over the limit. The step budget and the deadline are a request's; the live set is the
   Run's, so it now ends the Run with `ErrMemory` (503 to that request), as it does anywhere
   else (§14.2).
+- **A task that went over `MaxMemory` ended the Run only if it was awaited.** A task the
+  program never awaited kept the error to itself, and the Run reported success. It now ends
+  the Run with `ErrMemory`, awaited or not, unless the script cancelled the task (§14.2).
+- **`http.stop()` from a task did not stop a server that was waiting.** It took effect only
+  at the next request. The loop now wakes for it, and a request handed over in the same
+  instant is answered 503, not run after the stop.
 - **`http.serve` dropped steps from `Result.Steps`.** The steps of its `ready` closure,
   and of the Run's tasks while it waited, are now counted with the handlers'.
 - **A write into a module stays in the Run that made it.** A module is a dict a script may

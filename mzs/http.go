@@ -88,6 +88,18 @@ type httpServer struct {
 	jobs    chan *httpJob
 	closing chan struct{} // closed when the loop stops accepting jobs
 	stop    bool          // set by http.stop(), read by the loop between requests
+	// stopped is closed by the first http.stop(), so a loop waiting for a request
+	// wakes for it: the stop may come from a task while no request is in flight.
+	stopped chan struct{}
+}
+
+// halt is http.stop(): the loop ends after the request in progress, or at once if it is
+// waiting for one. It runs under the Run's lock, as the loop's reads of stop do.
+func (s *httpServer) halt() {
+	if !s.stop {
+		s.stop = true
+		close(s.stopped)
+	}
 }
 
 // httpServe binds addr, routes every pattern in the routes dict to its closure and
@@ -124,7 +136,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 		return Nil(), c.ArgErrorf("http.serve: a server is already running in this run")
 	}
 
-	srv := &httpServer{jobs: make(chan *httpJob), closing: make(chan struct{})}
+	srv := &httpServer{jobs: make(chan *httpJob), closing: make(chan struct{}), stopped: make(chan struct{})}
 	mux := http.NewServeMux()
 	for _, k := range routes.Keys() {
 		pattern := k.Str()
@@ -194,6 +206,9 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 			select {
 			case j := <-srv.jobs:
 				job = j
+			case <-srv.stopped:
+				// http.stop() from a task while this loop waited: the loop ends now,
+				// not at the next request.
 			case <-done:
 				canceled = true
 			}
@@ -202,6 +217,15 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 			// A canceled context ends the Run, server or not (§14.1). The deferred
 			// Shutdown still gets its grace period for whatever is mid-write.
 			return Nil(), limitErrorf(ErrCanceled, "canceled")
+		}
+		if srv.stop {
+			// Stopped while waiting. A request that was handed over in the same instant
+			// is answered as the server going away, never run after the stop.
+			if job != nil {
+				http.Error(job.w, "server is shutting down", http.StatusServiceUnavailable)
+				close(job.done)
+			}
+			break
 		}
 		// Every request starts from a clean budget: an hour-old server must not
 		// answer more slowly than a fresh one.
@@ -234,7 +258,7 @@ func httpStop(c *Ctx, args []Value) (Value, error) {
 	if c.rs.sh.srv == nil {
 		return Nil(), c.ArgErrorf("http.stop: no server is running in this run")
 	}
-	c.rs.sh.srv.stop = true
+	c.rs.sh.srv.halt()
 	return Nil(), nil
 }
 
