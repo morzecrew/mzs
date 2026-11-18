@@ -120,8 +120,17 @@ func TestProfileModulesAndTasks(t *testing.T) {
 	}
 	job, ok := funcNamed(p, "job main.mzs:2")
 	twice, _ := funcNamed(p, "twice lib:2")
-	if !ok || job.Total < twice.Total || twice.Calls != 1 {
+	if !ok || job.Total < twice.Total || twice.Calls != 1 || job.Calls != 1 {
 		t.Errorf("job = %+v, twice = %+v", job, twice)
+	}
+	// The task's body runs in the frame of the call that started it: job is not nested
+	// under itself.
+	for _, st := range p.Stacks {
+		for i := 1; i < len(st.Frames); i++ {
+			if st.Frames[i] == st.Frames[i-1] {
+				t.Errorf("stack %q repeats a frame", st.Frames)
+			}
+		}
 	}
 }
 

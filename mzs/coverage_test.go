@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 	"time"
+	"weak"
 
 	"mzs/internal/ast"
 )
@@ -200,4 +201,44 @@ func TestCoverageReleasesCollectedTrees(t *testing.T) {
 	if len(files) != 1 || files[0].Lines[0].Hits != runs {
 		t.Errorf("files = %+v, want one file whose lines ran %d times", files, runs)
 	}
+}
+
+// A tree's cleanup can run after its address went to a newer tree. The newer tree is
+// registered all the same, and the late cleanup leaves its slots alone.
+func TestCoverageSurvivesAReusedTreeAddress(t *testing.T) {
+	in := New(DefaultOptions())
+	p, err := in.Compile("r.mzs", "x = 1\ny = 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := p.tree()
+	cov := NewCoverage()
+	cov.register("r.mzs", "x = 1\ny = 2", tree)
+	if n := cov.bindings(); n != 2 {
+		t.Fatalf("%d slots, want 2", n)
+	}
+	addr := addrOf(tree)
+
+	// What a dead tree at this address would have left behind: an entry whose weak
+	// pointer no longer answers this tree, and a cleanup still to come.
+	stale := cov.trees[addr]
+	other := &ast.Program{}
+	cov.trees[addr] = treeReg{weak.Make(other), stale.gen}
+	cov.register("r.mzs", "x = 1\ny = 2", tree)
+	if cov.trees[addr].gen == stale.gen {
+		t.Fatal("a tree at an address an older one held was not registered")
+	}
+	var keys []slotKey
+	for k := range cov.slots {
+		keys = append(keys, k)
+	}
+	cov.release(treeKeys{addr, stale.gen, keys})
+	if n := cov.bindings(); n != 2 {
+		t.Errorf("the older tree's cleanup removed the newer one's slots: %d left", n)
+	}
+	if _, ok := cov.trees[addr]; !ok {
+		t.Error("the older tree's cleanup unregistered the newer one")
+	}
+	runtime.KeepAlive(other)
+	runtime.KeepAlive(tree)
 }

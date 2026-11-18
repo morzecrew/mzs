@@ -545,10 +545,13 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 // `return`, `next` and a `break` that escaped all end the task with their value rather
 // than travelling further (§8.10).
 func (e ev) runTaskBody(f *Func, pos token.Pos) (Value, error) {
-	if err := e.rs.enter(f.Name, pos.Line, pos.Col, funcKey(f)); err != nil {
+	// invoke entered f in the profile before it spawned the task, and the task forked
+	// from there: it already stands in f's node, so entering again would count the call
+	// twice and nest f under itself.
+	if err := e.rs.enterFrame(f.Name, pos.Line, pos.Col); err != nil {
 		return Nil(), e.at(err, pos)
 	}
-	defer e.rs.leave()
+	defer e.rs.leaveFrame()
 	if f.Body == nil {
 		return Nil(), nil
 	}
