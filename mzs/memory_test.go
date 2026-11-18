@@ -426,10 +426,31 @@ t.cancel
 	}
 
 	// A wait that expired handed the caller a timeout, not the memory error that came
-	// after it: the Run still ends with ErrMemory.
-	_, err = memRun(t, New(o), `async fn hog() { sleep(0.05); s = "x" * 3000000; s.len }
+	// after it: the Run still ends with ErrMemory. The task is held at a gate that only
+	// the timeout's handler opens, so the wait cannot see the task finish first.
+	in := New(o)
+	gate := make(chan struct{})
+	in.Register("__gate", 0, func(c *Ctx, args []Value) (Value, error) {
+		c.Blocking(func() {
+			select {
+			case <-gate:
+			case <-time.After(5 * time.Second):
+			}
+		})
+		return Nil(), nil
+	})
+	timedOut := false
+	in.Register("__open", 0, func(c *Ctx, args []Value) (Value, error) {
+		timedOut = true
+		close(gate)
+		return Nil(), nil
+	})
+	_, err = memRun(t, in, `async fn hog() { __gate(); s = "x" * 3000000; s.len }
 t = hog()
-try t.timeout(0.001) else (e) -> nil
+try t.timeout(0.001) else (e) -> __open()
 "done"`, nil)
+	if !timedOut {
+		t.Fatal("the wait did not time out")
+	}
 	wantMemoryError(t, err)
 }

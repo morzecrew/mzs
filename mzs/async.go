@@ -441,11 +441,12 @@ func (rs *runState) drainTasks() {
 
 // unawaitedMemoryError is the first ErrMemory that no await handed to a caller, or nil:
 // a task nobody awaited, or one whose only wait expired before it failed.
-// The tasks must be joined, so that the list is final. A task the script cancelled is
-// not one: what it ended on is the cancel.
+// The tasks must be joined, so that the list is final. A task the script cancelled
+// counts too when what it ended on is ErrMemory and not the cancel: it may have taken
+// that error from a task it awaited, and the live set it names is still the Run's.
 func (rs *runState) unawaitedMemoryError() error {
 	for _, t := range rs.sh.all {
-		if t.err != nil && !t.delivered && !t.canceled && errors.Is(t.err, ErrMemory) {
+		if t.err != nil && !t.delivered && errors.Is(t.err, ErrMemory) {
 			return t.err
 		}
 	}

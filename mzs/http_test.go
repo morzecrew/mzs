@@ -890,3 +890,28 @@ func TestHTTPServeInAnUnawaitedTaskEndsTheRunOverMaxMemory(t *testing.T) {
 		t.Fatalf("Run = %v, want ErrMemory", err)
 	}
 }
+
+// TestHTTPServeStoppedByReadyStillSeesACancel pins the path where serve never waits:
+// `ready` stops the server and the host cancels before the loop would have waited, so
+// the cancel must still end the Run.
+func TestHTTPServeStoppedByReadyStillSeesACancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	in := New(netOpts())
+	in.Register("__cancel", 0, func(c *Ctx, args []Value) (Value, error) {
+		cancel()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}, { (u) -> http.stop(); __cancel() })
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(ctx, prog, nil); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("Run = %v, want ErrCanceled", err)
+	}
+}

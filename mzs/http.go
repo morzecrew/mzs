@@ -249,6 +249,15 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 			return Nil(), fatal
 		}
 	}
+	// The loop can end without waiting at all, `ready` having called http.stop(): a
+	// cancel that came meanwhile still ends the Run.
+	if done != nil {
+		select {
+		case <-done:
+			return Nil(), limitErrorf(ErrCanceled, "canceled")
+		default:
+		}
+	}
 	return Nil(), nil
 }
 
