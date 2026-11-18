@@ -14,6 +14,8 @@ import (
 
 	"mzs/internal/apidoc"
 	"mzs/internal/ast"
+	"mzs/internal/doccomment"
+	"mzs/internal/lexer"
 	"mzs/internal/parser"
 	"mzs/internal/token"
 	"mzs/mzs"
@@ -225,6 +227,7 @@ type decl struct {
 	full      rng
 	nameRange rng
 	modPath   string // the path an `include … from` names, or ""
+	doc       string // the `##` comment above the declaration (RFC 0019 §2), or ""
 }
 
 // declarations reads what a document binds **in its own top-level scope**. It is the
@@ -240,9 +243,14 @@ type decl struct {
 func declarations(d *document) []decl {
 	// A file being typed does not parse, and parser.Parse answers nil for it. There is
 	// nothing to read off a tree that does not exist, and the diagnostics already say why.
-	prog, _ := parser.Parse(d.name(), d.text)
+	toks, comments, _, _ := lexer.Scan(d.name(), d.text)
+	prog, _ := parser.ParseTokens(d.name(), toks)
 	if prog == nil {
 		return nil
+	}
+	docs := map[string]string{}
+	for _, it := range doccomment.Extract(prog, d.text, comments) {
+		docs[it.Name] = it.Doc
 	}
 	var out []decl
 	seen := map[string]bool{}
@@ -251,6 +259,7 @@ func declarations(d *document) []decl {
 			return
 		}
 		seen[dc.name] = true
+		dc.doc = docs[dc.name]
 		out = append(out, dc)
 	}
 	for _, stmt := range prog.Stmts {
@@ -390,6 +399,17 @@ func paramList(ps []ast.Param) string {
 // function, then a module, then a keyword, and last what this very file declared.
 func hoverFor(d *document, w word) (string, bool) {
 	a := apidoc.Load()
+	if w.recv != "" {
+		// `m.total` where `include m from "./lib.mzs"`: the script module's own
+		// documentation, which no table of the standard library has.
+		if items, path, ok := includedItems(d, w.recv); ok {
+			for _, it := range items {
+				if it.Name == w.name {
+					return withDoc("**"+it.Sig+"**  \nfrom "+strconv.Quote(path), it.Doc), true
+				}
+			}
+		}
+	}
 	switch {
 	case w.recv != "" && a.IsModule(w.recv):
 		if e, ok := a.Member(w.recv, w.name); ok {
@@ -409,7 +429,7 @@ func hoverFor(d *document, w word) (string, bool) {
 			// know about it is what the module holds, not that the line above exists.
 			return moduleMarkdown(a, dc.name), true
 		}
-		return "**" + dc.detail + "**  \nin this file", true
+		return withDoc("**"+dc.detail+"**  \nin this file", dc.doc), true
 	}
 	if w.recv == "" {
 		if e, ok := a.Builtin(w.name); ok {
@@ -426,6 +446,65 @@ func hoverFor(d *document, w word) (string, bool) {
 		return e.Markdown("."+w.name) + "  \non " + strings.Join(kinds, ", "), true
 	}
 	return "", false
+}
+
+// withDoc puts a declaration's doc comment under its heading. The comment is Markdown
+// already, and goes out as it was written.
+func withDoc(head, doc string) string {
+	if doc == "" {
+		return head
+	}
+	return head + "\n\n" + doc
+}
+
+// includedItems reads what the script module bound to name exports, with the path the
+// include names. It answers false when name is not an `include … from` of this file or
+// the module cannot be read or parsed — an editor shows nothing rather than a guess.
+func includedItems(d *document, name string) ([]doccomment.Item, string, bool) {
+	path, ok := includesOf(d)[name]
+	if !ok {
+		return nil, "", false
+	}
+	target, ok := includePath(d, path)
+	if !ok {
+		return nil, "", false
+	}
+	src, err := os.ReadFile(target)
+	if err != nil {
+		return nil, "", false
+	}
+	items, err := doccomment.Parse(target, string(src))
+	if err != nil {
+		return nil, "", false
+	}
+	exported := items[:0]
+	for _, it := range items {
+		if it.Exported {
+			exported = append(exported, it)
+		}
+	}
+	return exported, path, true
+}
+
+// includesOf maps each name an `include name from "path"` binds to its path. It reads
+// tokens rather than a tree, because the moment completion is asked for after `lib.` is
+// the moment the file does not parse; a name included twice keeps its first path, as
+// declarations does.
+func includesOf(d *document) map[string]string {
+	toks, _, _, _ := lexer.Scan(d.name(), d.text)
+	out := map[string]string{}
+	for i := 0; i+5 < len(toks); i++ {
+		if toks[i].Kind != token.KW_INCLUDE || toks[i+1].Kind != token.IDENT ||
+			toks[i+2].Kind != token.IDENT || toks[i+2].Value != "from" ||
+			toks[i+3].Kind != token.STR_BEGIN || toks[i+4].Kind != token.STR_TEXT ||
+			toks[i+5].Kind != token.STR_END {
+			continue
+		}
+		if _, seen := out[toks[i+1].Value]; !seen {
+			out[toks[i+1].Value] = toks[i+4].Value
+		}
+	}
+	return out
 }
 
 func moduleMarkdown(a *apidoc.API, name string) string {
@@ -464,6 +543,18 @@ func complete(d *document, p position) []completionItem {
 
 	var out []completionItem
 	if recv != "" || afterDot(rs) {
+		if recv != "" {
+			if items, _, ok := includedItems(d, recv); ok {
+				for _, it := range items {
+					ci := completionItem{Label: it.Name, Kind: itemKind(it.Kind), Detail: it.Sig, SortText: "0" + it.Name}
+					if it.Doc != "" {
+						ci.Documentation = &markupContent{Kind: "markdown", Value: it.Doc}
+					}
+					out = append(out, ci)
+				}
+				return filterByPrefix(out, prefix)
+			}
+		}
 		if recv != "" && a.IsModule(recv) {
 			for _, n := range a.MemberNames(recv) {
 				e, _ := a.Member(recv, n)
@@ -479,7 +570,11 @@ func complete(d *document, p position) []completionItem {
 	}
 
 	for _, dc := range declarations(d) {
-		out = append(out, completionItem{Label: dc.name, Kind: declKind(dc.kind), Detail: dc.detail, SortText: "0" + dc.name})
+		ci := completionItem{Label: dc.name, Kind: declKind(dc.kind), Detail: dc.detail, SortText: "0" + dc.name}
+		if dc.doc != "" {
+			ci.Documentation = &markupContent{Kind: "markdown", Value: dc.doc}
+		}
+		out = append(out, ci)
 	}
 	for _, n := range a.BuiltinNames() {
 		e, _ := a.Builtin(n)
@@ -502,6 +597,14 @@ func declKind(symbol int) int {
 		return kindModule
 	}
 	return kindVariable
+}
+
+// itemKind is the completion kind of a doc comment's declaration.
+func itemKind(kind string) int {
+	if kind == doccomment.KindValue {
+		return kindVariable
+	}
+	return kindFunction
 }
 
 func item(name string, kind int, detail string, e apidoc.Entry) completionItem {
@@ -574,6 +677,15 @@ func definitionFor(d *document, w word) (location, bool) {
 // loader does (§15). A document with no path of its own — an untitled buffer — has
 // nothing to resolve against.
 func includeURI(d *document, path string) (string, bool) {
+	target, ok := includePath(d, path)
+	if !ok {
+		return "", false
+	}
+	return pathToURI(target), true
+}
+
+// includePath is includeURI as a file path.
+func includePath(d *document, path string) (string, bool) {
 	base := d.path()
 	if base == "" || filepath.IsAbs(path) {
 		return "", false
@@ -582,7 +694,7 @@ func includeURI(d *document, path string) (string, bool) {
 	if _, err := os.Stat(target); err != nil {
 		return "", false
 	}
-	return pathToURI(target), true
+	return target, true
 }
 
 // symbolsOf is the outline: what the file declares, in source order.

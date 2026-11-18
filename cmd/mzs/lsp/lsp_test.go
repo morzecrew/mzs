@@ -754,3 +754,62 @@ func TestURIRoundTrip(t *testing.T) {
 		t.Errorf("a non-file URI has no path, got %q", got)
 	}
 }
+
+// RFC 0019 §2: a `##` run above a declaration is what hover and completion say about it,
+// in the file that declares it and in a file that includes it.
+func TestDocCommentsReachHoverAndCompletion(t *testing.T) {
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "lib.mzs")
+	libSrc := "## Total of a cart.\n## Raises \"billing\".\nexport fn total(items, cur = \"USD\") { items.len }\n\n## Not exported.\nfn hidden() { 0 }\n"
+	if err := os.WriteFile(lib, []byte(libSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mainURI := pathToURI(filepath.Join(dir, "main.mzs"))
+	// typing is a document mid-edit: it does not parse, and completion after `lib.` is
+	// asked for exactly then.
+	typingURI := pathToURI(filepath.Join(dir, "typing.mzs"))
+	src := "include lib from \"./lib.mzs\"\n## Twice x.\nfn double(x) { x * 2 }\ny = double(lib.total([]))\nw = dou\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(mainURI, src),
+		open(typingURI, "include lib from \"./lib.mzs\"\nz = lib.\n"),
+		at("textDocument/hover", mainURI, 2, 3, 5),        // double
+		at("textDocument/hover", mainURI, 3, 3, 17),       // lib.total
+		at("textDocument/completion", typingURI, 4, 1, 8), // lib.
+		at("textDocument/completion", mainURI, 5, 4, 7),   // dou
+		msg("exit", nil, nil),
+	)
+	var h hover
+	into(t, s.reply(2)["result"], &h)
+	if want := "**fn double(x)**  \nin this file\n\nTwice x."; h.Contents.Value != want {
+		t.Errorf("hover on a local fn = %q, want %q", h.Contents.Value, want)
+	}
+	into(t, s.reply(3)["result"], &h)
+	if want := "**fn total(items, cur = \"USD\")**  \nfrom \"./lib.mzs\"\n\nTotal of a cart.\nRaises \"billing\"."; h.Contents.Value != want {
+		t.Errorf("hover on an included member = %q, want %q", h.Contents.Value, want)
+	}
+
+	var items []completionItem
+	into(t, s.reply(4)["result"], &items)
+	if len(items) != 1 || items[0].Label != "total" {
+		t.Fatalf("completion after lib. = %+v, want only the export total", items)
+	}
+	if items[0].Detail != "fn total(items, cur = \"USD\")" || items[0].Documentation == nil ||
+		items[0].Documentation.Value != "Total of a cart.\nRaises \"billing\"." {
+		t.Errorf("lib.total completion = %+v", items[0])
+	}
+
+	into(t, s.reply(5)["result"], &items)
+	found := false
+	for _, it := range items {
+		if it.Label == "double" {
+			found = true
+			if it.Documentation == nil || it.Documentation.Value != "Twice x." {
+				t.Errorf("double completion = %+v, want its doc comment", it)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("double is not offered: %+v", items)
+	}
+}
