@@ -44,9 +44,13 @@ func startServer(t *testing.T, src string, opts Options) *server {
 		t.Fatalf("Compile: %v", err)
 	}
 
+	// A test that fails before its server stops would otherwise leave the listener
+	// running for the rest of the package: cancelling on cleanup takes it down.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	s := &server{done: make(chan error, 1), in: in}
 	go func() {
-		_, rerr := in.Run(context.Background(), prog, nil)
+		_, rerr := in.Run(ctx, prog, nil)
 		s.done <- rerr
 	}()
 	select {
@@ -71,6 +75,10 @@ func (s *server) wait(t *testing.T) error {
 	}
 }
 
+// testClient bounds every request a test makes, the body included, so a server that
+// accepts a request and never answers fails the test instead of hanging it.
+var testClient = &http.Client{Timeout: 10 * time.Second}
+
 // do performs one request and returns the status, the body and the response headers.
 func do(t *testing.T, method, url, body string) (int, string, http.Header) {
 	t.Helper()
@@ -82,7 +90,7 @@ func do(t *testing.T, method, url, body string) (int, string, http.Header) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, url, err)
 	}
@@ -206,7 +214,7 @@ func TestHTTPServe(t *testing.T) {
 	t.Run("request headers are lowercased", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", s.url+"/agent", nil)
 		req.Header.Set("X-Test", "да")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := testClient.Do(req)
 		if err != nil {
 			t.Fatalf("GET /agent: %v", err)
 		}
@@ -573,5 +581,337 @@ func TestHTTPWildcards(t *testing.T) {
 				t.Fatalf("httpWildcards(%q) = %v; want %v", tt.pattern, got, tt.want)
 			}
 		}
+	}
+}
+
+// Every step taken while a server runs is the Run's: `ready`'s, the handlers', and
+// those of the Run's tasks while it waits — before the first request, and between two.
+// Result.Steps counts them all, so it is the sum the profile reports.
+func TestHTTPServeCountsEveryStep(t *testing.T) {
+	t.Parallel()
+
+	opts := netOpts()
+	opts.Profile = true
+	in := New(opts)
+	urls := make(chan string, 1)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	// later's task is started by /hi and signals when it is done, so the test sends
+	// /quit only after its steps were taken between the two requests' resets.
+	between := make(chan struct{}, 1)
+	in.Register("__between", 0, func(c *Ctx, args []Value) (Value, error) {
+		between <- struct{}{}
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn busy() { [1, 2, 3, 4, 5].map { (x) -> x * x }.sum }
+		async fn later() { [6, 7, 8, 9].map { (x) -> x - 1 }.sum; __between() }
+		t = busy()
+		http.serve("127.0.0.1:0", {
+		  "GET /hi":   { (req) -> later(); "hi" },
+		  "GET /quit": { (req) -> http.stop(); "bye" },
+		}, { (u) -> [1, 2, 3].map { (x) -> x + 1 }; __ready(u) })
+		t.await
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := in.RunResult(context.Background(), prog, nil)
+		done <- outcome{res, err}
+	}()
+	var url string
+	select {
+	case url = <-urls:
+	case o := <-done:
+		t.Fatalf("server exited before it was ready: %v", o.err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not become ready")
+	}
+	do(t, "GET", url+"/hi", "")
+	select {
+	case <-between:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task /hi started did not run")
+	}
+	do(t, "GET", url+"/quit", "")
+	var o outcome
+	select {
+	case o = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop")
+	}
+	if o.err != nil {
+		t.Fatal(o.err)
+	}
+	if o.res.Profile == nil {
+		t.Fatal("no profile with Options.Profile set")
+	}
+	if o.res.Steps != o.res.Profile.Steps {
+		t.Errorf("Result.Steps = %d, Profile.Steps = %+v", o.res.Steps, o.res.Profile)
+	}
+	if later, ok := funcNamed(o.res.Profile, "later server:4"); !ok || later.Self == 0 {
+		t.Errorf("the task between requests took no steps of its own: %+v (found %v)", later, ok)
+	}
+}
+
+// One Run serves one listener at a time (§12.11), from whichever of its tasks: a task
+// started before the server is not let past the check by the state it was forked from.
+// The task reports what its serve answered, and the test stops the server only after
+// that, so the refusal is always made while the server runs.
+func TestHTTPServeIsSingleUsePerRunAcrossTasks(t *testing.T) {
+	t.Parallel()
+
+	in := New(netOpts())
+	urls := make(chan string, 1)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	answers := make(chan string, 1)
+	in.Register("__answer", 1, func(c *Ctx, args []Value) (Value, error) {
+		answers <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn second() {
+		  __answer(try (http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}); "served") else (e) -> e["message"])
+		}
+		t = second()
+		http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); "bye" }}, { (u) -> __ready(u) })
+		t.await
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// If the guard regresses, the second listener holds the Run open and /quit is never
+	// sent: cancelling on cleanup is what takes both listeners down then.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Run(ctx, prog, nil)
+		done <- err
+	}()
+	var url string
+	select {
+	case url = <-urls:
+	case err := <-done:
+		t.Fatalf("server exited before it was ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not become ready")
+	}
+	select {
+	case got := <-answers:
+		if !strings.Contains(got, "already running") {
+			t.Errorf("the task's serve answered %q; want it refused as already running", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task's serve did not answer while the server ran")
+	}
+	do(t, "GET", url+"/quit", "")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop")
+	}
+}
+
+// TestHTTPServeAgainFromATaskForkedDuringTheFirst pins the other side of one listener
+// at a time: once the first server has stopped, a task may serve, even one forked by a
+// handler of that first server. A task copies its parent's state, so a server pointer
+// kept per state would still name the stopped loop there and refuse it.
+func TestHTTPServeAgainFromATaskForkedDuringTheFirst(t *testing.T) {
+	t.Parallel()
+
+	in := New(netOpts())
+	urls := make(chan string, 2)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn later() {
+		  http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); "bye again" }}, { (u) -> __ready(u) })
+		}
+		http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); later(); "bye" }}, { (u) -> __ready(u) })
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Run(ctx, prog, nil)
+		done <- err
+	}()
+	next := func(which string) string {
+		t.Helper()
+		select {
+		case u := <-urls:
+			return u
+		case err := <-done:
+			t.Fatalf("the Run ended before the %s server was ready: %v", which, err)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the %s server did not become ready", which)
+		}
+		return ""
+	}
+	if status, body, _ := do(t, "GET", next("first")+"/quit", ""); status != 200 || body != "bye" {
+		t.Fatalf("first /quit = %d %q", status, body)
+	}
+	if status, body, _ := do(t, "GET", next("second")+"/quit", ""); status != 200 || body != "bye again" {
+		t.Fatalf("second /quit = %d %q", status, body)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Run did not end")
+	}
+}
+
+// TestHTTPServeEndsTheRunOverMaxMemory pins that the live set is the Run's, not the
+// request's: unlike the step budget and the deadline, MaxMemory is not re-armed per
+// request, so a handler that goes over it ends the Run with ErrMemory (§14.2) instead of
+// a 500 and a server that keeps going.
+func TestHTTPServeEndsTheRunOverMaxMemory(t *testing.T) {
+	t.Parallel()
+
+	o := netOpts()
+	o.MaxMemory = 1 << 20
+	s := startServer(t, `
+		include http
+		http.serve("127.0.0.1:0", {"GET /big": { (req) -> s = "x" * 3000000; s.len }}, { (u) -> __ready(u) })
+	`, o)
+	if status, _, _ := do(t, "GET", s.url+"/big", ""); status != http.StatusServiceUnavailable {
+		t.Errorf("/big = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+	if err := s.wait(t); !errors.Is(err, ErrMemory) {
+		t.Fatalf("Run = %v, want ErrMemory", err)
+	}
+}
+
+// TestHTTPStopFromATaskEndsAWaitingServe pins that http.stop() from a task stops a
+// server that is waiting for a request: with no request in flight, the loop must wake
+// for the stop rather than serve on until one arrives.
+func TestHTTPStopFromATaskEndsAWaitingServe(t *testing.T) {
+	t.Parallel()
+
+	gate := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	o := netOpts()
+	in := New(o)
+	in.Register("__gate", 0, func(c *Ctx, args []Value) (Value, error) {
+		// The gate also opens on cleanup, so a test that fails before close(gate)
+		// does not leave this task blocked.
+		c.Blocking(func() {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+			}
+		})
+		return Nil(), nil
+	})
+	urls := make(chan string, 1)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn stopper() { __gate(); http.stop() }
+		t = stopper()
+		http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}, { (u) -> __ready(u) })
+		t.await
+		"stopped"
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := in.Run(ctx, prog, nil)
+		done <- err
+	}()
+	select {
+	case <-urls:
+	case err := <-done:
+		t.Fatalf("server exited before it was ready: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not become ready")
+	}
+	close(gate)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("http.stop() from a task did not end a serve that was waiting for a request")
+	}
+}
+
+// TestHTTPServeInAnUnawaitedTaskEndsTheRunOverMaxMemory is the same rule from a server
+// a task runs, and that the program never awaits.
+func TestHTTPServeInAnUnawaitedTaskEndsTheRunOverMaxMemory(t *testing.T) {
+	t.Parallel()
+
+	o := netOpts()
+	o.MaxMemory = 1 << 20
+	s := startServer(t, `
+		include http
+		async fn serve() {
+		  http.serve("127.0.0.1:0", {"GET /big": { (req) -> s = "x" * 3000000; s.len }}, { (u) -> __ready(u) })
+		}
+		serve()
+	`, o)
+	if status, _, _ := do(t, "GET", s.url+"/big", ""); status != http.StatusServiceUnavailable {
+		t.Errorf("/big = %d, want %d", status, http.StatusServiceUnavailable)
+	}
+	if err := s.wait(t); !errors.Is(err, ErrMemory) {
+		t.Fatalf("Run = %v, want ErrMemory", err)
+	}
+}
+
+// TestHTTPServeStoppedByReadyStillSeesACancel pins the path where serve never waits:
+// `ready` stops the server and the host cancels before the loop would have waited, so
+// the cancel must still end the Run.
+func TestHTTPServeStoppedByReadyStillSeesACancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	in := New(netOpts())
+	in.Register("__cancel", 0, func(c *Ctx, args []Value) (Value, error) {
+		cancel()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}, { (u) -> http.stop(); __cancel() })
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(ctx, prog, nil); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("Run = %v, want ErrCanceled", err)
 	}
 }

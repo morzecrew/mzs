@@ -2,8 +2,11 @@ package mzs
 
 import (
 	"crypto/sha256"
+	"reflect"
+	"runtime"
 	"sort"
 	"sync"
+	"weak"
 
 	"mzs/internal/ast"
 	"mzs/internal/token"
@@ -29,7 +32,34 @@ type Coverage struct {
 	// slots maps each statement and branch node of every registered tree to its
 	// counter. A hit is counted by node, never by position, so two texts that share a
 	// name and a line number cannot count for each other.
-	slots map[slotKey]*int
+	//
+	// A node is keyed by its address, not by the node itself, so the Coverage holds no
+	// reference to any tree: a tree the program cache dropped is collected, and a
+	// cleanup on it removes its slots. The Go heap does not move objects, so an address
+	// is a node's for as long as the node lives. Once the node is freed the address can
+	// be another's, and the dead tree's cleanup may not have run yet: each binding
+	// carries the registration that made it, and a cleanup removes only its own. It
+	// also carries a weak pointer to its tree, and a hit counts only while the tree is
+	// alive: a node is freed only after its tree, so a node at a reused address never
+	// counts for the dead one.
+	slots map[slotKey]slotBinding
+	// trees has every registered tree by address, so a tree that runs again is not
+	// walked again. The weak pointer tells that tree from a newer one at the same
+	// address: it answers nil once the tree it was made from is gone.
+	trees map[uintptr]treeReg
+	// gen numbers the registrations.
+	gen uint64
+}
+
+type slotBinding struct {
+	slot *int
+	gen  uint64
+	tree weak.Pointer[ast.Program]
+}
+
+type treeReg struct {
+	tree weak.Pointer[ast.Program]
+	gen  uint64
 }
 
 // NewCoverage returns an empty Coverage.
@@ -41,9 +71,12 @@ type fileKey struct {
 }
 
 type slotKey struct {
-	node ast.Node
+	node uintptr
 	arm  int // -1 for a statement
 }
+
+// addrOf is the address of the node behind n: every AST node is a pointer.
+func addrOf(n ast.Node) uintptr { return reflect.ValueOf(n).Pointer() }
 
 type fileCover struct {
 	name     string
@@ -82,13 +115,26 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 	defer c.mu.Unlock()
 	if c.files == nil {
 		c.files = map[fileKey]*fileCover{}
-		c.slots = map[slotKey]*int{}
+		c.slots = map[slotKey]slotBinding{}
+		c.trees = map[uintptr]treeReg{}
 	}
+	treeAddr := addrOf(tree)
+	if reg, ok := c.trees[treeAddr]; ok && reg.tree.Value() == tree {
+		return
+	}
+	c.gen++
+	gen := c.gen
+	wtree := weak.Make(tree)
 	key := fileKey{file, sha256.Sum256([]byte(src))}
 	fc := c.files[key]
 	if fc == nil {
 		fc = &fileCover{name: file, stmts: map[posKey]*int{}, branches: map[branchKey]*int{}}
 		c.files[key] = fc
+	}
+	var keys []slotKey
+	bind := func(k slotKey, slot *int) {
+		c.slots[k] = slotBinding{slot, gen, wtree}
+		keys = append(keys, k)
 	}
 	stmts := func(list []ast.Stmt) {
 		for _, s := range list {
@@ -101,7 +147,7 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 				slot = new(int)
 				fc.stmts[k] = slot
 			}
-			c.slots[slotKey{s, -1}] = slot
+			bind(slotKey{addrOf(s), -1}, slot)
 		}
 	}
 	branch := func(n ast.Node, p token.Pos, kind byte, arms int) {
@@ -112,7 +158,7 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 				slot = new(int)
 				fc.branches[k] = slot
 			}
-			c.slots[slotKey{n, i}] = slot
+			bind(slotKey{addrOf(n), i}, slot)
 		}
 	}
 	ast.Walk(tree, func(n ast.Node) bool {
@@ -134,14 +180,48 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 		}
 		return true
 	})
+	c.trees[treeAddr] = treeReg{wtree, gen}
+	// When nothing holds the tree any more, its nodes are gone and its slots are dead
+	// weight. The counters stay: they are the file's, not the tree's.
+	runtime.AddCleanup(tree, c.release, treeKeys{treeAddr, gen, keys})
+}
+
+type treeKeys struct {
+	tree uintptr
+	gen  uint64
+	keys []slotKey
+}
+
+// release drops the slots of a tree that was collected, leaving any that a newer tree
+// at a reused address bound since.
+func (c *Coverage) release(t treeKeys) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, k := range t.keys {
+		if c.slots[k].gen == t.gen {
+			delete(c.slots, k)
+		}
+	}
+	if c.trees[t.tree].gen == t.gen {
+		delete(c.trees, t.tree)
+	}
+}
+
+// bindings is how many node slots the Coverage holds, for the tests.
+func (c *Coverage) bindings() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.slots)
 }
 
 // hit counts one statement (arm -1) or one side of a branch node. A node no Run
-// registered — a tree compiled while the Coverage was not installed — counts nothing.
+// registered — a tree compiled while the Coverage was not installed — counts nothing,
+// and so does a node whose tree is gone. A function keeps the tree it was written in
+// (Func.tree), so a node that can still run always has its tree.
 func (c *Coverage) hit(n ast.Node, arm int) {
 	c.mu.Lock()
-	if slot := c.slots[slotKey{n, arm}]; slot != nil {
-		*slot++
+	if b, ok := c.slots[slotKey{addrOf(n), arm}]; ok && b.tree.Value() != nil {
+		*b.slot++
 	}
 	c.mu.Unlock()
 }

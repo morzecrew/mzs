@@ -2,6 +2,13 @@
 
 How to build the `mzs` binary and every way to hand it a program.
 
+## Download
+
+From `0.2.0` on, every version is a [GitHub release](https://github.com/morzecrew/mzs/releases)
+with a standalone `mzs` executable for Linux, macOS and Windows (amd64 and arm64), and a
+`SHA256SUMS` file to check them against. The Linux builds are fully static; the others need
+nothing but the operating system. Unpack the archive and put `mzs` on your `PATH`.
+
 ## Build
 
 ```sh
@@ -33,7 +40,7 @@ Copy that file anywhere — no interpreter, no shared library, no `GOPATH`.
 
 ```sh
 $ mzs --version
-mzs 0.1.0
+mzs 0.2.0
 ```
 
 ## Run a file
@@ -125,7 +132,7 @@ explicitly, which is how the program can come through the pipe at the same time.
 
 ```sh
 $ mzs
-mzs 0.1.0 — .help for help, .exit to quit
+mzs 0.2.0 — .help for help, .exit to quit
 mzs> 6 * 7
 42
 ```

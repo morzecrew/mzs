@@ -172,3 +172,28 @@ func TestCoverLeavesOutATestFileIncludedByAnother(t *testing.T) {
 		t.Errorf("a test file is in the report:\n%s", report)
 	}
 }
+
+// A test file reached through a link is the same test: run as checks.mzs and included
+// as ./alias.mzs, it is still left out, and a tests-only run is not held to a minimum.
+func TestCoverLeavesOutATestFileReachedThroughALink(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("checks.mzs", "include test\nexport fn never() { 1 }\ntest.case(\"c\") { assert(true) }\n")
+	if err := os.Symlink("checks.mzs", filepath.Join(dir, "alias.mzs")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	write("more.mzs", "include test\ninclude alias from \"./alias.mzs\"\ntest.case(\"m\") { assert(true) }\n")
+	t.Chdir(dir)
+	code, out, errOut := exec([]string{"test", "--cover-min", "100", "checks.mzs", "more.mzs"}, "")
+	if code != exitOK {
+		t.Fatalf("code = %d, stderr = %s", code, errOut)
+	}
+	if !strings.Contains(out, "coverage: the tests included no file to cover") {
+		t.Errorf("a test file reached through a link was covered:\n%s", out)
+	}
+}

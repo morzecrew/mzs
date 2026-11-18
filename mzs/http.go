@@ -88,6 +88,18 @@ type httpServer struct {
 	jobs    chan *httpJob
 	closing chan struct{} // closed when the loop stops accepting jobs
 	stop    bool          // set by http.stop(), read by the loop between requests
+	// stopped is closed by the first http.stop(), so a loop waiting for a request
+	// wakes for it: the stop may come from a task while no request is in flight.
+	stopped chan struct{}
+}
+
+// halt is http.stop(): the loop ends after the request in progress, or at once if it is
+// waiting for one. It runs under the Run's lock, as the loop's reads of stop do.
+func (s *httpServer) halt() {
+	if !s.stop {
+		s.stop = true
+		close(s.stopped)
+	}
 }
 
 // httpServe binds addr, routes every pattern in the routes dict to its closure and
@@ -120,11 +132,11 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	}
 
 	rs := c.rs
-	if rs.srv != nil {
+	if rs.sh.srv != nil {
 		return Nil(), c.ArgErrorf("http.serve: a server is already running in this run")
 	}
 
-	srv := &httpServer{jobs: make(chan *httpJob), closing: make(chan struct{})}
+	srv := &httpServer{jobs: make(chan *httpJob), closing: make(chan struct{}), stopped: make(chan struct{})}
 	mux := http.NewServeMux()
 	for _, k := range routes.Keys() {
 		pattern := k.Str()
@@ -144,15 +156,25 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	hs := &http.Server{Handler: mux, ReadHeaderTimeout: httpReadHeaderTimeout}
 	go func() { _ = hs.Serve(ln) }()
 
-	rs.srv = srv
+	rs.sh.srv = srv
 	// Steps are re-armed per request below, so the Run's own counter is restored on
-	// the way out: what the server cost is the sum of its handlers, and the waiting
-	// in between costs nothing.
+	// the way out. What the server cost is every step taken while it served: its
+	// handlers, `ready`, and the Run's tasks while it waited. Waiting itself costs
+	// nothing. settle banks what the counter holds since it was last armed, before
+	// each re-arm and at the end, so no step is dropped and Result.Steps stays the
+	// sum the profile reports.
 	baseSteps := rs.sh.steps
-	handlerSteps := int64(0)
+	spent, mark := int64(0), baseSteps
+	settle := func() {
+		spent += rs.sh.steps - mark
+		rs.sh.setSteps(0)
+		mark = 0
+	}
 	defer func() {
-		rs.srv = nil
-		rs.sh.steps, rs.tick = baseSteps+handlerSteps, 0
+		rs.sh.srv = nil
+		settle()
+		rs.sh.setSteps(baseSteps + spent)
+		rs.tick = 0
 		if rs.hasDL {
 			rs.deadline = time.Now().Add(rs.opts.Timeout)
 		}
@@ -184,19 +206,56 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 			select {
 			case j := <-srv.jobs:
 				job = j
+			case <-srv.stopped:
+				// http.stop() from a task while this loop waited: the loop ends now,
+				// not at the next request.
 			case <-done:
 				canceled = true
 			}
 		})
+		if !canceled && done != nil {
+			// A stop and a cancel can land together: the cancel wins, as it would have
+			// had the wait seen it first.
+			select {
+			case <-done:
+				canceled = true
+				if job != nil {
+					http.Error(job.w, "server is shutting down", http.StatusServiceUnavailable)
+					close(job.done)
+				}
+			default:
+			}
+		}
 		if canceled {
 			// A canceled context ends the Run, server or not (§14.1). The deferred
 			// Shutdown still gets its grace period for whatever is mid-write.
 			return Nil(), limitErrorf(ErrCanceled, "canceled")
 		}
-		steps, fatal := srv.dispatch(c, job)
-		handlerSteps += steps
+		if srv.stop {
+			// Stopped while waiting. A request that was handed over in the same instant
+			// is answered as the server going away, never run after the stop.
+			if job != nil {
+				http.Error(job.w, "server is shutting down", http.StatusServiceUnavailable)
+				close(job.done)
+			}
+			break
+		}
+		// Every request starts from a clean budget: an hour-old server must not
+		// answer more slowly than a fresh one.
+		settle()
+		rs.tick = 0
+		fatal := srv.dispatch(c, job)
 		if fatal != nil {
 			return Nil(), fatal
+		}
+	}
+	// The loop can end without waiting at all, `ready` having called http.stop(): a
+	// cancel that came meanwhile still ends the Run.
+	if done != nil {
+		select {
+		case <-done:
+			return Nil(), limitErrorf(ErrCanceled, "canceled")
+		default:
 		}
 	}
 	return Nil(), nil
@@ -218,10 +277,10 @@ func httpHandle(mux *http.ServeMux, pattern string, h http.Handler) (err error) 
 // httpStop ends the http.serve loop of this Run after the current request. It is an
 // argument error outside a handler, because there would be nothing to stop.
 func httpStop(c *Ctx, args []Value) (Value, error) {
-	if c.rs.srv == nil {
+	if c.rs.sh.srv == nil {
 		return Nil(), c.ArgErrorf("http.stop: no server is running in this run")
 	}
-	c.rs.srv.stop = true
+	c.rs.sh.srv.halt()
 	return Nil(), nil
 }
 
@@ -242,38 +301,40 @@ func (s *httpServer) handlerFor(fn Value, params []string) http.Handler {
 }
 
 // dispatch runs one handler on the serve goroutine and writes its response. It
-// returns the steps the handler took, and a non-nil error only when the whole Run
-// must end: one broken handler is a 500 and the next request, not a dead server.
-func (s *httpServer) dispatch(c *Ctx, job *httpJob) (steps int64, fatal error) {
+// returns a non-nil error only when the whole Run must end: one broken handler is a
+// 500 and the next request, not a dead server.
+func (s *httpServer) dispatch(c *Ctx, job *httpJob) (fatal error) {
 	defer close(job.done)
 	rs := c.rs
 
 	req, err := httpRequestValue(c, job)
 	if err != nil {
 		httpFail(rs, job, http.StatusBadRequest, err)
-		return 0, nil
+		return nil
 	}
 
-	// Every request starts from a clean budget and a fresh deadline: an hour-old
-	// server must not answer more slowly than a fresh one.
-	rs.sh.steps, rs.tick = 0, 0
+	// The budget was re-armed by serve; the deadline is re-armed here, after the
+	// request was read.
 	if rs.hasDL {
 		rs.deadline = time.Now().Add(rs.opts.Timeout)
 	}
 	v, err := httpCall(c, job.fn, req)
-	steps = rs.sh.steps
 	if err != nil {
-		if errors.Is(err, ErrCanceled) {
+		// The budget and the deadline are the request's, so running out of them is that
+		// request's 500. The live set is the Run's: what a handler keeps outlives it, so
+		// going over MaxMemory ends the Run as it does anywhere else (§14.2), and a
+		// canceled context ends it too (§14.1).
+		if errors.Is(err, ErrCanceled) || errors.Is(err, ErrMemory) {
 			httpFail(rs, job, http.StatusServiceUnavailable, err)
-			return steps, err
+			return err
 		}
 		httpFail(rs, job, http.StatusInternalServerError, err)
-		return steps, nil
+		return nil
 	}
 	if err := httpWrite(c, job.w, v); err != nil {
 		fmt.Fprintf(rs.opts.errOut(), "http: %s %s: %v\n", job.r.Method, job.r.URL.Path, err)
 	}
-	return steps, nil
+	return nil
 }
 
 // httpCall invokes a script closure and absorbs the control signals a top-level

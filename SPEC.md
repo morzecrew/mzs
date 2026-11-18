@@ -2934,7 +2934,7 @@ someone else authored.
 | Member | Signature | Semantics |
 |---|---|---|
 | `serve` | `(addr: string, routes: dict, ready: fn?) -> nil` | binds `addr` and serves until `http.stop()` or context cancel |
-| `stop` | `() -> nil` | ends the `serve` of this Run after the current request; an argument error outside one |
+| `stop` | `() -> nil` | ends the `serve` of this Run after the current request, or at once if it is waiting for one; an argument error outside one |
 | `json` | `(body: any, status: int = 200, headers: dict = {}) -> dict` | response whose body is `body` encoded as JSON |
 | `text` | `(body: any, status: int = 200, headers: dict = {}) -> dict` | response whose body is `str(body)` |
 | `get` | `(url: string, opts: dict = {}) -> dict` | request; returns `{status:, body:, headers:}` |
@@ -2977,10 +2977,14 @@ same timeouts, same limits, same errors.
 
 **Limits.** Waiting for a connection charges no steps. Each request starts from a fresh
 `StepBudget` and a fresh `Timeout` deadline, so a slow handler fails that request only
-(500) and the server keeps serving; what the handlers spent is added back to the Run's
-counter when `serve` returns. A handler error is 500 with the diagnostic on `Stderr` and
-never in the body (§13.5). A canceled context ends the Run with `ErrCanceled` (§14.1) and
-takes the listener down with it.
+(500) and the server keeps serving. Every step taken while it serves is added back to the
+Run's counter when `serve` returns: the handlers', the `ready` closure's, and those of the
+Run's tasks while it waits. A handler error is 500 with the diagnostic on `Stderr` and
+never in the body (§13.5). The live set is not a request's: what a handler keeps outlives
+it, so going over `MaxMemory` ends the Run with `ErrMemory` (§14.2), and a canceled context
+ends it with `ErrCanceled` (§14.1). Either takes the listener down with it, and that request
+is answered 503. The server is the Run's, so any of its tasks reaches it with `http.stop()`,
+and once it has stopped any of them may serve again.
 
 Signing what goes out and checking what comes in is §12.16; taking a URL apart and putting
 it back together is §12.17. Both were written for this section and neither needs it.
@@ -3911,6 +3915,7 @@ type Options struct {
     StrictWarnings  bool          // promote Program.Warnings to compile errors
     AllowWarnings   []string      // warning codes (§17) dropped before StrictWarnings sees them
     Coverage        *Coverage     // counts the statements and branches each Run executes (§15.2)
+    Profile         bool          // record where each Run's steps go, as Result.Profile (§15.5)
 
     // Resource limits (0 means "use the default")
     Timeout         time.Duration // wall clock per Run. Default 1s. 0 disables (not recommended).
@@ -4051,6 +4056,7 @@ type Result struct {
     Elapsed time.Duration
     Tests   []TestCase       // one per `test.case`, in the order they ran (§12.18); empty otherwise
     PeakMemory int64         // the most any memory walk found live, in bytes (§14.2); 0 when none ran
+    Profile *Profile         // where the steps went, when Options.Profile is set (§15.5); nil otherwise
 }
 
 type TestCase struct {
@@ -4325,7 +4331,8 @@ Recursion is bounded by `MaxDepth`; the Go stack is never allowed to overflow.
 **The live set is bounded too.** `MaxMemory` (default 64 MiB; negative disables) bounds the
 bytes a Run holds *live* in script values at once, which is what the two per-operation caps
 cannot: a million 1 MB strings in one array break neither of them. Exceeding it ends the Run
-with `ErrMemory`, `Kind == "limit"` — not catchable, and no `ensure` runs (§8.11):
+with `ErrMemory`, `Kind == "limit"` — not catchable, and no `ensure` runs (§8.11). In a task
+it ends the Run too, whether or not the program awaits that task (§8.14):
 
 ```
 -e:2:24: limit: memory budget exceeded (64.85 MiB live, the limit is 64 MiB)
@@ -4475,6 +4482,8 @@ file is `fmt.mzs`, not `fmt`.
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable rand/uuid, with a seed for reproducibility, and `crypto.random` from the operating system (never from the seed) |
 | `--stats` | print steps, elapsed time and peak live memory to stderr |
+| `--profile` | print to stderr where the run's steps went, by function (§15.5) |
+| `--profile-out <file>` | write the run's profile as folded stacks, for a flame graph (§15.5) |
 | `--no-trace` | print a runtime error's three lines without the stack under them |
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
@@ -4826,6 +4835,55 @@ comment is its summary.
 A file that cannot be read or parsed is reported as `path:line:col: syntax: …` and the
 others are still documented; the exit code is then 1, and 2 for a usage error. `mzs fmt`
 keeps a doc comment where it stands and re-flows nothing.
+
+### 15.5 The step profile
+
+`mzs --profile script.mzs` prints to stderr, after the run, where the interpreter's steps
+went:
+
+```
+      self      %      total   calls  function
+   1840212  61.3%    1840212   12000  score rank.mzs:14
+     19004   0.6%    1859216       1  load rank.mzs:3
+   3001216 steps
+```
+
+The unit is the step of §14.1, not time. A step is what the budget charges, and the count
+is deterministic: a run that takes the same path through the same input gives the same
+profile on any machine (D15). A profile can be diffed, and checked in CI. What can change
+the path changes the profile too: a branch on the clock (`time.now()`), a random number,
+or a `Timeout` that stops the run at a different step.
+
+* **Functions:**
+  * A script function or closure is its name (`{}` for a closure) and where its body
+    starts. A closure adds the body's column, which tells apart two closures on one line:
+    `{} rank.mzs:7:18`.
+  * A builtin, method or host function is its name alone, with a method spelled `.name`.
+  * The program's own statements are `(top level)`. A module's are `(include)`, under the
+    include that ran them.
+* **Columns:**
+  * `self` is the steps taken in the function's own statements.
+  * `total` adds the steps of everything it called. A recursive function's steps are
+    counted once in its total, however deep it recursed.
+  * `calls` is how many times it was entered.
+* **Order and length:** the rows are sorted by `self`, and the table shows the first 25.
+  The remaining functions are summed on one line.
+* **Tasks:** a task's steps are attributed under the call that started it.
+* **Depth:** a call path holds at most 256 frames. The calls past that are counted under
+  one `(deeper)` frame, the path's last, so neither deep recursion nor a long chain of
+  tasks makes the profile grow with the square of its depth.
+* **Total:** the profile's steps are the Run's `Result.Steps`, an `http.serve` included:
+  its `ready` closure, its handlers and the Run's tasks while it waits all count.
+
+`--profile-out <file>` writes the same profile in the folded-stack format that flame-graph
+tools read: one line per call path, its frames joined by `;`, then a space and the steps
+taken there. Either flag turns the profile on, and `--profile-out` alone prints nothing.
+A profile describes one run, so neither flag combines with `-n`, with the REPL, or with
+`--check`, `--tokens` and `--ast`, which do not run the program.
+
+`Options.Profile` asks a host's Run for the same data, as `Result.Profile`: the run's
+`Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Col`, `Self`, `Total`, `Calls`) and its
+`Stacks`. A Run that does not profile pays one nil check per step and per call.
 
 ---
 ## 16. Acceptance corpus
@@ -5375,7 +5433,7 @@ existed — a misspelling is a near-miss suggestion (§17), not a promise.
 
 ### 21.4 The one exception, while MAJOR is `0`
 
-The version is `0.1.0`. What a MAJOR of `0` buys is exactly one thing: the promise of §21.1
+The MAJOR is `0`. What a MAJOR of `0` buys is exactly one thing: the promise of §21.1
 may be broken **deliberately** — with a MINOR bump, a `CHANGELOG.md` entry that says what
 moved, and a diagnostic under §21.3 wherever a diagnostic can carry the reader across. So
 `0.2.0` may break a program `0.1.0` ran, and it has to say so in the changelog; `0.1.1` may
@@ -5393,6 +5451,13 @@ printing the previous release beside one printing this release is exactly the di
 worth catching. A version that means anything has to be the same version everywhere it is
 written down, and each copy of a string is another chance for it not to be, so the check is
 a build step rather than a habit.
+
+A version is released by landing it. When a commit on `main` passes CI and the version it
+prints has no published release yet, the release workflow (`.github/workflows/release.yml`)
+tags it `vX.Y.Z` and publishes a GitHub release whose notes are that version's
+`CHANGELOG.md` section, with an executable for each platform. A tag that already points at
+another commit is an error, not a release. A change that adds anything bumps the
+MINOR; one that only fixes bumps the PATCH.
 
 ---
 

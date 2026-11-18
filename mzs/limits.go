@@ -16,6 +16,9 @@ func (rs *runState) step(n int64) error {
 	// in runShared, is only ever touched by the goroutine holding the lock.
 	rs.sh.steps += n
 	rs.tick += int(n)
+	if rs.pnode != nil {
+		rs.pnode.self += n
+	}
 	if rs.tick < stepCheckInterval {
 		return nil
 	}
@@ -46,7 +49,18 @@ func (rs *runState) checkLimits() error {
 
 // enter charges one level of call depth. Recursion is bounded so the Go stack can
 // never overflow (§14.2).
-func (rs *runState) enter(fn string, line, col int) error {
+func (rs *runState) enter(fn string, line, col int, k profKey) error {
+	if err := rs.enterFrame(fn, line, col); err != nil {
+		return err
+	}
+	rs.profEnter(k)
+	return nil
+}
+
+// enterFrame is enter without the profile: the call depth and the stack frame only. A
+// task's body runs in the frame the async call already entered in the profile, so it
+// takes this one.
+func (rs *runState) enterFrame(fn string, line, col int) error {
 	rs.depth++
 	if rs.depth > rs.maxDepth {
 		rs.depth--
@@ -61,6 +75,12 @@ func (rs *runState) enter(fn string, line, col int) error {
 
 // leave undoes enter.
 func (rs *runState) leave() {
+	rs.leaveFrame()
+	rs.profLeave()
+}
+
+// leaveFrame undoes enterFrame.
+func (rs *runState) leaveFrame() {
 	if rs.depth > 0 {
 		rs.depth--
 	}

@@ -89,6 +89,7 @@ func (e ev) makeFunc(name string, params []ast.Param, body *ast.BlockStmt, lambd
 		Async:  async,
 		Frame:  frame,
 		file:   e.rs.file,
+		tree:   e.rs.tree,
 	})
 }
 
@@ -115,7 +116,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 	if err := e.rs.step(1); err != nil {
 		return Nil(), err
 	}
-	if err := e.rs.enter(f.Name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(f.Name, pos.Line, pos.Col, funcKey(f)); err != nil {
 		return Nil(), e.at(err, pos)
 	}
 	defer e.rs.leave()
@@ -159,10 +160,15 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 
 	// The frame above was pushed with the caller's file; the body — its defaults
 	// included — is the callee's code and runs with the callee's file current.
-	prev := e.rs.file
-	if f.file != "" && f.file != prev {
-		e.rs.file = f.file
-		defer func() { e.rs.file = prev }()
+	prev, prevTree := e.rs.file, e.rs.tree
+	if f.file != "" && f.file != prev || f.tree != nil && f.tree != prevTree {
+		if f.file != "" {
+			e.rs.file = f.file
+		}
+		if f.tree != nil {
+			e.rs.tree = f.tree
+		}
+		defer func() { e.rs.file, e.rs.tree = prev, prevTree }()
 	}
 	env, err := e.bindParams(f, args, named)
 	if err != nil {
@@ -497,7 +503,7 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 		e.rs.rootReset(m)
 		return Nil(), err
 	}
-	if err := e.rs.enter(b.Name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(b.Name, pos.Line, pos.Col, profKey{name: b.Name}); err != nil {
 		e.rs.rootReset(m)
 		return Nil(), e.at(err, pos)
 	}
@@ -866,7 +872,7 @@ func (e ev) invokeMethod(m Method, name string, recv Value, args []Value, pos to
 		e.rs.rootReset(mark)
 		return Nil(), err
 	}
-	if err := e.rs.enter(name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(name, pos.Line, pos.Col, profKey{name: "." + name}); err != nil {
 		e.rs.rootReset(mark)
 		return Nil(), err
 	}

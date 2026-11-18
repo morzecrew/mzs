@@ -20,12 +20,14 @@ mzs -e '"a,b,a".split(",").tally' --json        # {"a":2,"b":1}
 ```sh
 git clone https://github.com/morzecrew/mzs.git && cd mzs
 go install ./cmd/mzs           # → $(go env GOPATH)/bin/mzs
-mzs --version                  # mzs 0.1.0
+mzs --version                  # mzs 0.2.0
 ```
 
 Go 1.26 or newer, and nothing else. `CGO_ENABLED=0 go build -o bin/mzs ./cmd/mzs` gives one
-fully static binary you can copy anywhere. (The `-o` is required in a clone: the library
-package is the `mzs/` directory, so the default output name is taken.)
+standalone binary you can copy anywhere, fully static on Linux. (The `-o` is required in a clone: the library
+package is the `mzs/` directory, so the default output name is taken.) Or download a
+prebuilt executable for Linux, macOS or Windows from the
+[releases](https://github.com/morzecrew/mzs/releases), from `0.2.0` on.
 
 ## Run
 

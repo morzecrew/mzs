@@ -100,7 +100,7 @@ Every example is also exercised somewhere: 29 through the corpus suite, the rest
 ## One version string
 
 ```sh
-mzs --version      # mzs 0.1.0
+mzs --version      # mzs 0.2.0
 ```
 
 The `cli smoke` job also asserts that this string, the newest released section of

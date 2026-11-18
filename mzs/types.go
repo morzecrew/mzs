@@ -131,6 +131,9 @@ type Result struct {
 	// what a host reads to size Options.MaxMemory: 0 when the Run never walked, because
 	// it never came near the budget, or when the budget is disabled.
 	PeakMemory int64
+	// Profile is where the Run's steps went, by function and by call path (RFC 0019
+	// §4). It is nil unless Options.Profile is set.
+	Profile *Profile
 }
 
 // Func is a callable: a script `fn`, a `{ … }` closure literal, or a Go function
@@ -154,6 +157,11 @@ type Func struct {
 	// current file for the body, so an exported function's errors and frames name the
 	// module rather than whichever file called it (§8.11, §12.8).
 	file string
+	// tree is the program the function was written in. Its body is a part of that tree
+	// but does not keep the rest alive, and coverage counts a node only while its tree
+	// lives (RFC 0019 §3): holding it here keeps a function's hits counted for as long as the
+	// function can be called, in this Run or a later one it is handed to.
+	tree *ast.Program
 	// Frame is the number of local slots one invocation needs, from the compile pass.
 	// It mirrors Body.FrameSize for script functions and is 0 for host functions.
 	Frame int
@@ -252,10 +260,13 @@ func (e *Env) Len() int { return len(e.slots) }
 //
 // The evaluator owns this type's behaviour and may append fields.
 type runState struct {
-	in      *Interp
-	ctx     context.Context
-	opts    *Options
-	file    string
+	in   *Interp
+	ctx  context.Context
+	opts *Options
+	file string
+	// tree is the program whose code is running: the Run's own, a module's while its
+	// statements run, a function's while its body does. A function made here keeps it.
+	tree    *ast.Program
 	globals map[string]Value
 	stack   []Frame
 
@@ -282,14 +293,15 @@ type runState struct {
 	modules map[string]Value
 	// cov is Options.Coverage, or nil: read once per statement, so it is a field of
 	// its own rather than a load through opts.
-	cov     *Coverage
+	cov *Coverage
+	// pnode is where this Run, or this task, stands in the profile's call tree: nil when
+	// the Run does not profile. A task starts at the node of the call that spawned it.
+	pnode *profNode
+	// pdeep counts the calls open below profMaxDepth, all standing in one (deeper)
+	// node: 0 when the Run is above the bound.
+	pdeep   int
 	loading []string
 	exports []string
-
-	// srv is the http.serve loop running in this Run, or nil. It lives here because
-	// http.stop() is called from inside a handler and has to find the server it is
-	// nested in, and because one Run serves at most one listener (§12.9).
-	srv *httpServer
 
 	// roots is what this state is holding right now, for the memory walk (§14.2): the
 	// scopes that are executing, the arguments of the calls in progress, and the values

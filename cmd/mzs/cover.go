@@ -17,12 +17,18 @@ import (
 // what does the covering and are left out.
 
 // canonicalPath is the one spelling of a file both lists are compared in: the runner
-// names a test as it was typed, the loader names an include absolutely.
+// names a test as it was typed, the loader names an include absolutely, and either may
+// reach the file through a symbolic link. A path that cannot be resolved is compared as
+// written, made absolute.
 func canonicalPath(p string) string {
-	if abs, err := filepath.Abs(p); err == nil {
-		return filepath.Clean(abs)
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
 	}
-	return filepath.Clean(p)
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return filepath.Clean(abs)
 }
 
 // coveredFiles is the Coverage's files without the tests: the files this command ran

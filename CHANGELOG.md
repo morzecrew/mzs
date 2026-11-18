@@ -11,14 +11,36 @@ only one: a **deliberate** break bumps the MINOR and says here what moved (SPEC 
 version.
 
 `Unreleased` is what is on `main` and not in a version yet, so a host reading this page can
-tell what updating today would give it. A version section carries the date its tag was cut;
-`0.1.0` has none because no tag has been cut yet — it is the version `mzs --version` prints,
-and the release is still ahead of it.
+tell what updating today would give it. A version section carries the date its tag was cut.
+
+From `0.2.0` on, every version is a [GitHub release](https://github.com/morzecrew/mzs/releases).
+A change lands with its version: a pull request that adds anything bumps the MINOR, one that
+only fixes bumps the PATCH, and its entries go under the new version's section. When that
+commit passes CI on `main` and its version has no published release yet, the release workflow
+tags it `vX.Y.Z` and publishes the section as the release notes, with an `mzs` executable for
+Linux, macOS and Windows. A tag that already points at another commit stops the workflow
+instead; a release left as a draft is finished by re-running that commit's Release run
+(GitHub keeps re-runs for 30 days), or by running the workflow by hand while that commit is
+`main`'s tip. `0.1.0` was never tagged: `0.2.0` is the first release, and it carries
+everything since.
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.2.0 — 2026-11-18
+
 ### Added
 
+- **A step profile: `mzs --profile` and `Options.Profile`** (RFC 0019, part 4).
+  - `--profile` prints to stderr where a run's interpreter steps went, by function: its
+    own steps, the steps of everything it called, and its calls. Steps are what the
+    budget charges, so a run that takes the same path through the same input gives the
+    same profile on any machine.
+  - `--profile-out <file>` writes the profile as folded stacks, for flame-graph tools.
+  - For embedders: `Options.Profile` returns the same data as `Result.Profile`
+    (SPEC §15.5).
+  - A call path holds at most 256 frames; deeper calls count under one `(deeper)` frame.
 - **Coverage: `mzs test --cover` and `Options.Coverage`** (RFC 0019, part 3).
   - `--cover` prints, after the summary, the statement coverage of every file the tests
     included, with the lines that did not run. The test files are left out.
@@ -227,6 +249,26 @@ and the release is still ahead of it.
 
 ### Fixed
 
+- **A task could start a second `http.serve` in the same Run.** A task started before the
+  server did not see it, so its own serve passed the one-listener check (§12.9) and ran
+  beside it. The check now covers every task of the Run, and so does `http.stop()`.
+- **A task could not serve after the server it was started from stopped.** A task started
+  by a handler kept its own copy of the running server, so its `http.serve`, after that
+  server had stopped, was refused as "already running". The server is now the Run's, not a
+  task's.
+- **Going over `MaxMemory` in an `http.serve` handler did not end the Run.** It was answered
+  as an ordinary handler error, a 500, and the server kept going with the live set still
+  over the limit. The step budget and the deadline are a request's; the live set is the
+  Run's, so it now ends the Run with `ErrMemory` (503 to that request), as it does anywhere
+  else (§14.2).
+- **A task that went over `MaxMemory` ended the Run only if it was awaited.** A task the
+  program never awaited kept the error to itself, and the Run reported success. It now ends
+  the Run with `ErrMemory`, awaited or not, unless the script cancelled the task (§14.2).
+- **`http.stop()` from a task did not stop a server that was waiting.** It took effect only
+  at the next request. The loop now wakes for it, and a request handed over in the same
+  instant is answered 503, not run after the stop.
+- **`http.serve` dropped steps from `Result.Steps`.** The steps of its `ready` closure,
+  and of the Run's tasks while it waited, are now counted with the handlers'.
 - **A write into a module stays in the Run that made it.** A module is a dict a script may
   write to, and `include` handed every interpreter in the process the same built-in table:
   `json["parse"] = 1` in one Run broke `json.parse` in every interpreter after it, and a

@@ -35,7 +35,14 @@ res.Globals  // map[string]mzs.Value — final $vars, keys '$'-prefixed, incl. o
 res.Steps    // int64 — interpreter steps charged
 res.Elapsed  // time.Duration
 res.Tests    // []mzs.TestCase — one per `test.case`, in the order they ran; empty otherwise
+res.Profile  // *mzs.Profile — where the steps went, when Options.Profile is set; nil otherwise
 ```
+
+`Options.Profile` asks for the step profile `mzs --profile` prints. The profile has the
+run's `Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Col`, `Self`, `Total`, `Calls`,
+and `Label()`) and its `Stacks` in the folded form. Steps are the unit the budget charges,
+so two runs that take the same path through the same input give the same profile; a
+branch on the clock or a random number, or a timeout, can change the path.
 
 `res.Globals` is how a script hands values back: assigning `$total = …` in the script makes
 `res.Globals["$total"]` readable afterwards.
@@ -106,6 +113,7 @@ not allow network access calls `Unregister("http")`, see
 | `Env` | `nil` | answers `io.env`; nil means every name is unset |
 | `Location` | `time.UTC` | default zone for `strftime`/`in_time_zone` |
 | `Coverage` | `nil` | counts the statements and branches each Run executes; see below |
+| `Profile` | `false` | records where each Run's steps go, as `Result.Profile` |
 
 `mzs.DefaultOptions()` returns the same values explicitly. `in.Options()` returns the
 normalised set the interpreter actually runs with. `http` is the one module installed

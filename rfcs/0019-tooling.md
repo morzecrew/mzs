@@ -1,6 +1,6 @@
 # RFC 0019 — Tooling: lint, doc comments, coverage, profile, and the rest of the LSP
 
-**Status:** Partly landed: §1 (#37), §2 (#38), §3 (#39) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
+**Status:** Partly landed: §1 (#37), §2 (#38), §3 (#39), §4 (#40) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
 
 ## Summary
 
@@ -236,7 +236,7 @@ Decisions:
 ### Part 3: coverage (#39)
 
 §3 landed in `mzs/coverage.go`, `mzs/eval.go` and `cmd/mzs/cover.go`, with SPEC §13.2 and
-§15.2, `docs/cli/tools.md` and `docs/embedding/README.md`. §4 and §5 are still to come.
+§15.2, `docs/cli/tools.md` and `docs/embedding/README.md`.
 Decisions:
 
 * **A file is registered when a Run starts it, not when it compiles.** `runProgram` is
@@ -275,3 +275,37 @@ Decisions:
   coverage only under `mzs test`.
 * **Carried from part 2:** a reassignment declares nothing for `mzs doc`. `x = 2` after
   `x = 1` is not listed, and its comment does not document the first binding.
+
+### Part 4: profile (#40)
+
+§4 landed in `mzs/profile.go`, `mzs/limits.go` and `cmd/mzs/profile.go`, with SPEC §15.5,
+`docs/cli/README.md` and `docs/embedding/README.md`. §5 is still to come. Decisions:
+
+* **A call tree on the step counter.** The Run keeps a tree of the call paths it took.
+  `enter` moves to the callee's child and `leave` moves back. Every `step(n)` adds `n` to
+  the node the Run stands on, so the profile's steps are exactly `Result.Steps`.
+  * **Report:** the tree is folded into functions and into the stacks of the folded
+    format.
+  * **Recursion:** a recursive function adds a subtree to its total only at its
+    outermost frame, so its steps count once.
+* **What a function is.**
+  * A script function or closure is identified by its name and the line its body starts
+    on.
+  * A builtin or host function is identified by its name; a method by `.name`.
+  * The program is `(top level)`, and each module run is an `(include)` frame under the
+    include that ran it.
+  * The frames of RFC 0009 record the call site, not the definition, which is why the
+    profile keeps an identity of its own.
+* **Tasks** start at the node of the call that spawned them. The tree belongs to the
+  Run, and is only touched under the Run's lock, as the step counter is.
+* **`--profile` prints and `--profile-out` writes.** Either turns the profile on, and
+  `--profile-out` alone stays quiet for a CI job. The table shows 25 rows and sums the
+  rest on one line.
+* **No `-n`.** A profile describes one run. Combining a line-mode run's profiles is left
+  for a later need; until then the flags are a usage error with `-n`.
+* **Carried from part 3:**
+  * **Releasing trees:** `Coverage` now keys node slots by address and drops a tree's
+    slots with a runtime cleanup when the tree is collected, so a long-lived host no
+    longer keeps every compiled tree.
+  * **Linked test files:** `mzs test --cover` resolves symbolic links before it leaves
+    test files out.

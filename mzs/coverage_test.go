@@ -3,7 +3,10 @@ package mzs
 import (
 	"context"
 	"reflect"
+	"runtime"
 	"testing"
+	"time"
+	"weak"
 
 	"mzs/internal/ast"
 )
@@ -170,4 +173,238 @@ func TestCoverageKeepsTextsApart(t *testing.T) {
 			t.Errorf("unexpected file %+v", f)
 		}
 	}
+}
+
+// A tree nothing holds any more is collected, and its node slots go with it; the counts
+// it made stay with its file.
+func TestCoverageReleasesCollectedTrees(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1 // every Eval compiles a tree of its own and drops it
+	in := New(o)
+	const runs = 50
+	for range runs {
+		if _, err := in.Eval(context.Background(), "x = 1\ny = 2\nx + y", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for cov.bindings() > 3 && time.Now().Before(deadline) {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := cov.bindings(); n > 3 {
+		t.Errorf("%d node slots after %d dropped trees, want at most one tree's 3", n, runs)
+	}
+	files := cov.Files()
+	if len(files) != 1 || files[0].Lines[0].Hits != runs {
+		t.Errorf("files = %+v, want one file whose lines ran %d times", files, runs)
+	}
+}
+
+// A tree's cleanup can run after its address went to a newer tree. The newer tree is
+// registered all the same, and the late cleanup leaves its slots alone.
+func TestCoverageSurvivesAReusedTreeAddress(t *testing.T) {
+	in := New(DefaultOptions())
+	p, err := in.Compile("r.mzs", "x = 1\ny = 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := p.tree()
+	cov := NewCoverage()
+	cov.register("r.mzs", "x = 1\ny = 2", tree)
+	if n := cov.bindings(); n != 2 {
+		t.Fatalf("%d slots, want 2", n)
+	}
+	addr := addrOf(tree)
+
+	// What a dead tree at this address would have left behind: an entry whose weak
+	// pointer no longer answers this tree, and a cleanup still to come.
+	stale := cov.trees[addr]
+	other := &ast.Program{}
+	cov.trees[addr] = treeReg{weak.Make(other), stale.gen}
+	cov.register("r.mzs", "x = 1\ny = 2", tree)
+	if cov.trees[addr].gen == stale.gen {
+		t.Fatal("a tree at an address an older one held was not registered")
+	}
+	var keys []slotKey
+	for k := range cov.slots {
+		keys = append(keys, k)
+	}
+	cov.release(treeKeys{addr, stale.gen, keys})
+	if n := cov.bindings(); n != 2 {
+		t.Errorf("the older tree's cleanup removed the newer one's slots: %d left", n)
+	}
+	if _, ok := cov.trees[addr]; !ok {
+		t.Error("the older tree's cleanup unregistered the newer one")
+	}
+	runtime.KeepAlive(other)
+	runtime.KeepAlive(tree)
+}
+
+// A binding counts only while its tree lives. A node freed with its tree can have
+// its address reused before the tree's cleanup runs; what runs there must not count
+// for the dead tree.
+func TestCoverageCountsNothingForADeadTree(t *testing.T) {
+	in := New(DefaultOptions())
+	p, err := in.Compile("d.mzs", "x = 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := p.tree()
+	cov := NewCoverage()
+	cov.register("d.mzs", "x = 1", tree)
+	stmt := tree.Stmts[0]
+	cov.hit(stmt, -1)
+	dead := deadTree(t)
+	for k, b := range cov.slots {
+		b.tree = dead
+		cov.slots[k] = b
+	}
+	cov.hit(stmt, -1)
+	if hits := cov.Files()[0].Lines[0].Hits; hits != 1 {
+		t.Errorf("line hits = %d, want 1: a dead tree's binding counted", hits)
+	}
+	runtime.KeepAlive(tree)
+}
+
+// deadTree is a weak pointer whose tree has been collected.
+func deadTree(t *testing.T) weak.Pointer[ast.Program] {
+	t.Helper()
+	w := func() weak.Pointer[ast.Program] { return weak.Make(&ast.Program{}) }()
+	for i := 0; i < 20 && w.Value() != nil; i++ {
+		runtime.GC()
+	}
+	if w.Value() != nil {
+		t.Skip("the collector kept a dropped tree")
+	}
+	return w
+}
+
+// A module's tree is out of the loader's hands once its statements have run, but its
+// functions can still be called: the Run keeps every tree it registered alive, so a
+// collection between the include and the call loses no count.
+func TestCoverageKeepsAModulesTreeForItsRun(t *testing.T) {
+	cov := NewCoverage()
+	src := &modSource{files: map[string]string{"lib": "export fn f(n) {\n  n + 1\n}\n"}}
+	o := DefaultOptions()
+	o.ModuleLoader = src.loader()
+	o.Coverage = cov
+	o.ProgramCache = -1
+	in := New(o)
+	in.Register("__gc", 0, func(c *Ctx, args []Value) (Value, error) {
+		for range 5 {
+			runtime.GC()
+		}
+		return Nil(), nil
+	})
+	p, err := in.Compile("main.mzs", "include lib from \"lib\"\n__gc()\nlib.f(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, nil); err != nil {
+		t.Fatal(err)
+	}
+	f := coveredFile(t, cov, "lib")
+	if f.StatementsRun != f.Statements || lineHits(f, 2) != 1 {
+		t.Errorf("lib ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
+	}
+}
+
+// A function handed from one Run to a later one keeps its program's tree: the host
+// may drop the program, and the later call is still counted.
+func TestCoverageFollowsAFunctionIntoALaterRun(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1
+	in := New(o)
+	fn := func() Value {
+		p, err := in.Compile("one.mzs", "fn f(n) {\n  n + 1\n}\nf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := in.Run(context.Background(), p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}()
+	for range 5 {
+		runtime.GC()
+	}
+	p, err := in.Compile("two.mzs", "$g(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, map[string]Value{"$g": fn}); err != nil {
+		t.Fatal(err)
+	}
+	// Line 2 is f's body: the first Run only defines f, so its one hit is the later
+	// Run's call.
+	f := coveredFile(t, cov, "one.mzs")
+	if f.StatementsRun != f.Statements || lineHits(f, 2) != 1 {
+		t.Errorf("one.mzs ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
+	}
+}
+
+// A record constructor keeps its program's tree as a function does: its field defaults
+// are counted when a later Run calls it, after the program was dropped.
+func TestCoverageFollowsARecordIntoALaterRun(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1
+	in := New(o)
+	ctor := func() Value {
+		p, err := in.Compile("rec.mzs", "record P(x, y = x > 0 ? 1 : 2)\nP")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := in.Run(context.Background(), p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}()
+	for range 5 {
+		runtime.GC()
+	}
+	p, err := in.Compile("use.mzs", "$P(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, map[string]Value{"$P": ctor}); err != nil {
+		t.Fatal(err)
+	}
+	if f := coveredFile(t, cov, "rec.mzs"); f.BranchesTaken != 1 {
+		t.Errorf("rec.mzs took %d of %d branches: %+v", f.BranchesTaken, f.Branches, f.BranchHits)
+	}
+}
+
+// lineHits is the count of a line, or -1 when it holds no statement.
+func lineHits(f FileCoverage, line int) int {
+	for _, l := range f.Lines {
+		if l.Line == line {
+			return l.Hits
+		}
+	}
+	return -1
+}
+
+// coveredFile is the one report of the file name, failing the test when there is none:
+// a file the Coverage never registered must not pass for one whose counts are right.
+func coveredFile(t *testing.T, cov *Coverage, name string) FileCoverage {
+	t.Helper()
+	var found []FileCoverage
+	for _, f := range cov.Files() {
+		if f.File == name {
+			found = append(found, f)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d reports of %s in %+v", len(found), name, cov.Files())
+	}
+	return found[0]
 }

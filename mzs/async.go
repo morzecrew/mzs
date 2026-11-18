@@ -57,6 +57,14 @@ type runShared struct {
 	// steps is the Run's budget counter. Tasks spend from it too: what the Run may do is
 	// bounded by §14.1 no matter how many goroutines it does it on.
 	steps int64
+	// prof is the root of the profile's call tree when Options.Profile is set. Every
+	// task adds to it, under the lock, as the step counter is.
+	prof *profNode
+	// srv is the http.serve loop running in this Run, or nil. It is the Run's, not a
+	// state's: a task forked before the serve must see it to be refused a second
+	// listener (§12.9) and to reach it with http.stop(), and a task forked during it
+	// must not keep a copy that outlives the loop.
+	srv *httpServer
 
 	wg   sync.WaitGroup
 	live int // tasks started and not yet finished, against Options.MaxTasks
@@ -156,6 +164,9 @@ type task struct {
 	err  error
 	fin  bool
 	read bool // true once something awaited it, which is what makes a failure someone's
+	// delivered is true once an await handed this task's error to a caller. read is set
+	// before the wait, so a wait that expired (t.timeout) leaves it set and this unset.
+	delivered bool
 
 	// stop ends the task's own context, and canceled records that the *script* asked for
 	// it — `t.cancel`, or the losers of `tasks.race` (§12.12). The two are separate
@@ -428,6 +439,20 @@ func (rs *runState) drainTasks() {
 	_ = rs.waitFor(waited)
 }
 
+// unawaitedMemoryError is the first ErrMemory that no await handed to a caller, or nil:
+// a task nobody awaited, or one whose only wait expired before it failed.
+// The tasks must be joined, so that the list is final. A task the script cancelled
+// counts too when what it ended on is ErrMemory and not the cancel: it may have taken
+// that error from a task it awaited, and the live set it names is still the Run's.
+func (rs *runState) unawaitedMemoryError() error {
+	for _, t := range rs.sh.all {
+		if t.err != nil && !t.delivered && errors.Is(t.err, ErrMemory) {
+			return t.err
+		}
+	}
+	return nil
+}
+
 // reportUnawaited writes the errors nobody asked for to Stderr. A task whose value was
 // never awaited swallows its failure otherwise, and a script that fires one off for its
 // effect deserves to learn that the effect did not happen. Limit errors are the one thing
@@ -473,12 +498,15 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 	// (`async fn f(x = g())`) is the *caller's* code and must not run beside it.
 	// Its defaults are the callee's code, so they run with the callee's file current; a
 	// failure of the call itself is the caller's, and is positioned in the caller's file.
-	prev := rs.file
+	prev, prevTree := rs.file, rs.tree
 	if f.file != "" {
 		rs.file = f.file
 	}
+	if f.tree != nil {
+		rs.tree = f.tree
+	}
 	env, err := e.bindParams(f, args, named)
-	rs.file = prev
+	rs.file, rs.tree = prev, prevTree
 	if err != nil {
 		return Nil(), e.atCall(err, pos)
 	}
@@ -542,15 +570,21 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 // `return`, `next` and a `break` that escaped all end the task with their value rather
 // than travelling further (§8.10).
 func (e ev) runTaskBody(f *Func, pos token.Pos) (Value, error) {
-	if err := e.rs.enter(f.Name, pos.Line, pos.Col); err != nil {
+	// invoke entered f in the profile before it spawned the task, and the task forked
+	// from there: it already stands in f's node, so entering again would count the call
+	// twice and nest f under itself.
+	if err := e.rs.enterFrame(f.Name, pos.Line, pos.Col); err != nil {
 		return Nil(), e.at(err, pos)
 	}
-	defer e.rs.leave()
+	defer e.rs.leaveFrame()
 	if f.Body == nil {
 		return Nil(), nil
 	}
 	if f.file != "" {
 		e.rs.file = f.file
+	}
+	if f.tree != nil {
+		e.rs.tree = f.tree
 	}
 	v, err := e.execStmts(f.Body.Stmts)
 	if err == nil {
@@ -585,6 +619,7 @@ func (e ev) awaitTask(t *task, pos token.Pos) (Value, error) {
 		// program made that decision and may want to handle it, so what the await raises
 		// is an ordinary catchable error rather than the uncatchable limit the task
 		// itself ended on (§8.11).
+		t.delivered = true
 		if t.canceled && errors.Is(t.err, ErrCanceled) {
 			return Nil(), e.at(newError(ErrKindCanceled, "%s was canceled", t.label()), pos)
 		}

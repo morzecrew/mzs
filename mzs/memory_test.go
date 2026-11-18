@@ -388,3 +388,69 @@ func TestMemoryBudgetCutsCopy(t *testing.T) {
 		}
 	}
 }
+
+// Moving the step counter, as http.serve does per request, keeps the memory charge in
+// step: what was owed stays owed, and nothing already charged is charged again.
+func TestSetStepsKeepsTheMemoryChargeOwed(t *testing.T) {
+	sh := &runShared{steps: 500, memSteps: 300} // 200 steps not yet charged
+	sh.setSteps(0)
+	if owed := sh.steps - sh.memSteps; owed != 200 {
+		t.Errorf("after a reset %d steps are owed, want 200", owed)
+	}
+	sh.steps += 50
+	sh.setSteps(1000) // the Run's total, restored
+	if owed := sh.steps - sh.memSteps; owed != 250 {
+		t.Errorf("after a restore %d steps are owed, want 250", owed)
+	}
+}
+
+// The live set is the Run's: a task that goes over MaxMemory ends the Run with
+// ErrMemory whether or not the program awaits it (§14.2). Without that, a task nobody
+// awaited would keep the limit to itself, and the Run would report success.
+func TestMemoryBudgetEndsTheRunFromAnUnawaitedTask(t *testing.T) {
+	t.Parallel()
+	o := DefaultOptions()
+	o.MaxMemory = 1 << 20
+	_, err := memRun(t, New(o), `async fn hog() { s = "x" * 3000000; s.len }
+hog()
+"done"`, nil)
+	wantMemoryError(t, err)
+
+	// A task the script cancelled ended on the cancel, not on the budget.
+	_, err = memRun(t, New(o), `async fn hog() { s = "x" * 3000000; s.len }
+t = hog()
+t.cancel
+"done"`, nil)
+	if err != nil {
+		t.Fatalf("a cancelled task failed the Run: %v", err)
+	}
+
+	// A wait that expired handed the caller a timeout, not the memory error that came
+	// after it: the Run still ends with ErrMemory. The task is held at a gate that only
+	// the timeout's handler opens, so the wait cannot see the task finish first.
+	in := New(o)
+	gate := make(chan struct{})
+	in.Register("__gate", 0, func(c *Ctx, args []Value) (Value, error) {
+		c.Blocking(func() {
+			select {
+			case <-gate:
+			case <-time.After(5 * time.Second):
+			}
+		})
+		return Nil(), nil
+	})
+	timedOut := false
+	in.Register("__open", 0, func(c *Ctx, args []Value) (Value, error) {
+		timedOut = true
+		close(gate)
+		return Nil(), nil
+	})
+	_, err = memRun(t, in, `async fn hog() { __gate(); s = "x" * 3000000; s.len }
+t = hog()
+try t.timeout(0.001) else (e) -> __open()
+"done"`, nil)
+	if !timedOut {
+		t.Fatal("the wait did not time out")
+	}
+	wantMemoryError(t, err)
+}

@@ -1,0 +1,278 @@
+name: Release
+
+# A version is released by landing it, not by a hand pushing a tag. When a commit on main
+# passes CI and the version it prints (`mzs --version`, SPEC §21.5) has no published
+# release yet, this tags the commit `vX.Y.Z` and publishes a GitHub release: the
+# version's CHANGELOG.md section as the notes, an mzs executable for each platform, and
+# their checksums. The Linux builds are fully static; the macOS and Windows builds need
+# nothing but the operating system. A version that is released already releases
+# nothing, so every push to main may run this safely.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # A manual retry releases main's tip, once its CI passed. To finish the release of an
+  # older commit, re-run that commit's own Release run from the Actions tab (GitHub
+  # keeps re-runs for 30 days): it releases the commit it was started for.
+  workflow_dispatch:
+
+# Each job declares what it uses; nothing has write access by default.
+permissions:
+  contents: read
+
+# A step with no shell runs as `bash -e`, without pipefail, so a failed read at the
+# head of a pipeline would pass as an empty one. Naming bash runs every step as
+# `bash --noprofile --norc -eo pipefail`, which the steps below rely on.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Which version this commit is, and whether it may be released at all. It is a job of
+  # its own so the release job below can be serialized by version.
+  version:
+    name: version
+    permissions:
+      contents: read
+      actions: read
+    # A workflow_run fires for failures too: only a green push to main releases.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    env:
+      # The commit CI tested, not whatever main points at by now.
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      # A manual run releases only what an automatic one would: a commit on main whose
+      # own push run of CI passed.
+      - name: a manual run is for a green main commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "run this from main, not $GITHUB_REF"
+            exit 1
+          fi
+          green=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+            --event push --commit "$SHA" --status success --json databaseId --jq length)
+          if [ "$green" = 0 ]; then
+            echo "CI has not passed on a push of $SHA to main"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: the version this commit prints
+        id: version
+        run: |
+          go build -o /tmp/mzs ./cmd/mzs
+          printed=$(/tmp/mzs --version)                 # "mzs 0.2.0"
+          echo "number=${printed#mzs }" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: release
+    needs: version
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    # One group per version: a run never cancels a run for another version, which would
+    # skip it, and two commits that print one version publish it once — the second
+    # waits, then finds it published and does nothing.
+    concurrency:
+      group: release-v${{ needs.version.outputs.number }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # A published release is done. A draft is one that failed half-way: it is
+      # finished below, with its assets uploaded again. A tag that points at another
+      # commit is an error, never a release of this commit's binaries.
+      - name: the release to make
+        id: version
+        env:
+          NUMBER: ${{ needs.version.outputs.number }}
+        run: |
+          number=$NUMBER
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          # Every release, drafts included, is listed in one read. A failed read stops
+          # the run (bash -e) rather than reading as "no release": only a list that
+          # was read whole and has no v$number in it is a release still to make.
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | (if .draft then "draft" else "published" end) + " " + .tag_name')
+          if grep -qxF "published v$number" <<<"$releases"; then
+            state=published
+          elif grep -qxF "draft v$number" <<<"$releases"; then
+            state=draft
+          else
+            state=none
+          fi
+          if [ "$state" = published ]; then
+            echo "v$number is released already; nothing to do"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tagged=$(git rev-parse -q --verify "refs/tags/v$number^{commit}" || true)
+          if [ -n "$tagged" ] && [ "$tagged" != "$SHA" ]; then
+            echo "v$number already tags $tagged, not $SHA; bump the version or move the tag by hand"
+            exit 1
+          fi
+          echo "new=true" >> "$GITHUB_OUTPUT"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      # The notes are the version's own section of the changelog, without its heading:
+      # the release title says the version already.
+      - name: release notes
+        if: steps.version.outputs.new == 'true'
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+        run: |
+          awk -v v="$NUMBER" '
+            $0 ~ "^## " { if (found) exit; if ($2 == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > /tmp/notes.md
+          if ! grep -q '[^[:space:]]' /tmp/notes.md; then
+            echo "CHANGELOG.md has no section for $NUMBER"
+            exit 1
+          fi
+
+      # No cgo, nothing to install at run time (I1).
+      - name: executables
+        if: steps.version.outputs.new == 'true'
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            name="mzs-$NUMBER-$os-$arch"
+            exe=mzs; [ "$os" = windows ] && exe=mzs.exe
+            mkdir -p "/tmp/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+              go build -trimpath -ldflags="-s -w" -o "/tmp/$name/$exe" ./cmd/mzs
+            cp LICENSE README.md CHANGELOG.md "/tmp/$name/"
+            if [ "$os" = windows ]; then
+              (cd /tmp && zip -qr "$GITHUB_WORKSPACE/dist/$name.zip" "$name")
+            else
+              tar -C /tmp -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      # The tag is made first, at $SHA, by creating the ref: GitHub refuses to create a
+      # ref that exists, so a tag someone pushed meanwhile is never overwritten, and a
+      # tag at another commit stops the run before anything is published. The release
+      # is then published onto that tag only (--verify-tag), never onto a new one.
+      - name: publish
+        if: steps.version.outputs.new == 'true'
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+          STATE: ${{ steps.version.outputs.state }}
+        run: |
+          # The commit the tag v$NUMBER names, or nothing when there is no such tag.
+          # ls-remote matches a pattern against the tail of a ref, so the ref field
+          # is compared whole: a branch of that name, a v$NUMBER-rc tag or a nested
+          # refs/tags/x/v$NUMBER is not it. An annotated tag is peeled (^{}) to its
+          # commit. A failed
+          # read returns 1 (bash -e does not reach inside $(…)), and every caller
+          # assigns the result, so the run stops there instead of reading the failure
+          # as a missing tag.
+          tag_target() {
+            refs=$(git ls-remote --tags origin "refs/tags/v$NUMBER" "refs/tags/v$NUMBER^{}") ||
+              return 1
+            peeled=$(awk -v ref="refs/tags/v$NUMBER^{}" '$2 == ref { print $1 }' <<<"$refs")
+            if [ -n "$peeled" ]; then
+              echo "$peeled"
+            else
+              awk -v ref="refs/tags/v$NUMBER" '$2 == ref { print $1; exit }' <<<"$refs"
+            fi
+          }
+          tagged=$(tag_target)
+          if [ -z "$tagged" ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/v$NUMBER" -f sha="$SHA" >/dev/null ||
+              echo "v$NUMBER could not be created; checking who made it"
+            tagged=$(tag_target)
+          fi
+          if [ "$tagged" != "$SHA" ]; then
+            echo "v$NUMBER tags ${tagged:-nothing}, not $SHA; not publishing $SHA's executables"
+            exit 1
+          fi
+          if [ "$STATE" = draft ]; then
+            # Replacing a draft's assets is finishing it; a release published meanwhile
+            # is someone else's, and its assets are left alone.
+            now=$(gh release view "v$NUMBER" --json isDraft --jq .isDraft)
+            if [ "$now" != true ]; then
+              echo "v$NUMBER was published while this ran; leaving its assets unchanged"
+              exit 1
+            fi
+            gh release upload "v$NUMBER" dist/* --clobber
+            gh release edit "v$NUMBER" --title "mzs $NUMBER" \
+              --notes-file /tmp/notes.md --draft=false --latest=false
+          else
+            gh release create "v$NUMBER" dist/* \
+              --verify-tag \
+              --title "mzs $NUMBER" \
+              --notes-file /tmp/notes.md \
+              --latest=false
+          fi
+
+  # "Latest" is the newest version published, never whichever was published last, so
+  # releases are published without it and it is set here. The read and the update are
+  # serialized across every version by one group: the Latest mark is one value for the
+  # whole repository. A run queued behind this group may be replaced by a newer one,
+  # and nothing is lost by that: what it would have done is read the list and mark its
+  # newest, and the run that replaced it does the same after it. It also runs when
+  # there was nothing to publish, so a re-run repairs a mark a failed run left behind.
+  latest:
+    name: latest
+    needs: release
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Only a vX.Y.Z tag is a version: another release (v9999-tools) never takes the
+      # mark.
+      - name: mark the newest published release Latest
+        run: |
+          newest=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+              --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' |
+            sed -n -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort -V | tail -n 1)
+          if [ -z "$newest" ]; then
+            echo "no published release yet"
+            exit 0
+          fi
+          gh release edit "v$newest" --latest
