@@ -5449,9 +5449,10 @@ written down, and each copy of a string is another chance for it not to be, so t
 a build step rather than a habit.
 
 A version is released by landing it. When a commit on `main` passes CI and the version it
-prints has no tag yet, the release workflow (`.github/workflows/release.yml`) tags it
-`vX.Y.Z` and publishes a GitHub release whose notes are that version's `CHANGELOG.md`
-section, with a static binary for each platform. A change that adds anything bumps the
+prints has no published release yet, the release workflow (`.github/workflows/release.yml`)
+tags it `vX.Y.Z` and publishes a GitHub release whose notes are that version's
+`CHANGELOG.md` section, with an executable for each platform. A tag that already points at
+another commit is an error, not a release. A change that adds anything bumps the
 MINOR; one that only fixes bumps the PATCH.
 
 ---

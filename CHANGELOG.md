@@ -13,12 +13,15 @@ version.
 `Unreleased` is what is on `main` and not in a version yet, so a host reading this page can
 tell what updating today would give it. A version section carries the date its tag was cut.
 
-Every version is a [GitHub release](https://github.com/morzecrew/mzs/releases). A change lands
-with its version: a pull request that adds anything bumps the MINOR, one that only fixes
-bumps the PATCH, and its entries go under the new version's section. When that commit passes
-CI on `main`, the release workflow tags it `vX.Y.Z` and publishes the section as the release
-notes, with a static `mzs` binary for Linux, macOS and Windows. `0.1.0` was never tagged:
-`0.2.0` is the first release, and it carries everything since.
+From `0.2.0` on, every version is a [GitHub release](https://github.com/morzecrew/mzs/releases).
+A change lands with its version: a pull request that adds anything bumps the MINOR, one that
+only fixes bumps the PATCH, and its entries go under the new version's section. When that
+commit passes CI on `main` and its version has no published release yet, the release workflow
+tags it `vX.Y.Z` and publishes the section as the release notes, with an `mzs` executable for
+Linux, macOS and Windows. A tag that already points at another commit stops the workflow
+instead; a release left as a draft is finished by the next run, or by running the workflow
+by hand on `main`. `0.1.0` was never tagged: `0.2.0` is the first release, and it carries
+everything since.
 
 ## Unreleased
 
@@ -245,6 +248,9 @@ Nothing yet.
 
 ### Fixed
 
+- **A task could start a second `http.serve` in the same Run.** A task started before the
+  server did not see it, so its own serve passed the one-listener check (§12.9) and ran
+  beside it. The check now covers every task of the Run.
 - **`http.serve` dropped steps from `Result.Steps`.** The steps of its `ready` closure,
   and of the Run's tasks while it waited, are now counted with the handlers'.
 - **A write into a module stays in the Run that made it.** A module is a dict a script may

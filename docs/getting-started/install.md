@@ -4,9 +4,10 @@ How to build the `mzs` binary and every way to hand it a program.
 
 ## Download
 
-Every version is a [GitHub release](https://github.com/morzecrew/mzs/releases) with a static
-binary for Linux, macOS and Windows (amd64 and arm64), and a `SHA256SUMS` file to check them
-against. Unpack the archive and put `mzs` on your `PATH`; it needs nothing else.
+From `0.2.0` on, every version is a [GitHub release](https://github.com/morzecrew/mzs/releases)
+with a standalone `mzs` executable for Linux, macOS and Windows (amd64 and arm64), and a
+`SHA256SUMS` file to check them against. The Linux builds are fully static; the others need
+nothing but the operating system. Unpack the archive and put `mzs` on your `PATH`.
 
 ## Build
 

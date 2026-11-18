@@ -306,7 +306,8 @@ func TestCoverageKeepsAModulesTreeForItsRun(t *testing.T) {
 	if _, err := in.Run(context.Background(), p, nil); err != nil {
 		t.Fatal(err)
 	}
-	if f := coveredFile(t, cov, "lib"); f.StatementsRun != f.Statements {
+	f := coveredFile(t, cov, "lib")
+	if f.StatementsRun != f.Statements || lineHits(f, 2) != 1 {
 		t.Errorf("lib ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
 	}
 }
@@ -340,7 +341,10 @@ func TestCoverageFollowsAFunctionIntoALaterRun(t *testing.T) {
 	if _, err := in.Run(context.Background(), p, map[string]Value{"$g": fn}); err != nil {
 		t.Fatal(err)
 	}
-	if f := coveredFile(t, cov, "one.mzs"); f.StatementsRun != f.Statements {
+	// Line 2 is f's body: the first Run only defines f, so its one hit is the later
+	// Run's call.
+	f := coveredFile(t, cov, "one.mzs")
+	if f.StatementsRun != f.Statements || lineHits(f, 2) != 1 {
 		t.Errorf("one.mzs ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
 	}
 }
@@ -377,6 +381,16 @@ func TestCoverageFollowsARecordIntoALaterRun(t *testing.T) {
 	if f := coveredFile(t, cov, "rec.mzs"); f.BranchesTaken != 1 {
 		t.Errorf("rec.mzs took %d of %d branches: %+v", f.BranchesTaken, f.Branches, f.BranchHits)
 	}
+}
+
+// lineHits is the count of a line, or -1 when it holds no statement.
+func lineHits(f FileCoverage, line int) int {
+	for _, l := range f.Lines {
+		if l.Line == line {
+			return l.Hits
+		}
+	}
+	return -1
 }
 
 // coveredFile is the one report of the file name, failing the test when there is none:

@@ -644,10 +644,32 @@ func TestHTTPServeCountsEveryStep(t *testing.T) {
 	if o.err != nil {
 		t.Fatal(o.err)
 	}
-	if o.res.Profile == nil || o.res.Steps != o.res.Profile.Steps {
+	if o.res.Profile == nil {
+		t.Fatal("no profile with Options.Profile set")
+	}
+	if o.res.Steps != o.res.Profile.Steps {
 		t.Errorf("Result.Steps = %d, Profile.Steps = %+v", o.res.Steps, o.res.Profile)
 	}
-	if _, ok := funcNamed(o.res.Profile, "later server:4"); !ok {
-		t.Errorf("the task between requests is not in the profile: %+v", o.res.Profile.Funcs)
+	if later, ok := funcNamed(o.res.Profile, "later server:4"); !ok || later.Self == 0 {
+		t.Errorf("the task between requests took no steps of its own: %+v (found %v)", later, ok)
+	}
+}
+
+// One Run serves at most one listener (§12.9), from whichever of its tasks: a task
+// started before the server is not let past the check by the state it was forked from.
+func TestHTTPServeIsSingleUsePerRunAcrossTasks(t *testing.T) {
+	t.Parallel()
+
+	s := startServer(t, `
+		include http
+		async fn second() { http.serve("127.0.0.1:0", {"GET /x": { (r) -> "x" }}) }
+		t = second()
+		http.serve("127.0.0.1:0", {"GET /quit": { (req) -> http.stop(); "bye" }}, { (u) -> __ready(u) })
+		t.await
+	`, netOpts())
+	do(t, "GET", s.url+"/quit", "")
+	err := s.wait(t)
+	if err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("Run: %v; want the task's serve refused as already running", err)
 	}
 }

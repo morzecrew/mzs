@@ -1,29 +1,35 @@
 name: Release
 
 # A version is released by landing it, not by a hand pushing a tag. When a commit on main
-# passes CI and the version it prints (`mzs --version`, SPEC §21.5) has no tag yet, this
-# tags the commit `vX.Y.Z` and publishes a GitHub release: the version's CHANGELOG.md
-# section as the notes, and a static binary for each platform. A commit whose version is
-# already tagged releases nothing, so every push to main may run this safely.
+# passes CI and the version it prints (`mzs --version`, SPEC §21.5) has no published
+# release yet, this tags the commit `vX.Y.Z` and publishes a GitHub release: the
+# version's CHANGELOG.md section as the notes, an mzs executable for each platform, and
+# their checksums. The Linux builds are fully static; the macOS and Windows builds need
+# nothing but the operating system. A version that is released already releases
+# nothing, so every push to main may run this safely.
 
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  # A manual retry, for a main commit whose CI passed but whose release did not finish.
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: read
 
+# One group per commit: a run never cancels the run of another commit, which would skip
+# that commit's version, and two runs for one commit do not race each other.
 concurrency:
-  group: release
+  group: release-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: release
-    # Only a green main: a workflow_run fires for failures too.
+    # A workflow_run fires for failures too: only a green push to main releases.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -34,6 +40,22 @@ jobs:
       # The commit CI tested, not whatever main points at by now.
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
+      # A manual run releases only what an automatic one would: a commit on main whose
+      # own push run of CI passed.
+      - name: a manual run is for a green main commit
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "run this from main, not $GITHUB_REF"
+            exit 1
+          fi
+          green=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+            --event push --commit "$SHA" --status success --json databaseId --jq length)
+          if [ "$green" = 0 ]; then
+            echo "CI has not passed on a push of $SHA to main"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SHA }}
@@ -44,6 +66,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # A published release is done. A draft is one that failed half-way: it is
+      # finished below, with its assets uploaded again. A tag that points at another
+      # commit is an error, never a release of this commit's binaries.
       - name: the version to release
         id: version
         run: |
@@ -51,13 +76,20 @@ jobs:
           printed=$(/tmp/mzs --version)                 # "mzs 0.2.0"
           number=${printed#mzs }
           echo "number=$number" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$number" >/dev/null ||
-             gh release view "v$number" >/dev/null 2>&1; then
+          state=$(gh release view "v$number" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)
+          if [ "$state" = published ]; then
             echo "v$number is released already; nothing to do"
             echo "new=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "new=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          tagged=$(git rev-parse -q --verify "refs/tags/v$number^{commit}" || true)
+          if [ -n "$tagged" ] && [ "$tagged" != "$SHA" ]; then
+            echo "v$number already tags $tagged, not $SHA; bump the version or move the tag by hand"
+            exit 1
+          fi
+          echo "new=true" >> "$GITHUB_OUTPUT"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
 
       # The notes are the version's own section of the changelog, without its heading:
       # the release title says the version already.
@@ -75,8 +107,8 @@ jobs:
             exit 1
           fi
 
-      # One static binary per platform: no cgo, nothing needed at run time (I1).
-      - name: binaries
+      # No cgo, nothing to install at run time (I1).
+      - name: executables
         if: steps.version.outputs.new == 'true'
         env:
           NUMBER: ${{ steps.version.outputs.number }}
@@ -89,7 +121,7 @@ jobs:
             mkdir -p "/tmp/$name"
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
               go build -trimpath -ldflags="-s -w" -o "/tmp/$name/$exe" ./cmd/mzs
-            cp LICENSE* README.md CHANGELOG.md "/tmp/$name/" 2>/dev/null || true
+            cp LICENSE README.md CHANGELOG.md "/tmp/$name/"
             if [ "$os" = windows ]; then
               (cd /tmp && zip -qr "$GITHUB_WORKSPACE/dist/$name.zip" "$name")
             else
@@ -98,12 +130,34 @@ jobs:
           done
           (cd dist && sha256sum * > SHA256SUMS)
 
+      # The tag is checked again right before publishing, and once more after, because
+      # someone may have pushed it while the executables were building.
       - name: publish
         if: steps.version.outputs.new == 'true'
         env:
           NUMBER: ${{ steps.version.outputs.number }}
+          STATE: ${{ steps.version.outputs.state }}
         run: |
-          gh release create "v$NUMBER" dist/* \
-            --target "$SHA" \
-            --title "mzs $NUMBER" \
-            --notes-file /tmp/notes.md
+          tag_target() {
+            gh api "repos/$GITHUB_REPOSITORY/commits/v$NUMBER" --jq .sha 2>/dev/null || true
+          }
+          tagged=$(tag_target)
+          if [ -n "$tagged" ] && [ "$tagged" != "$SHA" ]; then
+            echo "v$NUMBER was tagged at $tagged while this ran; not publishing $SHA's executables"
+            exit 1
+          fi
+          if [ "$STATE" = draft ]; then
+            gh release upload "v$NUMBER" dist/* --clobber
+            gh release edit "v$NUMBER" --target "$SHA" --title "mzs $NUMBER" \
+              --notes-file /tmp/notes.md --draft=false
+          else
+            gh release create "v$NUMBER" dist/* \
+              --target "$SHA" \
+              --title "mzs $NUMBER" \
+              --notes-file /tmp/notes.md
+          fi
+          tagged=$(tag_target)
+          if [ "$tagged" != "$SHA" ]; then
+            echo "v$NUMBER points at $tagged, not $SHA: the release is wrong; delete it and re-run"
+            exit 1
+          fi

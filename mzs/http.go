@@ -120,7 +120,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	}
 
 	rs := c.rs
-	if rs.srv != nil {
+	if rs.srv != nil || rs.sh.serving {
 		return Nil(), c.ArgErrorf("http.serve: a server is already running in this run")
 	}
 
@@ -145,6 +145,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	go func() { _ = hs.Serve(ln) }()
 
 	rs.srv = srv
+	rs.sh.serving = true
 	// Steps are re-armed per request below, so the Run's own counter is restored on
 	// the way out. What the server cost is every step taken while it served: its
 	// handlers, `ready`, and the Run's tasks while it waited. Waiting itself costs
@@ -159,6 +160,7 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 	}
 	defer func() {
 		rs.srv = nil
+		rs.sh.serving = false
 		settle()
 		rs.sh.steps, rs.tick = baseSteps+spent, 0
 		if rs.hasDL {

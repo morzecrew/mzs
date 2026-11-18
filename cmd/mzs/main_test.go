@@ -174,9 +174,9 @@ func TestCLI(t *testing.T) {
 			errHas:   []string{"name=value"},
 		},
 		{
-			name:     "version is the one version string",
-			argv:     []string{"--version"},
-			contains: []string{version},
+			name:    "version is the one version string, alone on its line",
+			argv:    []string{"--version"},
+			wantOut: version + "\n",
 		},
 		{
 			name:     "help lists the flags and no compat mode",
