@@ -137,15 +137,8 @@ jobs:
             echo "v$number already tags $tagged, not $SHA; bump the version or move the tag by hand"
             exit 1
           fi
-          # "Latest" is the newest version published, never whichever was published
-          # last: finishing an older version's draft must not take the mark from a
-          # newer release.
-          newest=$( { sed -n 's/^published v//p' <<<"$releases"; echo "$number"; } |
-            sort -V | tail -n 1)
-          if [ "$newest" = "$number" ]; then latest=true; else latest=false; fi
           echo "new=true" >> "$GITHUB_OUTPUT"
           echo "state=$state" >> "$GITHUB_OUTPUT"
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
       # The notes are the version's own section of the changelog, without its heading:
       # the release title says the version already.
@@ -195,7 +188,6 @@ jobs:
         env:
           NUMBER: ${{ steps.version.outputs.number }}
           STATE: ${{ steps.version.outputs.state }}
-          LATEST: ${{ steps.version.outputs.latest }}
         run: |
           # The commit the tag v$NUMBER names, or nothing when there is no such tag.
           # ls-remote matches the full ref, so a branch of that name or a v$NUMBER-rc
@@ -234,11 +226,21 @@ jobs:
             fi
             gh release upload "v$NUMBER" dist/* --clobber
             gh release edit "v$NUMBER" --title "mzs $NUMBER" \
-              --notes-file /tmp/notes.md --draft=false --latest="$LATEST"
+              --notes-file /tmp/notes.md --draft=false --latest=false
           else
             gh release create "v$NUMBER" dist/* \
               --verify-tag \
               --title "mzs $NUMBER" \
               --notes-file /tmp/notes.md \
-              --latest="$LATEST"
+              --latest=false
           fi
+          # "Latest" is the newest version published, never whichever was published
+          # last. Runs for different versions are not serialized, so a mark decided
+          # before publishing could be stale by then. Every run therefore publishes
+          # without it and then marks the newest published release, read after its own
+          # publish: whichever run finishes last has seen every release, so the mark
+          # ends on the newest whatever order the runs finish in.
+          newest=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+              --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' |
+            sed -n 's/^v//p' | sort -V | tail -n 1)
+          gh release edit "v$newest" --latest
