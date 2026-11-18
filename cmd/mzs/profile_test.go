@@ -69,3 +69,17 @@ func TestProfileFlagErrors(t *testing.T) {
 		t.Errorf("long table: code %d\n%s", code, errOut)
 	}
 }
+
+// A profile that cannot be written does not hide the run's own outcome: the script's
+// exit status and its error still come first.
+func TestProfileWriteFailureKeepsTheRunsOutcome(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "no", "dir.folded")
+	code, _, errOut := exec([]string{"--profile-out", bad, "-e", "exit(3)"}, "")
+	if code != 3 || !strings.Contains(errOut, "--profile-out") {
+		t.Errorf("exit(3): code %d, stderr %q", code, errOut)
+	}
+	code, _, errOut = exec([]string{"--profile-out", bad, "-e", "1 / 0"}, "")
+	if code == exitOK || !strings.Contains(errOut, "divided by 0") || !strings.Contains(errOut, "--profile-out") {
+		t.Errorf("a runtime error: code %d, stderr %q", code, errOut)
+	}
+}

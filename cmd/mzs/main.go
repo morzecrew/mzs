@@ -210,9 +210,10 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		fmt.Fprintf(stderr, "mzs: %d steps in %s%s\n", res.Steps, res.Elapsed.Round(time.Microsecond),
 			peakNote(res.PeakMemory))
 	}
-	if !reportProfile(cfg, res.Profile, stderr) {
-		return exitError
-	}
+	// A profile that could not be written is reported, and the run's own outcome still
+	// decides the status: a script's exit(n) and its error come first, and the failed
+	// write turns only a clean finish into a failure.
+	profileOK := reportProfile(cfg, res.Profile, stderr)
 	if code, ok := mzs.ExitCode(err); ok {
 		// `exit(n)` is the program choosing its own status, not a failure: nothing is
 		// printed and nothing after it runs (§12.1).
@@ -228,7 +229,7 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 			return exitError
 		}
 	}
-	if cfg.boolMode && !res.Value.Truthy() {
+	if cfg.boolMode && !res.Value.Truthy() || !profileOK {
 		return exitError
 	}
 	return exitOK
