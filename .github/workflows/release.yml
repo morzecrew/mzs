@@ -234,13 +234,34 @@ jobs:
               --notes-file /tmp/notes.md \
               --latest=false
           fi
-          # "Latest" is the newest version published, never whichever was published
-          # last. Runs for different versions are not serialized, so a mark decided
-          # before publishing could be stale by then. Every run therefore publishes
-          # without it and then marks the newest published release, read after its own
-          # publish: whichever run finishes last has seen every release, so the mark
-          # ends on the newest whatever order the runs finish in.
+
+  # "Latest" is the newest version published, never whichever was published last, so
+  # releases are published without it and it is set here. The read and the update are
+  # serialized across every version by one group: the Latest mark is one value for the
+  # whole repository. A run queued behind this group may be replaced by a newer one,
+  # and nothing is lost by that: what it would have done is read the list and mark its
+  # newest, and the run that replaced it does the same after it. It also runs when
+  # there was nothing to publish, so a re-run repairs a mark a failed run left behind.
+  latest:
+    name: latest
+    needs: release
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: mark the newest published release Latest
+        run: |
           newest=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
               --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' |
             sed -n 's/^v//p' | sort -V | tail -n 1)
+          if [ -z "$newest" ]; then
+            echo "no published release yet"
+            exit 0
+          fi
           gh release edit "v$newest" --latest
