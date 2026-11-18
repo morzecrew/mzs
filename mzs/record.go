@@ -136,6 +136,9 @@ func (e ev) makeRecord(n *ast.RecordDecl) Value {
 		Arity:  arity,
 		Frame:  len(n.Fields),
 		Record: rt,
+		// A field's default is the declaring program's code: the constructor keeps its
+		// tree, as a function does (Func.tree), so coverage counts it wherever it runs.
+		tree: e.rs.tree,
 	})
 }
 

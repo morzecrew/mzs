@@ -748,6 +748,9 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 	if (cfg.profile || cfg.profileOut != "") && cfg.perLine {
 		return nil, false, false, fmt.Errorf("--profile profiles one run, and -n runs once per input line; profile a run over one line instead")
 	}
+	if (cfg.profile || cfg.profileOut != "") && (cfg.check || cfg.tokens || cfg.ast) {
+		return nil, false, false, fmt.Errorf("--profile profiles a run, and --check, --tokens and --ast do not run the program")
+	}
 	if !cfg.printSet {
 		// A one-liner is asked for its value; a script is asked to do its job, and -l
 		// asks a script for the value of every line. printImplied records that nobody

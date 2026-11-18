@@ -4845,8 +4845,10 @@ went:
 ```
 
 The unit is the step of §14.1, not time. A step is what the budget charges, and the count
-is deterministic, so the same input gives the same profile on any machine (D15). A profile
-can be diffed, and checked in CI.
+is deterministic: a run that takes the same path through the same input gives the same
+profile on any machine (D15). A profile can be diffed, and checked in CI. What can change
+the path changes the profile too: a branch on the clock (`time.now()`), a random number,
+or a `Timeout` that stops the run at a different step.
 
 * **Functions:**
   * A script function or closure is its name (`{}` for a closure) and where its body
@@ -4872,7 +4874,8 @@ can be diffed, and checked in CI.
 `--profile-out <file>` writes the same profile in the folded-stack format that flame-graph
 tools read: one line per call path, its frames joined by `;`, then a space and the steps
 taken there. Either flag turns the profile on, and `--profile-out` alone prints nothing.
-A profile describes one run, so neither flag combines with `-n` or with the REPL.
+A profile describes one run, so neither flag combines with `-n`, with the REPL, or with
+`--check`, `--tokens` and `--ast`, which do not run the program.
 
 `Options.Profile` asks a host's Run for the same data, as `Result.Profile`: the run's
 `Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Col`, `Self`, `Total`, `Calls`) and its

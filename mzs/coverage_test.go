@@ -348,3 +348,39 @@ func TestCoverageFollowsAFunctionIntoALaterRun(t *testing.T) {
 		}
 	}
 }
+
+// A record constructor keeps its program's tree as a function does: its field defaults
+// are counted when a later Run calls it, after the program was dropped.
+func TestCoverageFollowsARecordIntoALaterRun(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1
+	in := New(o)
+	ctor := func() Value {
+		p, err := in.Compile("rec.mzs", "record P(x, y = x > 0 ? 1 : 2)\nP")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := in.Run(context.Background(), p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}()
+	for range 5 {
+		runtime.GC()
+	}
+	p, err := in.Compile("use.mzs", "$P(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, map[string]Value{"$P": ctor}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range cov.Files() {
+		if f.File == "rec.mzs" && f.BranchesTaken != 1 {
+			t.Errorf("rec.mzs took %d of %d branches: %+v", f.BranchesTaken, f.Branches, f.BranchHits)
+		}
+	}
+}

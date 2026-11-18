@@ -7,8 +7,9 @@ import (
 
 // The step profile of a Run (RFC 0019 §4): where the interpreter's steps went, by
 // function. Steps rather than nanoseconds, because the step counter is what the budget
-// charges (§14.1) and it is deterministic: the same input gives the same profile on any
-// machine (D15), so two profiles can be diffed and one can be checked in CI.
+// charges (§14.1) and it is deterministic: a run that takes the same path through the
+// same input gives the same profile on any machine (D15), so two profiles can be diffed
+// and one can be checked in CI.
 //
 // The Run keeps a tree of the call paths it took. Entering a function moves to that
 // function's child of the current node, leaving moves back, and every step is added to
@@ -109,7 +110,9 @@ func (rs *runState) profEnter(k profKey) {
 		return
 	}
 	if rs.pdeep > 0 {
+		// Past the bound every call is one more entry of the (deeper) node.
 		rs.pdeep++
+		rs.pnode.calls++
 		return
 	}
 	if rs.pnode.depth+2 >= profMaxDepth {

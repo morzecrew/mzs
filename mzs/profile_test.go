@@ -170,8 +170,10 @@ func TestProfileBoundsTheCallPath(t *testing.T) {
 					t.Fatalf("a stack of %d frames", len(st.Frames))
 				}
 			}
+			// Every call past the bound is an entry of (deeper): 900 levels, less the
+			// frames above it.
 			deeper, ok := funcNamed(p, "(deeper)")
-			if !ok || deeper.Self == 0 {
+			if !ok || deeper.Self == 0 || deeper.Calls < 900-profMaxDepth {
 				t.Errorf("(deeper) = %+v (found %v)", deeper, ok)
 			}
 		})

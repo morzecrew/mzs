@@ -192,8 +192,8 @@ $ mzs --profile -e 'fn sq(x) { x * x }; (1..100).map(sq).sum'
 ```
 
 `--profile-out prof.folded` writes the same profile as folded stacks, which flame-graph
-tools turn into a picture. It does not combine with `-n` or with the REPL, because a
-profile describes a single run.
+tools turn into a picture. It does not combine with `-n`, the REPL, `--check`, `--tokens`
+or `--ast`, because a profile describes a single run.
 
 Without `--time` the module is refused rather than faked:
 

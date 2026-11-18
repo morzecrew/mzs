@@ -41,7 +41,8 @@ res.Profile  // *mzs.Profile — where the steps went, when Options.Profile is s
 `Options.Profile` asks for the step profile `mzs --profile` prints. The profile has the
 run's `Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Col`, `Self`, `Total`, `Calls`,
 and `Label()`) and its `Stacks` in the folded form. Steps are the unit the budget charges,
-so two runs of the same input give the same profile.
+so two runs that take the same path through the same input give the same profile; a
+branch on the clock or a random number, or a timeout, can change the path.
 
 `res.Globals` is how a script hands values back: assigning `$total = …` in the script makes
 `res.Globals["$total"]` readable afterwards.

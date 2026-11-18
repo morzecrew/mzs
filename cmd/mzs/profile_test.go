@@ -52,6 +52,10 @@ func TestProfileFlagErrors(t *testing.T) {
 		// The REPL runs once per line; there is no one run to profile.
 		{"--profile", "--repl"},
 		{"--profile-out", filepath.Join(t.TempDir(), "repl.folded"), "--repl"},
+		// Nor do the modes that never run the program.
+		{"--profile", "--check", "-e", "1"},
+		{"--profile-out", filepath.Join(t.TempDir(), "tokens.folded"), "--tokens", "-e", "1"},
+		{"--profile", "--ast", "-e", "1"},
 	} {
 		if code, _, _ := exec(argv, "a\n"); code != exitUsage {
 			t.Errorf("%v: code %d, want %d", argv, code, exitUsage)
