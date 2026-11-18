@@ -216,8 +216,9 @@ func (c *Coverage) bindings() int {
 
 // hit counts one statement (arm -1) or one side of a branch node. A node no Run
 // registered — a tree compiled while the Coverage was not installed — counts nothing,
-// and so does a node whose tree is gone: a function that outlived the program it was
-// written in.
+// and so does a node whose tree is gone. A Run keeps every tree it registered alive
+// until it ends, so only a function called after the Run that defined it has ended,
+// and its program has been dropped, can go uncounted.
 func (c *Coverage) hit(n ast.Node, arm int) {
 	c.mu.Lock()
 	if b, ok := c.slots[slotKey{addrOf(n), arm}]; ok && b.tree.Value() != nil {

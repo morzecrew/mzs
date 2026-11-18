@@ -281,3 +281,34 @@ func deadTree(t *testing.T) weak.Pointer[ast.Program] {
 	}
 	return w
 }
+
+// A module's tree is out of the loader's hands once its statements have run, but its
+// functions can still be called: the Run keeps every tree it registered alive, so a
+// collection between the include and the call loses no count.
+func TestCoverageKeepsAModulesTreeForItsRun(t *testing.T) {
+	cov := NewCoverage()
+	src := &modSource{files: map[string]string{"lib": "export fn f(n) {\n  n + 1\n}\n"}}
+	o := DefaultOptions()
+	o.ModuleLoader = src.loader()
+	o.Coverage = cov
+	o.ProgramCache = -1
+	in := New(o)
+	in.Register("__gc", 0, func(c *Ctx, args []Value) (Value, error) {
+		for range 5 {
+			runtime.GC()
+		}
+		return Nil(), nil
+	})
+	p, err := in.Compile("main.mzs", "include lib from \"lib\"\n__gc()\nlib.f(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range cov.Files() {
+		if f.File == "lib" && f.StatementsRun != f.Statements {
+			t.Errorf("lib ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
+		}
+	}
+}

@@ -60,6 +60,11 @@ type runShared struct {
 	// prof is the root of the profile's call tree when Options.Profile is set. Every
 	// task adds to it, under the lock, as the step counter is.
 	prof *profNode
+	// covered holds every tree the Run registered with Options.Coverage until the Run
+	// ends. A function's body does not keep its program alive, and a module's tree is
+	// out of the loader's hands once its statements ran, yet its functions are still
+	// called: without this the tree could be collected mid-Run and their hits lost.
+	covered []*ast.Program
 
 	wg   sync.WaitGroup
 	live int // tasks started and not yet finished, against Options.MaxTasks
