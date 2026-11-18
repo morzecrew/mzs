@@ -154,15 +154,16 @@ func Extract(prog *ast.Program, src string, comments []lexer.Comment) []Item {
 	var out []Item
 	at := map[string]int{}
 	exportDocs := map[string]string{} // the comment above each bare `export name`
+	// bound is every name a top-level assignment has created, listed or not: a later
+	// `x = 2` updates the binding the first one made and declares nothing.
+	bound := map[string]bool{}
 	add := func(it Item) {
 		if it.Name == "" {
 			return
 		}
-		if i, seen := at[it.Name]; seen {
-			// `export total` under an undocumented `fn total` may carry the comment.
-			if out[i].Doc == "" {
-				out[i].Doc = it.Doc
-			}
+		if _, seen := at[it.Name]; seen {
+			// The first declaration is the one documented; a later one's comment is
+			// about that statement, not about the name.
 			return
 		}
 		it.Exported = exported[it.Name]
@@ -205,7 +206,11 @@ func Extract(prog *ast.Program, src string, comments []lexer.Comment) []Item {
 				names = patternNames(a.Pattern)
 			}
 			for _, id := range names {
-				if id.Name != "_" && (doc != "" || exported[id.Name]) {
+				if id.Name == "_" || bound[id.Name] {
+					continue
+				}
+				bound[id.Name] = true
+				if doc != "" || exported[id.Name] {
 					add(Item{Name: id.Name, Kind: KindValue, Sig: id.Name, Doc: doc, Line: line})
 				}
 			}

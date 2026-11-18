@@ -282,7 +282,7 @@ type runState struct {
 	modules map[string]Value
 	// cov is Options.Coverage, or nil: read once per statement, so it is a field of
 	// its own rather than a load through opts.
-	cov *Coverage
+	cov     *Coverage
 	loading []string
 	exports []string
 
