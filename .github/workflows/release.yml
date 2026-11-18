@@ -130,8 +130,10 @@ jobs:
           done
           (cd dist && sha256sum * > SHA256SUMS)
 
-      # The tag is checked again right before publishing, and once more after, because
-      # someone may have pushed it while the executables were building.
+      # The tag is made first, at $SHA, by creating the ref: GitHub refuses to create a
+      # ref that exists, so a tag someone pushed meanwhile is never overwritten, and a
+      # tag at another commit stops the run before anything is published. The release
+      # is then published onto that tag only (--verify-tag), never onto a new one.
       - name: publish
         if: steps.version.outputs.new == 'true'
         env:
@@ -141,23 +143,23 @@ jobs:
           tag_target() {
             gh api "repos/$GITHUB_REPOSITORY/commits/v$NUMBER" --jq .sha 2>/dev/null || true
           }
+          if [ -z "$(tag_target)" ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/v$NUMBER" -f sha="$SHA" >/dev/null ||
+              echo "v$NUMBER could not be created; checking who made it"
+          fi
           tagged=$(tag_target)
-          if [ -n "$tagged" ] && [ "$tagged" != "$SHA" ]; then
-            echo "v$NUMBER was tagged at $tagged while this ran; not publishing $SHA's executables"
+          if [ "$tagged" != "$SHA" ]; then
+            echo "v$NUMBER tags ${tagged:-nothing}, not $SHA; not publishing $SHA's executables"
             exit 1
           fi
           if [ "$STATE" = draft ]; then
             gh release upload "v$NUMBER" dist/* --clobber
-            gh release edit "v$NUMBER" --target "$SHA" --title "mzs $NUMBER" \
+            gh release edit "v$NUMBER" --title "mzs $NUMBER" \
               --notes-file /tmp/notes.md --draft=false
           else
             gh release create "v$NUMBER" dist/* \
-              --target "$SHA" \
+              --verify-tag \
               --title "mzs $NUMBER" \
               --notes-file /tmp/notes.md
-          fi
-          tagged=$(tag_target)
-          if [ "$tagged" != "$SHA" ]; then
-            echo "v$NUMBER points at $tagged, not $SHA: the release is wrong; delete it and re-run"
-            exit 1
           fi
