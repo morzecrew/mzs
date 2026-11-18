@@ -19,6 +19,13 @@ and the release is still ahead of it.
 
 ### Added
 
+- **A step profile: `mzs --profile` and `Options.Profile`** (RFC 0019, part 4).
+  - `--profile` prints to stderr where a run's interpreter steps went, by function: its
+    own steps, the steps of everything it called, and its calls. Steps are what the
+    budget charges, so the same input gives the same profile on any machine.
+  - `--profile-out <file>` writes the profile as folded stacks, for flame-graph tools.
+  - For embedders: `Options.Profile` returns the same data as `Result.Profile`
+    (SPEC §15.5).
 - **Coverage: `mzs test --cover` and `Options.Coverage`** (RFC 0019, part 3).
   - `--cover` prints, after the summary, the statement coverage of every file the tests
     included, with the lines that did not run. The test files are left out.

@@ -16,6 +16,9 @@ func (rs *runState) step(n int64) error {
 	// in runShared, is only ever touched by the goroutine holding the lock.
 	rs.sh.steps += n
 	rs.tick += int(n)
+	if rs.pnode != nil {
+		rs.pnode.self += n
+	}
 	if rs.tick < stepCheckInterval {
 		return nil
 	}
@@ -46,7 +49,7 @@ func (rs *runState) checkLimits() error {
 
 // enter charges one level of call depth. Recursion is bounded so the Go stack can
 // never overflow (§14.2).
-func (rs *runState) enter(fn string, line, col int) error {
+func (rs *runState) enter(fn string, line, col int, k profKey) error {
 	rs.depth++
 	if rs.depth > rs.maxDepth {
 		rs.depth--
@@ -56,6 +59,7 @@ func (rs *runState) enter(fn string, line, col int) error {
 		fn = "{}"
 	}
 	rs.stack = append(rs.stack, Frame{Fn: fn, File: rs.file, Line: line, Col: col})
+	rs.profEnter(k)
 	return nil
 }
 
@@ -67,6 +71,7 @@ func (rs *runState) leave() {
 	if n := len(rs.stack); n > 0 {
 		rs.stack = rs.stack[:n-1]
 	}
+	rs.profLeave()
 }
 
 // limitErr builds a limit error with the call stack it was raised under. The helpers that

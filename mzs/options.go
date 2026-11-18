@@ -119,6 +119,11 @@ type Options struct {
 	// check per statement and one per branch point.
 	Coverage *Coverage
 
+	// Profile records where each Run's steps go, by function and by call path, and
+	// hands it back as Result.Profile (RFC 0019 §4). Steps are the budget's unit, so a
+	// profile is the same on every machine. Off by default.
+	Profile bool
+
 	// Timeout is the wall clock allowed per Run. 0 uses DefaultTimeout; a negative
 	// value disables the deadline, which is not recommended outside tests.
 	Timeout time.Duration

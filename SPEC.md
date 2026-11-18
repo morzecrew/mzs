@@ -3911,6 +3911,7 @@ type Options struct {
     StrictWarnings  bool          // promote Program.Warnings to compile errors
     AllowWarnings   []string      // warning codes (§17) dropped before StrictWarnings sees them
     Coverage        *Coverage     // counts the statements and branches each Run executes (§15.2)
+    Profile         bool          // record where each Run's steps go, as Result.Profile (§15.5)
 
     // Resource limits (0 means "use the default")
     Timeout         time.Duration // wall clock per Run. Default 1s. 0 disables (not recommended).
@@ -4051,6 +4052,7 @@ type Result struct {
     Elapsed time.Duration
     Tests   []TestCase       // one per `test.case`, in the order they ran (§12.18); empty otherwise
     PeakMemory int64         // the most any memory walk found live, in bytes (§14.2); 0 when none ran
+    Profile *Profile         // where the steps went, when Options.Profile is set (§15.5); nil otherwise
 }
 
 type TestCase struct {
@@ -4475,6 +4477,8 @@ file is `fmt.mzs`, not `fmt`.
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable rand/uuid, with a seed for reproducibility, and `crypto.random` from the operating system (never from the seed) |
 | `--stats` | print steps, elapsed time and peak live memory to stderr |
+| `--profile` | print to stderr where the run's steps went, by function (§15.5) |
+| `--profile-out <file>` | write the run's profile as folded stacks, for a flame graph (§15.5) |
 | `--no-trace` | print a runtime error's three lines without the stack under them |
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
@@ -4826,6 +4830,46 @@ comment is its summary.
 A file that cannot be read or parsed is reported as `path:line:col: syntax: …` and the
 others are still documented; the exit code is then 1, and 2 for a usage error. `mzs fmt`
 keeps a doc comment where it stands and re-flows nothing.
+
+### 15.5 The step profile
+
+`mzs --profile script.mzs` prints to stderr, after the run, where the interpreter's steps
+went:
+
+```
+      self      %      total   calls  function
+   1840212  61.3%    1840212   12000  score rank.mzs:14
+     19004   0.6%    1859216       1  load rank.mzs:3
+   3001216 steps
+```
+
+The unit is the step of §14.1, not time. A step is what the budget charges, and the count
+is deterministic, so the same input gives the same profile on any machine (D15). A profile
+can be diffed, and checked in CI.
+
+* **Functions:**
+  * A script function or closure is its name (`{}` for a closure) and where its body
+    starts.
+  * A builtin, method or host function is its name alone, with a method spelled `.name`.
+  * The program's own statements are `(top level)`. A module's are `(include)`, under the
+    include that ran them.
+* **Columns:**
+  * `self` is the steps taken in the function's own statements.
+  * `total` adds the steps of everything it called. A recursive function's steps are
+    counted once in its total, however deep it recursed.
+  * `calls` is how many times it was entered.
+* **Order and length:** the rows are sorted by `self`, and the table shows the first 25.
+  The remaining functions are summed on one line.
+* **Tasks:** a task's steps are attributed under the call that started it.
+
+`--profile-out <file>` writes the same profile in the folded-stack format that flame-graph
+tools read: one line per call path, its frames joined by `;`, then a space and the steps
+taken there. Either flag turns the profile on, and `--profile-out` alone prints nothing.
+A profile describes one run, so neither flag combines with `-n`.
+
+`Options.Profile` asks a host's Run for the same data, as `Result.Profile`: the run's
+`Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Self`, `Total`, `Calls`) and its
+`Stacks`. A Run that does not profile pays one nil check per step and per call.
 
 ---
 ## 16. Acceptance corpus

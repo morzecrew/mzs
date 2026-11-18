@@ -37,6 +37,8 @@ they have a page of their own: [tools.md](./tools.md). Everything below is the `
 | `--time` | enable the `time`/`date` modules and a real clock |
 | `--rand [seed]` | enable `rand()`/`uuid()` (pass a seed for reproducibility) and `crypto.random`, which always reads the operating system and never the seed |
 | `--stats` | print steps, elapsed time and peak live memory to stderr |
+| `--profile` | print where the run's steps went, by function, to stderr |
+| `--profile-out <file>` | write the profile as folded stacks, for a flame graph |
 | `--no-trace` | print a runtime error's three lines without the call stack under them |
 | `--tokens` | dump the token stream and exit |
 | `--ast` | dump the AST and exit |
@@ -174,6 +176,24 @@ mzs: 206 steps in 16µs        # stderr; the step count is deterministic, the ti
 $ mzs --check examples/05_arrays_pipeline.mzs
 examples/05_arrays_pipeline.mzs: ok
 ```
+
+`--profile` shows where those steps went. A profile counts steps, not time, so it is the
+same on every machine:
+
+```sh
+$ mzs --profile -e 'fn sq(x) { x * x }; (1..100).map(sq).sum'
+      self      %      total   calls  function
+       300  42.3%        600       1  .map
+       300  42.3%        300     100  sq -e:1
+       100  14.1%        100       1  .sum
+        10   1.4%        710       1  (top level) -e:1
+       710 steps
+338350
+```
+
+`--profile-out prof.folded` writes the same profile as folded stacks, which flame-graph
+tools turn into a picture. It does not combine with `-n`, because a profile describes a
+single run.
 
 Without `--time` the module is refused rather than faked:
 

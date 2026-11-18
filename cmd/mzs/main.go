@@ -102,6 +102,11 @@ type config struct {
 	check  bool
 	repl   bool
 	stats  bool
+	// profile is --profile: print where the run's steps went (RFC 0019 §4); profileOut
+	// is --profile-out, the file the folded stacks are written to. Either one turns the
+	// profile on.
+	profile    bool
+	profileOut string
 	// noTrace is --no-trace: a runtime error prints its three lines and not the call
 	// stack under them (§15).
 	noTrace bool
@@ -204,6 +209,9 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if cfg.stats {
 		fmt.Fprintf(stderr, "mzs: %d steps in %s%s\n", res.Steps, res.Elapsed.Round(time.Microsecond),
 			peakNote(res.PeakMemory))
+	}
+	if !reportProfile(cfg, res.Profile, stderr) {
+		return exitError
 	}
 	if code, ok := mzs.ExitCode(err); ok {
 		// `exit(n)` is the program choosing its own status, not a failure: nothing is
@@ -388,6 +396,7 @@ func options(cfg *config, stdout, stderr io.Writer, data io.Reader) mzs.Options 
 		Stdout:     stdout,
 		Stderr:     stderr,
 		EnableTime: cfg.enableTime,
+		Profile:    cfg.profile || cfg.profileOut != "",
 	}
 	if cfg.timeoutSet {
 		o.Timeout = cfg.timeout
@@ -676,6 +685,17 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 			cfg.enableTime = true
 		case "--stats":
 			cfg.stats = true
+		case "--profile":
+			cfg.profile = true
+		case "--profile-out":
+			v, e := need()
+			if e != nil {
+				return nil, false, false, e
+			}
+			if v == "" {
+				return nil, false, false, fmt.Errorf("--profile-out wants a file name")
+			}
+			cfg.profileOut = v
 		case "--no-trace":
 			cfg.noTrace = true
 		case "--rand":
@@ -718,6 +738,9 @@ func parseArgs(argv []string) (cfg *config, help, showVersion bool, err error) {
 	if cfg.perLine && cfg.repl {
 		return nil, false, false, fmt.Errorf("-n reads stdin as data and --repl reads it as commands; pick one")
 	}
+	if (cfg.profile || cfg.profileOut != "") && cfg.perLine {
+		return nil, false, false, fmt.Errorf("--profile profiles one run, and -n runs once per input line; profile a run over one line instead")
+	}
 	if !cfg.printSet {
 		// A one-liner is asked for its value; a script is asked to do its job, and -l
 		// asks a script for the value of every line. printImplied records that nobody
@@ -748,7 +771,8 @@ var mzsLongFlags = []string{
 	"--help", "--version", "--eval", "--print", "--no-print", "--json", "--bool", "--io",
 	"--no-io", "--read-only", "--in", "--for-each-line", "--print-each-line", "--var",
 	"--vars", "--vars-file", "--timeout", "--steps", "--mem", "--tasks", "--time", "--stats",
-	"--no-trace", "--rand", "--tokens", "--ast", "--check", "--repl", "--net",
+	"--no-trace", "--rand", "--tokens", "--ast", "--check", "--repl", "--net", "--profile",
+	"--profile-out",
 }
 
 // flagHint is the transition note of §15. mzs used to read its own flags anywhere on
@@ -900,6 +924,9 @@ Flags:
       --time         enable the time/date modules and a real clock
       --rand [seed]  enable rand()/uuid(); pass a seed for reproducibility
       --stats        print steps, elapsed time and peak live memory to stderr
+      --profile      print, to stderr, where the run's steps went, by function
+      --profile-out <f>
+                     write the profile's folded stacks to f, for a flame graph
       --no-trace     print an error's three lines without the call stack under them
       --tokens       dump the token stream and exit
       --ast          dump the AST and exit

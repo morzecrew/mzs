@@ -1778,6 +1778,11 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 
 	rs := newRunState(in, ctx, p.name, globals)
 	rs.sh.cancel = cancel
+	if in.opts.Profile {
+		// The program's own statements are the root of the call tree (RFC 0019 §4).
+		rs.sh.prof = &profNode{key: profKey{name: "(top level)", file: p.name, line: 1}, calls: 1}
+		rs.pnode = rs.sh.prof
+	}
 	rs.startMemory(vars)
 	start := time.Now()
 	res = Result{Value: Nil(), Globals: globals}
@@ -1802,6 +1807,9 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 		rs.stopMemory()
 		rs.unlock()
 		res.Steps, res.Elapsed, res.Tests = rs.sh.steps, time.Since(start), rs.sh.tests
+		if rs.sh.prof != nil {
+			res.Profile = rs.sh.prof.report()
+		}
 		res.PeakMemory = rs.sh.memPeak
 		if r != nil {
 			res.Value = Nil()

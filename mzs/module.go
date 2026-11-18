@@ -91,7 +91,11 @@ func (e ev) loadModule(n *ast.IncludeDecl) (Value, error) {
 
 	menv := newEnv(nil, prog.frameSize)
 	me := ev{rs: e.rs, cx: e.cx, env: menv}
+	// A module's own statements are a frame of the profile, under the include that ran
+	// them (RFC 0019 §4).
+	e.rs.profEnter(profKey{name: "(include)", file: resolved, line: 1})
 	_, rerr := me.runProgram(prog.tree(), src)
+	e.rs.profLeave()
 
 	exported := e.rs.exports
 	e.rs.file, e.rs.exports = prevFile, prevExports

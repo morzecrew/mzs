@@ -57,6 +57,9 @@ type runShared struct {
 	// steps is the Run's budget counter. Tasks spend from it too: what the Run may do is
 	// bounded by §14.1 no matter how many goroutines it does it on.
 	steps int64
+	// prof is the root of the profile's call tree when Options.Profile is set. Every
+	// task adds to it, under the lock, as the step counter is.
+	prof *profNode
 
 	wg   sync.WaitGroup
 	live int // tasks started and not yet finished, against Options.MaxTasks
@@ -542,7 +545,7 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 // `return`, `next` and a `break` that escaped all end the task with their value rather
 // than travelling further (§8.10).
 func (e ev) runTaskBody(f *Func, pos token.Pos) (Value, error) {
-	if err := e.rs.enter(f.Name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(f.Name, pos.Line, pos.Col, funcKey(f)); err != nil {
 		return Nil(), e.at(err, pos)
 	}
 	defer e.rs.leave()

@@ -115,7 +115,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 	if err := e.rs.step(1); err != nil {
 		return Nil(), err
 	}
-	if err := e.rs.enter(f.Name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(f.Name, pos.Line, pos.Col, funcKey(f)); err != nil {
 		return Nil(), e.at(err, pos)
 	}
 	defer e.rs.leave()
@@ -497,7 +497,7 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 		e.rs.rootReset(m)
 		return Nil(), err
 	}
-	if err := e.rs.enter(b.Name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(b.Name, pos.Line, pos.Col, profKey{name: b.Name}); err != nil {
 		e.rs.rootReset(m)
 		return Nil(), e.at(err, pos)
 	}
@@ -866,7 +866,7 @@ func (e ev) invokeMethod(m Method, name string, recv Value, args []Value, pos to
 		e.rs.rootReset(mark)
 		return Nil(), err
 	}
-	if err := e.rs.enter(name, pos.Line, pos.Col); err != nil {
+	if err := e.rs.enter(name, pos.Line, pos.Col, profKey{name: "." + name}); err != nil {
 		e.rs.rootReset(mark)
 		return Nil(), err
 	}

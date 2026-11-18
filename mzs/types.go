@@ -131,6 +131,9 @@ type Result struct {
 	// what a host reads to size Options.MaxMemory: 0 when the Run never walked, because
 	// it never came near the budget, or when the budget is disabled.
 	PeakMemory int64
+	// Profile is where the Run's steps went, by function and by call path (RFC 0019
+	// §4). It is nil unless Options.Profile is set.
+	Profile *Profile
 }
 
 // Func is a callable: a script `fn`, a `{ … }` closure literal, or a Go function
@@ -282,7 +285,10 @@ type runState struct {
 	modules map[string]Value
 	// cov is Options.Coverage, or nil: read once per statement, so it is a field of
 	// its own rather than a load through opts.
-	cov     *Coverage
+	cov *Coverage
+	// pnode is where this Run, or this task, stands in the profile's call tree: nil when
+	// the Run does not profile. A task starts at the node of the call that spawned it.
+	pnode   *profNode
 	loading []string
 	exports []string
 
