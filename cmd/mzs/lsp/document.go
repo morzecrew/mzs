@@ -23,6 +23,9 @@ type document struct {
 	// lines holds each line without its terminator, so line i is lines[i] and a column
 	// is an index into it.
 	lines []string
+	// roots are the workspace folders the server was given, which bound a `../`
+	// include (resolveInclude).
+	roots []string
 }
 
 func newDocument(uri, text string, version int) *document {

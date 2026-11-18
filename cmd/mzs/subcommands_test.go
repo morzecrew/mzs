@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// SPEC §15: the three subcommands. They are driven through run() exactly as main does,
+// SPEC §15: the four subcommands. They are driven through run() exactly as main does,
 // so what these tests exercise is the command line a person types.
 
 // ---------------------------------------------------------------------------

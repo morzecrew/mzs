@@ -754,3 +754,224 @@ func TestURIRoundTrip(t *testing.T) {
 		t.Errorf("a non-file URI has no path, got %q", got)
 	}
 }
+
+// RFC 0019 §2: a `##` run above a declaration is what hover and completion say about it,
+// in the file that declares it and in a file that includes it.
+func TestDocCommentsReachHoverAndCompletion(t *testing.T) {
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "lib.mzs")
+	libSrc := "## Total of a cart.\n## Raises \"billing\".\nexport fn total(items, cur = \"USD\") { items.len }\n\n## Not exported.\nfn hidden() { 0 }\n"
+	if err := os.WriteFile(lib, []byte(libSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mainURI := pathToURI(filepath.Join(dir, "main.mzs"))
+	// typing is a document mid-edit: it does not parse, and completion after `lib.` is
+	// asked for exactly then.
+	typingURI := pathToURI(filepath.Join(dir, "typing.mzs"))
+	src := "include lib from \"./lib.mzs\"\n## Twice x.\nfn double(x) { x * 2 }\ny = double(lib.total([]))\nw = dou\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(mainURI, src),
+		open(typingURI, "include lib from \"./lib.mzs\"\nz = lib.\n"),
+		at("textDocument/hover", mainURI, 2, 3, 5),        // double
+		at("textDocument/hover", mainURI, 3, 3, 17),       // lib.total
+		at("textDocument/completion", typingURI, 4, 1, 8), // lib.
+		at("textDocument/completion", mainURI, 5, 4, 7),   // dou
+		msg("exit", nil, nil),
+	)
+	var h hover
+	into(t, s.reply(2)["result"], &h)
+	if want := "**fn double(x)**  \nin this file\n\nTwice x."; h.Contents.Value != want {
+		t.Errorf("hover on a local fn = %q, want %q", h.Contents.Value, want)
+	}
+	into(t, s.reply(3)["result"], &h)
+	if want := "**fn total(items, cur = \"USD\")**  \nfrom \"./lib.mzs\"\n\nTotal of a cart.\nRaises \"billing\"."; h.Contents.Value != want {
+		t.Errorf("hover on an included member = %q, want %q", h.Contents.Value, want)
+	}
+
+	var items []completionItem
+	into(t, s.reply(4)["result"], &items)
+	if len(items) != 1 || items[0].Label != "total" {
+		t.Fatalf("completion after lib. = %+v, want only the export total", items)
+	}
+	if items[0].Detail != "fn total(items, cur = \"USD\")" || items[0].Documentation == nil ||
+		items[0].Documentation.Value != "Total of a cart.\nRaises \"billing\"." {
+		t.Errorf("lib.total completion = %+v", items[0])
+	}
+
+	into(t, s.reply(5)["result"], &items)
+	found := false
+	for _, it := range items {
+		if it.Label == "double" {
+			found = true
+			if it.Documentation == nil || it.Documentation.Value != "Twice x." {
+				t.Errorf("double completion = %+v, want its doc comment", it)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("double is not offered: %+v", items)
+	}
+}
+
+// An include path is resolved by the CLI loader's rules: `./` is a neighbour confined to
+// the document's directory, and a bare name is a library on $MZSPATH, never the
+// neighbour that happens to share its name.
+func TestIncludeDocsFollowTheLoaderRules(t *testing.T) {
+	base := t.TempDir()
+	proj := filepath.Join(base, "proj")
+	libs := filepath.Join(base, "libs")
+	for _, d := range []string{proj, libs} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, src string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(libs, "money.mzs"), "## From the library.\nexport fn add(a, b) { a }\n")
+	write(filepath.Join(proj, "money.mzs"), "## The neighbour, not the library.\nexport fn add(a, b) { a }\n")
+	write(filepath.Join(base, "outside.mzs"), "## Outside the tree.\nexport fn add(a, b) { a }\n")
+	if err := os.Symlink(filepath.Join(base, "outside.mzs"), filepath.Join(proj, "link.mzs")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	t.Setenv("MZSPATH", libs)
+
+	mainURI := pathToURI(filepath.Join(proj, "main.mzs"))
+	src := "include lib from \"money\"\n" +
+		"include near from \"./money.mzs\"\n" +
+		"include up from \"../outside.mzs\"\n" +
+		"include link from \"./link.mzs\"\n" +
+		"a = lib.add(1, 2)\nb = near.add(1, 2)\nc = up.add(1, 2)\nd = link.add(1, 2)\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(mainURI, src),
+		at("textDocument/hover", mainURI, 2, 4, 9),
+		at("textDocument/hover", mainURI, 3, 5, 10),
+		at("textDocument/hover", mainURI, 4, 6, 8),
+		at("textDocument/hover", mainURI, 5, 7, 10),
+		at("textDocument/definition", mainURI, 6, 0, 9),
+		msg("exit", nil, nil),
+	)
+	hoverOf := func(id int) string {
+		var h hover
+		into(t, s.reply(float64(id))["result"], &h)
+		return h.Contents.Value
+	}
+	if got := hoverOf(2); !strings.Contains(got, "From the library.") {
+		t.Errorf("a library name = %q, want the $MZSPATH file's doc", got)
+	}
+	if got := hoverOf(3); !strings.Contains(got, "The neighbour, not the library.") {
+		t.Errorf("a ./ path = %q, want the neighbour's doc", got)
+	}
+	for _, id := range []int{4, 5} {
+		if got := hoverOf(id); strings.Contains(got, "Outside the tree.") {
+			t.Errorf("hover %d read a file outside the document's directory: %q", id, got)
+		}
+	}
+	var loc location
+	into(t, s.reply(6)["result"], &loc)
+	if want := pathToURI(filepath.Join(libs, "money.mzs")); loc.URI != want {
+		t.Errorf("definition of a library include = %q, want %q", loc.URI, want)
+	}
+}
+
+// A module one directory down may include `../common.mzs` when the script the CLI starts
+// is above it; the workspace folder is the root that allows that, and nothing outside it
+// is read. On $MZSPATH the first directory with something under the name answers, even
+// when that something cannot be read; `name/main.mzs` is the second layout; a name with
+// `.mzs` or `..` in it is not a library name.
+func TestIncludeRootsAndLibraryLayouts(t *testing.T) {
+	base := t.TempDir()
+	proj := filepath.Join(base, "proj")
+	sub := filepath.Join(proj, "sub")
+	a, b := filepath.Join(base, "a"), filepath.Join(base, "b")
+	for _, d := range []string{sub, a, b, filepath.Join(b, "pkg")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, src string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc := func(text string) string { return "## " + text + "\nexport fn f() { 1 }\n" }
+	write(filepath.Join(proj, "common.mzs"), doc("Common."))
+	write(filepath.Join(base, "outside.mzs"), doc("Outside."))
+	write(filepath.Join(base, "secret.mzs"), doc("Secret."))
+	write(filepath.Join(b, "money.mzs"), doc("Later money."))
+	write(filepath.Join(b, "pkg", "main.mzs"), doc("Package entry."))
+	if err := os.Symlink(filepath.Join(base, "secret.mzs"), filepath.Join(a, "money.mzs")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	t.Setenv("MZSPATH", a+string(os.PathListSeparator)+b)
+
+	src := "include common from \"../common.mzs\"\n" +
+		"include outside from \"../../outside.mzs\"\n" +
+		"include money from \"money\"\n" +
+		"include pkg from \"pkg\"\n" +
+		"include ext from \"pkg.mzs\"\n" +
+		"include climb from \"pkg/../money\"\n" +
+		"x = [common.f, outside.f, money.f, pkg.f, ext.f, climb.f]\n"
+	workerURI := pathToURI(filepath.Join(sub, "worker.mzs"))
+	hovers := func(init map[string]any) []string {
+		s := run(t,
+			msg("initialize", 1, init),
+			open(workerURI, src),
+			at("textDocument/hover", workerURI, 2, 6, 12), // common.f
+			at("textDocument/hover", workerURI, 3, 6, 23), // outside.f
+			at("textDocument/hover", workerURI, 4, 6, 32), // money.f
+			at("textDocument/hover", workerURI, 5, 6, 39), // pkg.f
+			at("textDocument/hover", workerURI, 6, 6, 46), // ext.f
+			at("textDocument/hover", workerURI, 7, 6, 55), // climb.f
+			msg("exit", nil, nil),
+		)
+		var out []string
+		for id := 2; id <= 7; id++ {
+			var h hover
+			into(t, s.reply(float64(id))["result"], &h)
+			out = append(out, h.Contents.Value)
+		}
+		return out
+	}
+
+	got := hovers(map[string]any{"rootUri": pathToURI(proj)})
+	if !strings.Contains(got[0], "Common.") {
+		t.Errorf("../common.mzs inside the workspace = %q, want its doc", got[0])
+	}
+	if strings.Contains(got[1], "Outside.") {
+		t.Errorf("a path out of the workspace was read: %q", got[1])
+	}
+	if strings.Contains(got[2], "Secret.") || strings.Contains(got[2], "Later money.") {
+		t.Errorf("money resolved past the first directory that claims it: %q", got[2])
+	}
+	if !strings.Contains(got[3], "Package entry.") {
+		t.Errorf("pkg = %q, want pkg/main.mzs", got[3])
+	}
+	for i, name := range map[int]string{4: "pkg.mzs", 5: "pkg/../money"} {
+		if strings.Contains(got[i], "##") || strings.Contains(got[i], "entry") || strings.Contains(got[i], "money.") {
+			t.Errorf("%s is not a library name, got %q", name, got[i])
+		}
+	}
+
+	// With no workspace, the document's own directory is the root.
+	if got := hovers(map[string]any{}); strings.Contains(got[0], "Common.") {
+		t.Errorf("../ with no workspace = %q, want it refused", got[0])
+	}
+
+	// With proj/sub a workspace folder of its own inside proj, the outer folder is the
+	// root: the script that includes sub/worker.mzs may be proj/main.mzs.
+	folders := []map[string]any{{"uri": pathToURI(sub), "name": "sub"}, {"uri": pathToURI(proj), "name": "proj"}}
+	got = hovers(map[string]any{"workspaceFolders": folders})
+	if !strings.Contains(got[0], "Common.") {
+		t.Errorf("../common.mzs under nested workspace folders = %q, want its doc", got[0])
+	}
+	if strings.Contains(got[1], "Outside.") {
+		t.Errorf("nested folders let a path out of the workspace: %q", got[1])
+	}
+}

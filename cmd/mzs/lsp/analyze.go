@@ -14,6 +14,8 @@ import (
 
 	"mzs/internal/apidoc"
 	"mzs/internal/ast"
+	"mzs/internal/doccomment"
+	"mzs/internal/lexer"
 	"mzs/internal/parser"
 	"mzs/internal/token"
 	"mzs/mzs"
@@ -225,6 +227,7 @@ type decl struct {
 	full      rng
 	nameRange rng
 	modPath   string // the path an `include … from` names, or ""
+	doc       string // the `##` comment above the declaration (RFC 0019 §2), or ""
 }
 
 // declarations reads what a document binds **in its own top-level scope**. It is the
@@ -240,9 +243,14 @@ type decl struct {
 func declarations(d *document) []decl {
 	// A file being typed does not parse, and parser.Parse answers nil for it. There is
 	// nothing to read off a tree that does not exist, and the diagnostics already say why.
-	prog, _ := parser.Parse(d.name(), d.text)
+	toks, comments, _, _ := lexer.Scan(d.name(), d.text)
+	prog, _ := parser.ParseTokens(d.name(), toks)
 	if prog == nil {
 		return nil
+	}
+	docs := map[string]string{}
+	for _, it := range doccomment.Extract(prog, d.text, comments) {
+		docs[it.Name] = it.Doc
 	}
 	var out []decl
 	seen := map[string]bool{}
@@ -251,6 +259,7 @@ func declarations(d *document) []decl {
 			return
 		}
 		seen[dc.name] = true
+		dc.doc = docs[dc.name]
 		out = append(out, dc)
 	}
 	for _, stmt := range prog.Stmts {
@@ -390,6 +399,17 @@ func paramList(ps []ast.Param) string {
 // function, then a module, then a keyword, and last what this very file declared.
 func hoverFor(d *document, w word) (string, bool) {
 	a := apidoc.Load()
+	if w.recv != "" {
+		// `m.total` where `include m from "./lib.mzs"`: the script module's own
+		// documentation, which no table of the standard library has.
+		if items, path, ok := includedItems(d, w.recv); ok {
+			for _, it := range items {
+				if it.Name == w.name {
+					return withDoc("**"+it.Sig+"**  \nfrom "+strconv.Quote(path), it.Doc), true
+				}
+			}
+		}
+	}
 	switch {
 	case w.recv != "" && a.IsModule(w.recv):
 		if e, ok := a.Member(w.recv, w.name); ok {
@@ -409,7 +429,7 @@ func hoverFor(d *document, w word) (string, bool) {
 			// know about it is what the module holds, not that the line above exists.
 			return moduleMarkdown(a, dc.name), true
 		}
-		return "**" + dc.detail + "**  \nin this file", true
+		return withDoc("**"+dc.detail+"**  \nin this file", dc.doc), true
 	}
 	if w.recv == "" {
 		if e, ok := a.Builtin(w.name); ok {
@@ -426,6 +446,65 @@ func hoverFor(d *document, w word) (string, bool) {
 		return e.Markdown("."+w.name) + "  \non " + strings.Join(kinds, ", "), true
 	}
 	return "", false
+}
+
+// withDoc puts a declaration's doc comment under its heading. The comment is Markdown
+// already, and goes out as it was written.
+func withDoc(head, doc string) string {
+	if doc == "" {
+		return head
+	}
+	return head + "\n\n" + doc
+}
+
+// includedItems reads what the script module bound to name exports, with the path the
+// include names. It answers false when name is not an `include … from` of this file or
+// the module cannot be read or parsed — an editor shows nothing rather than a guess.
+func includedItems(d *document, name string) ([]doccomment.Item, string, bool) {
+	path, ok := includesOf(d)[name]
+	if !ok {
+		return nil, "", false
+	}
+	dir, rel, ok := resolveInclude(d, path)
+	if !ok {
+		return nil, "", false
+	}
+	src, err := readIn(dir, rel)
+	if err != nil {
+		return nil, "", false
+	}
+	items, err := doccomment.Parse(filepath.Join(dir, rel), string(src))
+	if err != nil {
+		return nil, "", false
+	}
+	exported := items[:0]
+	for _, it := range items {
+		if it.Exported {
+			exported = append(exported, it)
+		}
+	}
+	return exported, path, true
+}
+
+// includesOf maps each name an `include name from "path"` binds to its path. It reads
+// tokens rather than a tree, because the moment completion is asked for after `lib.` is
+// the moment the file does not parse; a name included twice keeps its first path, as
+// declarations does.
+func includesOf(d *document) map[string]string {
+	toks, _, _, _ := lexer.Scan(d.name(), d.text)
+	out := map[string]string{}
+	for i := 0; i+5 < len(toks); i++ {
+		if toks[i].Kind != token.KW_INCLUDE || toks[i+1].Kind != token.IDENT ||
+			toks[i+2].Kind != token.IDENT || toks[i+2].Value != "from" ||
+			toks[i+3].Kind != token.STR_BEGIN || toks[i+4].Kind != token.STR_TEXT ||
+			toks[i+5].Kind != token.STR_END {
+			continue
+		}
+		if _, seen := out[toks[i+1].Value]; !seen {
+			out[toks[i+1].Value] = toks[i+4].Value
+		}
+	}
+	return out
 }
 
 func moduleMarkdown(a *apidoc.API, name string) string {
@@ -464,6 +543,18 @@ func complete(d *document, p position) []completionItem {
 
 	var out []completionItem
 	if recv != "" || afterDot(rs) {
+		if recv != "" {
+			if items, _, ok := includedItems(d, recv); ok {
+				for _, it := range items {
+					ci := completionItem{Label: it.Name, Kind: itemKind(it.Kind), Detail: it.Sig, SortText: "0" + it.Name}
+					if it.Doc != "" {
+						ci.Documentation = &markupContent{Kind: "markdown", Value: it.Doc}
+					}
+					out = append(out, ci)
+				}
+				return filterByPrefix(out, prefix)
+			}
+		}
 		if recv != "" && a.IsModule(recv) {
 			for _, n := range a.MemberNames(recv) {
 				e, _ := a.Member(recv, n)
@@ -479,7 +570,11 @@ func complete(d *document, p position) []completionItem {
 	}
 
 	for _, dc := range declarations(d) {
-		out = append(out, completionItem{Label: dc.name, Kind: declKind(dc.kind), Detail: dc.detail, SortText: "0" + dc.name})
+		ci := completionItem{Label: dc.name, Kind: declKind(dc.kind), Detail: dc.detail, SortText: "0" + dc.name}
+		if dc.doc != "" {
+			ci.Documentation = &markupContent{Kind: "markdown", Value: dc.doc}
+		}
+		out = append(out, ci)
 	}
 	for _, n := range a.BuiltinNames() {
 		e, _ := a.Builtin(n)
@@ -500,8 +595,23 @@ func declKind(symbol int) int {
 		return kindFunction
 	case symbolModule:
 		return kindModule
+	case symbolStruct:
+		// A record is its constructor and its shape at once; the editor's struct icon
+		// says the second, which is what the name is for.
+		return kindStruct
 	}
 	return kindVariable
+}
+
+// itemKind is the completion kind of a doc comment's declaration.
+func itemKind(kind string) int {
+	switch kind {
+	case doccomment.KindValue:
+		return kindVariable
+	case doccomment.KindRecord:
+		return kindStruct
+	}
+	return kindFunction
 }
 
 func item(name string, kind int, detail string, e apidoc.Entry) completionItem {
@@ -570,19 +680,173 @@ func definitionFor(d *document, w word) (location, bool) {
 	return location{}, false
 }
 
-// includeURI resolves an include path against the including file, which is what the CLI's
-// loader does (§15). A document with no path of its own — an untitled buffer — has
-// nothing to resolve against.
+// includeURI resolves an include path the way the CLI's loader does, for a
+// go-to-definition that lands in another file. A document with no path of its own — an
+// untitled buffer — has nothing to resolve a `./` path against.
 func includeURI(d *document, path string) (string, bool) {
-	base := d.path()
-	if base == "" || filepath.IsAbs(path) {
+	dir, rel, ok := resolveInclude(d, path)
+	if !ok {
 		return "", false
 	}
-	target := filepath.Join(filepath.Dir(base), path)
-	if _, err := os.Stat(target); err != nil {
+	return pathToURI(filepath.Join(dir, rel)), true
+}
+
+// resolveInclude finds the file `include … from "path"` names, by the CLI loader's two
+// rules (cmd/mzs/include.go, SPEC §15). The answer is a root and a path inside it, so
+// the read goes through os.Root and a symbolic link cannot lead it out of the tree.
+//
+// A path with `./` or `../` is a file next to the document. The CLI confines it to the
+// directory of the script that was started, which an editor cannot know: the document
+// may be a module of a script one directory up. The server takes the outermost workspace
+// folder that holds the document as that root — outermost, because a folder nested in
+// another may hold the module while the script that includes it sits in the outer one.
+// Any script the CLI may start from inside the workspace has its root inside that
+// folder, so nothing the CLI accepts from there is refused, and nothing outside the
+// workspace is read.
+//
+// With no workspace folder holding the document, the root is the document's own
+// directory. That is narrower than the CLI on purpose: without a workspace there is no
+// boundary to widen to that is not a guess, and a `../` include then shows no
+// documentation rather than reading wherever the path points.
+//
+// Any other path is a library name, looked for on $MZSPATH — `name.mzs`, then
+// `name/main.mzs` — and the first directory that has something under the name answers,
+// as the CLI's does: a candidate that is there and cannot be read ends the search rather
+// than letting a later directory supply a different library.
+func resolveInclude(d *document, path string) (dir, rel string, ok bool) {
+	slashed := filepath.ToSlash(path)
+	if path == "" || filepath.IsAbs(path) || strings.HasPrefix(slashed, "/") {
+		return "", "", false
+	}
+	if slashed == "." || slashed == ".." || strings.HasPrefix(slashed, "./") || strings.HasPrefix(slashed, "../") {
+		base := d.path()
+		if base == "" {
+			return "", "", false
+		}
+		dir, err := filepath.Abs(filepath.Dir(base))
+		if err != nil {
+			return "", "", false
+		}
+		root := workspaceRoot(d.roots, dir)
+		rel, ok := within(root, filepath.Join(dir, path))
+		if !ok || !isFileIn(root, rel) {
+			return "", "", false
+		}
+		return root, rel, true
+	}
+	if strings.HasSuffix(slashed, ".mzs") {
+		return "", "", false
+	}
+	for _, seg := range strings.Split(slashed, "/") {
+		if seg == ".." {
+			return "", "", false
+		}
+	}
+	name := filepath.FromSlash(slashed)
+	for _, dir := range libDirs() {
+		for _, candidate := range []string{name + ".mzs", filepath.Join(name, "main.mzs")} {
+			switch libCandidate(dir, candidate) {
+			case candidateFound:
+				return dir, candidate, true
+			case candidateBlocked:
+				return "", "", false
+			}
+		}
+	}
+	return "", "", false
+}
+
+// workspaceRoot is the outermost workspace folder holding dir, or dir itself.
+func workspaceRoot(roots []string, dir string) string {
+	best := ""
+	for _, r := range roots {
+		if _, ok := within(r, dir); ok && (best == "" || len(r) < len(best)) {
+			best = r
+		}
+	}
+	if best == "" {
+		return dir
+	}
+	return best
+}
+
+// within reports whether target is root or under it, and its path relative to root.
+func within(root, target string) (string, bool) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", false
 	}
-	return pathToURI(target), true
+	return rel, true
+}
+
+const (
+	candidateAbsent = iota
+	candidateFound
+	candidateBlocked
+)
+
+// libCandidate is the CLI's searchDir distinction: a name that is not there, or is a
+// directory, is absent and the search moves on; a name that is there is this
+// directory's answer, and blocked when it cannot be read inside the tree.
+func libCandidate(dir, rel string) int {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return candidateAbsent
+	}
+	defer root.Close()
+	info, err := root.Lstat(rel)
+	if err != nil || info.IsDir() {
+		return candidateAbsent
+	}
+	if info, err := root.Stat(rel); err != nil || info.IsDir() {
+		return candidateBlocked
+	}
+	return candidateFound
+}
+
+// isFileIn reports whether rel names a file inside dir, through os.Root: a link that
+// leaves dir is not there.
+func isFileIn(dir, rel string) bool {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	info, err := root.Stat(rel)
+	return err == nil && !info.IsDir()
+}
+
+// readIn reads rel inside dir through os.Root.
+func readIn(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(rel)
+}
+
+// libDirs is the CLI's library search path: $MZSPATH when it is set, `~/.mzs/lib` when
+// it is not, with empty entries dropped and relative ones made absolute.
+func libDirs() []string {
+	raw := os.Getenv("MZSPATH")
+	if raw == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		raw = filepath.Join(home, ".mzs", "lib")
+	}
+	var dirs []string
+	for _, d := range filepath.SplitList(raw) {
+		if d == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(d); err == nil {
+			dirs = append(dirs, abs)
+		}
+	}
+	return dirs
 }
 
 // symbolsOf is the outline: what the file declares, in source order.

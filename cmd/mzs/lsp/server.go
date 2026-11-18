@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sync"
 
 	"mzs/internal/printer"
@@ -25,6 +26,9 @@ type server struct {
 
 	mu   sync.Mutex
 	docs map[string]*document
+	// roots are the workspace folders the client named in `initialize`, as paths. They
+	// bound a `../` include the way the CLI's script root does (resolveInclude).
+	roots []string
 
 	// shutdown records the client's `shutdown` request. The protocol says a server must
 	// refuse work after it and wait for `exit`, which is the difference between "we are
@@ -75,6 +79,12 @@ func (s *server) handle(req *request) error {
 	}
 	switch req.Method {
 	case "initialize":
+		var p initializeParams
+		// A client that sends no workspace, or one this server cannot read, gets a
+		// server that bounds includes by each document's own directory.
+		if unmarshal(req.Params, &p) == nil {
+			s.setRoots(p)
+		}
 		return s.conn.reply(req.ID, initializeResult{
 			Capabilities: serverCapabilities{
 				TextDocumentSync: textDocumentSyncOptions{
@@ -270,7 +280,30 @@ func (s *server) get(uri string) *document {
 func (s *server) put(d *document) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	d.roots = s.roots
 	s.docs[d.uri] = d
+}
+
+// setRoots records the workspace folders, or the root URI when there are none.
+func (s *server) setRoots(p initializeParams) {
+	uris := make([]string, 0, len(p.WorkspaceFolders)+1)
+	for _, f := range p.WorkspaceFolders {
+		uris = append(uris, f.URI)
+	}
+	if len(uris) == 0 && p.RootURI != "" {
+		uris = append(uris, p.RootURI)
+	}
+	var roots []string
+	for _, u := range uris {
+		if path := uriToPath(u); path != "" {
+			if abs, err := filepath.Abs(path); err == nil {
+				roots = append(roots, abs)
+			}
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.roots = roots
 }
 
 func (s *server) drop(uri string) {

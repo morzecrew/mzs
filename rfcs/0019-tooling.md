@@ -1,6 +1,6 @@
 # RFC 0019 — Tooling: lint, doc comments, coverage, profile, and the rest of the LSP
 
-**Status:** Partly landed: §1 (#37) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
+**Status:** Partly landed: §1 (#37), §2 (#38) · **Area:** tools · **Depends on:** 0009 (frames carry files) · **Audit:** T1–T4
 
 ## Summary
 
@@ -152,7 +152,7 @@ profile), `cmd/mzs/test.go`, `cmd/mzs/main.go`, new `cmd/mzs/doc.go`, `cmd/mzs/l
 ### Part 1: warnings (#37)
 
 §1 landed in `mzs/interp.go` and `mzs/errors.go`, with SPEC §17 and §21.1,
-`docs/cli/diagnostics.md` and `docs/embedding/errors.md`. §2–§5 are still to come.
+`docs/cli/diagnostics.md` and `docs/embedding/errors.md`.
 Decisions:
 
 * **Every warning has a code, the old ones too.** `regex-word-boundary`,
@@ -182,3 +182,53 @@ Decisions:
 * **A suppression comment needs its codes.** A bare `# mzs:allow` allows nothing, so a
   new rule is never silenced by a comment written before it existed.
 
+### Part 2: doc comments (#38)
+
+§2 landed in `internal/doccomment`, `cmd/mzs/doc.go` and `cmd/mzs/lsp`, with SPEC §3.2 and
+§15.4 and `docs/cli/tools.md`. §3–§5 are still to come. Decisions:
+
+* **The comments are read beside the tree, not stored in it.** The lexer already records
+  every comment it skips, with whether it stands on a line of its own. `doccomment` pairs
+  a `##` run with the statement on the line below, so the parser, the AST and the
+  compiler are unchanged, and no program can observe a doc comment.
+* **`##` must be followed by a space or end the line.** `###` and a `####…` rule are
+  banners people already write, and a remark at the end of a line of code is not about
+  the line below. A blank line ends a run, so a comment separated from its declaration
+  documents nothing.
+* **`const` and `enum` arrive with RFCs 0004 and 0005.** Until then a doc comment
+  documents a `fn`, a `record`, an `export`, or a top-level binding that an assignment
+  creates (`x = …` or `x := …`; `x += 1` creates nothing). `export name` under an
+  undocumented declaration may carry the comment for it.
+* **What `mzs doc` lists.** Every `fn` and `record` is listed, because a signature is
+  documentation on its own. A binding is listed when it is documented or exported, since
+  an undocumented helper value is not the file's interface. A default is quoted as the
+  source wrote it, and one that spans lines is `…`. RFC 0010 contracts will appear here
+  once they exist.
+* **`--json` is apidoc's `modules` table, widened.** Each entry keeps `sig`, `sem` and
+  `ex`, and adds `kind`, `exported` and `line`. A reader of the standard library's table
+  reads this one unchanged.
+* **A directory's `*_test.mzs` files are skipped.** A test file is the runner's input,
+  not anyone's interface. Named on the command line, it is documented like any other file.
+* **Hover and completion, not signature help.** The server has no signature help to put
+  a doc comment in yet; §5 brings it. Completion after `lib.` reads the include from the
+  tokens, because a file being typed does not parse and that is when completion is asked
+  for. The included file is parsed for its doc comments and never compiled or run, and it
+  is found by the CLI loader's rules: a `./` or `../` path is a neighbour, a bare name is
+  a library on `$MZSPATH` where the first directory holding the name answers, and the
+  read goes through `os.Root`. The CLI confines a neighbour to the directory of the
+  script it starts, which an editor cannot know, so the server confines it to the
+  outermost workspace folder that holds the document: every script the CLI could start
+  from inside the workspace has its root inside that folder, nested folders included, so
+  no include the CLI accepts from there is refused, and nothing outside the workspace is
+  read. With no workspace the root is the document's own directory. That is narrower
+  than the CLI on purpose: there is then no boundary that is not a guess, and a `../`
+  include shows no documentation rather than reading wherever it points.
+* **A destructuring line documents every name it binds**, and a comment above a bare
+  `export name` documents that name wherever its declaration stands, since a `fn` is
+  hoisted. A signature with a backtick in a default gets a longer code-span fence.
+* **Carried from part 1:** the last-statement exemption of `unused-variable` now applies
+  only when a block's value is received. In `fn f() { (a = 1); 0 }`, or an `if` whose
+  value is thrown away, `a` is a dead store and is warned about. A loop body and an
+  `ensure` never give their last statement as a value — `for` gives its iterable, `while`
+  nil, and an `ensure`'s value is discarded — so their final assignment is not exempt
+  either.

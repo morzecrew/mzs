@@ -20,7 +20,7 @@ Reference documentation for mzs, an embeddable scripting language written in Go,
 | [cli/README.md](./cli/README.md) | Every flag, the printing rules, exit codes, `$ARGV` |
 | [cli/input.md](./cli/input.md) | Whether stdin carries the program or the data, `--in`, `-n` and `-l` line mode |
 | [cli/diagnostics.md](./cli/diagnostics.md) | The shape of an error message, the error kinds, the fix-its, warnings, `--check` |
-| [cli/tools.md](./cli/tools.md) | `mzs fmt`, `mzs test` and `mzs lsp`: the formatter's rules, the test runner, the language server |
+| [cli/tools.md](./cli/tools.md) | `mzs fmt`, `mzs test`, `mzs lsp` and `mzs doc`: the formatter's rules, the test runner, the language server, doc comments |
 
 ## Language
 

@@ -153,9 +153,13 @@ type compiler struct {
 	// trackTargets is set while a destructuring assignment's pattern is bound, so the
 	// names it creates become unused-variable candidates (a `for` pattern's do not).
 	trackTargets bool
-	warns        []Warning
-	errs         []error
-	pool         []string // method and function names, built only to make a suggestion
+	// discarded is set just before a statement whose value nothing receives is compiled,
+	// and the group or `if` it is taken by, which then knows its own last statement is
+	// thrown away too: `(a = 1); 0` is a dead store, not the group's result.
+	discarded bool
+	warns     []Warning
+	errs      []error
+	pool      []string // method and function names, built only to make a suggestion
 
 	// fields is every name any `record` in this unit declares (§7.8). A receiver's shape
 	// is no more known statically than its kind is, so `m.amount` survives step 2 the way
@@ -620,15 +624,23 @@ func (c *compiler) argErrorf(pos token.Pos, format string, a ...any) {
 // Statements
 // ---------------------------------------------------------------------------
 
-func (c *compiler) stmts(list []ast.Stmt) {
+func (c *compiler) stmts(list []ast.Stmt) { c.stmtsValued(list, true) }
+
+// stmtsValued is stmts for a block whose value may be thrown away. valued says something
+// receives it; when nothing does, the last statement is as dead as the others, and an
+// assignment there is not the block's result.
+func (c *compiler) stmtsValued(list []ast.Stmt, valued bool) {
 	leftAt := -1 // the index of a statement that always leaves the block, once seen
 	for i, s := range list {
+		last := i == len(list)-1
+		c.discarded = (!last || !valued) && takesValue(s)
 		list[i] = c.stmt(s)
+		c.discarded = false
 		if leftAt < 0 && i < len(list)-1 && c.leaves(list[i]) {
 			leftAt = i
 			c.warnAt(list[i+1].Pos(), "unreachable", "unreachable: the statement above always leaves")
 		}
-		if i == len(list)-1 {
+		if last && valued {
 			// The last statement is the block's value (§8.1): an assignment there is
 			// its result, not a dead store. Only a local the assignment created is
 			// exempted — it is not a read, so a parameter it overwrites stays unread.
@@ -654,6 +666,36 @@ func (c *compiler) stmts(list []ast.Stmt) {
 			}
 		}
 	}
+}
+
+// takesValue reports whether n is a group, an `if`, a `try` or a bare block: a node whose
+// value is the last statement of a block inside it, and so can be thrown away with it.
+func takesValue(n ast.Node) bool {
+	if x, ok := n.(*ast.ExprStmt); ok {
+		n = x.X
+	}
+	switch n.(type) {
+	case *ast.GroupExpr, *ast.IfExpr, *ast.TryExpr, *ast.BlockStmt:
+		return true
+	}
+	return false
+}
+
+// exprValued compiles x, telling a group, `if`, `try` or block in it whether its value is
+// received.
+func (c *compiler) exprValued(x ast.Expr, valued bool) ast.Expr {
+	c.discarded = !valued && takesValue(x)
+	x = c.expr(x)
+	c.discarded = false
+	return x
+}
+
+// takeDiscarded reads and clears discarded, so the flag reaches the one node it was set
+// for and none of the expressions inside it.
+func (c *compiler) takeDiscarded() bool {
+	d := c.discarded
+	c.discarded = false
+	return d
 }
 
 func (c *compiler) stmt(s ast.Stmt) ast.Stmt {
@@ -686,7 +728,7 @@ func (c *compiler) stmt(s ast.Stmt) ast.Stmt {
 		c.record(n)
 		return n
 	case *ast.BlockStmt:
-		c.block(n)
+		c.blockValued(n, !c.takeDiscarded())
 		return n
 	case ast.Expr:
 		x := c.expr(n)
@@ -699,12 +741,15 @@ func (c *compiler) stmt(s ast.Stmt) ast.Stmt {
 }
 
 // block walks a body block in a scope of its own and records the frame it needs.
-func (c *compiler) block(b *ast.BlockStmt) {
+func (c *compiler) block(b *ast.BlockStmt) { c.blockValued(b, true) }
+
+// blockValued is block for a body whose value may be thrown away (stmtsValued).
+func (c *compiler) blockValued(b *ast.BlockStmt, valued bool) {
 	if b == nil {
 		return
 	}
 	c.push()
-	c.stmts(b.Stmts)
+	c.stmtsValued(b.Stmts, valued)
 	c.warnUnusedVars()
 	b.FrameSize = c.scope.size
 	c.pop()
@@ -800,7 +845,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 	case *ast.BlockStmt:
 		// A braced `try` clause (§8.11): a block in expression position, and a scope
 		// like every other brace.
-		c.block(n)
+		c.blockValued(n, !c.takeDiscarded())
 		return n
 	case *ast.RegexLit:
 		c.compileRegex(n)
@@ -886,17 +931,23 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		return n
 	case *ast.GroupExpr:
 		// Parentheses group statements without opening a scope: only a brace does that.
-		c.stmts(n.Stmts)
+		valued := !c.takeDiscarded()
+		c.stmtsValued(n.Stmts, valued)
 		return n
 	case *ast.IfExpr:
+		valued := !c.takeDiscarded()
 		c.warnIfAssignCond(n.Cond)
 		if b, ok := n.Cond.(*ast.BoolLit); ok {
 			c.warnAt(b.Start, "constant-condition", "the condition is always %t: write the branch that runs, or remove the 'if'", b.Value)
 		}
 		n.Cond = c.expr(n.Cond)
-		c.block(n.Then)
+		c.blockValued(n.Then, valued)
 		if n.Else != nil {
+			// The `else` is a block or the next `if` of a chain, and its value goes
+			// where this one's does.
+			c.discarded = !valued && takesValue(n.Else)
 			n.Else = c.stmt(n.Else)
+			c.discarded = false
 		}
 		return n
 	case *ast.WhileExpr:
@@ -905,7 +956,9 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 			c.warnAt(b.Start, "constant-condition", "'while false' never runs its body")
 		}
 		n.Cond = c.expr(n.Cond)
-		c.block(n.Body)
+		// A loop's value is never its body's last statement — `while` gives nil and
+		// `for` its iterable — so an assignment there is not a result.
+		c.blockValued(n.Body, false)
 		return n
 	case *ast.ForExpr:
 		n.Iter = c.expr(n.Iter)
@@ -920,7 +973,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		c.targets(n.ValPat, token.DECLARE)
 		c.trackTargets = prev
 		if n.Body != nil {
-			c.stmts(n.Body.Stmts)
+			c.stmtsValued(n.Body.Stmts, false)
 			n.Body.FrameSize = c.scope.size
 		}
 		c.warnUnusedVars()
@@ -943,19 +996,23 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		}
 		return n
 	case *ast.TryExpr:
-		n.X = c.expr(n.X)
+		// The value of a `try` is its body's or its fallback's, so both are thrown away
+		// when it is.
+		valued := !c.takeDiscarded()
+		n.X = c.exprValued(n.X, valued)
 		if n.Var == "" {
-			n.Fallback = c.expr(n.Fallback)
+			n.Fallback = c.exprValued(n.Fallback, valued)
 		} else {
 			// `(e) -> …` binds the error dict for the fallback only, in a scope of its
 			// own so that a braced fallback still opens its own on top of it.
 			c.push()
 			c.declare(n.Var)
-			n.Fallback = c.expr(n.Fallback)
+			n.Fallback = c.exprValued(n.Fallback, valued)
 			c.warnUnusedVars()
 			c.pop()
 		}
-		c.block(n.Ensure)
+		// An `ensure` runs for its effect; its own value is discarded (§8.11).
+		c.blockValued(n.Ensure, false)
 		c.warnEmptyTry(n)
 		return n
 	}

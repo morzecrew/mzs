@@ -1,7 +1,7 @@
-# `mzs fmt`, `mzs test`, `mzs lsp`
+# `mzs fmt`, `mzs test`, `mzs lsp`, `mzs doc`
 
-Three subcommands that do not run a program: one formats source, one runs the tests written
-in mzs, one answers an editor. They are words rather than flags for that reason, and they
+Four subcommands that do not run a program: one formats source, one runs the tests written
+in mzs, one answers an editor, one prints what a file says about itself. They are words rather than flags for that reason, and they
 are matched as a bare first argument — a script of your own is never shadowed, because a
 file is `fmt.mzs` and not `fmt`.
 
@@ -178,9 +178,9 @@ Language Server Protocol on stdin and stdout.
 | What the editor asks | What it gets |
 |---|---|
 | diagnostics | the compiler's errors and warnings, on open, on change and on save |
-| hover | the signature and the meaning of the name under the cursor |
+| hover | the signature and the meaning of the name under the cursor, with its [doc comment](#mzs-doc) when it has one |
 | go to definition | the `fn`, `record` or `include` that bound the name; the file itself for `include … from` |
-| completion | members after a `.`, and names, modules and keywords elsewhere |
+| completion | members after a `.` — after `lib.` the exports of `include lib from "./lib.mzs"`, with their doc comments — and names, modules and keywords elsewhere |
 | format document | the whole file through `mzs fmt` |
 | outline | what the file declares, in source order |
 
@@ -191,7 +191,64 @@ Two things worth knowing. **Every capability is installed while checking**, so `
 time` is not an error in an editor: which flags the program will be run with is not
 something a buffer knows, and a diagnostic that depends on a flag is a diagnostic about a
 command line. And **the server never runs a program** — it compiles — so an `include … from`
-is not read and nothing in the file has an effect.
+is not compiled and nothing in the file has an effect. The included file's text is read for
+one thing only: the doc comments of what it exports. It is found the way `mzs` finds it:
+`./lib.mzs` and `../lib.mzs` next to the file, but never outside the editor's workspace
+folder (with no workspace, never above the file's own directory), and `lib` on
+`$MZSPATH`.
+
+## `mzs doc`
+
+A run of `##` lines directly above a top-level `fn`, `record`, `export` or binding is that
+declaration's documentation. A plain `#` stays an ordinary comment, and so does a `##` line
+inside a body.
+
+```
+## Total of a cart in the cart's currency.
+##
+## Raises kind "billing" when currencies are mixed.
+export fn total(items, cur = "USD") { … }
+
+## A sum of money.
+export record Money(amount, cur = "USD")
+
+fn helper() { 1 }
+```
+
+`mzs doc lib.mzs` prints it as Markdown: a section per file, exported names first, each with
+its signature and its text exactly as written.
+
+````
+# lib.mzs
+
+## `export fn total(items, cur = "USD")`
+
+Total of a cart in the cart's currency.
+
+Raises kind "billing" when currencies are mixed.
+
+## `export record Money(amount, cur = "USD")`
+
+A sum of money.
+
+## `fn helper()`
+````
+
+- **What is listed:** every `fn` and `record`, and a binding when it is documented or
+  exported. A destructuring line documents each name it binds, and a comment above
+  `export name` documents that name.
+- **Paths:** a directory means every `.mzs` file under it, except the `*_test.mzs` files.
+  With no path, the source is stdin.
+- **`--json`:** prints the same as data, `{"modules": {path: {name: {sig, sem, ex, kind,
+  exported, line}}}}`. That is the shape the standard library's own documentation has, so
+  one reader handles both.
+- **Errors:** a file that does not parse is reported as `path:line:col: syntax: …`, and the
+  other files are still documented.
+- **Exit codes:** `0` ok, `1` a file could not be read or parsed, `2` usage.
+
+The first line of a doc comment is its summary. There is no tag syntax like `@param`: the
+text is Markdown, and it goes out the way it came in. `mzs fmt` keeps each doc comment above
+its declaration and re-flows nothing.
 
 ## See also
 

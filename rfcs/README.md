@@ -30,7 +30,7 @@ points back to, plus the defects that need a fix rather than a design.
 | [0016](0016-stdlib-completion.md) | Standard-library completion: the rows that are conspicuously absent — **landed** (#32–#36) | stdlib | M | P2 |
 | [0017](0017-args-module.md) | The `args` module: declared command-line flags — **landed** (#31) | stdlib | S | P2 |
 | [0018](0018-big-integers.md) | `big` — integers past 2⁶³ | stdlib | M | P3 |
-| [0019](0019-tooling.md) | Tooling: lint, doc comments, coverage, profile, and the rest of the LSP — warnings **landed** (#37) | tools | L | P2 |
+| [0019](0019-tooling.md) | Tooling: lint, doc comments, coverage, profile, and the rest of the LSP — warnings and doc comments **landed** (#37, #38) | tools | L | P2 |
 | [0020](0020-library-manifest.md) | A library manifest and `mzs get` | tools | L | P3 |
 
 **Size** is implementation effort: S ≈ a day, M ≈ a few days, L ≈ a week or more.
