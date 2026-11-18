@@ -11,11 +11,20 @@ only one: a **deliberate** break bumps the MINOR and says here what moved (SPEC 
 version.
 
 `Unreleased` is what is on `main` and not in a version yet, so a host reading this page can
-tell what updating today would give it. A version section carries the date its tag was cut;
-`0.1.0` has none because no tag has been cut yet — it is the version `mzs --version` prints,
-and the release is still ahead of it.
+tell what updating today would give it. A version section carries the date its tag was cut.
+
+Every version is a [GitHub release](https://github.com/morzecrew/mzs/releases). A change lands
+with its version: a pull request that adds anything bumps the MINOR, one that only fixes
+bumps the PATCH, and its entries go under the new version's section. When that commit passes
+CI on `main`, the release workflow tags it `vX.Y.Z` and publishes the section as the release
+notes, with a static `mzs` binary for Linux, macOS and Windows. `0.1.0` was never tagged:
+`0.2.0` is the first release, and it carries everything since.
 
 ## Unreleased
+
+Nothing yet.
+
+## 0.2.0 — 2026-11-18
 
 ### Added
 

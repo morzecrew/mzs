@@ -1,0 +1,109 @@
+name: Release
+
+# A version is released by landing it, not by a hand pushing a tag. When a commit on main
+# passes CI and the version it prints (`mzs --version`, SPEC §21.5) has no tag yet, this
+# tags the commit `vX.Y.Z` and publishes a GitHub release: the version's CHANGELOG.md
+# section as the notes, and a static binary for each platform. A commit whose version is
+# already tagged releases nothing, so every push to main may run this safely.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    # Only a green main: a workflow_run fires for failures too.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # The commit CI tested, not whatever main points at by now.
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: the version to release
+        id: version
+        run: |
+          go build -o /tmp/mzs ./cmd/mzs
+          printed=$(/tmp/mzs --version)                 # "mzs 0.2.0"
+          number=${printed#mzs }
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$number" >/dev/null ||
+             gh release view "v$number" >/dev/null 2>&1; then
+            echo "v$number is released already; nothing to do"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The notes are the version's own section of the changelog, without its heading:
+      # the release title says the version already.
+      - name: release notes
+        if: steps.version.outputs.new == 'true'
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+        run: |
+          awk -v v="$NUMBER" '
+            $0 ~ "^## " { if (found) exit; if ($2 == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > /tmp/notes.md
+          if ! grep -q '[^[:space:]]' /tmp/notes.md; then
+            echo "CHANGELOG.md has no section for $NUMBER"
+            exit 1
+          fi
+
+      # One static binary per platform: no cgo, nothing needed at run time (I1).
+      - name: binaries
+        if: steps.version.outputs.new == 'true'
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            name="mzs-$NUMBER-$os-$arch"
+            exe=mzs; [ "$os" = windows ] && exe=mzs.exe
+            mkdir -p "/tmp/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+              go build -trimpath -ldflags="-s -w" -o "/tmp/$name/$exe" ./cmd/mzs
+            cp LICENSE* README.md CHANGELOG.md "/tmp/$name/" 2>/dev/null || true
+            if [ "$os" = windows ]; then
+              (cd /tmp && zip -qr "$GITHUB_WORKSPACE/dist/$name.zip" "$name")
+            else
+              tar -C /tmp -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: publish
+        if: steps.version.outputs.new == 'true'
+        env:
+          NUMBER: ${{ steps.version.outputs.number }}
+        run: |
+          gh release create "v$NUMBER" dist/* \
+            --target "$SHA" \
+            --title "mzs $NUMBER" \
+            --notes-file /tmp/notes.md

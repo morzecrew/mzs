@@ -5429,7 +5429,7 @@ existed — a misspelling is a near-miss suggestion (§17), not a promise.
 
 ### 21.4 The one exception, while MAJOR is `0`
 
-The version is `0.1.0`. What a MAJOR of `0` buys is exactly one thing: the promise of §21.1
+The MAJOR is `0`. What a MAJOR of `0` buys is exactly one thing: the promise of §21.1
 may be broken **deliberately** — with a MINOR bump, a `CHANGELOG.md` entry that says what
 moved, and a diagnostic under §21.3 wherever a diagnostic can carry the reader across. So
 `0.2.0` may break a program `0.1.0` ran, and it has to say so in the changelog; `0.1.1` may
@@ -5447,6 +5447,12 @@ printing the previous release beside one printing this release is exactly the di
 worth catching. A version that means anything has to be the same version everywhere it is
 written down, and each copy of a string is another chance for it not to be, so the check is
 a build step rather than a habit.
+
+A version is released by landing it. When a commit on `main` passes CI and the version it
+prints has no tag yet, the release workflow (`.github/workflows/release.yml`) tags it
+`vX.Y.Z` and publishes a GitHub release whose notes are that version's `CHANGELOG.md`
+section, with a static binary for each platform. A change that adds anything bumps the
+MINOR; one that only fixes bumps the PATCH.
 
 ---
 

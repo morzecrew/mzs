@@ -57,7 +57,7 @@ is refuse to compile it.
 
 ## What `0.x` means here
 
-The version is `0.1.0`. The `0` means *young*, not *anything may happen*: the promise above
+The MAJOR is `0`. The `0` means *young*, not *anything may happen*: the promise above
 may be broken deliberately, with a MINOR bump and a `CHANGELOG.md` entry saying what moved,
 and a diagnostic wherever one can carry the reader across. In practice:
 
@@ -72,7 +72,7 @@ There is no version at which a *quiet* break is allowed.
 ## One version string
 
 ```sh
-mzs --version      # mzs 0.1.0
+mzs --version      # mzs 0.2.0
 ```
 
 The binary, the newest version section of [`CHANGELOG.md`](../../CHANGELOG.md) and every
