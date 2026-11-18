@@ -84,7 +84,7 @@ func runTest(argv []string, stdout, stderr io.Writer) int {
 		cfg.coverage = mzs.NewCoverage()
 		cfg.ran = map[string]bool{}
 		for _, f := range files {
-			cfg.ran[f] = true
+			cfg.ran[canonicalPath(f)] = true
 		}
 	}
 	var (
@@ -486,6 +486,9 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			v, err := need()
 			if err != nil {
 				return nil, err
+			}
+			if v == "" {
+				return nil, fmt.Errorf("--cover-out wants a file name")
 			}
 			cfg.cover, cfg.coverOut = true, v
 		case "--cover-min":

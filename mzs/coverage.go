@@ -1,6 +1,7 @@
 package mzs
 
 import (
+	"crypto/sha256"
 	"sort"
 	"sync"
 
@@ -18,17 +19,36 @@ import (
 // (whether it has an `else` or not), of a ternary and of `&&`, `||` and `??`, and each
 // arm of a `match`. A file is registered the first time a Run starts it, with every
 // statement and branch at zero, so what never ran is counted too.
+//
+// A file is the pair of its name and its source text. The same text run again under
+// the same name adds to its counts, however many times it was compiled; different text
+// under one name — every Interp.Eval runs as "eval" — is a file of its own.
 type Coverage struct {
 	mu    sync.Mutex
-	files map[string]*fileCover
+	files map[fileKey]*fileCover
+	// slots maps each statement and branch node of every registered tree to its
+	// counter. A hit is counted by node, never by position, so two texts that share a
+	// name and a line number cannot count for each other.
+	slots map[slotKey]*int
 }
 
 // NewCoverage returns an empty Coverage.
-func NewCoverage() *Coverage { return &Coverage{files: map[string]*fileCover{}} }
+func NewCoverage() *Coverage { return &Coverage{} }
+
+type fileKey struct {
+	name string
+	src  [sha256.Size]byte
+}
+
+type slotKey struct {
+	node ast.Node
+	arm  int // -1 for a statement
+}
 
 type fileCover struct {
-	stmts    map[posKey]int
-	branches map[branchKey]int
+	name     string
+	stmts    map[posKey]*int
+	branches map[branchKey]*int
 }
 
 type posKey struct{ line, col int }
@@ -51,45 +71,48 @@ const (
 
 func keyOf(p token.Pos) posKey { return posKey{p.Line, p.Col} }
 
-func (c *Coverage) file(name string) *fileCover {
-	if c.files == nil {
-		c.files = map[string]*fileCover{}
-	}
-	fc := c.files[name]
-	if fc == nil {
-		fc = &fileCover{stmts: map[posKey]int{}, branches: map[branchKey]int{}}
-		c.files[name] = fc
-	}
-	return fc
-}
-
-// register records every statement and branch of tree under file with a count of zero,
-// keeping counts that are already there: a second Run of the same file adds to the
-// first.
-func (c *Coverage) register(file string, tree *ast.Program) {
+// register records every statement and branch of tree, compiled from src, under file
+// with a count of zero, keeping counts that are already there: a second Run of the same
+// text adds to the first.
+func (c *Coverage) register(file, src string, tree *ast.Program) {
 	if tree == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	fc := c.file(file)
+	if c.files == nil {
+		c.files = map[fileKey]*fileCover{}
+		c.slots = map[slotKey]*int{}
+	}
+	key := fileKey{file, sha256.Sum256([]byte(src))}
+	fc := c.files[key]
+	if fc == nil {
+		fc = &fileCover{name: file, stmts: map[posKey]*int{}, branches: map[branchKey]*int{}}
+		c.files[key] = fc
+	}
 	stmts := func(list []ast.Stmt) {
 		for _, s := range list {
 			if s == nil {
 				continue
 			}
 			k := keyOf(s.Pos())
-			if _, ok := fc.stmts[k]; !ok {
-				fc.stmts[k] = 0
+			slot := fc.stmts[k]
+			if slot == nil {
+				slot = new(int)
+				fc.stmts[k] = slot
 			}
+			c.slots[slotKey{s, -1}] = slot
 		}
 	}
-	branch := func(p token.Pos, kind byte, arms int) {
+	branch := func(n ast.Node, p token.Pos, kind byte, arms int) {
 		for i := range arms {
 			k := branchKey{keyOf(p), kind, i}
-			if _, ok := fc.branches[k]; !ok {
-				fc.branches[k] = 0
+			slot := fc.branches[k]
+			if slot == nil {
+				slot = new(int)
+				fc.branches[k] = slot
 			}
+			c.slots[slotKey{n, i}] = slot
 		}
 	}
 	ast.Walk(tree, func(n ast.Node) bool {
@@ -101,27 +124,25 @@ func (c *Coverage) register(file string, tree *ast.Program) {
 		case *ast.GroupExpr:
 			stmts(x.Stmts)
 		case *ast.IfExpr:
-			branch(x.Pos(), branchIf, 2)
+			branch(x, x.Pos(), branchIf, 2)
 		case *ast.TernaryExpr:
-			branch(x.Pos(), branchTernary, 2)
+			branch(x, x.Pos(), branchTernary, 2)
 		case *ast.LogicalExpr:
-			branch(x.OpPos, branchLogical, 2)
+			branch(x, x.OpPos, branchLogical, 2)
 		case *ast.MatchExpr:
-			branch(x.Pos(), branchMatch, len(x.Arms))
+			branch(x, x.Pos(), branchMatch, len(x.Arms))
 		}
 		return true
 	})
 }
 
-func (c *Coverage) hitStmt(file string, p token.Pos) {
+// hit counts one statement (arm -1) or one side of a branch node. A node no Run
+// registered — a tree compiled while the Coverage was not installed — counts nothing.
+func (c *Coverage) hit(n ast.Node, arm int) {
 	c.mu.Lock()
-	c.file(file).stmts[keyOf(p)]++
-	c.mu.Unlock()
-}
-
-func (c *Coverage) hitBranch(file string, p token.Pos, kind byte, arm int) {
-	c.mu.Lock()
-	c.file(file).branches[branchKey{keyOf(p), kind, arm}]++
+	if slot := c.slots[slotKey{n, arm}]; slot != nil {
+		*slot++
+	}
 	c.mu.Unlock()
 }
 
@@ -172,26 +193,33 @@ func (fc FileCoverage) MissedLines() []int {
 	return out
 }
 
-// Files reports every file the Coverage has seen, sorted by name.
+// Files reports every file the Coverage has seen, sorted by name. A name that ran with
+// more than one text is reported once for each.
 func (c *Coverage) Files() []FileCoverage {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	names := make([]string, 0, len(c.files))
-	for n := range c.files {
-		names = append(names, n)
+	keys := make([]fileKey, 0, len(c.files))
+	for k := range c.files {
+		keys = append(keys, k)
 	}
-	sort.Strings(names)
-	out := make([]FileCoverage, 0, len(names))
-	for _, n := range names {
-		out = append(out, c.files[n].report(n))
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].name != keys[j].name {
+			return keys[i].name < keys[j].name
+		}
+		return string(keys[i].src[:]) < string(keys[j].src[:])
+	})
+	out := make([]FileCoverage, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, c.files[k].report())
 	}
 	return out
 }
 
-func (fc *fileCover) report(name string) FileCoverage {
-	r := FileCoverage{File: name}
+func (fc *fileCover) report() FileCoverage {
+	r := FileCoverage{File: fc.name}
 	lines := map[int]int{}
-	for k, n := range fc.stmts {
+	for k, slot := range fc.stmts {
+		n := *slot
 		r.Statements++
 		if n > 0 {
 			r.StatementsRun++
@@ -206,10 +234,10 @@ func (fc *fileCover) report(name string) FileCoverage {
 	sort.Slice(r.Lines, func(i, j int) bool { return r.Lines[i].Line < r.Lines[j].Line })
 
 	keys := make([]branchKey, 0, len(fc.branches))
-	for k, n := range fc.branches {
+	for k, slot := range fc.branches {
 		keys = append(keys, k)
 		r.Branches++
-		if n > 0 {
+		if *slot > 0 {
 			r.BranchesTaken++
 		}
 	}
@@ -236,7 +264,7 @@ func (fc *fileCover) report(name string) FileCoverage {
 			}
 		}
 		prev = k
-		r.BranchHits = append(r.BranchHits, BranchCoverage{Line: k.pos.line, Block: block, Branch: k.arm, Hits: fc.branches[k]})
+		r.BranchHits = append(r.BranchHits, BranchCoverage{Line: k.pos.line, Block: block, Branch: k.arm, Hits: *fc.branches[k]})
 	}
 	return r
 }

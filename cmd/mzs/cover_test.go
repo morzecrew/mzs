@@ -98,6 +98,8 @@ func TestCoverFlags(t *testing.T) {
 		{"test", "--cover-min", "lots"},
 		{"test", "--cover-min", "120"},
 		{"test", "--cover-out"},
+		{"test", "--cover-out", ""},
+		{"test", "--cover-out="},
 		{"test", "--cover-min", "NaN"},
 		{"test", "--cover-min", "-1"},
 	} {
@@ -146,5 +148,27 @@ func TestCoverLeavesOutANamedTestFile(t *testing.T) {
 	}
 	if !strings.Contains(report, "lib.mzs") {
 		t.Errorf("the included file is missing:\n%s", report)
+	}
+}
+
+// A test file is left out under any spelling: run as typed, included absolutely.
+func TestCoverLeavesOutATestFileIncludedByAnother(t *testing.T) {
+	dir := coverFixture(t)
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("checks.mzs", "include test\nexport fn helper() { 1 }\ntest.case(\"c\") { assert(true) }\n")
+	write("more.mzs", "include test\ninclude checks from \"./checks.mzs\"\ntest.case(\"m\") { assert(checks.helper() == 1) }\n")
+	t.Chdir(dir)
+	code, out, errOut := exec([]string{"test", "--cover", "checks.mzs", "more.mzs"}, "")
+	if code != exitOK {
+		t.Fatalf("code = %d, stderr = %s", code, errOut)
+	}
+	report := out[strings.LastIndex(out, "\n\n"):]
+	if strings.Contains(report, "checks.mzs") || strings.Contains(report, "more.mzs") {
+		t.Errorf("a test file is in the report:\n%s", report)
 	}
 }

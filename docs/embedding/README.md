@@ -127,7 +127,9 @@ for _, f := range cov.Files() {
 
 The counts of every Run that shares a `Coverage` add up, and one is safe to share between
 Runs and between interpreters. A file is listed under the name it ran under: the program's
-name, or the resolved name the `ModuleLoader` gave an `include … from`. `Lines` and
+name, or the resolved name the `ModuleLoader` gave an `include … from`. Different text under
+one name is listed once per text, so a host that calls `Eval` with many sources sees each
+of them as its own `eval` entry. `Lines` and
 `BranchHits` carry the per-line and per-branch counts that an LCOV file needs.
 
 The CLI spells the off switches as `0`, not `-1`: `-t 0`, `--steps 0`, `--mem 0` and `--tasks 0`

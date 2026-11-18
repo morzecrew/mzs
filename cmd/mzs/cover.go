@@ -16,12 +16,21 @@ import (
 // file the tests' Runs loaded through `include … from`; the test files themselves are
 // what does the covering and are left out.
 
+// canonicalPath is the one spelling of a file both lists are compared in: the runner
+// names a test as it was typed, the loader names an include absolutely.
+func canonicalPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(p)
+}
+
 // coveredFiles is the Coverage's files without the tests: the files this command ran
 // as tests, whatever they are called, and any *_test.mzs another one included.
 func coveredFiles(c *mzs.Coverage, tests map[string]bool) []mzs.FileCoverage {
 	var out []mzs.FileCoverage
 	for _, f := range c.Files() {
-		if tests[f.File] || strings.HasSuffix(f.File, "_test.mzs") {
+		if tests[canonicalPath(f.File)] || strings.HasSuffix(f.File, "_test.mzs") {
 			continue
 		}
 		out = append(out, f)

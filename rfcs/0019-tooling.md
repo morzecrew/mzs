@@ -258,9 +258,15 @@ Decisions:
 * **One `Coverage`, shared and locked.** Every Run that holds it adds to the same counts,
   and a mutex makes it safe across Runs and interpreters. With none, the cost is one nil
   check per statement and per branch.
+* **A file is its name and its text.** The key is the name with a SHA-256 of the
+  source, and a hit is counted on the tree node, never on a position. The same text adds
+  up however often it is compiled, and two texts under one name — every `Interp.Eval`
+  is `eval` — cannot count for each other.
 * **What a test file is.** The report leaves out every file the command ran as a test,
-  under the name its Run was given, since a file named on the command line is a test
-  whatever it is called, and any `*_test.mzs` another one includes.
+  since a file named on the command line is a test whatever it is called, and any
+  `*_test.mzs` another one includes. Both lists are compared as absolute paths, because
+  the runner names a file as it was typed and the loader names it absolutely.
+  `--cover-out` with an empty name is a usage error.
 * **`--cover-out` and `--cover-min` imply `--cover`**, and a percentage may be written
   with or without `%`. `NaN` is not a percentage. `--cover-min` compares the total of the included files, so a run
   that includes nothing is at 100% and says that it covered nothing.

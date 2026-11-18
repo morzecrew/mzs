@@ -1810,7 +1810,7 @@ func (in *Interp) RunResult(ctx context.Context, p *Program, vars map[string]Val
 	}()
 
 	e := ev{rs: rs, cx: newCtx(rs), env: newEnv(nil, p.frameSize)}
-	v, rerr := e.runProgram(p.tree())
+	v, rerr := e.runProgram(p.tree(), p.src)
 	res.Value = v
 	if rerr != nil && rs.sh.failedFast {
 		if _, ok := testSignalOf(rerr); !ok {

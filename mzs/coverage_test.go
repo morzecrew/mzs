@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"mzs/internal/token"
+	"mzs/internal/ast"
 )
 
 // RFC 0019 §3: a Coverage counts the statements and branches that ran, file by file,
@@ -120,8 +120,54 @@ func TestCoverageIsOptional(t *testing.T) {
 		t.Error("a file with no statements is fully covered")
 	}
 	var zero Coverage // the zero value works too
-	zero.hitStmt("f", token.Pos{Line: 1, Col: 1})
-	if len(zero.Files()) != 1 {
-		t.Error("the zero Coverage does not record")
+	o := DefaultOptions()
+	o.Coverage = &zero
+	in := New(o)
+	p, err := in.Compile("z.mzs", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f := zero.Files(); len(f) != 1 || f[0].StatementsRun != 1 {
+		t.Errorf("the zero Coverage recorded %+v", f)
+	}
+	// A node nothing registered counts nothing, and does not panic.
+	zero.hit(&ast.ExprStmt{}, -1)
+}
+
+// Different text under one name is two files; the same text compiled twice is one.
+func TestCoverageKeepsTextsApart(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1 // compile anew every time, so the same text is two trees
+	in := New(o)
+	for _, src := range []string{"if true { 1 } else { 2 }", "x = 1\ny = 2\nz = 3", "if true { 1 } else { 2 }"} {
+		if _, err := in.Eval(context.Background(), src, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := cov.Files()
+	if len(files) != 2 {
+		t.Fatalf("files = %+v, want one per text", files)
+	}
+	for _, f := range files {
+		if f.File != "eval" {
+			t.Errorf("name = %q", f.File)
+		}
+		switch f.Branches {
+		case 2: // the if, its then and its else: run twice, the else never
+			if f.Statements != 3 || f.StatementsRun != 2 || f.BranchesTaken != 1 || f.BranchHits[0].Hits != 2 {
+				t.Errorf("the if text = %+v", f)
+			}
+		case 0: // three assignments, each once
+			if f.Statements != 3 || f.StatementsRun != 3 || len(f.MissedLines()) != 0 {
+				t.Errorf("the assignments text = %+v", f)
+			}
+		default:
+			t.Errorf("unexpected file %+v", f)
+		}
 	}
 }

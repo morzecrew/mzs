@@ -4754,7 +4754,10 @@ total            92.2%
 
 `Options.Coverage` is the same counter for a host: `mzs.NewCoverage()`, then `Files()` after
 the Runs, each `FileCoverage` with its statement and branch totals, its `Lines` and its
-`BranchHits`. A nil `Coverage` costs one predictable branch per statement.
+`BranchHits`. A file is its name together with its text: the same text run again adds to
+its counts, and different text under one name — every `Interp.Eval` is `eval` — is reported
+as a file of its own. A nil `Coverage` costs one nil check per statement and one per branch
+point.
 
 A file that raises **outside** a case did not finish, and that is counted apart from a case
 that failed: the fixes are different. Exit codes: `0` every case passed or was skipped, `1` a
