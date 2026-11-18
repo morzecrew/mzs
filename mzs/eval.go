@@ -69,8 +69,12 @@ func (e ev) runProgram(f *ast.Program, src string) (Value, error) {
 		// A module runs through here under its own resolved name, so each file is
 		// registered as the one its statements report against.
 		e.rs.cov.register(e.rs.file, src, f)
-		e.rs.sh.covered = append(e.rs.sh.covered, f)
 	}
+	// The functions this program makes keep its tree (Func.tree), so their hits are
+	// counted for as long as they can be called.
+	prevTree := e.rs.tree
+	e.rs.tree = f
+	defer func() { e.rs.tree = prevTree }()
 	e.hoist(f.Stmts)
 	v, err := e.execStmts(f.Stmts)
 	if c, ok := ctrlOf(err); ok {

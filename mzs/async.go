@@ -60,11 +60,6 @@ type runShared struct {
 	// prof is the root of the profile's call tree when Options.Profile is set. Every
 	// task adds to it, under the lock, as the step counter is.
 	prof *profNode
-	// covered holds every tree the Run registered with Options.Coverage until the Run
-	// ends. A function's body does not keep its program alive, and a module's tree is
-	// out of the loader's hands once its statements ran, yet its functions are still
-	// called: without this the tree could be collected mid-Run and their hits lost.
-	covered []*ast.Program
 
 	wg   sync.WaitGroup
 	live int // tasks started and not yet finished, against Options.MaxTasks
@@ -481,12 +476,15 @@ func (e ev) spawnTask(f *Func, args []Value, named namedArgs, pos token.Pos) (Va
 	// (`async fn f(x = g())`) is the *caller's* code and must not run beside it.
 	// Its defaults are the callee's code, so they run with the callee's file current; a
 	// failure of the call itself is the caller's, and is positioned in the caller's file.
-	prev := rs.file
+	prev, prevTree := rs.file, rs.tree
 	if f.file != "" {
 		rs.file = f.file
 	}
+	if f.tree != nil {
+		rs.tree = f.tree
+	}
 	env, err := e.bindParams(f, args, named)
-	rs.file = prev
+	rs.file, rs.tree = prev, prevTree
 	if err != nil {
 		return Nil(), e.atCall(err, pos)
 	}
@@ -562,6 +560,9 @@ func (e ev) runTaskBody(f *Func, pos token.Pos) (Value, error) {
 	}
 	if f.file != "" {
 		e.rs.file = f.file
+	}
+	if f.tree != nil {
+		e.rs.tree = f.tree
 	}
 	v, err := e.execStmts(f.Body.Stmts)
 	if err == nil {

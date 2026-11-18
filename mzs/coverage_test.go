@@ -312,3 +312,39 @@ func TestCoverageKeepsAModulesTreeForItsRun(t *testing.T) {
 		}
 	}
 }
+
+// A function handed from one Run to a later one keeps its program's tree: the host
+// may drop the program, and the later call is still counted.
+func TestCoverageFollowsAFunctionIntoALaterRun(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1
+	in := New(o)
+	fn := func() Value {
+		p, err := in.Compile("one.mzs", "fn f(n) {\n  n + 1\n}\nf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := in.Run(context.Background(), p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}()
+	for range 5 {
+		runtime.GC()
+	}
+	p, err := in.Compile("two.mzs", "$g(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Run(context.Background(), p, map[string]Value{"$g": fn}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range cov.Files() {
+		if f.File == "one.mzs" && f.StatementsRun != f.Statements {
+			t.Errorf("one.mzs ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
+		}
+	}
+}

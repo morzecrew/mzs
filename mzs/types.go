@@ -157,6 +157,11 @@ type Func struct {
 	// current file for the body, so an exported function's errors and frames name the
 	// module rather than whichever file called it (§8.11, §12.8).
 	file string
+	// tree is the program the function was written in. Its body is a part of that tree
+	// but does not keep the rest alive, and coverage counts a node only while its tree
+	// lives (RFC 0019 §3): holding it here keeps a function's hits counted for as long as the
+	// function can be called, in this Run or a later one it is handed to.
+	tree *ast.Program
 	// Frame is the number of local slots one invocation needs, from the compile pass.
 	// It mirrors Body.FrameSize for script functions and is 0 for host functions.
 	Frame int
@@ -255,10 +260,13 @@ func (e *Env) Len() int { return len(e.slots) }
 //
 // The evaluator owns this type's behaviour and may append fields.
 type runState struct {
-	in      *Interp
-	ctx     context.Context
-	opts    *Options
-	file    string
+	in   *Interp
+	ctx  context.Context
+	opts *Options
+	file string
+	// tree is the program whose code is running: the Run's own, a module's while its
+	// statements run, a function's while its body does. A function made here keeps it.
+	tree    *ast.Program
 	globals map[string]Value
 	stack   []Frame
 
