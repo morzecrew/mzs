@@ -91,7 +91,7 @@ func (e ev) loadModule(n *ast.IncludeDecl) (Value, error) {
 
 	menv := newEnv(nil, prog.frameSize)
 	me := ev{rs: e.rs, cx: e.cx, env: menv}
-	_, rerr := me.runProgram(prog.tree())
+	_, rerr := me.runProgram(prog.tree(), src)
 
 	exported := e.rs.exports
 	e.rs.file, e.rs.exports = prevFile, prevExports

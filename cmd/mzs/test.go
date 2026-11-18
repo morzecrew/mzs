@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,6 +40,17 @@ type testConfig struct {
 	json bool
 	// verbose is -v: a passing case's output is printed under it too.
 	verbose bool
+
+	// cover is --cover, and --cover-out and --cover-min imply it: every file's Run
+	// counts into coverage, and the report follows the summary (RFC 0019 §3).
+	cover    bool
+	coverOut string
+	coverMin float64
+	coverage *mzs.Coverage
+	// ran is every test file this command ran, under the name its Run was given: a
+	// file named on the command line is a test whatever it is called, and is left out
+	// of the report like any *_test.mzs.
+	ran map[string]bool
 }
 
 // testTally is what the summary line counts.
@@ -68,6 +80,13 @@ func runTest(argv []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	if cfg.cover {
+		cfg.coverage = mzs.NewCoverage()
+		cfg.ran = map[string]bool{}
+		for _, f := range files {
+			cfg.ran[canonicalPath(f)] = true
+		}
+	}
 	var (
 		total  testTally
 		broken int
@@ -107,10 +126,14 @@ func runTest(argv []string, stdout, stderr io.Writer) int {
 			plural(ran, "file"), plural(total.cases, "case"), total.failed,
 			skippedNote(total.skipped), brokenNote(broken), elapsed.Round(time.Millisecond))
 	}
+	code := exitOK
 	if total.failed > 0 || broken > 0 {
-		return exitError
+		code = exitError
 	}
-	return exitOK
+	if cfg.cover && !reportCoverage(cfg, stdout, stderr) {
+		code = exitError
+	}
+	return code
 }
 
 // runTestFile runs one file and returns what its cases came to, and the error that ended
@@ -140,6 +163,7 @@ func runTestFile(cfg *testConfig, path string, stdout, stderr io.Writer) (testTa
 		out = stderr
 	}
 	o := options(&opts, out, stderr, nil)
+	o.Coverage = cfg.coverage
 	o.Test = mzs.TestOptions{
 		FailFast: cfg.failFast,
 		Quiet:    cfg.json,
@@ -456,6 +480,27 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 			cfg.json = true
 		case "-v", "--verbose":
 			cfg.verbose = true
+		case "--cover":
+			cfg.cover = true
+		case "--cover-out":
+			v, err := need()
+			if err != nil {
+				return nil, err
+			}
+			if v == "" {
+				return nil, fmt.Errorf("--cover-out wants a file name")
+			}
+			cfg.cover, cfg.coverOut = true, v
+		case "--cover-min":
+			v, err := need()
+			if err != nil {
+				return nil, err
+			}
+			n, perr := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64)
+			if perr != nil || math.IsNaN(n) || n < 0 || n > 100 {
+				return nil, fmt.Errorf("--cover-min wants a percentage from 0 to 100, got %q", v)
+			}
+			cfg.cover, cfg.coverMin = true, n
 		case "--now":
 			v, err := need()
 			if err != nil {
@@ -513,6 +558,12 @@ Flags:
       --fail-fast    stop at the first failed case
       --json         one JSON object per case on stdout, then a summary; what the
                      scripts print goes to stderr
+      --cover        after the summary, the share of each included file's statements
+                     that ran, with the lines that did not
+      --cover-out <f>
+                     --cover, and write LCOV to f for a CI or an editor to read
+      --cover-min <p>
+                     --cover, and exit 1 when the total is below p percent
   -v, --verbose      print what each case printed under it (a failed case's always is)
   -h, --help         this text
 

@@ -61,9 +61,14 @@ func (e ev) atCall(err error, p token.Pos) error {
 // runProgram is one whole script. Top-level `fn`s are hoisted so a call may appear
 // above its declaration (§8.2), and a `return` at top level ends the program with that
 // value (§8.1).
-func (e ev) runProgram(f *ast.Program) (Value, error) {
+func (e ev) runProgram(f *ast.Program, src string) (Value, error) {
 	if f == nil {
 		return Nil(), nil
+	}
+	if e.rs.cov != nil {
+		// A module runs through here under its own resolved name, so each file is
+		// registered as the one its statements report against.
+		e.rs.cov.register(e.rs.file, src, f)
 	}
 	e.hoist(f.Stmts)
 	v, err := e.execStmts(f.Stmts)
@@ -107,6 +112,9 @@ func (e ev) execStmts(stmts []ast.Stmt) (Value, error) {
 			// Run is stopping: no further statement runs, here or in any task (§12.18).
 			e.rs.rootReset(m)
 			return Nil(), &testSignal{}
+		}
+		if e.rs.cov != nil {
+			e.rs.cov.hit(s, -1)
 		}
 		v, err := e.execStmt(s)
 		if err != nil {
@@ -242,8 +250,10 @@ func (e ev) evalChain(x ast.Expr) (Value, error) {
 			return Nil(), err
 		}
 		if c.Truthy() {
+			e.branch(n, 0)
 			return e.eval(n.Then)
 		}
+		e.branch(n, 1)
 		return e.eval(n.Else)
 	case *ast.RangeExpr:
 		return e.evalRange(n)
@@ -579,18 +589,31 @@ func (e ev) evalLogical(n *ast.LogicalExpr) (Value, error) {
 	switch n.Op {
 	case token.OROR:
 		if l.Truthy() {
+			e.branch(n, 0)
 			return l, nil
 		}
 	case token.NILNIL:
 		if !l.IsNil() {
+			e.branch(n, 0)
 			return l, nil
 		}
 	default:
 		if !l.Truthy() {
+			e.branch(n, 0)
 			return l, nil
 		}
 	}
+	e.branch(n, 1)
 	return e.eval(n.R)
+}
+
+// branch counts one side of a branch point when the Run collects coverage (RFC 0019
+// §3). Side 0 is the `then` of an `if` or a ternary and the short-circuit of a logical
+// operator; side 1 the other. A `match` arm is its index.
+func (e ev) branch(n ast.Node, arm int) {
+	if e.rs.cov != nil {
+		e.rs.cov.hit(n, arm)
+	}
 }
 
 func (e ev) evalIf(n *ast.IfExpr) (Value, error) {
@@ -599,8 +622,10 @@ func (e ev) evalIf(n *ast.IfExpr) (Value, error) {
 		return Nil(), err
 	}
 	if c.Truthy() {
+		e.branch(n, 0)
 		return e.execBlock(n.Then)
 	}
+	e.branch(n, 1)
 	if n.Else == nil {
 		return Nil(), nil
 	}
@@ -852,6 +877,7 @@ func (e ev) evalMatch(n *ast.MatchExpr) (Value, error) {
 				continue
 			}
 		}
+		e.branch(n, i)
 		if env != nil && arm.Body != nil {
 			return body.execStmts(arm.Body.Stmts)
 		}

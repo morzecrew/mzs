@@ -3910,6 +3910,7 @@ type Options struct {
     // Semantics
     StrictWarnings  bool          // promote Program.Warnings to compile errors
     AllowWarnings   []string      // warning codes (§17) dropped before StrictWarnings sees them
+    Coverage        *Coverage     // counts the statements and branches each Run executes (§15.2)
 
     // Resource limits (0 means "use the default")
     Timeout         time.Duration // wall clock per Run. Default 1s. 0 disables (not recommended).
@@ -4735,6 +4736,28 @@ of passes and skips answers `0`.
 | `--json` | one JSON object per line on stdout: a case is `{"file", "name", "group", "status", "message", "line", "col", "ms"}` — `line` and `col` where the case was declared, `message` the failure with its position or the skip's reason, `null` for a pass — a file that did not finish has `"status": "error"` and `"name": null`, and a last object `{"summary": true, "files", "cases", "failed", "skipped", "broken", "ms"}` closes the stream. Nothing else is written to stdout: what the scripts print goes to stderr |
 | `--now <rfc3339>` | `--time` with a fixed clock: every read of the clock answers that instant, so date logic is tested with the same answer on every run (D15) |
 | `-v`, `--verbose` | print what each case printed under it, passing cases included |
+| `--cover` | after the summary, the statement coverage of every file the tests loaded through `include … from`, with the lines that did not run. The test files it ran are left out, whatever they are called, and so is any `*_test.mzs`. Under `--json` it is one more object, `{"coverage": [{"file", "statements", "run", "branches", "taken", "missed"}], "total"}` |
+| `--cover-out <file>` | `--cover`, and write an LCOV tracefile — `DA` per line, `BRDA` per branch — for a CI service or an editor |
+| `--cover-min <pct>` | `--cover`, and exit `1` when the total share of statements that ran is below `pct` |
+
+**Coverage** (RFC 0019 §3) counts every statement of a statement list — a file, a block, a
+function body, a `( … )` group, a `match` arm — and every branch: each side of an `if`, with
+an `else` or not, of a ternary and of `&&`, `||` and `??`, and each arm of a `match`. A file
+is registered when a Run first starts it, so what never ran is counted too, and the counts of
+all the files' Runs add up. A line is covered when its least-run statement ran.
+
+```
+lib/cart.mzs     87.5%   (28/32)   missed: 41-43, 57
+lib/money.mzs   100.0%   (19/19)
+total            92.2%
+```
+
+`Options.Coverage` is the same counter for a host: `mzs.NewCoverage()`, then `Files()` after
+the Runs, each `FileCoverage` with its statement and branch totals, its `Lines` and its
+`BranchHits`. A file is its name together with its text: the same text run again adds to
+its counts, and different text under one name — every `Interp.Eval` is `eval` — is reported
+as a file of its own. A nil `Coverage` costs one nil check per statement and one per branch
+point.
 
 A file that raises **outside** a case did not finish, and that is counted apart from a case
 that failed: the fixes are different. Exit codes: `0` every case passed or was skipped, `1` a
@@ -5102,6 +5125,7 @@ mzs/                       module "mzs", go 1.26, zero external requires
   internal/apidoc/         the generated standard-library table `mzs lsp` answers hovers from
   internal/doccomment/     the `##` doc comments above declarations, for `mzs doc` and the LSP (§15.4)
   test.go                  the `test` module: cases, `eq`, the report on Result (§12.18)
+  coverage.go              Options.Coverage: statement and branch counts (§15.2)
   engine/                  Engine, Bool, String, Value (§13.6)
   cmd/mzs/                 CLI (§15)
   cmd/mzs/lsp/             the language server: JSON-RPC over stdio on encoding/json alone (§15)

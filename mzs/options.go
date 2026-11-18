@@ -113,6 +113,12 @@ type Options struct {
 	// names a rule, so the list keeps working when a message's wording improves.
 	AllowWarnings []string
 
+	// Coverage, when set, counts every statement and branch each Run executes (RFC
+	// 0019 §3). The host reads it with Coverage.Files after the Runs it cares about;
+	// the counts of every Run that shares it add up. nil, the default, costs one nil
+	// check per statement and one per branch point.
+	Coverage *Coverage
+
 	// Timeout is the wall clock allowed per Run. 0 uses DefaultTimeout; a negative
 	// value disables the deadline, which is not recommended outside tests.
 	Timeout time.Duration

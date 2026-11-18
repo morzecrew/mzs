@@ -105,10 +105,32 @@ not allow network access calls `Unregister("http")`, see
 | `Stdin` | `nil` | `io.stdin`/`io.lines`/`input()`; nil is empty input |
 | `Env` | `nil` | answers `io.env`; nil means every name is unset |
 | `Location` | `time.UTC` | default zone for `strftime`/`in_time_zone` |
+| `Coverage` | `nil` | counts the statements and branches each Run executes; see below |
 
 `mzs.DefaultOptions()` returns the same values explicitly. `in.Options()` returns the
 normalised set the interpreter actually runs with. `http` is the one module installed
 unconditionally — take it away with `in.Unregister("http")`.
+
+`Coverage` is what `mzs test --cover` is built on, and a host's own test runner can use it
+the same way:
+
+```go
+cov := mzs.NewCoverage()
+opts := mzs.DefaultOptions()
+opts.Coverage = cov
+in := mzs.New(opts)
+// … Compile and Run as many programs as the suite has …
+for _, f := range cov.Files() {
+    fmt.Printf("%s %.1f%% missed %v\n", f.File, f.Percent(), f.MissedLines())
+}
+```
+
+The counts of every Run that shares a `Coverage` add up, and one is safe to share between
+Runs and between interpreters. A file is listed under the name it ran under: the program's
+name, or the resolved name the `ModuleLoader` gave an `include … from`. Different text under
+one name is listed once per text, so a host that calls `Eval` with many sources sees each
+of them as its own `eval` entry. `Lines` and
+`BranchHits` carry the per-line and per-branch counts that an LCOV file needs.
 
 The CLI spells the off switches as `0`, not `-1`: `-t 0`, `--steps 0`, `--mem 0` and `--tasks 0`
 translate to the negative field values above ([../cli/README.md](../cli/README.md)).

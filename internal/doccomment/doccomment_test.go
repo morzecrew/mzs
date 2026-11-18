@@ -121,3 +121,20 @@ func TestDocTextKeepsTrailingSpaces(t *testing.T) {
 		t.Errorf("items = %+v, want one with doc %q", items, want)
 	}
 }
+
+// A reassignment declares nothing: its comment is about that statement, and the name's
+// first binding is the one that is listed, or not.
+func TestReassignmentDeclaresNothing(t *testing.T) {
+	src := "export x = 1\n## Updated value.\nx = 2\ny = 1\n## Updated y.\ny = 2\n## Z.\nz = 1\n## Not z.\nz = 2\n"
+	items, err := Parse("t.mzs", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Item{
+		{Name: "x", Kind: KindValue, Sig: "x", Exported: true, Line: 1},
+		{Name: "z", Kind: KindValue, Sig: "z", Doc: "Z.", Line: 8},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Errorf("items =\n%+v\nwant\n%+v", items, want)
+	}
+}
