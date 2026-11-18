@@ -306,10 +306,8 @@ func TestCoverageKeepsAModulesTreeForItsRun(t *testing.T) {
 	if _, err := in.Run(context.Background(), p, nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range cov.Files() {
-		if f.File == "lib" && f.StatementsRun != f.Statements {
-			t.Errorf("lib ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
-		}
+	if f := coveredFile(t, cov, "lib"); f.StatementsRun != f.Statements {
+		t.Errorf("lib ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
 	}
 }
 
@@ -342,10 +340,8 @@ func TestCoverageFollowsAFunctionIntoALaterRun(t *testing.T) {
 	if _, err := in.Run(context.Background(), p, map[string]Value{"$g": fn}); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range cov.Files() {
-		if f.File == "one.mzs" && f.StatementsRun != f.Statements {
-			t.Errorf("one.mzs ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
-		}
+	if f := coveredFile(t, cov, "one.mzs"); f.StatementsRun != f.Statements {
+		t.Errorf("one.mzs ran %d of %d statements; lines %+v", f.StatementsRun, f.Statements, f.Lines)
 	}
 }
 
@@ -378,9 +374,23 @@ func TestCoverageFollowsARecordIntoALaterRun(t *testing.T) {
 	if _, err := in.Run(context.Background(), p, map[string]Value{"$P": ctor}); err != nil {
 		t.Fatal(err)
 	}
+	if f := coveredFile(t, cov, "rec.mzs"); f.BranchesTaken != 1 {
+		t.Errorf("rec.mzs took %d of %d branches: %+v", f.BranchesTaken, f.Branches, f.BranchHits)
+	}
+}
+
+// coveredFile is the one report of the file name, failing the test when there is none:
+// a file the Coverage never registered must not pass for one whose counts are right.
+func coveredFile(t *testing.T, cov *Coverage, name string) FileCoverage {
+	t.Helper()
+	var found []FileCoverage
 	for _, f := range cov.Files() {
-		if f.File == "rec.mzs" && f.BranchesTaken != 1 {
-			t.Errorf("rec.mzs took %d of %d branches: %+v", f.BranchesTaken, f.Branches, f.BranchHits)
+		if f.File == name {
+			found = append(found, f)
 		}
 	}
+	if len(found) != 1 {
+		t.Fatalf("%d reports of %s in %+v", len(found), name, cov.Files())
+	}
+	return found[0]
 }
