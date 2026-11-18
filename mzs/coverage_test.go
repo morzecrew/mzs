@@ -3,7 +3,9 @@ package mzs
 import (
 	"context"
 	"reflect"
+	"runtime"
 	"testing"
+	"time"
 
 	"mzs/internal/ast"
 )
@@ -169,5 +171,33 @@ func TestCoverageKeepsTextsApart(t *testing.T) {
 		default:
 			t.Errorf("unexpected file %+v", f)
 		}
+	}
+}
+
+// A tree nothing holds any more is collected, and its node slots go with it; the counts
+// it made stay with its file.
+func TestCoverageReleasesCollectedTrees(t *testing.T) {
+	cov := NewCoverage()
+	o := DefaultOptions()
+	o.Coverage = cov
+	o.ProgramCache = -1 // every Eval compiles a tree of its own and drops it
+	in := New(o)
+	const runs = 50
+	for range runs {
+		if _, err := in.Eval(context.Background(), "x = 1\ny = 2\nx + y", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for cov.bindings() > 3 && time.Now().Before(deadline) {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := cov.bindings(); n > 3 {
+		t.Errorf("%d node slots after %d dropped trees, want at most one tree's 3", n, runs)
+	}
+	files := cov.Files()
+	if len(files) != 1 || files[0].Lines[0].Hits != runs {
+		t.Errorf("files = %+v, want one file whose lines ran %d times", files, runs)
 	}
 }
