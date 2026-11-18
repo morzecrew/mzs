@@ -280,6 +280,9 @@ type runState struct {
 	// collects the names the module currently being loaded exported, in order; it is
 	// nil while the main program runs (§12.8).
 	modules map[string]Value
+	// cov is Options.Coverage, or nil: read once per statement, so it is a field of
+	// its own rather than a load through opts.
+	cov *Coverage
 	loading []string
 	exports []string
 
@@ -388,6 +391,7 @@ func newRunState(in *Interp, ctx context.Context, file string, globals map[strin
 		// on a copy of this struct: an `include` inside a task must land in the map the
 		// whole Run shares, not in one the copy grew for itself (§12.8).
 		modules: map[string]Value{},
+		cov:     in.opts.Coverage,
 	}
 	if in.opts.Timeout > 0 {
 		rs.deadline = time.Now().Add(in.opts.Timeout)
