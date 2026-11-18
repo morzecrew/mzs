@@ -1,0 +1,13 @@
+## Total of a cart.
+##
+##   indented   text   stays   as   written
+export fn total(items, cur = "USD") { items.len }
+## A point.
+record P(x, y = 0)
+## An indented doc comment moves with its declaration.
+LIMIT = 3
+fn f() {
+    ## Inside a body it is an ordinary comment, and keeps its place.
+    x = 1
+    x
+}
