@@ -39,9 +39,10 @@ package is the `mzs/` directory, so the default output name is taken.)
 | `mzs fmt -w src/` | one spelling of a program, with nothing to configure |
 | `mzs test` | run the `*_test.mzs` files, each in its own isolated run |
 | `mzs lsp` | the language server: the compiler's diagnostics, in your editor |
+| `mzs doc lib.mzs` | the file's declarations and their `##` doc comments, as Markdown |
 
 → [every flag](docs/cli/README.md) · [pipes and line mode](docs/cli/input.md) ·
-[fmt, test and the language server](docs/cli/tools.md)
+[fmt, test, the language server and doc](docs/cli/tools.md)
 
 ## Quick start
 

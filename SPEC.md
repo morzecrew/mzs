@@ -138,6 +138,18 @@ There are no block comments.
 x = 1   # a comment
 ```
 
+A run of comment lines each starting `##` and a space (or a bare `##`), standing on lines
+of their own directly above a top-level `fn`, `record`, `export` or binding, is that
+declaration's **doc comment** (§15.4). It is still a comment: the lexer skips it like any
+other and no program reads it. A blank line, a plain `#` line or a remark at the end of a
+line of code ends the run; `###` and longer are banners, not documentation.
+
+```
+## Total of a cart in the cart's currency.
+## Raises kind "billing" when currencies are mixed.
+export fn total(items) { … }
+```
+
 ### 3.3 Token kinds
 
 The lexer emits exactly these token kinds (Go: `internal/token.Kind`).
@@ -4435,9 +4447,10 @@ cat data | mzs -n -e '<source>'
 mzs fmt [-w|-l] [path...]     format mzs source
 mzs test [flags] [path...]    run the *_test.mzs files
 mzs lsp                       the language server, started by an editor
+mzs doc [--json] [path...]    print the declarations and their doc comments
 ```
 
-The three subcommands are words rather than flags because none of them runs a program.
+The four subcommands are words rather than flags because none of them runs a program.
 They are matched as a bare first argument, so a script of one's own is never shadowed: a
 file is `fmt.mzs`, not `fmt`.
 
@@ -4737,9 +4750,9 @@ else" (I1) cannot buy a client for that.
 | Request | Answer |
 |---|---|
 | `textDocument/publishDiagnostics` | the compiler's errors and warnings (§17, §11.5), on open, on change and on save |
-| `textDocument/hover` | the signature and the meaning of the name under the cursor, from the generated §12 table |
+| `textDocument/hover` | the signature and the meaning of the name under the cursor, from the generated §12 table; for the file's own declarations and the exports of an `include … from` module, the signature and the doc comment (§3.2) |
 | `textDocument/definition` | the `fn`, `record` or `include` that bound the name; the file itself for `include … from` |
-| `textDocument/completion` | members after a `.`, and names, modules and keywords elsewhere |
+| `textDocument/completion` | members after a `.` — a script module's exports, with their doc comments, after its include name — and names, modules and keywords elsewhere |
 | `textDocument/formatting` | the whole document through §15.1 |
 | `textDocument/documentSymbol` | the outline: what the file declares, in source order |
 
@@ -4747,12 +4760,40 @@ Two decisions worth stating. **Every capability is installed while checking** �
 time` is not an error in an editor, because which flags the program will be run with is not
 something a buffer knows (§12.8); a diagnostic that depends on a flag is a diagnostic about
 a command line. And **the server never runs a program**: it compiles, which is why an
-`include … from` is not read and a `record` with a side effect in its default has none here.
+`include … from` is not compiled and a `record` with a side effect in its default has none
+here. The one thing read from an included file is its text, for the doc comments of what it
+exports: a file of declarations, parsed and never run.
 
 Positions cross a boundary in both directions: the protocol counts lines from zero and
 characters in UTF-16 code units, and mzs counts lines from one and columns in runes (§3.1).
 Everything is converted, which is why a caret lands on the right character in a line of
 Russian.
+
+### 15.4 `mzs doc`
+
+```
+mzs doc [--json] [path...]
+```
+
+What a script says about itself. Each file is one Markdown section headed by its path, and
+under it one heading per top-level declaration — exported names first, then the rest, each
+group in source order — holding the signature as code and the doc comment (§3.2) under it,
+as it was written: Markdown in, Markdown out, and no tag syntax. The first line of a doc
+comment is its summary.
+
+* **Listed:** every `fn` and `record`, documented or not, since a signature is documentation
+  on its own; a binding an assignment creates when it is documented or exported. A
+  signature quotes each default as the source wrote it; one that spans lines is `…`.
+* **Paths:** a file is itself and a directory is every `.mzs` file under it except
+  `*_test.mzs`. With no path the source is stdin.
+* **`--json`** prints `{"modules": {path: {name: {sig, sem, ex, kind, exported, line}}}}`:
+  the `modules` table of `internal/apidoc`, with a file's path where a built-in module's
+  name stands, `sem` the doc comment and `ex` empty. The built-in and the user
+  documentation are one shape.
+
+A file that cannot be read or parsed is reported as `path:line:col: syntax: …` and the
+others are still documented; the exit code is then 1, and 2 for a usage error. `mzs fmt`
+keeps a doc comment where it stands and re-flows nothing.
 
 ---
 ## 16. Acceptance corpus
@@ -5050,6 +5091,7 @@ mzs/                       module "mzs", go 1.26, zero external requires
   internal/width/          display width, read by `s.width` and by the REPL's cursor (§12.2)
   internal/printer/        the formatter behind `mzs fmt`: tree in, canonical source out (§15)
   internal/apidoc/         the generated standard-library table `mzs lsp` answers hovers from
+  internal/doccomment/     the `##` doc comments above declarations, for `mzs doc` and the LSP (§15.4)
   test.go                  the `test` module: cases, `eq`, the report on Result (§12.18)
   engine/                  Engine, Bool, String, Value (§13.6)
   cmd/mzs/                 CLI (§15)

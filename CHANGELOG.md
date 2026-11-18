@@ -19,6 +19,15 @@ and the release is still ahead of it.
 
 ### Added
 
+- **Doc comments and `mzs doc`** (RFC 0019, part 2).
+  - A run of `##` lines directly above a top-level `fn`, `record`, `export` or binding is
+    that declaration's documentation. A plain `#` stays an ordinary comment.
+  - `mzs lsp` shows it on hover and in completion, for the file's own names and for the
+    exports of an `include … from` module. Completion after `lib.` works while the file
+    is still being typed.
+  - `mzs doc [--json] [path…]` prints each file's declarations with their signatures and
+    doc comments, exported names first. `--json` emits the `modules` shape of the
+    standard library's own documentation (SPEC §3.2, §15.4).
 - **Warning codes, suppression, and seven new warnings** (RFC 0019, part 1).
   - Every warning has a stable code, printed in brackets after the message, and as the
     `code` of an LSP diagnostic: `… never used [unused-variable]`. `Warning.Code` carries

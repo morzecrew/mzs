@@ -105,7 +105,8 @@ and = 1     # syntax: 'and'/'or'/'not' are not mzs keywords; use '&&', '||', '!'
 
 Indentation is never significant, and both a newline and `;` terminate a statement. `#`
 starts a comment that runs to end of line, except inside a string literal where it is an
-ordinary character.
+ordinary character. A run of `##` lines above a top-level declaration is its doc comment,
+which [`mzs doc`](../cli/tools.md#mzs-doc) and the editor show.
 
 ```
 "a # b"     # a # b
