@@ -2977,8 +2977,9 @@ same timeouts, same limits, same errors.
 
 **Limits.** Waiting for a connection charges no steps. Each request starts from a fresh
 `StepBudget` and a fresh `Timeout` deadline, so a slow handler fails that request only
-(500) and the server keeps serving; what the handlers spent is added back to the Run's
-counter when `serve` returns. A handler error is 500 with the diagnostic on `Stderr` and
+(500) and the server keeps serving. Every step taken while it serves is added back to the
+Run's counter when `serve` returns: the handlers', the `ready` closure's, and those of the
+Run's tasks while it waits. A handler error is 500 with the diagnostic on `Stderr` and
 never in the body (§13.5). A canceled context ends the Run with `ErrCanceled` (§14.1) and
 takes the listener down with it.
 
@@ -4849,7 +4850,8 @@ can be diffed, and checked in CI.
 
 * **Functions:**
   * A script function or closure is its name (`{}` for a closure) and where its body
-    starts.
+    starts. A closure adds the body's column, which tells apart two closures on one line:
+    `{} rank.mzs:7:18`.
   * A builtin, method or host function is its name alone, with a method spelled `.name`.
   * The program's own statements are `(top level)`. A module's are `(include)`, under the
     include that ran them.
@@ -4861,14 +4863,19 @@ can be diffed, and checked in CI.
 * **Order and length:** the rows are sorted by `self`, and the table shows the first 25.
   The remaining functions are summed on one line.
 * **Tasks:** a task's steps are attributed under the call that started it.
+* **Depth:** a call path holds at most 256 frames. The calls past that are counted under
+  one `(deeper)` frame, the path's last, so neither deep recursion nor a long chain of
+  tasks makes the profile grow with the square of its depth.
+* **Total:** the profile's steps are the Run's `Result.Steps`, an `http.serve` included:
+  its `ready` closure, its handlers and the Run's tasks while it waits all count.
 
 `--profile-out <file>` writes the same profile in the folded-stack format that flame-graph
 tools read: one line per call path, its frames joined by `;`, then a space and the steps
 taken there. Either flag turns the profile on, and `--profile-out` alone prints nothing.
-A profile describes one run, so neither flag combines with `-n`.
+A profile describes one run, so neither flag combines with `-n` or with the REPL.
 
 `Options.Profile` asks a host's Run for the same data, as `Result.Profile`: the run's
-`Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Self`, `Total`, `Calls`) and its
+`Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Col`, `Self`, `Total`, `Calls`) and its
 `Stacks`. A Run that does not profile pays one nil check per step and per call.
 
 ---

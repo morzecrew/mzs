@@ -242,3 +242,42 @@ func TestCoverageSurvivesAReusedTreeAddress(t *testing.T) {
 	runtime.KeepAlive(other)
 	runtime.KeepAlive(tree)
 }
+
+// A binding counts only while its tree lives. A node freed with its tree can have
+// its address reused before the tree's cleanup runs; what runs there must not count
+// for the dead tree.
+func TestCoverageCountsNothingForADeadTree(t *testing.T) {
+	in := New(DefaultOptions())
+	p, err := in.Compile("d.mzs", "x = 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := p.tree()
+	cov := NewCoverage()
+	cov.register("d.mzs", "x = 1", tree)
+	stmt := tree.Stmts[0]
+	cov.hit(stmt, -1)
+	dead := deadTree(t)
+	for k, b := range cov.slots {
+		b.tree = dead
+		cov.slots[k] = b
+	}
+	cov.hit(stmt, -1)
+	if hits := cov.Files()[0].Lines[0].Hits; hits != 1 {
+		t.Errorf("line hits = %d, want 1: a dead tree's binding counted", hits)
+	}
+	runtime.KeepAlive(tree)
+}
+
+// deadTree is a weak pointer whose tree has been collected.
+func deadTree(t *testing.T) weak.Pointer[ast.Program] {
+	t.Helper()
+	w := func() weak.Pointer[ast.Program] { return weak.Make(&ast.Program{}) }()
+	for i := 0; i < 20 && w.Value() != nil; i++ {
+		runtime.GC()
+	}
+	if w.Value() != nil {
+		t.Skip("the collector kept a dropped tree")
+	}
+	return w
+}

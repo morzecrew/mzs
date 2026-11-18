@@ -26,6 +26,7 @@ and the release is still ahead of it.
   - `--profile-out <file>` writes the profile as folded stacks, for flame-graph tools.
   - For embedders: `Options.Profile` returns the same data as `Result.Profile`
     (SPEC §15.5).
+  - A call path holds at most 256 frames; deeper calls count under one `(deeper)` frame.
 - **Coverage: `mzs test --cover` and `Options.Coverage`** (RFC 0019, part 3).
   - `--cover` prints, after the summary, the statement coverage of every file the tests
     included, with the lines that did not run. The test files are left out.
@@ -234,6 +235,8 @@ and the release is still ahead of it.
 
 ### Fixed
 
+- **`http.serve` dropped steps from `Result.Steps`.** The steps of its `ready` closure,
+  and of the Run's tasks while it waited, are now counted with the handlers'.
 - **A write into a module stays in the Run that made it.** A module is a dict a script may
   write to, and `include` handed every interpreter in the process the same built-in table:
   `json["parse"] = 1` in one Run broke `json.parse` in every interpreter after it, and a

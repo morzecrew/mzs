@@ -146,13 +146,21 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 
 	rs.srv = srv
 	// Steps are re-armed per request below, so the Run's own counter is restored on
-	// the way out: what the server cost is the sum of its handlers, and the waiting
-	// in between costs nothing.
+	// the way out. What the server cost is every step taken while it served: its
+	// handlers, `ready`, and the Run's tasks while it waited. Waiting itself costs
+	// nothing. settle banks what the counter holds since it was last armed, before
+	// each re-arm and at the end, so no step is dropped and Result.Steps stays the
+	// sum the profile reports.
 	baseSteps := rs.sh.steps
-	handlerSteps := int64(0)
+	spent, mark := int64(0), baseSteps
+	settle := func() {
+		spent += rs.sh.steps - mark
+		rs.sh.steps, mark = 0, 0
+	}
 	defer func() {
 		rs.srv = nil
-		rs.sh.steps, rs.tick = baseSteps+handlerSteps, 0
+		settle()
+		rs.sh.steps, rs.tick = baseSteps+spent, 0
 		if rs.hasDL {
 			rs.deadline = time.Now().Add(rs.opts.Timeout)
 		}
@@ -193,8 +201,11 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 			// Shutdown still gets its grace period for whatever is mid-write.
 			return Nil(), limitErrorf(ErrCanceled, "canceled")
 		}
-		steps, fatal := srv.dispatch(c, job)
-		handlerSteps += steps
+		// Every request starts from a clean budget: an hour-old server must not
+		// answer more slowly than a fresh one.
+		settle()
+		rs.tick = 0
+		fatal := srv.dispatch(c, job)
 		if fatal != nil {
 			return Nil(), fatal
 		}
@@ -242,38 +253,36 @@ func (s *httpServer) handlerFor(fn Value, params []string) http.Handler {
 }
 
 // dispatch runs one handler on the serve goroutine and writes its response. It
-// returns the steps the handler took, and a non-nil error only when the whole Run
-// must end: one broken handler is a 500 and the next request, not a dead server.
-func (s *httpServer) dispatch(c *Ctx, job *httpJob) (steps int64, fatal error) {
+// returns a non-nil error only when the whole Run must end: one broken handler is a
+// 500 and the next request, not a dead server.
+func (s *httpServer) dispatch(c *Ctx, job *httpJob) (fatal error) {
 	defer close(job.done)
 	rs := c.rs
 
 	req, err := httpRequestValue(c, job)
 	if err != nil {
 		httpFail(rs, job, http.StatusBadRequest, err)
-		return 0, nil
+		return nil
 	}
 
-	// Every request starts from a clean budget and a fresh deadline: an hour-old
-	// server must not answer more slowly than a fresh one.
-	rs.sh.steps, rs.tick = 0, 0
+	// The budget was re-armed by serve; the deadline is re-armed here, after the
+	// request was read.
 	if rs.hasDL {
 		rs.deadline = time.Now().Add(rs.opts.Timeout)
 	}
 	v, err := httpCall(c, job.fn, req)
-	steps = rs.sh.steps
 	if err != nil {
 		if errors.Is(err, ErrCanceled) {
 			httpFail(rs, job, http.StatusServiceUnavailable, err)
-			return steps, err
+			return err
 		}
 		httpFail(rs, job, http.StatusInternalServerError, err)
-		return steps, nil
+		return nil
 	}
 	if err := httpWrite(c, job.w, v); err != nil {
 		fmt.Fprintf(rs.opts.errOut(), "http: %s %s: %v\n", job.r.Method, job.r.URL.Path, err)
 	}
-	return steps, nil
+	return nil
 }
 
 // httpCall invokes a script closure and absorbs the control signals a top-level

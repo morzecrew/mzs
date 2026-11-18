@@ -35,8 +35,9 @@ type ProfileFunc struct {
 	Name string
 	// File and Line are where a script function's body starts, and where a top-level
 	// program or module is; both are empty for a builtin, a method or a host function.
-	File string
-	Line int
+	// Col is the body's column, which tells apart closures that share a line.
+	File      string
+	Line, Col int
 	// Self is the steps taken in the function's own statements; Total adds every step
 	// of what it called. A recursive call is counted once in Total.
 	Self, Total int64
@@ -45,12 +46,18 @@ type ProfileFunc struct {
 }
 
 // Label is the function's name with where it is defined, the way the CLI prints it and
-// the folded stacks name a frame: `score rank.mzs:14`, or the bare name of a builtin.
+// the folded stacks name a frame: `score rank.mzs:14`, or the bare name of a builtin. A
+// closure, which has no name to tell it from another on its line, adds the column:
+// `{} rank.mzs:14:20`.
 func (f ProfileFunc) Label() string {
 	if f.File == "" {
 		return f.Name
 	}
-	return f.Name + " " + f.File + ":" + strconv.Itoa(f.Line)
+	l := f.Name + " " + f.File + ":" + strconv.Itoa(f.Line)
+	if f.Name == "{}" {
+		l += ":" + strconv.Itoa(f.Col)
+	}
+	return l
 }
 
 // ProfileStack is one call path and the steps taken at its innermost frame.
@@ -62,7 +69,7 @@ type ProfileStack struct {
 // profKey is a function's identity in the profile.
 type profKey struct {
 	name, file string
-	line       int
+	line, col  int
 }
 
 type profNode struct {
@@ -71,7 +78,17 @@ type profNode struct {
 	children map[profKey]*profNode
 	self     int64
 	calls    int64
+	depth    int // frames between this node and the root
 }
+
+// profMaxDepth bounds a call path in the profile, in frames. MaxDepth bounds one
+// stack, but not a chain of tasks each started by the last, and a deep path costs its
+// depth once for every stack under it when the report is built. Calls past the bound
+// are counted under one `(deeper)` frame, the path's last.
+const profMaxDepth = 256
+
+// profDeeper names the frame that stands for every call below profMaxDepth.
+var profDeeper = profKey{name: "(deeper)"}
 
 func (n *profNode) child(k profKey) *profNode {
 	if c := n.children[k]; c != nil {
@@ -80,7 +97,7 @@ func (n *profNode) child(k profKey) *profNode {
 	if n.children == nil {
 		n.children = map[profKey]*profNode{}
 	}
-	c := &profNode{key: k, parent: n}
+	c := &profNode{key: k, parent: n, depth: n.depth + 1}
 	n.children[k] = c
 	return c
 }
@@ -91,12 +108,25 @@ func (rs *runState) profEnter(k profKey) {
 	if rs.pnode == nil {
 		return
 	}
+	if rs.pdeep > 0 {
+		rs.pdeep++
+		return
+	}
+	if rs.pnode.depth+2 >= profMaxDepth {
+		// The (deeper) node is the last of profMaxDepth frames, the root counted.
+		k, rs.pdeep = profDeeper, 1
+	}
 	rs.pnode = rs.pnode.child(k)
 	rs.pnode.calls++
 }
 
 // profLeave moves back out of the call profEnter made.
 func (rs *runState) profLeave() {
+	if rs.pdeep > 1 {
+		rs.pdeep--
+		return
+	}
+	rs.pdeep = 0
 	if rs.pnode != nil && rs.pnode.parent != nil {
 		rs.pnode = rs.pnode.parent
 	}
@@ -110,7 +140,7 @@ func funcKey(f *Func) profKey {
 		k.name = "{}"
 	}
 	if f.Host == nil && f.Body != nil {
-		k.file, k.line = f.file, f.Body.Start.Line
+		k.file, k.line, k.col = f.file, f.Body.Start.Line, f.Body.Start.Col
 	}
 	return k
 }
@@ -123,7 +153,7 @@ func (root *profNode) report() *Profile {
 	fn := func(k profKey) *ProfileFunc {
 		f := funcs[k]
 		if f == nil {
-			f = &ProfileFunc{Name: k.name, File: k.file, Line: k.line}
+			f = &ProfileFunc{Name: k.name, File: k.file, Line: k.line, Col: k.col}
 			funcs[k] = f
 			order = append(order, k)
 		}
@@ -181,6 +211,9 @@ func keyLess(a, b profKey) bool {
 	}
 	if a.line != b.line {
 		return a.line < b.line
+	}
+	if a.col != b.col {
+		return a.col < b.col
 	}
 	return a.name < b.name
 }

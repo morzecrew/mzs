@@ -28,7 +28,7 @@ func TestProfileFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), "(top level) -e:1;.map;{} -e:2;score -e:1 ") {
+	if !strings.Contains(string(b), "(top level) -e:1;.map;{} -e:2:13;score -e:1 ") {
 		t.Errorf("folded stacks:\n%s", b)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
@@ -49,6 +49,9 @@ func TestProfileFlagErrors(t *testing.T) {
 		{"--profile-out", "", "-e", "1"},
 		{"--profile-out=", "-e", "1"},
 		{"--profile", "-n", "-e", "$_"},
+		// The REPL runs once per line; there is no one run to profile.
+		{"--profile", "--repl"},
+		{"--profile-out", filepath.Join(t.TempDir(), "repl.folded"), "--repl"},
 	} {
 		if code, _, _ := exec(argv, "a\n"); code != exitUsage {
 			t.Errorf("%v: code %d, want %d", argv, code, exitUsage)

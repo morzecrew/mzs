@@ -38,7 +38,10 @@ type Coverage struct {
 	// cleanup on it removes its slots. The Go heap does not move objects, so an address
 	// is a node's for as long as the node lives. Once the node is freed the address can
 	// be another's, and the dead tree's cleanup may not have run yet: each binding
-	// carries the registration that made it, and a cleanup removes only its own.
+	// carries the registration that made it, and a cleanup removes only its own. It
+	// also carries a weak pointer to its tree, and a hit counts only while the tree is
+	// alive: a node is freed only after its tree, so a node at a reused address never
+	// counts for the dead one.
 	slots map[slotKey]slotBinding
 	// trees has every registered tree by address, so a tree that runs again is not
 	// walked again. The weak pointer tells that tree from a newer one at the same
@@ -51,6 +54,7 @@ type Coverage struct {
 type slotBinding struct {
 	slot *int
 	gen  uint64
+	tree weak.Pointer[ast.Program]
 }
 
 type treeReg struct {
@@ -120,6 +124,7 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 	}
 	c.gen++
 	gen := c.gen
+	wtree := weak.Make(tree)
 	key := fileKey{file, sha256.Sum256([]byte(src))}
 	fc := c.files[key]
 	if fc == nil {
@@ -128,7 +133,7 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 	}
 	var keys []slotKey
 	bind := func(k slotKey, slot *int) {
-		c.slots[k] = slotBinding{slot, gen}
+		c.slots[k] = slotBinding{slot, gen, wtree}
 		keys = append(keys, k)
 	}
 	stmts := func(list []ast.Stmt) {
@@ -175,7 +180,7 @@ func (c *Coverage) register(file, src string, tree *ast.Program) {
 		}
 		return true
 	})
-	c.trees[treeAddr] = treeReg{weak.Make(tree), gen}
+	c.trees[treeAddr] = treeReg{wtree, gen}
 	// When nothing holds the tree any more, its nodes are gone and its slots are dead
 	// weight. The counters stay: they are the file's, not the tree's.
 	runtime.AddCleanup(tree, c.release, treeKeys{treeAddr, gen, keys})
@@ -210,10 +215,12 @@ func (c *Coverage) bindings() int {
 }
 
 // hit counts one statement (arm -1) or one side of a branch node. A node no Run
-// registered — a tree compiled while the Coverage was not installed — counts nothing.
+// registered — a tree compiled while the Coverage was not installed — counts nothing,
+// and so does a node whose tree is gone: a function that outlived the program it was
+// written in.
 func (c *Coverage) hit(n ast.Node, arm int) {
 	c.mu.Lock()
-	if b, ok := c.slots[slotKey{addrOf(n), arm}]; ok {
+	if b, ok := c.slots[slotKey{addrOf(n), arm}]; ok && b.tree.Value() != nil {
 		*b.slot++
 	}
 	c.mu.Unlock()

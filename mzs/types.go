@@ -288,7 +288,10 @@ type runState struct {
 	cov *Coverage
 	// pnode is where this Run, or this task, stands in the profile's call tree: nil when
 	// the Run does not profile. A task starts at the node of the call that spawned it.
-	pnode   *profNode
+	pnode *profNode
+	// pdeep counts the calls open below profMaxDepth, all standing in one (deeper)
+	// node: 0 when the Run is above the bound.
+	pdeep   int
 	loading []string
 	exports []string
 

@@ -161,6 +161,12 @@ func run(argv []string, stdout, stderr io.Writer, stdin io.Reader) int {
 			fmt.Fprintf(stderr, "mzs: -n needs a program: pass -e '<source>' or a script file\n")
 			return exitUsage
 		}
+		// A profile is one run's, and the REPL runs once per line: there is no run to
+		// report on.
+		if cfg.profile || cfg.profileOut != "" {
+			fmt.Fprintf(stderr, "mzs: --profile needs a program: pass -e '<source>' or a script file\n")
+			return exitUsage
+		}
 		return repl(cfg, stdout, stderr, stdin)
 	}
 

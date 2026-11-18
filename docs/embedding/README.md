@@ -39,7 +39,7 @@ res.Profile  // *mzs.Profile — where the steps went, when Options.Profile is s
 ```
 
 `Options.Profile` asks for the step profile `mzs --profile` prints. The profile has the
-run's `Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Self`, `Total`, `Calls`,
+run's `Steps`, its `Funcs` (each with `Name`, `File`, `Line`, `Col`, `Self`, `Total`, `Calls`,
 and `Label()`) and its `Stacks` in the folded form. Steps are the unit the budget charges,
 so two runs of the same input give the same profile.
 

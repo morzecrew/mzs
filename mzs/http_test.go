@@ -575,3 +575,63 @@ func TestHTTPWildcards(t *testing.T) {
 		}
 	}
 }
+
+// Every step taken while a server runs is the Run's: `ready`'s, the handlers', and
+// those of a task that runs while the server waits. Result.Steps counts them all, so
+// it is the sum the profile reports.
+func TestHTTPServeCountsEveryStep(t *testing.T) {
+	t.Parallel()
+
+	opts := netOpts()
+	opts.Profile = true
+	in := New(opts)
+	urls := make(chan string, 1)
+	in.Register("__ready", 1, func(c *Ctx, args []Value) (Value, error) {
+		urls <- args[0].Str()
+		return Nil(), nil
+	})
+	prog, err := in.Compile("server", `
+		include http
+		async fn busy() { [1, 2, 3, 4, 5].map { (x) -> x * x }.sum }
+		t = busy()
+		http.serve("127.0.0.1:0", {
+		  "GET /hi":   { (req) -> "hi" },
+		  "GET /quit": { (req) -> http.stop(); "bye" },
+		}, { (u) -> [1, 2, 3].map { (x) -> x + 1 }; __ready(u) })
+		t.await
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := in.RunResult(context.Background(), prog, nil)
+		done <- outcome{res, err}
+	}()
+	var url string
+	select {
+	case url = <-urls:
+	case o := <-done:
+		t.Fatalf("server exited before it was ready: %v", o.err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not become ready")
+	}
+	do(t, "GET", url+"/hi", "")
+	do(t, "GET", url+"/quit", "")
+	var o outcome
+	select {
+	case o = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop")
+	}
+	if o.err != nil {
+		t.Fatal(o.err)
+	}
+	if o.res.Profile == nil || o.res.Steps != o.res.Profile.Steps {
+		t.Errorf("Result.Steps = %d, Profile.Steps = %+v", o.res.Steps, o.res.Profile)
+	}
+}

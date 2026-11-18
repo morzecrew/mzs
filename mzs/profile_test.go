@@ -67,7 +67,7 @@ func TestProfileAttributesSteps(t *testing.T) {
 		t.Errorf("first function = %+v, want the most steps of its own first", p.Funcs[0])
 	}
 	load, _ := funcNamed(p, "load rank.mzs:6")
-	closure, _ := funcNamed(p, "{} rank.mzs:7")
+	closure, _ := funcNamed(p, "{} rank.mzs:7:18")
 	mapf, _ := funcNamed(p, ".map")
 	if closure.Total != closure.Self+score.Total || mapf.Total != mapf.Self+closure.Total || load.Total != load.Self+mapf.Total {
 		t.Errorf("totals do not nest: load %+v, map %+v, {} %+v, score %+v", load, mapf, closure, score)
@@ -76,7 +76,7 @@ func TestProfileAttributesSteps(t *testing.T) {
 	if top.Total != p.Steps || top.Calls != 1 {
 		t.Errorf("top level = %+v, want every step in its total", top)
 	}
-	want := []string{"(top level) rank.mzs:1", "load rank.mzs:6", ".map", "{} rank.mzs:7", "score rank.mzs:1"}
+	want := []string{"(top level) rank.mzs:1", "load rank.mzs:6", ".map", "{} rank.mzs:7:18", "score rank.mzs:1"}
 	found := false
 	for _, s := range p.Stacks {
 		if reflect.DeepEqual(s.Frames, want) {
@@ -147,5 +147,43 @@ func TestProfileIsOptional(t *testing.T) {
 	}
 	if (ProfileFunc{Name: ".len"}).Label() != ".len" {
 		t.Error("a builtin's label is its name")
+	}
+}
+
+// A call path is cut at profMaxDepth and what runs below is one (deeper) frame:
+// neither a deep recursion nor a chain of tasks, each started by the last, can make
+// the report's stacks grow with the square of the depth.
+func TestProfileBoundsTheCallPath(t *testing.T) {
+	for _, tc := range []struct{ name, src string }{
+		{"recursion", "fn down(n) { if n > 0 { down(n - 1) } else { 0 } }\ndown(900)"},
+		{"task chain", "async fn hop(n) { if n > 0 { hop(n - 1) }; n }\nhop(900)\n0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := DefaultOptions()
+			o.MaxDepth = 1000
+			res, p := profileOf(t, o, "deep.mzs", tc.src)
+			if p.Steps != res.Steps {
+				t.Errorf("profile steps %d, Run steps %d", p.Steps, res.Steps)
+			}
+			for _, st := range p.Stacks {
+				if len(st.Frames) > profMaxDepth {
+					t.Fatalf("a stack of %d frames", len(st.Frames))
+				}
+			}
+			deeper, ok := funcNamed(p, "(deeper)")
+			if !ok || deeper.Self == 0 {
+				t.Errorf("(deeper) = %+v (found %v)", deeper, ok)
+			}
+		})
+	}
+}
+
+// Two closures on one line are two functions; calls of one closure still add up.
+func TestProfileTellsClosuresOnALineApart(t *testing.T) {
+	_, p := profileOf(t, DefaultOptions(), "c.mzs", "a = { (x) -> x }; b = { (x) -> x * 2 }\na(1); b(2); b(3)")
+	a, okA := funcNamed(p, "{} c.mzs:1:6")
+	b, okB := funcNamed(p, "{} c.mzs:1:24")
+	if !okA || !okB || a.Calls != 1 || b.Calls != 2 {
+		t.Errorf("a = %+v (%v), b = %+v (%v) in %+v", a, okA, b, okB, p.Funcs)
 	}
 }
