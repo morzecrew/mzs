@@ -4762,7 +4762,10 @@ something a buffer knows (§12.8); a diagnostic that depends on a flag is a diag
 a command line. And **the server never runs a program**: it compiles, which is why an
 `include … from` is not compiled and a `record` with a side effect in its default has none
 here. The one thing read from an included file is its text, for the doc comments of what it
-exports: a file of declarations, parsed and never run.
+exports: a file of declarations, parsed and never run. It is found by the CLI loader's rules
+— a `./` or `../` path is a neighbour that may not leave the document's directory, any
+other path a library on `$MZSPATH` — and read through `os.Root`, so a link cannot lead
+the read out of the tree.
 
 Positions cross a boundary in both directions: the protocol counts lines from zero and
 characters in UTF-16 code units, and mzs counts lines from one and columns in runes (§3.1).
@@ -4782,8 +4785,10 @@ as it was written: Markdown in, Markdown out, and no tag syntax. The first line 
 comment is its summary.
 
 * **Listed:** every `fn` and `record`, documented or not, since a signature is documentation
-  on its own; a binding an assignment creates when it is documented or exported. A
-  signature quotes each default as the source wrote it; one that spans lines is `…`.
+  on its own; a binding an assignment creates when it is documented or exported, and each
+  name a destructuring assignment binds, sharing its comment. A comment above `export name`
+  documents a declaration that has none of its own, wherever it stands. A signature quotes
+  each default as the source wrote it; one that spans lines is `…`.
 * **Paths:** a file is itself and a directory is every `.mzs` file under it except
   `*_test.mzs`. With no path the source is stdin.
 * **`--json`** prints `{"modules": {path: {name: {sig, sem, ex, kind, exported, line}}}}`:
@@ -5043,7 +5048,7 @@ Rules:
   | `field-shadows-method` | a `record` field named like a stdlib method (§7.8): the field wins on that shape, and the warning names the prefix spelling that still reaches the method |
   | `function-shadows-field` | a call of a function this unit can see whose name is also a field of an included module's record (RFC 0003) |
   | `include-rebinds` | an `include` whose name is already bound |
-  | `unused-variable` | a local created inside a function, by an assignment or a destructuring one, and never read. A `_`-prefixed name is exempt, and so is an assignment that is the last statement of its block, which is the block's value (§8.1). Names at file scope are the program's and are not locals, and a `for` header's names are loop variables |
+  | `unused-variable` | a local created inside a function, by an assignment or a destructuring one, and never read. A `_`-prefixed name is exempt, and so is an assignment that is the last statement of a block whose value is received, which is that value (§8.1). A loop body, an `ensure`, and a group or `if` whose value is thrown away receive nothing, so their last assignment is not exempt. Names at file scope are the program's and are not locals, and a `for` header's names are loop variables |
   | `unreachable` | a statement after `return`, `break`, `next`, or a call of the built-in `raise` or `exit`, in the same block; once per block |
   | `constant-condition` | `if true`, `if false` and `while false` written as literals. `while true` is how a loop that ends by `break` is spelled and is not warned about |
   | `duplicate-key` | a dict literal that writes the same constant key twice; the second wins |

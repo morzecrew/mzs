@@ -177,7 +177,7 @@ func docMarkdown(f docFile) string {
 		if it.Exported {
 			sig = "export " + sig
 		}
-		b.WriteString("\n## `" + sig + "`\n")
+		b.WriteString("\n## " + codeSpan(sig) + "\n")
 		if it.Doc != "" {
 			b.WriteString("\n" + it.Doc + "\n")
 		}
@@ -193,7 +193,7 @@ func writeDocJSON(w io.Writer, files []docFile) error {
 		table := map[string]docEntry{}
 		for _, it := range f.items {
 			table[it.Name] = docEntry{
-				Sig:      "`" + it.Sig + "`",
+				Sig:      codeSpan(it.Sig),
 				Sem:      it.Doc,
 				Kind:     it.Kind,
 				Exported: it.Exported,
@@ -206,6 +206,26 @@ func writeDocJSON(w io.Writer, files []docFile) error {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	return enc.Encode(map[string]any{"modules": modules})
+}
+
+// codeSpan writes s as one Markdown code span. A default may hold a backtick — `"`"` is a
+// string — so the fence is one backtick longer than the longest run inside, and a space
+// pads a span that starts or ends with one (CommonMark §6.1).
+func codeSpan(s string) string {
+	longest, run := 0, 0
+	for _, r := range s {
+		if r == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	fence := strings.Repeat("`", longest+1)
+	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+		s = " " + s + " "
+	}
+	return fence + s + fence
 }
 
 func parseDocArgs(argv []string) (*docConfig, error) {

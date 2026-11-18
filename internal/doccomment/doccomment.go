@@ -130,7 +130,12 @@ func Parse(name, src string) ([]Item, error) {
 // Every `fn` and `record` is listed, documented or not, because its signature is
 // documentation on its own. A binding an assignment creates is listed when it is
 // documented or exported: an undocumented local helper value is not part of the file's
-// interface. A name is listed once, at its first declaration.
+// interface. A destructuring assignment lists each name it binds, sharing its comment. A
+// name is listed once, at its first declaration.
+//
+// The comment above `export name` documents that name when its declaration has none of
+// its own, wherever the declaration stands: a `fn` is hoisted, so the export may come
+// first.
 func Extract(prog *ast.Program, src string, comments []lexer.Comment) []Item {
 	if prog == nil {
 		return nil
@@ -148,6 +153,7 @@ func Extract(prog *ast.Program, src string, comments []lexer.Comment) []Item {
 
 	var out []Item
 	at := map[string]int{}
+	exportDocs := map[string]string{} // the comment above each bare `export name`
 	add := func(it Item) {
 		if it.Name == "" {
 			return
@@ -169,8 +175,8 @@ func Extract(prog *ast.Program, src string, comments []lexer.Comment) []Item {
 		if e, ok := s.(*ast.ExportDecl); ok {
 			if e.Decl == nil {
 				for _, n := range e.Names {
-					if i, seen := at[n]; seen && out[i].Doc == "" {
-						out[i].Doc = doc
+					if _, seen := exportDocs[n]; !seen && doc != "" {
+						exportDocs[n] = doc
 					}
 				}
 				continue
@@ -187,19 +193,57 @@ func Extract(prog *ast.Program, src string, comments []lexer.Comment) []Item {
 		case *ast.RecordDecl:
 			add(Item{Name: x.Name, Kind: KindRecord, Sig: "record " + x.Name + "(" + params(x.Fields, runes) + ")", Doc: doc, Line: line})
 		case *ast.ExprStmt:
-			a, ok := x.X.(*ast.AssignExpr)
-			if !ok || (a.Op != token.ASSIGN && a.Op != token.DECLARE) {
+			var names []*ast.Ident
+			switch a := x.X.(type) {
+			case *ast.AssignExpr:
 				// `x += 1` updates a binding; only the statement that creates one
 				// declares it.
-				continue
+				if id, ok := a.Target.(*ast.Ident); ok && (a.Op == token.ASSIGN || a.Op == token.DECLARE) {
+					names = []*ast.Ident{id}
+				}
+			case *ast.DestructureAssign:
+				names = patternNames(a.Pattern)
 			}
-			id, ok := a.Target.(*ast.Ident)
-			if !ok || (doc == "" && !exported[id.Name]) {
-				continue
+			for _, id := range names {
+				if id.Name != "_" && (doc != "" || exported[id.Name]) {
+					add(Item{Name: id.Name, Kind: KindValue, Sig: id.Name, Doc: doc, Line: line})
+				}
 			}
-			add(Item{Name: id.Name, Kind: KindValue, Sig: id.Name, Doc: doc, Line: line})
 		}
 	}
+	for i := range out {
+		if out[i].Doc == "" {
+			out[i].Doc = exportDocs[out[i].Name]
+		}
+	}
+	return out
+}
+
+// patternNames lists the names a destructuring target binds, in source order, at every
+// depth: the bare names, `*rest` and `**rest`. An index is written, not declared.
+func patternNames(pat ast.Expr) []*ast.Ident {
+	var out []*ast.Ident
+	var walk func(ast.Expr)
+	walk = func(x ast.Expr) {
+		switch t := x.(type) {
+		case *ast.Ident:
+			out = append(out, t)
+		case *ast.Splat:
+			walk(t.X)
+		case *ast.ArrayPattern:
+			for _, el := range t.Elems {
+				walk(el)
+			}
+		case *ast.DictPattern:
+			for _, en := range t.Entries {
+				walk(en.Value)
+			}
+			if t.Rest != nil {
+				out = append(out, t.Rest)
+			}
+		}
+	}
+	walk(pat)
 	return out
 }
 

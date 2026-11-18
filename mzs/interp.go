@@ -948,7 +948,9 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 			c.warnAt(b.Start, "constant-condition", "'while false' never runs its body")
 		}
 		n.Cond = c.expr(n.Cond)
-		c.block(n.Body)
+		// A loop's value is never its body's last statement — `while` gives nil and
+		// `for` its iterable — so an assignment there is not a result.
+		c.blockValued(n.Body, false)
 		return n
 	case *ast.ForExpr:
 		n.Iter = c.expr(n.Iter)
@@ -963,7 +965,7 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 		c.targets(n.ValPat, token.DECLARE)
 		c.trackTargets = prev
 		if n.Body != nil {
-			c.stmts(n.Body.Stmts)
+			c.stmtsValued(n.Body.Stmts, false)
 			n.Body.FrameSize = c.scope.size
 		}
 		c.warnUnusedVars()
@@ -998,7 +1000,8 @@ func (c *compiler) expr(x ast.Expr) ast.Expr {
 			c.warnUnusedVars()
 			c.pop()
 		}
-		c.block(n.Ensure)
+		// An `ensure` runs for its effect; its own value is discarded (§8.11).
+		c.blockValued(n.Ensure, false)
 		c.warnEmptyTry(n)
 		return n
 	}

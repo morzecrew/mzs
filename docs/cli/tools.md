@@ -192,7 +192,8 @@ time` is not an error in an editor: which flags the program will be run with is 
 something a buffer knows, and a diagnostic that depends on a flag is a diagnostic about a
 command line. And **the server never runs a program** — it compiles — so an `include … from`
 is not compiled and nothing in the file has an effect. The included file's text is read for
-one thing only: the doc comments of what it exports.
+one thing only: the doc comments of what it exports. It is found the way `mzs` finds it —
+`./lib.mzs` next to the file and never outside its directory, `lib` on `$MZSPATH`.
 
 ## `mzs doc`
 
@@ -232,7 +233,8 @@ A sum of money.
 ````
 
 - **What is listed:** every `fn` and `record`, and a binding when it is documented or
-  exported.
+  exported. A destructuring line documents each name it binds, and a comment above
+  `export name` documents that name.
 - **Paths:** a directory means every `.mzs` file under it, except the `*_test.mzs` files.
   With no path, the source is stdin.
 - **`--json`:** prints the same as data, `{"modules": {path: {name: {sig, sem, ex, kind,

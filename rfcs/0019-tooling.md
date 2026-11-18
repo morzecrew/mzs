@@ -212,7 +212,18 @@ Decisions:
 * **Hover and completion, not signature help.** The server has no signature help to put
   a doc comment in yet; §5 brings it. Completion after `lib.` reads the include from the
   tokens, because a file being typed does not parse and that is when completion is asked
-  for. The included file is parsed for its doc comments and never compiled or run.
+  for. The included file is parsed for its doc comments and never compiled or run, and it
+  is found by the CLI loader's rules: a `./` path is a neighbour confined to the
+  document's directory, a bare name is a library on `$MZSPATH`, and the read goes through
+  `os.Root`. The one difference is the root of a document that is itself a library: the
+  CLI roots it in its search directory, and the server, which does not know it was found
+  there, in the document's own directory — narrower, never wider.
+* **A destructuring line documents every name it binds**, and a comment above a bare
+  `export name` documents that name wherever its declaration stands, since a `fn` is
+  hoisted. A signature with a backtick in a default gets a longer code-span fence.
 * **Carried from part 1:** the last-statement exemption of `unused-variable` now applies
   only when a block's value is received. In `fn f() { (a = 1); 0 }`, or an `if` whose
-  value is thrown away, `a` is a dead store and is warned about.
+  value is thrown away, `a` is a dead store and is warned about. A loop body and an
+  `ensure` never give their last statement as a value — `for` gives its iterable, `while`
+  nil, and an `ensure`'s value is discarded — so their final assignment is not exempt
+  either.

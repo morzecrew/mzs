@@ -465,15 +465,15 @@ func includedItems(d *document, name string) ([]doccomment.Item, string, bool) {
 	if !ok {
 		return nil, "", false
 	}
-	target, ok := includePath(d, path)
+	dir, rel, ok := resolveInclude(d, path)
 	if !ok {
 		return nil, "", false
 	}
-	src, err := os.ReadFile(target)
+	src, err := readIn(dir, rel)
 	if err != nil {
 		return nil, "", false
 	}
-	items, err := doccomment.Parse(target, string(src))
+	items, err := doccomment.Parse(filepath.Join(dir, rel), string(src))
 	if err != nil {
 		return nil, "", false
 	}
@@ -595,14 +595,21 @@ func declKind(symbol int) int {
 		return kindFunction
 	case symbolModule:
 		return kindModule
+	case symbolStruct:
+		// A record is its constructor and its shape at once; the editor's struct icon
+		// says the second, which is what the name is for.
+		return kindStruct
 	}
 	return kindVariable
 }
 
 // itemKind is the completion kind of a doc comment's declaration.
 func itemKind(kind string) int {
-	if kind == doccomment.KindValue {
+	switch kind {
+	case doccomment.KindValue:
 		return kindVariable
+	case doccomment.KindRecord:
+		return kindStruct
 	}
 	return kindFunction
 }
@@ -673,28 +680,108 @@ func definitionFor(d *document, w word) (location, bool) {
 	return location{}, false
 }
 
-// includeURI resolves an include path against the including file, which is what the CLI's
-// loader does (§15). A document with no path of its own — an untitled buffer — has
-// nothing to resolve against.
+// includeURI resolves an include path the way the CLI's loader does, for a
+// go-to-definition that lands in another file. A document with no path of its own — an
+// untitled buffer — has nothing to resolve a `./` path against.
 func includeURI(d *document, path string) (string, bool) {
-	target, ok := includePath(d, path)
+	dir, rel, ok := resolveInclude(d, path)
 	if !ok {
 		return "", false
 	}
-	return pathToURI(target), true
+	return pathToURI(filepath.Join(dir, rel)), true
 }
 
-// includePath is includeURI as a file path.
-func includePath(d *document, path string) (string, bool) {
-	base := d.path()
-	if base == "" || filepath.IsAbs(path) {
-		return "", false
+// resolveInclude finds the file `include … from "path"` names, by the CLI loader's two
+// rules (cmd/mzs/include.go, SPEC §15). A path with `./` or `../` is a file next to the
+// document and may not leave the document's directory. Any other path is a library
+// name, looked for on $MZSPATH — `name.mzs`, then `name/main.mzs` — in the first
+// directory that has it. The answer is a root and a path inside it, so the read goes
+// through os.Root and a symbolic link cannot lead it out of the tree either.
+func resolveInclude(d *document, path string) (dir, rel string, ok bool) {
+	slashed := filepath.ToSlash(path)
+	if path == "" || filepath.IsAbs(path) || strings.HasPrefix(slashed, "/") {
+		return "", "", false
 	}
-	target := filepath.Join(filepath.Dir(base), path)
-	if _, err := os.Stat(target); err != nil {
-		return "", false
+	if slashed == "." || slashed == ".." || strings.HasPrefix(slashed, "./") || strings.HasPrefix(slashed, "../") {
+		base := d.path()
+		if base == "" {
+			return "", "", false
+		}
+		dir, err := filepath.Abs(filepath.Dir(base))
+		if err != nil {
+			return "", "", false
+		}
+		rel, err := filepath.Rel(dir, filepath.Join(dir, path))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", "", false
+		}
+		if !isFileIn(dir, rel) {
+			return "", "", false
+		}
+		return dir, rel, true
 	}
-	return target, true
+	if strings.HasSuffix(slashed, ".mzs") {
+		return "", "", false
+	}
+	for _, seg := range strings.Split(slashed, "/") {
+		if seg == ".." {
+			return "", "", false
+		}
+	}
+	name := filepath.FromSlash(slashed)
+	for _, dir := range libDirs() {
+		for _, candidate := range []string{name + ".mzs", filepath.Join(name, "main.mzs")} {
+			if isFileIn(dir, candidate) {
+				return dir, candidate, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// isFileIn reports whether rel names a file inside dir, through os.Root: a link that
+// leaves dir is not there.
+func isFileIn(dir, rel string) bool {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	info, err := root.Stat(rel)
+	return err == nil && !info.IsDir()
+}
+
+// readIn reads rel inside dir through os.Root.
+func readIn(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(rel)
+}
+
+// libDirs is the CLI's library search path: $MZSPATH when it is set, `~/.mzs/lib` when
+// it is not, with empty entries dropped and relative ones made absolute.
+func libDirs() []string {
+	raw := os.Getenv("MZSPATH")
+	if raw == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		raw = filepath.Join(home, ".mzs", "lib")
+	}
+	var dirs []string
+	for _, d := range filepath.SplitList(raw) {
+		if d == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(d); err == nil {
+			dirs = append(dirs, abs)
+		}
+	}
+	return dirs
 }
 
 // symbolsOf is the outline: what the file declares, in source order.

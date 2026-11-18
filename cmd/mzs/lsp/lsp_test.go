@@ -813,3 +813,68 @@ func TestDocCommentsReachHoverAndCompletion(t *testing.T) {
 		t.Errorf("double is not offered: %+v", items)
 	}
 }
+
+// An include path is resolved by the CLI loader's rules: `./` is a neighbour confined to
+// the document's directory, and a bare name is a library on $MZSPATH, never the
+// neighbour that happens to share its name.
+func TestIncludeDocsFollowTheLoaderRules(t *testing.T) {
+	base := t.TempDir()
+	proj := filepath.Join(base, "proj")
+	libs := filepath.Join(base, "libs")
+	for _, d := range []string{proj, libs} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, src string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(libs, "money.mzs"), "## From the library.\nexport fn add(a, b) { a }\n")
+	write(filepath.Join(proj, "money.mzs"), "## The neighbour, not the library.\nexport fn add(a, b) { a }\n")
+	write(filepath.Join(base, "outside.mzs"), "## Outside the tree.\nexport fn add(a, b) { a }\n")
+	if err := os.Symlink(filepath.Join(base, "outside.mzs"), filepath.Join(proj, "link.mzs")); err != nil {
+		t.Skip("no symlinks here:", err)
+	}
+	t.Setenv("MZSPATH", libs)
+
+	mainURI := pathToURI(filepath.Join(proj, "main.mzs"))
+	src := "include lib from \"money\"\n" +
+		"include near from \"./money.mzs\"\n" +
+		"include up from \"../outside.mzs\"\n" +
+		"include link from \"./link.mzs\"\n" +
+		"a = lib.add(1, 2)\nb = near.add(1, 2)\nc = up.add(1, 2)\nd = link.add(1, 2)\n"
+	s := run(t,
+		msg("initialize", 1, map[string]any{}),
+		open(mainURI, src),
+		at("textDocument/hover", mainURI, 2, 4, 9),
+		at("textDocument/hover", mainURI, 3, 5, 10),
+		at("textDocument/hover", mainURI, 4, 6, 8),
+		at("textDocument/hover", mainURI, 5, 7, 10),
+		at("textDocument/definition", mainURI, 6, 0, 9),
+		msg("exit", nil, nil),
+	)
+	hoverOf := func(id int) string {
+		var h hover
+		into(t, s.reply(float64(id))["result"], &h)
+		return h.Contents.Value
+	}
+	if got := hoverOf(2); !strings.Contains(got, "From the library.") {
+		t.Errorf("a library name = %q, want the $MZSPATH file's doc", got)
+	}
+	if got := hoverOf(3); !strings.Contains(got, "The neighbour, not the library.") {
+		t.Errorf("a ./ path = %q, want the neighbour's doc", got)
+	}
+	for _, id := range []int{4, 5} {
+		if got := hoverOf(id); strings.Contains(got, "Outside the tree.") {
+			t.Errorf("hover %d read a file outside the document's directory: %q", id, got)
+		}
+	}
+	var loc location
+	into(t, s.reply(6)["result"], &loc)
+	if want := pathToURI(filepath.Join(libs, "money.mzs")); loc.URI != want {
+		t.Errorf("definition of a library include = %q, want %q", loc.URI, want)
+	}
+}

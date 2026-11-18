@@ -108,6 +108,7 @@ const (
 	kindModule   = 9
 	kindKeyword  = 14
 	kindVariable = 6
+	kindStruct   = 22
 )
 
 type completionItem struct {

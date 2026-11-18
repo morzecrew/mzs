@@ -129,3 +129,21 @@ func TestDocUsage(t *testing.T) {
 		t.Errorf("stdin that does not lex: code %d, stderr %q", code, errOut)
 	}
 }
+
+// A default may hold a backtick, and the signature is still one code span.
+func TestDocCodeSpanSurvivesABacktick(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"fn f()", "`fn f()`"},
+		{"fn f(q = \"`\")", "``fn f(q = \"`\")``"},
+		{"fn f(q = \"``\")", "```fn f(q = \"``\")```"},
+		{"`x", "`` `x ``"},
+	} {
+		if got := codeSpan(tc.in); got != tc.want {
+			t.Errorf("codeSpan(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	code, out, _ := exec([]string{"doc"}, "fn f(q = \"`\") { q }\n")
+	if code != exitOK || !strings.Contains(out, "## ``fn f(q = \"`\")``\n") {
+		t.Errorf("code %d, stdout %q", code, out)
+	}
+}

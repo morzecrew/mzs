@@ -91,3 +91,22 @@ func TestParseReportsTheSyntaxError(t *testing.T) {
 		t.Fatal("want an error for a file that does not lex")
 	}
 }
+
+// A `fn` is hoisted, so `export name` may stand above it and carry its comment; a
+// destructuring assignment documents every name it binds, except `_`.
+func TestExportFirstAndDestructuring(t *testing.T) {
+	src := "## Adds.\nexport add\n\nfn add(a, b) { a + b }\n\n## A pair.\nlo, _, *rest = [1, 2, 3]\n\n## Own doc wins.\nexport sub\n## Its own.\nfn sub(a, b) { a - b }\n"
+	items, err := Parse("t.mzs", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Item{
+		{Name: "add", Kind: KindFn, Sig: "fn add(a, b)", Doc: "Adds.", Exported: true, Line: 4},
+		{Name: "lo", Kind: KindValue, Sig: "lo", Doc: "A pair.", Line: 7},
+		{Name: "rest", Kind: KindValue, Sig: "rest", Doc: "A pair.", Line: 7},
+		{Name: "sub", Kind: KindFn, Sig: "fn sub(a, b)", Doc: "Its own.", Exported: true, Line: 12},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Errorf("items =\n%+v\nwant\n%+v", items, want)
+	}
+}
