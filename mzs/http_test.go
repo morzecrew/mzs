@@ -577,8 +577,8 @@ func TestHTTPWildcards(t *testing.T) {
 }
 
 // Every step taken while a server runs is the Run's: `ready`'s, the handlers', and
-// those of a task that runs while the server waits. Result.Steps counts them all, so
-// it is the sum the profile reports.
+// those of the Run's tasks while it waits — before the first request, and between two.
+// Result.Steps counts them all, so it is the sum the profile reports.
 func TestHTTPServeCountsEveryStep(t *testing.T) {
 	t.Parallel()
 
@@ -590,12 +590,20 @@ func TestHTTPServeCountsEveryStep(t *testing.T) {
 		urls <- args[0].Str()
 		return Nil(), nil
 	})
+	// later's task is started by /hi and signals when it is done, so the test sends
+	// /quit only after its steps were taken between the two requests' resets.
+	between := make(chan struct{}, 1)
+	in.Register("__between", 0, func(c *Ctx, args []Value) (Value, error) {
+		between <- struct{}{}
+		return Nil(), nil
+	})
 	prog, err := in.Compile("server", `
 		include http
 		async fn busy() { [1, 2, 3, 4, 5].map { (x) -> x * x }.sum }
+		async fn later() { [6, 7, 8, 9].map { (x) -> x - 1 }.sum; __between() }
 		t = busy()
 		http.serve("127.0.0.1:0", {
-		  "GET /hi":   { (req) -> "hi" },
+		  "GET /hi":   { (req) -> later(); "hi" },
 		  "GET /quit": { (req) -> http.stop(); "bye" },
 		}, { (u) -> [1, 2, 3].map { (x) -> x + 1 }; __ready(u) })
 		t.await
@@ -621,6 +629,11 @@ func TestHTTPServeCountsEveryStep(t *testing.T) {
 		t.Fatal("server did not become ready")
 	}
 	do(t, "GET", url+"/hi", "")
+	select {
+	case <-between:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task /hi started did not run")
+	}
 	do(t, "GET", url+"/quit", "")
 	var o outcome
 	select {
@@ -633,5 +646,8 @@ func TestHTTPServeCountsEveryStep(t *testing.T) {
 	}
 	if o.res.Profile == nil || o.res.Steps != o.res.Profile.Steps {
 		t.Errorf("Result.Steps = %d, Profile.Steps = %+v", o.res.Steps, o.res.Profile)
+	}
+	if _, ok := funcNamed(o.res.Profile, "later server:4"); !ok {
+		t.Errorf("the task between requests is not in the profile: %+v", o.res.Profile.Funcs)
 	}
 }
