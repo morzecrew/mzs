@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -46,6 +47,10 @@ type testConfig struct {
 	coverOut string
 	coverMin float64
 	coverage *mzs.Coverage
+	// ran is every test file this command ran, under the name its Run was given: a
+	// file named on the command line is a test whatever it is called, and is left out
+	// of the report like any *_test.mzs.
+	ran map[string]bool
 }
 
 // testTally is what the summary line counts.
@@ -77,6 +82,10 @@ func runTest(argv []string, stdout, stderr io.Writer) int {
 
 	if cfg.cover {
 		cfg.coverage = mzs.NewCoverage()
+		cfg.ran = map[string]bool{}
+		for _, f := range files {
+			cfg.ran[f] = true
+		}
 	}
 	var (
 		total  testTally
@@ -485,7 +494,7 @@ func parseTestArgs(argv []string) (*testConfig, error) {
 				return nil, err
 			}
 			n, perr := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64)
-			if perr != nil || n < 0 || n > 100 {
+			if perr != nil || math.IsNaN(n) || n < 0 || n > 100 {
 				return nil, fmt.Errorf("--cover-min wants a percentage from 0 to 100, got %q", v)
 			}
 			cfg.cover, cfg.coverMin = true, n

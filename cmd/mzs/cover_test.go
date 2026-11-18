@@ -98,6 +98,8 @@ func TestCoverFlags(t *testing.T) {
 		{"test", "--cover-min", "lots"},
 		{"test", "--cover-min", "120"},
 		{"test", "--cover-out"},
+		{"test", "--cover-min", "NaN"},
+		{"test", "--cover-min", "-1"},
 	} {
 		if code, _, _ := exec(argv, ""); code != exitUsage {
 			t.Errorf("%v: code %d, want %d", argv, code, exitUsage)
@@ -119,5 +121,30 @@ func TestCoverFlags(t *testing.T) {
 	code, _, errOut := exec([]string{"test", "--cover-out", filepath.Join(dir, "no", "such", "dir.lcov"), dir}, "")
 	if code != exitError || !strings.Contains(errOut, "--cover-out") {
 		t.Errorf("unwritable LCOV: code %d, stderr %q", code, errOut)
+	}
+}
+
+// A test file named on the command line is a test whatever it is called, and is not
+// covered.
+func TestCoverLeavesOutANamedTestFile(t *testing.T) {
+	dir := coverFixture(t)
+	checks := filepath.Join(dir, "checks.mzs")
+	src, err := os.ReadFile(filepath.Join(dir, "lib_test.mzs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(checks, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := exec([]string{"test", "--cover", checks}, "")
+	if code != exitOK {
+		t.Fatalf("code = %d, stderr = %s", code, errOut)
+	}
+	report := out[strings.LastIndex(out, "\n\n"):]
+	if strings.Contains(report, "checks.mzs") {
+		t.Errorf("the named test file is in the report:\n%s", report)
+	}
+	if !strings.Contains(report, "lib.mzs") {
+		t.Errorf("the included file is missing:\n%s", report)
 	}
 }

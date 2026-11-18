@@ -16,11 +16,12 @@ import (
 // file the tests' Runs loaded through `include … from`; the test files themselves are
 // what does the covering and are left out.
 
-// coveredFiles is the Coverage's files without the tests.
-func coveredFiles(c *mzs.Coverage) []mzs.FileCoverage {
+// coveredFiles is the Coverage's files without the tests: the files this command ran
+// as tests, whatever they are called, and any *_test.mzs another one included.
+func coveredFiles(c *mzs.Coverage, tests map[string]bool) []mzs.FileCoverage {
 	var out []mzs.FileCoverage
 	for _, f := range c.Files() {
-		if strings.HasSuffix(f.File, "_test.mzs") {
+		if tests[f.File] || strings.HasSuffix(f.File, "_test.mzs") {
 			continue
 		}
 		out = append(out, f)
@@ -32,7 +33,7 @@ func coveredFiles(c *mzs.Coverage) []mzs.FileCoverage {
 // answers false when the run must exit 1 for it: the total is under the minimum, or
 // the LCOV file could not be written.
 func reportCoverage(cfg *testConfig, stdout, stderr io.Writer) bool {
-	files := coveredFiles(cfg.coverage)
+	files := coveredFiles(cfg.coverage, cfg.ran)
 	run, all := 0, 0
 	for _, f := range files {
 		run += f.StatementsRun

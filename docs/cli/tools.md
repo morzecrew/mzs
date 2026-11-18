@@ -173,7 +173,9 @@ skipped, `1` a case failed or a file did not finish, `2` usage.
 ### Coverage
 
 `--cover` adds a report after the summary, for every file the tests reached through
-`include … from`. The test files themselves are what does the covering and are left out.
+`include … from`. The test files themselves are what does the covering and are left out:
+every file the command ran as a test, even one named on the command line without the
+`_test.mzs` suffix.
 
 ```
 lib/cart.mzs     87.5%   (28/32)   missed: 41-43, 57

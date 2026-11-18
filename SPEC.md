@@ -4736,7 +4736,7 @@ of passes and skips answers `0`.
 | `--json` | one JSON object per line on stdout: a case is `{"file", "name", "group", "status", "message", "line", "col", "ms"}` — `line` and `col` where the case was declared, `message` the failure with its position or the skip's reason, `null` for a pass — a file that did not finish has `"status": "error"` and `"name": null`, and a last object `{"summary": true, "files", "cases", "failed", "skipped", "broken", "ms"}` closes the stream. Nothing else is written to stdout: what the scripts print goes to stderr |
 | `--now <rfc3339>` | `--time` with a fixed clock: every read of the clock answers that instant, so date logic is tested with the same answer on every run (D15) |
 | `-v`, `--verbose` | print what each case printed under it, passing cases included |
-| `--cover` | after the summary, the statement coverage of every file the tests loaded through `include … from`, with the lines that did not run; the `*_test.mzs` files are left out. Under `--json` it is one more object, `{"coverage": [{"file", "statements", "run", "branches", "taken", "missed"}], "total"}` |
+| `--cover` | after the summary, the statement coverage of every file the tests loaded through `include … from`, with the lines that did not run. The test files it ran are left out, whatever they are called, and so is any `*_test.mzs`. Under `--json` it is one more object, `{"coverage": [{"file", "statements", "run", "branches", "taken", "missed"}], "total"}` |
 | `--cover-out <file>` | `--cover`, and write an LCOV tracefile — `DA` per line, `BRDA` per branch — for a CI service or an editor |
 | `--cover-min <pct>` | `--cover`, and exit `1` when the total share of statements that ran is below `pct` |
 

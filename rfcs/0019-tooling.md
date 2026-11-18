@@ -258,8 +258,11 @@ Decisions:
 * **One `Coverage`, shared and locked.** Every Run that holds it adds to the same counts,
   and a mutex makes it safe across Runs and interpreters. With none, the cost is one nil
   check per statement and per branch.
+* **What a test file is.** The report leaves out every file the command ran as a test,
+  under the name its Run was given, since a file named on the command line is a test
+  whatever it is called, and any `*_test.mzs` another one includes.
 * **`--cover-out` and `--cover-min` imply `--cover`**, and a percentage may be written
-  with or without `%`. `--cover-min` compares the total of the included files, so a run
+  with or without `%`. `NaN` is not a percentage. `--cover-min` compares the total of the included files, so a run
   that includes nothing is at 100% and says that it covered nothing.
 * **Open question, answered narrowly:** a `-e` one-liner and a script loaded by an
   embedder's own loader are covered when the host passes a `Coverage`. The CLI offers
