@@ -20,15 +20,11 @@ permissions:
   contents: write
   actions: read
 
-# One group per commit: a run never cancels the run of another commit, which would skip
-# that commit's version, and two runs for one commit do not race each other.
-concurrency:
-  group: release-${{ github.event.workflow_run.head_sha || github.sha }}
-  cancel-in-progress: false
-
 jobs:
-  release:
-    name: release
+  # Which version this commit is, and whether it may be released at all. It is a job of
+  # its own so the release job below can be serialized by version.
+  version:
+    name: version
     # A workflow_run fires for failures too: only a green push to main releases.
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -39,6 +35,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       # The commit CI tested, not whatever main points at by now.
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+      sha: ${{ steps.version.outputs.sha }}
     steps:
       # A manual run releases only what an automatic one would: a commit on main whose
       # own push run of CI passed.
@@ -59,6 +58,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SHA }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: the version this commit prints
+        id: version
+        run: |
+          go build -o /tmp/mzs ./cmd/mzs
+          printed=$(/tmp/mzs --version)                 # "mzs 0.2.0"
+          echo "number=${printed#mzs }" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: release
+    needs: version
+    runs-on: ubuntu-latest
+    # One group per version: a run never cancels a run for another version, which would
+    # skip it, and two commits that print one version publish it once — the second
+    # waits, then finds it published and does nothing.
+    concurrency:
+      group: release-v${{ needs.version.outputs.number }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
           fetch-depth: 0
 
       - uses: actions/setup-go@v5
@@ -69,12 +99,12 @@ jobs:
       # A published release is done. A draft is one that failed half-way: it is
       # finished below, with its assets uploaded again. A tag that points at another
       # commit is an error, never a release of this commit's binaries.
-      - name: the version to release
+      - name: the release to make
         id: version
+        env:
+          NUMBER: ${{ needs.version.outputs.number }}
         run: |
-          go build -o /tmp/mzs ./cmd/mzs
-          printed=$(/tmp/mzs --version)                 # "mzs 0.2.0"
-          number=${printed#mzs }
+          number=$NUMBER
           echo "number=$number" >> "$GITHUB_OUTPUT"
           state=$(gh release view "v$number" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)
