@@ -164,6 +164,9 @@ type task struct {
 	err  error
 	fin  bool
 	read bool // true once something awaited it, which is what makes a failure someone's
+	// delivered is true once an await handed this task's error to a caller. read is set
+	// before the wait, so a wait that expired (t.timeout) leaves it set and this unset.
+	delivered bool
 
 	// stop ends the task's own context, and canceled records that the *script* asked for
 	// it — `t.cancel`, or the losers of `tasks.race` (§12.12). The two are separate
@@ -436,12 +439,13 @@ func (rs *runState) drainTasks() {
 	_ = rs.waitFor(waited)
 }
 
-// unawaitedMemoryError is the first ErrMemory a task nobody awaited ended on, or nil.
+// unawaitedMemoryError is the first ErrMemory that no await handed to a caller, or nil:
+// a task nobody awaited, or one whose only wait expired before it failed.
 // The tasks must be joined, so that the list is final. A task the script cancelled is
 // not one: what it ended on is the cancel.
 func (rs *runState) unawaitedMemoryError() error {
 	for _, t := range rs.sh.all {
-		if t.err != nil && !t.read && !t.canceled && errors.Is(t.err, ErrMemory) {
+		if t.err != nil && !t.delivered && !t.canceled && errors.Is(t.err, ErrMemory) {
 			return t.err
 		}
 	}
@@ -614,6 +618,7 @@ func (e ev) awaitTask(t *task, pos token.Pos) (Value, error) {
 		// program made that decision and may want to handle it, so what the await raises
 		// is an ordinary catchable error rather than the uncatchable limit the task
 		// itself ended on (§8.11).
+		t.delivered = true
 		if t.canceled && errors.Is(t.err, ErrCanceled) {
 			return Nil(), e.at(newError(ErrKindCanceled, "%s was canceled", t.label()), pos)
 		}

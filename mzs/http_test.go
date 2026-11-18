@@ -815,10 +815,19 @@ func TestHTTPStopFromATaskEndsAWaitingServe(t *testing.T) {
 	t.Parallel()
 
 	gate := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	o := netOpts()
 	in := New(o)
 	in.Register("__gate", 0, func(c *Ctx, args []Value) (Value, error) {
-		c.Blocking(func() { <-gate })
+		// The gate also opens on cleanup, so a test that fails before close(gate)
+		// does not leave this task blocked.
+		c.Blocking(func() {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+			}
+		})
 		return Nil(), nil
 	})
 	urls := make(chan string, 1)
@@ -837,8 +846,6 @@ func TestHTTPStopFromATaskEndsAWaitingServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() {
 		_, err := in.Run(ctx, prog, nil)

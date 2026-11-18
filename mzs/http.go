@@ -213,6 +213,19 @@ func httpServe(c *Ctx, args []Value) (Value, error) {
 				canceled = true
 			}
 		})
+		if !canceled && done != nil {
+			// A stop and a cancel can land together: the cancel wins, as it would have
+			// had the wait seen it first.
+			select {
+			case <-done:
+				canceled = true
+				if job != nil {
+					http.Error(job.w, "server is shutting down", http.StatusServiceUnavailable)
+					close(job.done)
+				}
+			default:
+			}
+		}
 		if canceled {
 			// A canceled context ends the Run, server or not (§14.1). The deferred
 			// Shutdown still gets its grace period for whatever is mid-write.

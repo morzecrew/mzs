@@ -424,4 +424,12 @@ t.cancel
 	if err != nil {
 		t.Fatalf("a cancelled task failed the Run: %v", err)
 	}
+
+	// A wait that expired handed the caller a timeout, not the memory error that came
+	// after it: the Run still ends with ErrMemory.
+	_, err = memRun(t, New(o), `async fn hog() { sleep(0.05); s = "x" * 3000000; s.len }
+t = hog()
+try t.timeout(0.001) else (e) -> nil
+"done"`, nil)
+	wantMemoryError(t, err)
 }
