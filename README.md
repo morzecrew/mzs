@@ -191,7 +191,8 @@ run time. Every run is bounded:
 | `MaxCollection` | 1,000,000 | elements materialised by one operation |
 | `MaxStringBytes` | 8 MiB | one constructed string |
 | `MaxMemory` | 64 MiB | bytes held live in script values at once |
-| `RegexSteps` | 200,000 | backtracking budget per match |
+| `RegexSteps` | 200,000 | backtracking budget of one regex call, also charged to `StepBudget` |
+| `MaxRegexBytes` | 4 KiB | a pattern compiled while the run runs (`regex(…)`) |
 
 The checks sit inside the node-walking loop, so `while true { }` is interrupted mid-iteration, and
 no limit is catchable by `try` — nor does an `ensure` run after one: what ends the run ends it.

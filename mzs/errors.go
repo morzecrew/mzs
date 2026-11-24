@@ -23,7 +23,24 @@ var (
 	ErrCanceled = errors.New("mzs: canceled")
 	ErrFatal    = errors.New("mzs: fatal")
 	ErrExit     = errors.New("mzs: exit")
+
+	// ErrRegexLimit is a regex call refused by the regex limits rather than by the
+	// Run's: the backtracking budget of one call (Options.RegexSteps) ran out, or a
+	// pattern built at run time is longer than Options.MaxRegexBytes (§11.2, §11.4).
+	// Unlike the limits above it is catchable — its kind is `regex` and the Run goes
+	// on — because it ends one call, not the Run, and the work it did was paid for in
+	// steps. An error that wraps it also satisfies errors.Is(err, ErrBudget).
+	ErrRegexLimit = errors.New("mzs: regex limit exceeded")
 )
+
+// sentinels is an error that is several sentinels at once, so errors.Is matches each of
+// them: a regex budget overrun is both ErrRegexLimit and ErrBudget, and a Run cancelled
+// by its context is ErrCanceled and also whatever the context said. The text is the
+// first one's.
+type sentinels []error
+
+func (s sentinels) Error() string   { return s[0].Error() }
+func (s sentinels) Unwrap() []error { return s }
 
 // Error kinds (§13.5). These are the exact strings that appear between the position
 // and the message in a rendered diagnostic, and the `kind` a handler reads off the error
@@ -235,6 +252,9 @@ func (e *Error) Catchable() bool {
 	}
 	if _, ok := testSignalOf(e.wrapped); ok {
 		return false // test.skip and fail-fast are not failures (§12.18)
+	}
+	if errors.Is(e.wrapped, ErrRegexLimit) {
+		return true // one call refused, not the Run: §11.2
 	}
 	switch {
 	case errors.Is(e.wrapped, ErrExit),
@@ -449,6 +469,8 @@ func asError(err error) *Error {
 	}
 	kind := ErrKindRaise
 	switch {
+	case errors.Is(err, ErrRegexLimit):
+		kind = ErrKindRegex
 	case errors.Is(err, ErrTimeout), errors.Is(err, ErrBudget), errors.Is(err, ErrMemory),
 		errors.Is(err, ErrDepth), errors.Is(err, ErrCanceled):
 		kind = ErrKindLimit

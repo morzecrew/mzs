@@ -227,7 +227,17 @@ func (c *Ctx) blocking(f func()) {
 
 // Blocking is blocking, for host functions installed with Register. Wrap the wait — the
 // request, the read — and nothing else.
-func (c *Ctx) Blocking(f func()) { c.blocking(f) }
+//
+// The limits are checked as soon as f returns. A wait that outlived the deadline, or
+// that the context ended, has spent the Run: the call that made it fails with the limit
+// (ErrTimeout, ErrCanceled) whatever the host function returns, so no Run lasts longer
+// than its Timeout by sitting in host calls (§14.1).
+func (c *Ctx) Blocking(f func()) {
+	c.blocking(f)
+	if err := c.rs.checkLimits(); err != nil && c.rs.pending == nil {
+		c.rs.pending = err
+	}
+}
 
 // waitFor blocks on ch with the lock released, honouring the host's context and the
 // Run's deadline. Waiting is why the deadline of §14.1 still means something under
@@ -373,7 +383,22 @@ func (rs *runState) canceledError() error {
 	if rs.task != nil && rs.task.canceled {
 		return rs.limitErr(ErrCanceled, "%s was canceled", rs.task.label())
 	}
-	return rs.limitErr(ErrCanceled, "canceled")
+	e := rs.limitErr(ErrCanceled, "canceled")
+	// What the host's context said travels with ErrCanceled, so errors.Is answers
+	// context.Canceled or context.DeadlineExceeded (or the host's own cause) as well.
+	// A deadline that passed is a timeout too: it is the host's Timeout, set on the
+	// context instead of on Options (§14.1).
+	if rs.ctx != nil {
+		if cause := context.Cause(rs.ctx); cause != nil {
+			if errors.Is(rs.ctx.Err(), context.DeadlineExceeded) {
+				e.Msg = "canceled: the context's deadline passed"
+				e.wrapped = sentinels{ErrCanceled, ErrTimeout, cause}
+			} else {
+				e.wrapped = sentinels{ErrCanceled, cause}
+			}
+		}
+	}
+	return e
 }
 
 // fork is the per-task copy of the Run's state. What it shares is deliberate: the

@@ -8,6 +8,7 @@ import "sync"
 type entry[K comparable, V any] struct {
 	key  K
 	val  V
+	cost int64
 	prev *entry[K, V]
 	next *entry[K, V]
 }
@@ -17,11 +18,15 @@ type entry[K comparable, V any] struct {
 // Add is a no-op, which is how a negative Options.ProgramCache disables caching — it
 // normalizes to 0, and 0 reaches here only from that path.
 type Cache[K comparable, V any] struct {
-	mu   sync.Mutex
-	cap  int
-	m    map[K]*entry[K, V]
-	head *entry[K, V] // most recently used
-	tail *entry[K, V] // least recently used
+	mu  sync.Mutex
+	cap int
+	// maxCost, when positive, also bounds the sum of the costs of the entries: what a
+	// cache of compiled regexes holds is bytes, and a count alone does not bound it.
+	maxCost int64
+	cost    int64
+	m       map[K]*entry[K, V]
+	head    *entry[K, V] // most recently used
+	tail    *entry[K, V] // least recently used
 }
 
 func New[K comparable, V any](n int) *Cache[K, V] {
@@ -30,6 +35,24 @@ func New[K comparable, V any](n int) *Cache[K, V] {
 		c.m = make(map[K]*entry[K, V], n)
 	}
 	return c
+}
+
+// NewCost is New with a second bound: the entries' costs, as given to AddCost, never
+// sum past maxCost. An entry that costs more than maxCost on its own is not kept.
+func NewCost[K comparable, V any](n int, maxCost int64) *Cache[K, V] {
+	c := New[K, V](n)
+	c.maxCost = maxCost
+	return c
+}
+
+// Cost reports the sum of the costs of the entries held.
+func (c *Cache[K, V]) Cost() int64 {
+	if c == nil || c.cap <= 0 {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cost
 }
 
 // Cap reports the configured capacity; <= 0 means the cache is disabled.
@@ -60,26 +83,36 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return e.val, true
 }
 
-func (c *Cache[K, V]) Add(key K, val V) {
+func (c *Cache[K, V]) Add(key K, val V) { c.AddCost(key, val, 0) }
+
+// AddCost is Add for an entry that costs cost against the cache's maxCost. The least
+// recently used entries are dropped until both bounds hold.
+func (c *Cache[K, V]) AddCost(key K, val V, cost int64) {
 	if c == nil || c.cap <= 0 {
 		return
+	}
+	if cost < 0 {
+		cost = 0
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.m[key]; ok {
-		e.val = val
 		c.unlink(e)
-		c.pushFront(e)
+		delete(c.m, key)
+		c.cost -= e.cost
+	}
+	if c.maxCost > 0 && cost > c.maxCost {
 		return
 	}
-	if len(c.m) >= c.cap {
-		if old := c.tail; old != nil {
-			c.unlink(old)
-			delete(c.m, old.key)
-		}
+	for len(c.m) > 0 && (len(c.m) >= c.cap || (c.maxCost > 0 && c.cost+cost > c.maxCost)) {
+		old := c.tail
+		c.unlink(old)
+		delete(c.m, old.key)
+		c.cost -= old.cost
 	}
-	e := &entry[K, V]{key: key, val: val}
+	e := &entry[K, V]{key: key, val: val, cost: cost}
 	c.m[key] = e
+	c.cost += cost
 	c.pushFront(e)
 }
 
@@ -96,6 +129,7 @@ func (c *Cache[K, V]) Remove(key K) bool {
 	}
 	c.unlink(e)
 	delete(c.m, key)
+	c.cost -= e.cost
 	return true
 }
 
@@ -107,6 +141,7 @@ func (c *Cache[K, V]) Purge() {
 	defer c.mu.Unlock()
 	c.m = make(map[K]*entry[K, V], c.cap)
 	c.head, c.tail = nil, nil
+	c.cost = 0
 }
 
 func (c *Cache[K, V]) pushFront(e *entry[K, V]) {

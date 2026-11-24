@@ -137,21 +137,27 @@ Two 60 ms tasks over that function finish the Run in 60 ms, not 120. See
 
 **Wait on the context, not only on the timer.** A bare `time.Sleep(d)` cannot observe
 cancellation: the Run stays blocked until `d` elapses, so `Eval` cannot return promptly
-however its caller asks. `Ctx.Context()` is the context the Run was started with and host
-functions must honour it; read it *before* `Blocking`, because the closure may touch no
-`Ctx` method. With the `select` above, cancelling the caller's context returns in the
-50 ms it was given rather than the 5 s the script asked to sleep.
-
-**`Options.Timeout` is not a second escape hatch here.** It is enforced between evaluation
-steps, and a host function that blocks is not between steps — so a `Timeout` alone leaves
-the call running to completion and the Run returns no error. Anything that must be bounded
-by wall clock has to arrive as a context with a deadline:
+however its caller asks. `Ctx.Context()` is the context the Run was started with, with the
+Run's own deadline (`Options.Timeout`) on it, and host functions must honour it; read it
+*before* `Blocking`, because the closure may touch no `Ctx` method. With the `select`
+above, `sleep_ms(5000)` under the default one-second `Timeout` returns after a second with
+`mzs.ErrTimeout`, and cancelling the caller's context returns at once with
+`mzs.ErrCanceled` — not after the 5 s the script asked to sleep. `context.Cause` of that
+context is `mzs.ErrTimeout` when the Run's deadline is what ended it.
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 defer cancel()
 v, err := in.Eval(ctx, `sleep_ms(5000)`, nil)   // returns in ~50ms
 ```
+
+**The limits are checked when the wait returns.** A wait that ran past the deadline, or
+through a cancel, ends the Run at that call with the limit — `ErrTimeout`, `ErrCanceled` —
+whatever the function returns afterwards, and `try` in the script does not catch it. So a
+function that returns `ctx.Err()` is fine: the script never sees "context deadline
+exceeded" as an error of its own to swallow. What nothing can do is interrupt a closure
+that ignores the context: a bare `time.Sleep(10 * time.Second)` inside `Blocking` still
+sleeps ten seconds, and only then does the Run end.
 
 ## RegisterModule, SetGlobal, Unregister
 

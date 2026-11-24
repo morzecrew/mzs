@@ -30,12 +30,16 @@ type Ctx struct {
 // newCtx builds the single Ctx a Run reuses.
 func newCtx(rs *runState) *Ctx { return &Ctx{rs: rs} }
 
-// Context returns the context the Run was started with. Host functions must honour it.
+// Context returns the context the Run was started with, carrying the Run's deadline
+// (Options.Timeout) as its own: a host function that blocks on it ends when the Run's
+// time is up, and context.Cause then reports ErrTimeout. Host functions must honour it.
+// When the deadline is the reason it is done, the Run ends with ErrTimeout, whatever
+// the function returns (§13.4, §14.1).
 func (c *Ctx) Context() context.Context {
-	if c.rs == nil || c.rs.ctx == nil {
+	if c.rs == nil {
 		return context.Background()
 	}
-	return c.rs.ctx
+	return c.rs.hostContext()
 }
 
 // Interp returns the interpreter running this call.
@@ -246,9 +250,11 @@ func (c *Ctx) Location() *time.Location {
 
 // Regex compiles a pattern through the interpreter's shared LRU cache (§11.4). Every
 // stdlib method that accepts a string pattern must go through here rather than calling
-// rx.Compile, so a hot dialogue compiles each pattern once.
+// rx.Compile, so a hot dialogue compiles each pattern once. It is bounded as the Run is:
+// a pattern longer than Options.MaxRegexBytes is a catchable `regex` error wrapping
+// ErrRegexLimit, and compiling one is charged to the step and memory budgets.
 func (c *Ctx) Regex(pattern, flags string) (Value, error) {
-	r, err := c.rs.in.compileRegex(pattern, flags)
+	r, err := c.rs.compileRegex(pattern, flags)
 	if err != nil {
 		return Nil(), err
 	}
@@ -262,7 +268,7 @@ func (c *Ctx) RegexOf(v Value) (*rx.Regexp, error) {
 	case KRegex:
 		return v.rx(), nil
 	case KString:
-		return c.rs.in.compileRegex(quoteMeta(v.Str()), "")
+		return c.rs.compileRegex(quoteMeta(v.Str()), "")
 	}
 	return nil, typeErrorf("expected a regex or a string, got %s", v.Kind())
 }

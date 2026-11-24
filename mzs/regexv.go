@@ -41,7 +41,7 @@ func matchArray(gs []rx.Group) Value {
 // regexCaptures is `captures` in both spellings — `S.captures(R)` and `R.captures(S)`:
 // the match array, or nil when the pattern does not match.
 func regexCaptures(c *Ctx, re *rx.Regexp, s string) (Value, error) {
-	gs, ok, err := re.FindSubmatchErr(s)
+	gs, ok, err := c.metered(re).FindSubmatchErr(s)
 	if err != nil {
 		return Nil(), regexFail(c, err)
 	}
@@ -54,7 +54,9 @@ func regexCaptures(c *Ctx, re *rx.Regexp, s string) (Value, error) {
 // regexAllMatches is `matches` in both spellings: one entry per match — the matched text
 // when the pattern has no groups, and the array of its group texts when it has (§12.2).
 func regexAllMatches(c *Ctx, re *rx.Regexp, s string) (Value, error) {
-	ms, err := re.FindAllErr(s, -1)
+	// One past the cap is enough to know the cap is broken, and stops the search
+	// before it materialises a million matches only to refuse them (§14.2).
+	ms, err := c.metered(re).FindAllErr(s, c.rs.opts.MaxCollection+1)
 	if err != nil {
 		return Nil(), regexFail(c, err)
 	}
@@ -86,7 +88,7 @@ func regexAllMatches(c *Ctx, re *rx.Regexp, s string) (Value, error) {
 // regexIndex is `index` in both spellings: the rune index of the first match, or nil.
 // A match at position 0 is still truthy (D6), which is why this may return 0 (§7.3).
 func regexIndex(c *Ctx, re *rx.Regexp, s string) (Value, error) {
-	start, _, ok, err := re.FindIndexErr(s)
+	start, _, ok, err := c.metered(re).FindIndexErr(s)
 	if err != nil {
 		return Nil(), regexFail(c, err)
 	}

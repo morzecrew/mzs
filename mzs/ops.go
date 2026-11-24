@@ -387,9 +387,9 @@ func (e ev) matches(a, b Value) (bool, error) {
 	if s.Kind() != KString {
 		return false, typeErrorf("cannot match against %s", s.Kind())
 	}
-	ok, err := r.rx().MatchErr(s.Str())
+	ok, err := r.rx().With(e.rs.regexMeter()).MatchErr(s.Str())
 	if err != nil {
-		return false, regexErrorf("%s", err.Error())
+		return false, e.rs.regexError(err)
 	}
 	return ok, nil
 }

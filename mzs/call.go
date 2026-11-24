@@ -129,7 +129,7 @@ func (e ev) invoke(fn Value, args []Value, named namedArgs, pos token.Pos) (Valu
 				fnName(f), f.Arity, len(args)), pos)
 		}
 		restore := e.enterCall(f.Name, pos, args)
-		v, err := f.Host(e.cx, args)
+		v, err := e.rs.afterHost(f.Host(e.cx, args))
 		restore()
 		if e.rs.sh.failedFast {
 			// Only the stop itself passes: a skip that comes back from a callback the host
@@ -502,7 +502,7 @@ func (e ev) invokeBuiltin(b Builtin, args []Value, pos token.Pos) (Value, error)
 		return Nil(), e.at(err, pos)
 	}
 	restore := e.enterCall(b.Name, pos, args)
-	v, err := b.Fn(e.cx, args)
+	v, err := e.rs.afterHost(b.Fn(e.cx, args))
 	restore()
 	e.rs.leave()
 	e.rs.rootReset(m)
@@ -871,7 +871,7 @@ func (e ev) invokeMethod(m Method, name string, recv Value, args []Value, pos to
 		return Nil(), err
 	}
 	restore := e.enterCall(name, pos, args)
-	v, err := m.Fn(e.cx, recv, args)
+	v, err := e.rs.afterHost(m.Fn(e.cx, recv, args))
 	restore()
 	e.rs.leave()
 	e.rs.rootReset(mark)

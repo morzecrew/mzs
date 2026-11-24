@@ -51,7 +51,7 @@ func (in *Interp) initState(opts Options) {
 	in.modules = make(map[string]Value)
 	in.removed = make(map[string]bool)
 	in.progs = lru.New[string, *Program](in.opts.ProgramCache)
-	in.rxc = lru.New[string, *rx.Regexp](in.opts.RegexCacheSize)
+	in.rxc = lru.NewCost[string, *rx.Regexp](in.opts.RegexCacheSize, regexCacheBytes)
 }
 
 // Options returns a copy of the normalised options this interpreter runs with.
@@ -61,9 +61,21 @@ func (in *Interp) Options() Options {
 	return o
 }
 
-// compileRegex compiles a pattern through the shared LRU (§11.4). It is what the
-// `regex()` builtin and every string method taking a string pattern must use, so a
-// hot dialogue never recompiles the same expression.
+// regexCacheBytes bounds what the shared regex cache keeps alive, by the estimate of
+// rx.Regexp.Size (§11.4). The count bound alone let 256 patterns of a few hundred
+// kilobytes each pin gigabytes in an Interp after the Run that compiled them was gone.
+// A pattern estimated at more than an eighth of it is compiled and not cached at all.
+const regexCacheBytes = 8 << 20
+
+// regexCompileBytesPerStep is how many bytes of a pattern compiled at run time cost one
+// step (§11.4). Compiling is parsing, simplifying and lowering the pattern, and then
+// counting what it lowered to; a byte of pattern costs about what a step does.
+const regexCompileBytesPerStep = 1
+
+// compileRegex compiles a pattern of the program's source through the shared LRU
+// (§11.4): the literals, at Compile time, and a literal a hand-built tree left
+// uncompiled. What a Run builds while it runs goes through runState.compileRegex,
+// which is bounded and charged.
 func (in *Interp) compileRegex(pattern, flags string) (*rx.Regexp, error) {
 	key := pattern + "\x00" + flags
 	if r, ok := in.rxc.Get(key); ok {
@@ -74,7 +86,55 @@ func (in *Interp) compileRegex(pattern, flags string) (*rx.Regexp, error) {
 		return nil, regexErrorf("%s", err.Error())
 	}
 	r.SetBudget(in.opts.RegexSteps)
-	in.rxc.Add(key, r)
+	in.cacheRegex(key, r)
+	return r, nil
+}
+
+// cacheRegex keeps r unless it is large enough to crowd out every other pattern.
+func (in *Interp) cacheRegex(key string, r *rx.Regexp) {
+	if size := int64(r.Size()); size <= regexCacheBytes/8 {
+		in.rxc.AddCost(key, r, size)
+	}
+}
+
+// compileRegex is the `regex()` builtin, Ctx.Regex and Ctx.RegexOf: a pattern the Run
+// built while it ran (§11.4). Such a pattern can be as long as a string is allowed to
+// be, so it is bounded and paid for before anything is compiled — MaxRegexBytes refuses
+// a long one as a catchable `regex` error, the compile is charged a step per byte, and
+// the program it compiles to is charged to the memory budget, where the walk then
+// weighs it for as long as the Run holds it (§14.2).
+func (rs *runState) compileRegex(pattern, flags string) (*rx.Regexp, error) {
+	if max := rs.opts.MaxRegexBytes; len(pattern) > max {
+		return nil, wrapError(ErrKindRegex, sentinels{ErrRegexLimit, ErrBudget},
+			"pattern too long: %d bytes exceeds the limit of %d (MaxRegexBytes)", len(pattern), max)
+	}
+	key := pattern + "\x00" + flags
+	if r, ok := rs.in.rxc.Get(key); ok {
+		return r, rs.step(1)
+	}
+	if err := rs.step(1 + int64(len(pattern))/regexCompileBytesPerStep); err != nil {
+		return nil, err
+	}
+	est := int64(len(pattern)) * regexPerRun
+	if err := rs.charge(est); err != nil {
+		return nil, err
+	}
+	r, err := rx.Compile(pattern, flags)
+	if err != nil {
+		return nil, regexErrorf("%s", err.Error())
+	}
+	r.SetBudget(rs.opts.RegexSteps)
+	// A short pattern can lower to a long program — `a{1000}` is seven bytes — so what
+	// it really came to is charged on top of the estimate, in memory and in steps.
+	if extra := int64(r.Size()) - est; extra > 0 {
+		if err := rs.step(extra / regexPerRun); err != nil {
+			return nil, err
+		}
+		if err := rs.charge(extra); err != nil {
+			return nil, err
+		}
+	}
+	rs.in.cacheRegex(key, r)
 	return r, nil
 }
 
@@ -274,6 +334,27 @@ type runState struct {
 	hasDL    bool
 	depth    int
 	maxDepth int
+
+	// rxMeter is what this state's regex calls are charged to, and rxAcc the
+	// backtracking steps of the current call not yet worth an interpreter step
+	// (regexMeter). rxOwner is the state the meter was made for: a task's state is a
+	// copy of its parent's, and must not charge through the parent's meter.
+	rxMeter rx.Meter
+	rxAcc   int
+	rxOwner *runState
+
+	// hostCtx is what Ctx.Context hands a host function: ctx with the Run's deadline on
+	// it, so a blocking call the host makes with it ends when the Run's time does. It is
+	// made on first use and remade when ctx or the deadline moved — a task has a context
+	// of its own, and http.serve re-arms the deadline per request (hostContext).
+	hostCtx    context.Context
+	hostParent context.Context
+	hostDL     time.Time
+	hostCancel context.CancelFunc
+	// pending is a limit Ctx.Blocking found broken when the host's wait returned. The
+	// host function cannot be made to return it, so the call site does: whatever the
+	// function answered, the Run ends there (afterHost).
+	pending error
 
 	// modules caches the script modules this Run has loaded, keyed on the name the
 	// loader resolved, and loading is the include stack that catches a cycle. exports

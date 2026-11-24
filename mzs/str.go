@@ -93,8 +93,16 @@ func regexFail(c *Ctx, err error) error {
 	if err == nil {
 		return nil
 	}
-	return c.ErrorfKind(ErrKindRegex, "%s", err.Error())
+	err = c.rs.regexError(err)
+	if e := asError(err); e.Kind != ErrKindLimit {
+		return c.position(e)
+	}
+	return err
 }
+
+// metered binds a pattern to the meter of the Run calling it (§11.2): its steps are the
+// Run's, the deadline interrupts it, and what it builds is bounded.
+func (c *Ctx) metered(re *rx.Regexp) rx.Metered { return re.With(c.rs.regexMeter()) }
 
 // ---------------------------------------------------------------------------
 // Rune helpers
@@ -235,7 +243,12 @@ func splitString(c *Ctx, s string, sep Value, limit int) ([]string, error) {
 			n = -1
 		}
 		var err error
-		parts, err = sep.rx().SplitErr(s, n)
+		// More pieces than the cap are refused below; one past it is all that needs
+		// finding to know (§14.2).
+		if max := c.rs.opts.MaxCollection + 1; n < 0 || n > max {
+			n = max
+		}
+		parts, err = c.metered(sep.rx()).SplitErr(s, n)
 		if err != nil {
 			return nil, regexFail(c, err)
 		}
@@ -304,6 +317,18 @@ func awkSplit(s string, limit int) []string {
 // a function — an ordinary trailing closure argument (§4.2), which is why it arrives in
 // args like anything else.
 func substitute(c *Ctx, s string, all bool, args []Value) (Value, error) {
+	if args[0].Kind() == KString {
+		// A string pattern matches literally, so there is nothing to compile: it is
+		// found with the strings package, as split, count and index find one (§12.2).
+		out, err := literalReplace(c, s, args[0].Str(), all, args[1])
+		if err != nil {
+			return Nil(), err
+		}
+		if err := c.allocString(len(out)); err != nil {
+			return Nil(), err
+		}
+		return Str(out), nil
+	}
 	re, err := argRegex(c, args[0])
 	if err != nil {
 		return Nil(), err
@@ -317,7 +342,7 @@ func substitute(c *Ctx, s string, all bool, args []Value) (Value, error) {
 		if repl, err = argStr(c, args[1]); err != nil {
 			return Nil(), err
 		}
-		out, err = re.ReplaceErr(s, repl, all)
+		out, err = c.metered(re).ReplaceErr(s, repl, all)
 		err = regexFail(c, err)
 	}
 	if err != nil {
@@ -329,13 +354,87 @@ func substitute(c *Ctx, s string, all bool, args []Value) (Value, error) {
 	return Str(out), nil
 }
 
+// literalReplace is `replace` and `replace_first` with a string pattern. It does what
+// the quoted pattern would do — an empty one matches at every rune boundary, a template
+// expands `\0` and `\&` to the match and every group to nothing, and a closure gets the
+// match — without compiling one. The result is bounded by MaxStringBytes as it grows.
+func literalReplace(c *Ctx, s, pat string, all bool, repl Value) (string, error) {
+	fn := repl.Kind() == KFunc
+	var tmpl string
+	if !fn {
+		var err error
+		if tmpl, err = argStr(c, repl); err != nil {
+			return "", err
+		}
+	}
+	if err := c.Step(int64(len(s))/64 + 1); err != nil {
+		return "", err
+	}
+	max := c.rs.opts.MaxStringBytes
+	tooLarge := func() error {
+		return c.rs.limitErr(ErrBudget, "string too large: the result exceeds the limit of %d bytes", max)
+	}
+	g := []rx.Group{{Text: pat, Ok: true}}
+	var sb strings.Builder
+	prev, found := 0, false
+	for at := 0; at <= len(s); {
+		i := strings.Index(s[at:], pat)
+		if i < 0 {
+			break
+		}
+		i += at
+		found = true
+		if sb.Len()+i-prev > max {
+			return "", tooLarge()
+		}
+		sb.WriteString(s[prev:i])
+		if fn {
+			if err := c.Step(1); err != nil {
+				return "", err
+			}
+			v, err := c.Call(repl, Str(pat))
+			if err != nil {
+				return "", err
+			}
+			if sb.Len()+len(v.Str()) > max {
+				return "", tooLarge()
+			}
+			sb.WriteString(v.Str())
+		} else if !rx.ExpandInto(&sb, tmpl, g, max) {
+			return "", tooLarge()
+		}
+		prev = i + len(pat)
+		if !all {
+			break
+		}
+		if pat == "" {
+			// An empty match moves on by one rune, as the regex form does.
+			if i >= len(s) {
+				break
+			}
+			_, w := utf8.DecodeRuneInString(s[i:])
+			sb.WriteString(s[i : i+w])
+			prev = i + w
+		}
+		at = prev
+	}
+	if !found {
+		return s, nil
+	}
+	if sb.Len()+len(s)-prev > max {
+		return "", tooLarge()
+	}
+	sb.WriteString(s[prev:])
+	return sb.String(), nil
+}
+
 // replaceCall drives the closure form of replace. The error the closure produces — a
 // `break`, a `return`, a script error, a limit — is returned untouched, as the closure
 // protocol requires (host.go); only a failure of the regex engine itself is positioned
 // here.
 func replaceCall(c *Ctx, re *rx.Regexp, s string, all bool, fn Value) (string, error) {
 	var callErr error
-	out, err := re.ReplaceFunc(s, all, func(g []rx.Group) (string, error) {
+	out, err := c.metered(re).ReplaceFunc(s, all, func(g []rx.Group) (string, error) {
 		if err := c.Step(1); err != nil {
 			callErr = err
 			return "", err
@@ -484,9 +583,13 @@ func init() {
 		}),
 		sm("count", 1, 1, func(c *Ctx, s string, args []Value) (Value, error) {
 			if args[0].Kind() == KRegex {
-				ms, err := args[0].rx().FindAllErr(s, -1)
+				// Counting materialises the matches, so it is bounded like matches.
+				ms, err := c.metered(args[0].rx()).FindAllErr(s, c.rs.opts.MaxCollection+1)
 				if err != nil {
 					return Nil(), regexFail(c, err)
+				}
+				if err := c.CheckCollection(len(ms)); err != nil {
+					return Nil(), err
 				}
 				return Int(int64(len(ms))), nil
 			}
@@ -767,9 +870,18 @@ func strIndex(c *Ctx, s string, args []Value, last bool) (Value, error) {
 	hay := string(rs[from:])
 
 	if args[0].Kind() == KRegex {
-		ms, err := args[0].rx().FindAllErr(hay, -1)
+		// The first match is all `index` needs; `last_index` needs every one, and is
+		// bounded like `matches` (§14.2).
+		limit := 1
+		if last {
+			limit = c.rs.opts.MaxCollection + 1
+		}
+		ms, err := c.metered(args[0].rx()).FindAllErr(hay, limit)
 		if err != nil {
 			return Nil(), regexFail(c, err)
+		}
+		if err := c.CheckCollection(len(ms)); err != nil {
+			return Nil(), err
 		}
 		if len(ms) == 0 {
 			return Nil(), nil

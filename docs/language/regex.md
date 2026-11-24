@@ -44,13 +44,17 @@ backtracking engine instead.
 
 ## The step budget
 
-The backtracking engine counts steps per match attempt (`Options.RegexSteps`, default
-200 000; there is no CLI flag for it). Exceeding it is an error, not a hang:
+The backtracking engine counts steps per call (`Options.RegexSteps`, default 200 000;
+there is no CLI flag for it): a `~`, or a `replace`, `split`, `matches` or `count` with every
+match it makes, spends one budget. Exceeding it is an error, not a hang:
 
 ```sh
 $ mzs -e '("a" * 25 + "!") ~ /\b(a+)+b/'
--e:1:18: regex: mzs/rx/bt: regex step budget exceeded      # exit 1
+-e:1:18: regex: regex step budget exceeded (200000 steps)      # exit 1
 ```
+
+The steps are the run's steps too — sixteen of them cost one — so a regex call is
+interrupted by `--steps` and `-t` like any loop, mid-search.
 
 The same pattern without `\b` is RE2's, which has no such problem: `("a" * 25 + "!") ~
 /(a+)+b/` is `false`, immediately. The budget error is catchable, with kind `"regex"`.
@@ -110,7 +114,18 @@ that line, not a multi-line pattern.
 ## Dynamic regexes
 
 `regex(pattern, flags)` compiles a string; results go through a bounded LRU cache
-(`Options.RegexCacheSize`, default 256).
+(`Options.RegexCacheSize`, default 256, and at most 8 MiB of compiled patterns). The
+pattern may be at most `Options.MaxRegexBytes` long (default 4 KiB), and compiling it costs
+a step per byte, because a pattern built from a string can be as long as a string:
+
+```sh
+$ mzs -e 'regex("a" * 5000)'
+-e:1:1: regex: pattern too long: 5000 bytes exceeds the limit of 4096 (MaxRegexBytes)
+```
+
+That error is catchable. A literal in the source is not bounded by it, and neither is a
+string pattern to `replace`, `split`, `count` or `index`: those match the text literally and
+compile nothing.
 
 ```
 regex("^\d+$")                             # /^d+$/ — in a string "\d" is just "d"
