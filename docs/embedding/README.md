@@ -91,8 +91,9 @@ not allow network access calls `Unregister("http")`, see
 | `MaxCollection` | `1000000` | elements one operation may materialise; cannot be disabled |
 | `MaxStringBytes` | `8388608` | bytes of one produced string; cannot be disabled |
 | `MaxMemory` | `67108864` | bytes held live in script values at once (SPEC §14.2); `-1` disables |
-| `RegexSteps` | `200000` | backtracking budget per match; cannot be disabled |
-| `RegexCacheSize` | `256` | runtime regex compile cache, per `*Interp` |
+| `RegexSteps` | `200000` | backtracking budget of one regex call (a match, a `replace` with all its matches, a `split`); also charged to `StepBudget`; cannot be disabled |
+| `MaxRegexBytes` | `4096` | longest pattern a Run may compile while it runs (`regex()`, `Ctx.Regex`); cannot be disabled |
+| `RegexCacheSize` | `256` | runtime regex compile cache, per `*Interp`; also bounded to 8 MiB of compiled patterns |
 | `ProgramCache` | `512` | compiled-source LRU; `-1` disables |
 | `Stdout` | `nil` | sink for `print`/`println`/`debug`; nil discards |
 | `Stderr` | `nil` | runtime notices (a failed unawaited task, an http handler error) |

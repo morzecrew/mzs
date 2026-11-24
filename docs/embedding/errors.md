@@ -86,14 +86,26 @@ var (
 	ErrTimeout  = errors.New("mzs: execution timed out")
 	ErrBudget   = errors.New("mzs: step budget exceeded")
 	ErrDepth    = errors.New("mzs: max call depth exceeded")
+	ErrMemory   = errors.New("mzs: memory budget exceeded")
 	ErrCanceled = errors.New("mzs: canceled")
 	ErrFatal    = errors.New("mzs: fatal")   // wrap to make a host error uncatchable
 	ErrExit     = errors.New("mzs: exit")    // the script called exit(code)
+
+	ErrRegexLimit = errors.New("mzs: regex limit exceeded") // catchable: one call, not the Run
 )
 ```
 
-The first four are the unrecoverable limits: `try` never catches them, and they always
-reach the host. `ErrCanceled` is what a cancelled `context.Context` produces.
+The first five are the unrecoverable limits: `try` never catches them, and they always
+reach the host. `ErrBudget` is also what a size cap — `MaxCollection`, `MaxStringBytes` —
+is. `ErrCanceled` is what a cancelled `context.Context` produces, and the error wraps what
+the context said too: `errors.Is(err, context.Canceled)` holds for a cancel, and for a
+context whose deadline passed both `context.DeadlineExceeded` and `ErrTimeout` do.
+
+`ErrRegexLimit` is the regex limits of SPEC §11: a call that ran out of `RegexSteps`, or a
+pattern built at run time longer than `MaxRegexBytes`. It is a catchable `regex` error
+rather than a `limit` — it ends one call, which was paid for, not the Run — and it wraps
+`ErrBudget` as well, so a host that only asks `errors.Is(err, mzs.ErrBudget)` still files an
+uncaught one under "too expensive". Ask for `ErrRegexLimit` first to tell the two apart.
 
 ## `exit`
 
@@ -120,7 +132,7 @@ decision. The code is an integer from 0 to 255 — `exit(256)` is refused in the
 
 ## Script error or limit
 
-`errors.Is` against the four limit sentinels is the test; `errors.As` gets the position and
+`errors.Is` against the limit sentinels is the test; `errors.As` gets the position and
 kind of everything else. A limit is a host problem (the script asked for too much time or
 memory), a script error is a program problem.
 
@@ -129,7 +141,9 @@ func classify(err error) string {
 	switch {
 	case err == nil:
 		return "ok"
-	case errors.Is(err, mzs.ErrTimeout), errors.Is(err, mzs.ErrBudget),
+	case errors.Is(err, mzs.ErrRegexLimit):
+		return "regex too expensive: " + err.Error()
+	case errors.Is(err, mzs.ErrTimeout), errors.Is(err, mzs.ErrBudget), errors.Is(err, mzs.ErrMemory),
 		errors.Is(err, mzs.ErrDepth), errors.Is(err, mzs.ErrCanceled):
 		return "limit: " + err.Error()
 	}

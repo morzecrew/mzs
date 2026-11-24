@@ -97,15 +97,16 @@ when `serve` returns.
 
 | Field | Default | Bounds | CLI |
 |---|---|---|---|
-| `Timeout` | `1s` | wall clock per Run, checked between evaluation steps — a blocking host function is not interrupted by it (see [../embedding/functions.md](../embedding/functions.md#blocking)) | `-t`, `-t 0` disables |
+| `Timeout` | `1s` | wall clock per Run, checked between evaluation steps and inside a regex search; a host function gets it as the deadline of `Ctx.Context()` (see [../embedding/functions.md](../embedding/functions.md#blocking)) | `-t`, `-t 0` disables |
 | `StepBudget` | `5000000` | interpreter steps per Run | `--steps`, `--steps 0` disables |
 | `MaxDepth` | `200` | call and recursion depth | — |
 | `MaxTasks` | `64` | tasks live at once | `--tasks`, `--tasks 0` forbids |
 | `MaxCollection` | `1000000` | elements one operation materialises | — |
 | `MaxStringBytes` | `8388608` | bytes of one produced string | — |
 | `MaxMemory` | `67108864` | bytes held live in script values at once | `--mem 64m`, `--mem 0` disables |
-| `RegexSteps` | `200000` | backtracking steps per match attempt | — |
-| `RegexCacheSize` | `256` | runtime regex compile cache, per `Interp` | — |
+| `RegexSteps` | `200000` | backtracking steps of one regex call, every match it makes together; also charged to `StepBudget`, one step per 16 | — |
+| `MaxRegexBytes` | `4096` | bytes of a pattern compiled while the Run runs — `regex(…)` | — |
+| `RegexCacheSize` | `256` | runtime regex compile cache, per `Interp`; also bounded to 8 MiB of compiled patterns | — |
 | `ProgramCache` | `512` | compiled-source cache used by `Eval` | — |
 | — | `64` | `include` nesting depth; not an `Options` field | — |
 
@@ -194,13 +195,18 @@ include io; try io.read("big.txt").len else (e) -> "${e["kind"]}: ${e["message"]
 # io: io.read "big.txt": exceeds the 8388608 byte limit
 ```
 
-The per-attempt regex budget is the same shape — kind `regex`, catchable, the Run continues:
+The per-call regex budget is the same shape — kind `regex`, catchable, the Run continues —
+and so is a pattern built at run time that is longer than `MaxRegexBytes`:
 
 ```
 try (("a" * 40) ~ /(?!z)(a+)+b/) else "caught"   # caught
+try regex("a" * 5000) else "caught"               # caught
 ```
 
-Uncaught, that expression is `-e:1:12: regex: mzs/rx/bt: regex step budget exceeded`.
+Uncaught, they are `-e:1:12: regex: regex step budget exceeded (200000 steps)` and `-e:1:1:
+regex: pattern too long: 5000 bytes exceeds the limit of 4096 (MaxRegexBytes)`. To a host
+both wrap `mzs.ErrRegexLimit` and `mzs.ErrBudget`. What the call spent before it ran out was
+charged to the Run's step budget too, so a loop that catches it again and again still ends.
 
 ## Panics become internal errors
 

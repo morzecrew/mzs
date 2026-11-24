@@ -2356,9 +2356,18 @@ Backend selection, decided at `Compile` time and fixed thereafter:
   * **Unicode-aware `\b`**: a boundary between a word rune (`\p{L}`, `\p{N}`, `_`) and a
     non-word rune or a string edge. This is mandatory: `\bменю\b`, `\bеда\b`, `\bмрп\b` all
     ship today and Go's ASCII-only `\b` silently never matches them.
-  * a **step budget** (`Options.RegexSteps`, default 200 000 per match) and memoisation of
+  * a **step budget** (`Options.RegexSteps`, default 200 000) and memoisation of
     `(node, pos)` pairs to bound catastrophic backtracking. Exceeding the budget is an
-    error, not a hang.
+    error, not a hang: a catchable `regex` error wrapping `ErrRegexLimit` and `ErrBudget`.
+    The budget is **per call**, not per match: a `~`, a `replace` with every match it
+    makes, a `split`, `matches`, `count` and `index` each spend one. A fresh budget per
+    match would let a pattern that scans the rest of the subject at every match —
+    `/a(?=[^z]*z|)/` over `"a" * n` — cost O(n²) steps for the price of one.
+  * **metering**. The steps a call takes are charged to the Run's `StepBudget`, one
+    interpreter step per 16 backtracking steps, as they are taken, so the deadline, the
+    context and the step budget of §14.1 interrupt a search in the middle. RE2 cannot be
+    interrupted, but its work is linear in the subject and is charged before it runs, one
+    step per 64 bytes.
   * case-insensitive matching via `unicode.SimpleFold`, so `И`/`и` fold correctly.
 
 Both backends MUST agree on every pattern in §16.2 (a cross-check test compares the two on
@@ -2371,9 +2380,21 @@ because `"привет".index(/вет/)` must be `3`, not `6`.
 
 ### 11.4 Compilation and caching
 
-`RegexLit` nodes compile once at `Compile` time. `regex(str, flags)` and methods taking a
-string pattern compile through a bounded LRU cache (`Options.RegexCacheSize`, default 256)
-shared per `*Interp` and guarded by a mutex.
+`RegexLit` nodes compile once at `Compile` time, and cost what the source costs. A pattern
+built while a Run runs — `regex(str, flags)`, and `Ctx.Regex` and `Ctx.RegexOf` for a host —
+is bounded and paid for:
+
+* a pattern longer than `Options.MaxRegexBytes` (default 4 KiB) is a catchable `regex` error
+  wrapping `ErrRegexLimit` and `ErrBudget`, refused before any of it is compiled;
+* compiling costs a step per byte of pattern, and the program it compiled to is charged to
+  `MaxMemory` (§14.2) — a short pattern that unrolls, `a{1000}`, is charged what it unrolled to;
+* the result goes through an LRU cache shared per `*Interp` and guarded by a mutex, bounded
+  in entries (`Options.RegexCacheSize`, default 256) and in bytes (8 MiB of the estimate
+  above). A pattern whose program is over an eighth of that is compiled and not cached, so
+  what one Run compiled cannot pin more than that after it.
+
+A string pattern to `replace`, `split`, `count` and `index` matches literally and is found
+with a plain string search: nothing is compiled for it.
 
 ### 11.5 The `\\b` gotcha
 
@@ -2428,7 +2449,7 @@ Conventions used in the tables:
 | `dup` | `dup(x) -> any` | shallow copy for Array/Dict, identity otherwise; a record's label survives the copy (§7.8) | |
 | `tap` | `tap(x) { (v) -> … } -> any` | runs the closure, returns `x` | |
 | `pipe` | `pipe(x) { (v) -> … } -> any` | runs the closure, returns **its** value | `x.pipe { it * 2 }` |
-| `regex` | `regex(pattern: string, flags: string = "") -> regex` | compiles at runtime (cached) | `regex('\bменю', "i")` |
+| `regex` | `regex(pattern: string, flags: string = "") -> regex` | compiles at runtime (cached); at most `MaxRegexBytes` (§11.4) | `regex('\bменю', "i")` |
 | `range` | `range(a: int, b: int = nil, step: int = 1) -> array` | half-open: `range(0,3) == [0,1,2]`, `range(3) == [0,1,2]` | `range(3)` |
 | `seq` | `seq(x: array \| range \| seq \| fn) -> seq` | the lazy sequence over `x` (§12.14); a function is a generator called with the index, ended by returning `nil` | `(1..1e9).seq`, `seq { (i) -> i * i }` |
 | `sum` | `sum(xs: array) -> number` | numeric sum; empty → `0` | `[1,2].sum` |
@@ -3920,8 +3941,9 @@ type Options struct {
     MaxCollection   int           // max elements materialised by one operation. Default 1_000_000.
     MaxStringBytes  int           // max size of a single produced string. Default 8 << 20.
     MaxMemory       int64         // bytes held live in script values at once (§14.2). Default 64 << 20; <0 disables.
-    RegexSteps      int           // backtracking budget per match. Default 200_000.
-    RegexCacheSize  int           // Default 256.
+    RegexSteps      int           // backtracking budget per regex call (§11.2). Default 200_000.
+    MaxRegexBytes   int           // longest pattern a Run may compile while it runs (§11.4). Default 4096.
+    RegexCacheSize  int           // runtime regex cache entries, per *Interp; also bounded to 8 MiB. Default 256.
     ProgramCache    int           // compiled-source LRU for Eval(). Default 512. 0 disables.
 
     // Capabilities (all nil/false by default => deterministic, sandboxed)
@@ -4106,26 +4128,35 @@ func (in *Interp) Unregister(name string)                           // remove a 
 ```
 
 Host functions must not block indefinitely; they receive `c.Context()` and are expected to
-honour it. A host function that returns an error surfaces as a catchable script error unless
-it wraps `ErrFatal`.
+honour it. That context carries the Run's deadline (`Options.Timeout`) as its own, with
+`ErrTimeout` as its `context.Cause`, so a request made with it ends when the Run's time does.
+A host function that returns an error surfaces as a catchable script error unless it wraps
+`ErrFatal` — or unless the Run's limits are what it ran into: a function that returns the
+context's error after the deadline or a cancel ends the Run with that limit, which `try` does
+not catch.
 
 A host function that *does* wait — on a socket, on a queue — should wrap the wait in
 `c.Blocking`, which hands the interpreter to the Run's other tasks until it returns
 (§8.14). The closure must touch no `Value`, no global and no `Ctx` method: outside the
 lock, that is the one data race the design cannot prevent. `http.get` is written this way,
-which is why N requests in N tasks overlap.
+which is why N requests in N tasks overlap. The limits of §14.1 are checked as soon as the
+closure returns: a wait that outlived the deadline, or that the context ended, ends the Run
+at that call, whatever the function then returns. Nothing can interrupt a closure that
+ignores the context, but no statement of the script runs after it.
 
 ### 13.5 Errors
 
 ```go
 var (
-    ErrTimeout   = errors.New("mzs: execution timed out")
-    ErrBudget    = errors.New("mzs: step budget exceeded")
-    ErrDepth     = errors.New("mzs: max call depth exceeded")
-    ErrCanceled  = errors.New("mzs: canceled")
-    ErrFatal     = errors.New("mzs: fatal")       // wrap to make a host error uncatchable
-    ErrExit      = errors.New("mzs: exit")        // the `exit` builtin, §12.1
-    ErrFailFast  = errors.New("mzs: a test case failed under fail-fast") // Options.Test.FailFast, §12.18
+    ErrTimeout    = errors.New("mzs: execution timed out")
+    ErrBudget     = errors.New("mzs: step budget exceeded")
+    ErrDepth      = errors.New("mzs: max call depth exceeded")
+    ErrMemory     = errors.New("mzs: memory budget exceeded") // MaxMemory, §14.2
+    ErrCanceled   = errors.New("mzs: canceled")
+    ErrRegexLimit = errors.New("mzs: regex limit exceeded")  // RegexSteps or MaxRegexBytes; catchable, §11
+    ErrFatal      = errors.New("mzs: fatal")       // wrap to make a host error uncatchable
+    ErrExit       = errors.New("mzs: exit")        // the `exit` builtin, §12.1
+    ErrFailFast   = errors.New("mzs: a test case failed under fail-fast") // Options.Test.FailFast, §12.18
 )
 
 type Error struct {
@@ -4180,7 +4211,7 @@ over a known set (§8.11).
 | `index` | a position out of range, and a destructuring length mismatch (§8.15) |
 | `key` | a key that is not in the dict — `fetch` (§12.4) |
 | `zero-division` | integer `/` or `%` by zero (§8.3) |
-| `regex` | a pattern that does not compile (§12.6) |
+| `regex` | a pattern that does not compile (§12.6); a call over its `RegexSteps`, a pattern over `MaxRegexBytes` (§11) |
 | `json` | `json.parse` on bad input, and a value `json` cannot encode (§12.8) |
 | `decimal` | text that is not a decimal, a result past the width, a division with no exact form (§12.15) |
 | `csv` | input that is not well-formed CSV, a header that names a field twice or not at all, a record of the wrong width (§12.19) |
@@ -4196,6 +4227,15 @@ over a known set (§8.11).
 A script may put a kind of its own on an error it raises (§8.11), so a host switching on
 `Kind` needs a default branch. Four are refused to a script and mean exactly what the table
 says wherever a host sees them: `syntax`, `limit`, `exit` and `internal`.
+
+**Which limit it was** is `errors.Is`. Every `limit` error wraps the sentinel of the limit
+that ended the Run: `ErrTimeout` (the deadline), `ErrBudget` (the step budget, and a size
+cap — `MaxCollection`, `MaxStringBytes`), `ErrMemory`, `ErrDepth`, and `ErrCanceled` for the
+context, which also wraps what the context said (`context.Canceled`, `context.DeadlineExceeded`
+or the host's own cause) — and a context whose deadline passed is `ErrTimeout` as well. The
+regex limits of §11 end one call and not the Run, so they are catchable `regex` errors; they
+wrap `ErrRegexLimit` and `ErrBudget`, and `ErrRegexLimit` is how a host tells one from the
+Run's own budget.
 
 ### 13.6 `mzs/engine` — the morzebot adapter
 
@@ -4281,7 +4321,13 @@ checks:
 3. the step counter against `StepBudget` → `ErrBudget`.
 
 Because the check is inside the node loop, a `while true { }` and a pathological regex are
-both interrupted **mid-loop**, not merely between statements. No timer per Run (one
+both interrupted **mid-loop**, not merely between statements. A regex call is inside the
+loop too: its backtracking is charged as steps while it searches (§11.2), so one call can
+neither outlast `Timeout` nor spend more than `StepBudget`.
+
+A host function is the one thing the loop cannot see into, so the deadline goes to it
+instead: `Ctx.Context()` carries it, and the limits are checked again the moment a
+`Ctx.Blocking` wait returns (§13.4). No timer per Run (one
 `time.Time` deadline comparison), no `runtime.Goexit`, and no goroutine unless the script
 asked for one with `async fn`.
 
@@ -4356,7 +4402,7 @@ every run of the same program (D15) and it is one Run's, not the process's:
 What a value weighs is an **estimate**, never less than its payload: a string its bytes; an
 array its capacity × the size of a `Value` (48 bytes on a 64-bit host); a dict its keys and
 values plus an index entry each; a scope its slots and names; a regex 64 bytes per byte of
-pattern; a function, a task, a seq, a time and a range a fixed size plus what they reference.
+pattern, or an estimate of the program it compiled to when that is more; a function, a task, a seq, a time and a range a fixed size plus what they reference.
 Each object is counted once however many values share it, so a cycle (`d["self"] = d`) is
 walked once. The values the host bound — `Interp` globals and the map passed to `Run` — are
 reached but not charged: the first walk measures them as the Run's baseline. Go allocator

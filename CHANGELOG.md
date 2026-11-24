@@ -227,6 +227,26 @@ and the release is still ahead of it.
 
 ### Fixed
 
+- **One Run of an untrusted script costs what its `Options` allow, and no more.** Four holes
+  an audit found with a proof of concept each (SPEC §11.2, §11.4, §13.4, §14.1):
+  - *Patterns built at run time were free and cached without bound.* `regex()`, `Ctx.Regex`
+    and `Ctx.RegexOf` refuse a pattern longer than the new `Options.MaxRegexBytes` (default
+    4 KiB) as a catchable `regex` error, before compiling it; a compile costs a step per
+    byte and its program is charged to `MaxMemory`; the shared cache is bounded in bytes
+    as well as in entries. 256 patterns of 200 KB used to leave 2.8 GB in the `Interp`.
+  - *One regex call could run for minutes past `Timeout` and `StepBudget`.* A call — a
+    `~`, a `replace` with every match it makes, a `split`, `matches`, `count` — spends one
+    `RegexSteps` budget, not one per match, and its backtracking is charged to `StepBudget`
+    (one step per sixteen), so the deadline and the context interrupt it mid-search.
+    `("a" * 40000).replace(/a(?=[^z]*z|)/, "b")` took 11 s in 19 steps; it is now a
+    `regex` error in milliseconds.
+  - *A host call could outlast `Timeout`.* `Ctx.Context()` carries the Run's deadline, and
+    when `Ctx.Blocking` returns past it the Run ends at that call with `ErrTimeout`,
+    whatever the host function answered.
+  - *A replacement was built in full before it was checked.* `"a" * 2000` replaced with a
+    1 MB string allocated 2 GB in 14 steps before failing the `MaxStringBytes` check; the
+    replacement now stops at the cap as it is built. `matches`, `count`, `last_index` and a
+    regex `split` stop one match past `MaxCollection` instead of materialising every match.
 - **A write into a module stays in the Run that made it.** A module is a dict a script may
   write to, and `include` handed every interpreter in the process the same built-in table:
   `json["parse"] = 1` in one Run broke `json.parse` in every interpreter after it, and a
@@ -234,6 +254,21 @@ and the release is still ahead of it.
   Each `include` now gets its own copy (SPEC §14.3).
 
 ### Changed
+
+- **`Options.RegexSteps` is a budget per call, not per match**, and what a call spends
+  counts against `StepBudget` too. A `replace` or `split` with a backtracking pattern over a
+  long subject can now run out where it used to pass; raise `RegexSteps` for it. The
+  overrun is still a catchable `regex` error, and its message names the budget: `regex step
+  budget exceeded (200000 steps)` (SPEC §11.2).
+- **New `Options.MaxRegexBytes`** (default 4 KiB) bounds a pattern compiled while a Run
+  runs. A string pattern to `replace` is found literally and compiles nothing, so it is not
+  bounded by it (SPEC §11.4).
+- **Limit errors say which limit they are, to `errors.Is`.** A regex budget overrun and a
+  pattern over `MaxRegexBytes` wrap the new `ErrRegexLimit` and `ErrBudget`, and stay
+  catchable. A Run ended by its context wraps the context's cause as well as `ErrCanceled`,
+  and one whose context's deadline passed is `ErrTimeout` too (SPEC §13.5).
+- **`Ctx.Context()` has the Run's deadline**, with `ErrTimeout` as its cause, so a host
+  function that waits on it ends when the Run's time does (SPEC §13.4).
 
 - **An unknown `strftime` directive is an error** — a deliberate break (SPEC §21.4, audit
   B6). `t.strftime("%G")` used to answer `%G`, so a typo surfaced only in the output; it is
