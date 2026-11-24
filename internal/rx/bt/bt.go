@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"unsafe"
 )
 
 // ErrUnsupported is returned by Compile for a pattern this engine cannot handle.
@@ -100,6 +101,24 @@ func (r *Regexp) NumGroups() int { return r.ngrp }
 // GroupNames returns one entry per group index 0..NumGroups; "" means unnamed.
 func (r *Regexp) GroupNames() []string { return r.names }
 
+// Size estimates the bytes the compiled pattern holds: its instructions, its character
+// classes and one scratch matcher. It is what the interpreter charges to a Run's memory
+// budget for a pattern it compiled (SPEC §14.2).
+func (r *Regexp) Size() int {
+	n := len(r.src)*4 + len(r.names)*16 + r.nslot*4
+	seen := map[*charClass]bool{}
+	for _, p := range r.progs {
+		n += len(p.code) * int(unsafe.Sizeof(inst{}))
+		for i := range p.code {
+			if cl := p.code[i].cls; cl != nil && !seen[cl] {
+				seen[cl] = true
+				n += cl.size()
+			}
+		}
+	}
+	return n
+}
+
 // String renders the literal form, for diagnostics.
 func (r *Regexp) String() string { return "/" + r.src + "/" + r.flags }
 
@@ -114,7 +133,37 @@ func (r *Regexp) machine() *machine {
 
 func (r *Regexp) release(m *machine) {
 	m.src = nil
+	m.b = nil
 	r.pool.Put(m)
+}
+
+// Budget is the step account of a sequence of FindFromBudget calls that together make
+// one operation — every match of a gsub, every piece of a split. Sharing it is the
+// point: a fresh budget per match would let a pattern that costs O(n) per match cost
+// O(n²) per call without ever running out (SPEC §11.2).
+//
+// The zero Budget is unlimited and unmetered, which is FindFrom with budget 0.
+type Budget struct {
+	// Limit is the steps every call on this Budget may take together; <= 0 means
+	// unlimited. Overrunning it is ErrBudget.
+	Limit int
+	// Used is the steps taken so far, including the ones not yet handed to Tick.
+	Used int
+	// Tick, when set, is called with the steps taken since its previous call, every
+	// Every steps. An error from it stops the search and is returned unchanged: it is
+	// how the interpreter charges the work to a Run and interrupts it at its deadline.
+	Tick  func(steps int) error
+	Every int
+
+	ticked int // Used at the last Tick
+}
+
+// Untick returns the steps taken since the last Tick and marks them as handed over, so
+// a caller can settle the remainder once the operation is done.
+func (b *Budget) Untick() int {
+	n := b.Used - b.ticked
+	b.ticked = b.Used
+	return n
 }
 
 // FindFrom searches src for the leftmost match starting at or after rune index from.
@@ -125,6 +174,15 @@ func (r *Regexp) release(m *machine) {
 // FindAll, Replace and Split on top of. Adding methods here is fine; changing this
 // signature is not.
 func (r *Regexp) FindFrom(src []rune, from int, budget int) (gs []Group, err error) {
+	return r.FindFromBudget(src, from, &Budget{Limit: budget})
+}
+
+// FindFromBudget is FindFrom spending from b, which the caller shares across every
+// search of one operation.
+func (r *Regexp) FindFromBudget(src []rune, from int, b *Budget) (gs []Group, err error) {
+	if b == nil {
+		b = &Budget{}
+	}
 	if r == nil || len(r.progs) == 0 {
 		return nil, ErrUnsupported
 	}
@@ -140,7 +198,8 @@ func (r *Regexp) FindFrom(src []rune, from int, budget int) (gs []Group, err err
 
 	m := r.machine()
 	defer r.release(m)
-	m.reset(src, budget)
+	m.reset(src, b)
+	defer func() { b.Used = m.steps }()
 
 	// A pattern with a derivable first-rune set — every alternation of literals in
 	// the corpus — skips whole start positions without touching the matcher.

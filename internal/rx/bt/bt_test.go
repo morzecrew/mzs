@@ -661,3 +661,64 @@ func mustCompile(t *testing.T, pattern, flags string) *Regexp {
 	}
 	return re
 }
+
+// One Budget is one operation: the steps of every search made on it add up, so a gsub
+// cannot spend a fresh budget per match (SPEC §11.2).
+func TestBudgetIsSharedAcrossSearches(t *testing.T) {
+	re := mustCompile(t, `a(?=[^z]*z|)`, "")
+	src := []rune(strings.Repeat("a", 5000))
+	b := &Budget{Limit: 100_000}
+	var err error
+	for pos := 0; pos <= len(src) && err == nil; pos++ {
+		_, err = re.FindFromBudget(src, pos, b)
+	}
+	if !errors.Is(err, ErrBudget) {
+		t.Fatalf("err = %v; want ErrBudget once the shared budget is spent", err)
+	}
+	if b.Used <= b.Limit {
+		t.Errorf("Used = %d; want it past the limit %d it failed on", b.Used, b.Limit)
+	}
+}
+
+// Tick sees every step, in pieces of Every, and an error from it ends the search at once
+// and comes back unchanged: it is how a deadline interrupts a match.
+func TestBudgetTick(t *testing.T) {
+	re := mustCompile(t, `\b(a+)+$`, "")
+	src := []rune(strings.Repeat("a", 40) + "!")
+	stop := errors.New("stop")
+	ticked, calls := 0, 0
+	b := &Budget{Every: 1000, Tick: func(n int) error {
+		ticked += n
+		if calls++; calls == 5 {
+			return stop
+		}
+		return nil
+	}}
+	_, err := re.FindFromBudget(src, 0, b)
+	if err != stop {
+		t.Fatalf("err = %v; want the Tick's own error", err)
+	}
+	if calls != 5 || ticked != 5000 {
+		t.Errorf("calls, ticked = %d, %d; want 5, 5000", calls, ticked)
+	}
+	if b.Used != 5000 {
+		t.Errorf("Used = %d; want 5000, where the Tick stopped it", b.Used)
+	}
+	if n := b.Untick(); n != 0 {
+		t.Errorf("Untick = %d; want 0, everything was ticked", n)
+	}
+}
+
+// The unrolling bound covers every program of a pattern together: each lookaround is a
+// program of its own, and a few kilobytes of them must not unroll into millions of
+// instructions.
+func TestProgramSizeBoundsEveryProgram(t *testing.T) {
+	pattern := strings.Repeat(`(?=a{9999})`, 20)
+	if _, err := Compile(pattern, ""); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("Compile(%d lookarounds of a{9999}) error = %v; want too large", 20, err)
+	}
+	re := mustCompile(t, strings.Repeat(`(?=a{999})`, 20), "")
+	if re.Size() < 20*999*16 {
+		t.Errorf("Size = %d; want at least the instructions it unrolled", re.Size())
+	}
+}

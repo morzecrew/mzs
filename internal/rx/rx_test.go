@@ -1,8 +1,10 @@
 package rx
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // SPEC §11.3: every index is a rune index. `"привет" =~ /вет/` must be 3, not 6.
@@ -320,5 +322,117 @@ func TestCompileErrors(t *testing.T) {
 				t.Errorf("Compile(/%s/%s) = nil error; want an error", tt.pattern, tt.flags)
 			}
 		})
+	}
+}
+
+// The audit's quadratic gsub: each match scans the rest of the subject in a lookahead,
+// so a fresh budget per match made one call cost O(n²) steps — 11 s for 40 000 runes —
+// without ever running out. One call is one budget now.
+func TestOneBudgetPerCall(t *testing.T) {
+	re := MustCompile(`a(?=[^z]*z|)`, "")
+	s := strings.Repeat("a", 40_000)
+	start := time.Now()
+	_, err := re.ReplaceErr(s, "b", true)
+	if !errors.Is(err, ErrBudget) {
+		t.Fatalf("ReplaceErr error = %v; want ErrBudget", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("ReplaceErr took %s; the budget should stop it in milliseconds", d)
+	}
+	for name, f := range map[string]func() error{
+		"FindAll": func() error { _, err := re.FindAllErr(s, -1); return err },
+		"Split":   func() error { _, err := re.SplitErr(s, -1); return err },
+		"ReplaceFunc": func() error {
+			_, err := re.ReplaceFunc(s, true, func([]Group) (string, error) { return "", nil })
+			return err
+		},
+	} {
+		if err := f(); !errors.Is(err, ErrBudget) {
+			t.Errorf("%s error = %v; want ErrBudget", name, err)
+		}
+	}
+}
+
+// A Meter is charged the work as it is done and can stop it: that is how the
+// interpreter bills a call to the Run and interrupts it at the deadline.
+func TestMeterChargesAndStops(t *testing.T) {
+	re := MustCompile(`a(?=[^z]*z|)`, "")
+	re.SetBudget(1 << 40)
+	s := strings.Repeat("a", 3000)
+
+	charged := 0
+	m := &Meter{Charge: func(n int) error { charged += n; return nil }}
+	if _, err := re.With(m).ReplaceErr(s, "b", true); err != nil {
+		t.Fatalf("ReplaceErr error = %v", err)
+	}
+	// Each of the 3000 matches scans what is left of the subject: about n²/2 steps.
+	if charged < 3000*3000/2 {
+		t.Errorf("charged %d steps; want at least %d", charged, 3000*3000/2)
+	}
+
+	stop := errors.New("deadline")
+	calls := 0
+	m = &Meter{Every: 1000, Charge: func(int) error {
+		if calls++; calls == 3 {
+			return stop
+		}
+		return nil
+	}}
+	if _, err := re.With(m).FindAllErr(s, -1); err != stop {
+		t.Fatalf("FindAllErr error = %v; want the meter's own error", err)
+	}
+	if calls != 3 {
+		t.Errorf("Charge called %d times; want 3, the search stopping at the third", calls)
+	}
+
+	// RE2 cannot be interrupted, so its linear work is charged before it starts.
+	charged = 0
+	m = &Meter{Charge: func(n int) error { charged += n; return nil }}
+	if _, err := MustCompile(`b`, "").With(m).MatchErr(strings.Repeat("a", 4000)); err != nil {
+		t.Fatal(err)
+	}
+	if charged != 1000 {
+		t.Errorf("RE2 search over 4000 bytes charged %d; want 1000", charged)
+	}
+}
+
+// MaxBytes stops a replacement before it builds what it would refuse: 2 000 matches of a
+// 1 MB template are 2 GB, and that string must never exist.
+func TestMeterMaxBytes(t *testing.T) {
+	big := strings.Repeat("b", 1<<20)
+	s := strings.Repeat("a", 2000)
+	m := &Meter{MaxBytes: 8 << 20}
+	for _, pattern := range []string{`a`, `(?=a)a`} { // RE2, then the backtracker
+		re := MustCompile(pattern, "")
+		if _, err := re.With(m).ReplaceErr(s, big, true); !errors.Is(err, ErrTooLarge) {
+			t.Errorf("/%s/ ReplaceErr error = %v; want ErrTooLarge", pattern, err)
+		}
+		if _, err := re.With(m).ReplaceErr(s, strings.Repeat(`\0`, 1<<20), true); !errors.Is(err, ErrTooLarge) {
+			t.Errorf("/%s/ ReplaceErr with a long \\0 template error = %v; want ErrTooLarge", pattern, err)
+		}
+		_, err := re.With(m).ReplaceFunc(s, true, func([]Group) (string, error) { return big, nil })
+		if !errors.Is(err, ErrTooLarge) {
+			t.Errorf("/%s/ ReplaceFunc error = %v; want ErrTooLarge", pattern, err)
+		}
+		if out, err := re.With(m).ReplaceErr("xax", "[\\0]", true); err != nil || out != "x[a]x" {
+			t.Errorf("/%s/ a small replacement = %q, %v; want x[a]x", pattern, out, err)
+		}
+	}
+}
+
+// Size is what the interpreter charges for a compiled pattern, so it must grow with what
+// the pattern compiled to, not only with its text.
+func TestSize(t *testing.T) {
+	short := MustCompile(`a`, "")
+	unrolled := MustCompile(`a{1000}`, "")
+	if unrolled.Size() < 1000*re2InstBytes {
+		t.Errorf("Size(/a{1000}/) = %d; want at least %d", unrolled.Size(), 1000*re2InstBytes)
+	}
+	if short.Size() >= unrolled.Size() {
+		t.Errorf("Size(/a/) = %d is not below Size(/a{1000}/) = %d", short.Size(), unrolled.Size())
+	}
+	bt := MustCompile(`(?=x)a{1000}`, "")
+	if bt.Backend() != "bt" || bt.Size() < 1000*16 {
+		t.Errorf("Size of a backtracking a{1000} = %d (%s); want at least %d", bt.Size(), bt.Backend(), 1000*16)
 	}
 }

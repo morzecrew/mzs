@@ -253,3 +253,9 @@ func lookupProp(name string) (propDef, bool) {
 	p, ok := propMap[normProp(name)]
 	return p, ok
 }
+
+// size estimates the bytes a class holds. The Unicode tables it points at are shared
+// package data and cost a pointer each.
+func (c *charClass) size() int {
+	return 64 + 8*len(c.ranges) + 8*(len(c.tabs)+len(c.negtabs))
+}

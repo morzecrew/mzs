@@ -16,16 +16,55 @@ type machine struct {
 	slots   []int32
 	journal []jentry
 	stack   []frame
-	steps   int
-	budget  int
+	// steps counts every instruction executed, and next is the count at which the
+	// slow path runs: the budget is spent, or the meter is due. The hot loop compares
+	// the two and nothing else, so a call with neither pays one increment per step.
+	steps int
+	next  int
+	b     *Budget
 }
 
-func (m *machine) reset(src []rune, budget int) {
+func (m *machine) reset(src []rune, b *Budget) {
 	m.src = src
-	m.budget = budget
-	m.steps = 0
+	m.b = b
+	m.steps = b.Used
 	m.journal = m.journal[:0]
 	m.stack = m.stack[:0]
+	m.arm()
+}
+
+// arm computes the step count at which slow must run next.
+func (m *machine) arm() {
+	next := int(^uint(0) >> 1)
+	if b := m.b; b != nil {
+		if b.Limit > 0 && b.Limit+1 < next {
+			next = b.Limit + 1
+		}
+		if b.Tick != nil && b.Every > 0 && b.ticked+b.Every < next {
+			next = b.ticked + b.Every
+		}
+	}
+	m.next = next
+}
+
+// slow is the step check off the hot path: the budget first, because overrunning it
+// is this call's own failure, then the meter, which hands the work done since its last
+// call to whoever pays for it and may stop the call (a deadline, a Run's budget).
+func (m *machine) slow() error {
+	b := m.b
+	b.Used = m.steps
+	if b.Limit > 0 && m.steps > b.Limit {
+		return ErrBudget
+	}
+	if b.Tick != nil && b.Every > 0 && m.steps-b.ticked >= b.Every {
+		n := m.steps - b.ticked
+		b.ticked = m.steps
+		if err := b.Tick(n); err != nil {
+			return err
+		}
+	}
+	m.arm()
+	return nil
 }
 
 func (m *machine) clearSlots() {
@@ -102,11 +141,11 @@ func (m *machine) run(progIdx, start, require int) (int, bool, error) {
 
 Loop:
 	for {
-		if m.budget > 0 {
-			if m.steps++; m.steps > m.budget {
+		if m.steps++; m.steps >= m.next {
+			if err := m.slow(); err != nil {
 				m.stack = m.stack[:base]
 				m.unwind(jbase)
-				return 0, false, ErrBudget
+				return 0, false, err
 			}
 		}
 		in := &code[pc]

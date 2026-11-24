@@ -189,3 +189,48 @@ func TestConcurrentUse(t *testing.T) {
 		t.Errorf("Len = %d after the storm; the cache grew past its capacity of %d", c.Len(), c.Cap())
 	}
 }
+
+// A cost bound is what keeps a cache of compiled regexes from holding gigabytes in a few
+// hundred entries: the least recently used leave until the costs fit, and an entry that
+// would not fit on its own is not kept at all.
+func TestCostBound(t *testing.T) {
+	c := NewCost[string, int](100, 10)
+	c.AddCost("a", 1, 4)
+	c.AddCost("b", 2, 4)
+	if c.Cost() != 8 || c.Len() != 2 {
+		t.Fatalf("Cost, Len = %d, %d; want 8, 2", c.Cost(), c.Len())
+	}
+	c.Get("a") // b is now the least recently used
+	c.AddCost("c", 3, 4)
+	if _, ok := c.Get("b"); ok {
+		t.Errorf("b survived; the cost bound should have evicted it")
+	}
+	if _, ok := c.Get("a"); !ok {
+		t.Errorf("a was evicted; it was used more recently than b")
+	}
+	if c.Cost() != 8 {
+		t.Errorf("Cost = %d; want 8", c.Cost())
+	}
+
+	c.AddCost("huge", 4, 11)
+	if _, ok := c.Get("huge"); ok {
+		t.Errorf("an entry costing more than the bound was kept")
+	}
+	if c.Len() != 2 {
+		t.Errorf("Len = %d; refusing an entry must not evict the others", c.Len())
+	}
+
+	// Re-adding a key replaces its cost rather than adding to it.
+	c.AddCost("a", 10, 1)
+	if c.Cost() != 5 {
+		t.Errorf("Cost after re-AddCost = %d; want 5", c.Cost())
+	}
+	c.Remove("a")
+	if c.Cost() != 4 {
+		t.Errorf("Cost after Remove = %d; want 4", c.Cost())
+	}
+	c.Purge()
+	if c.Cost() != 0 {
+		t.Errorf("Cost after Purge = %d; want 0", c.Cost())
+	}
+}

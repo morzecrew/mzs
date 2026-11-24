@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"mzs/internal/rx/bt"
@@ -40,10 +42,14 @@ type Regexp struct {
 	src    string
 	flags  string
 	re     *regexp.Regexp // RE2 backend; nil when bt is in use
+	gp     string         // the translated pattern RE2 compiled, for Size
 	back   *bt.Regexp     // backtracking backend; nil when RE2 is in use
 	names  []string
 	steps  int
 	approx bool
+
+	sizeOnce sync.Once
+	size     int
 }
 
 // Compile compiles a Ruby-flavoured pattern with Ruby flag letters ("imxsu").
@@ -80,6 +86,7 @@ func Compile(pattern, flags string) (*Regexp, error) {
 	}
 	r.re = re
 	r.names = re.SubexpNames()
+	r.gp = gp
 	return r, nil
 }
 
@@ -117,6 +124,29 @@ func (r *Regexp) NumGroups() int {
 	return len(r.names) - 1
 }
 
+// re2InstBytes is what one RE2 instruction costs once compiled and used: the
+// instruction, its share of the one-pass copy, and the per-instruction queues of the
+// matcher RE2 keeps pooled beside the program. Measured, it is a little over 50 bytes.
+const re2InstBytes = 64
+
+// Size estimates the bytes the compiled pattern holds, for the interpreter's memory
+// budget (SPEC §14.2). It is computed once, on first use: RE2 does not say how large a
+// program it built, so the pattern is compiled a second time by regexp/syntax to count.
+func (r *Regexp) Size() int {
+	r.sizeOnce.Do(func() {
+		n := len(r.src)
+		if r.back != nil {
+			n += r.back.Size()
+		} else if re, err := syntax.Parse(r.gp, syntax.Perl); err == nil {
+			if prog, err := syntax.Compile(re.Simplify()); err == nil {
+				n += len(prog.Inst) * re2InstBytes
+			}
+		}
+		r.size = n
+	})
+	return r.size
+}
+
 // Backend reports which engine compiled the pattern: "re2" or "bt".
 func (r *Regexp) Backend() string {
 	if r.back != nil {
@@ -149,19 +179,134 @@ func (r *Regexp) nameAt(i int) string {
 }
 
 // ---------------------------------------------------------------------------
+// Metering. A pattern is compiled once and shared by every Run of an interpreter, so
+// what one call may spend cannot live on the Regexp: it travels with the call, as a
+// Meter. The interpreter hands one to every match it makes, which is how a regex call
+// is charged to the Run's step budget, interrupted at the Run's deadline, and kept from
+// building a string past the Run's size cap (SPEC §11.2, §14.1).
+// ---------------------------------------------------------------------------
+
+// ErrBudget is the backtracking budget of one call running out (Options.RegexSteps).
+var ErrBudget = bt.ErrBudget
+
+// ErrTooLarge is a replacement that would build a string longer than Meter.MaxBytes.
+// The search stops at that point instead of building the string and checking after.
+var ErrTooLarge = errors.New("mzs/rx: result too large")
+
+// DefaultEvery is how many backtracking steps a search takes between two calls of
+// Meter.Charge when Meter.Every is 0.
+const DefaultEvery = 4096
+
+// Meter is what one call — a match, a gsub with every match it makes, a split — is
+// charged to. The zero Meter, and a nil one, charge nothing and bound nothing beyond
+// the per-call budget the Regexp carries.
+type Meter struct {
+	// Charge is handed the work of the call as it is done, in backtracking steps: every
+	// Every steps during a backtracking search, the remainder when the call ends, and,
+	// before an RE2 search, one step per four bytes of subject. An error from it stops
+	// the call and is returned unchanged.
+	Charge func(steps int) error
+	// Every is how often Charge is called during a backtracking search; 0 means
+	// DefaultEvery.
+	Every int
+	// MaxBytes bounds the string Replace and ReplaceFunc build; <= 0 means unbounded.
+	// Past it the call fails with ErrTooLarge before the string exists.
+	MaxBytes int
+}
+
+// Metered is a Regexp bound to the Meter its calls are charged to. Each method is one
+// call: one budget of Budget() steps shared by every match it makes.
+type Metered struct {
+	r *Regexp
+	m *Meter
+}
+
+// With binds r to m. A nil m is the unmetered form the plain methods use.
+func (r *Regexp) With(m *Meter) Metered { return Metered{r: r, m: m} }
+
+// call is the state of one metered operation.
+type call struct {
+	r       *Regexp
+	m       *Meter
+	b       bt.Budget
+	stopped bool // Charge failed: the call is over and owes nothing more
+}
+
+func (x Metered) begin() *call {
+	c := &call{r: x.r, m: x.m}
+	c.b.Limit = x.r.steps
+	if x.m != nil && x.m.Charge != nil {
+		c.b.Every = x.m.Every
+		if c.b.Every <= 0 {
+			c.b.Every = DefaultEvery
+		}
+		c.b.Tick = func(n int) error {
+			err := x.m.Charge(n)
+			if err != nil {
+				c.stopped = true
+			}
+			return err
+		}
+	}
+	return c
+}
+
+// scan charges an RE2 search over s before it runs: RE2 cannot be interrupted, but its
+// work is linear in the subject, so it can be paid for up front.
+func (c *call) scan(s string) error {
+	if c.m == nil || c.m.Charge == nil || len(s) < 4 {
+		return nil
+	}
+	if err := c.m.Charge(len(s) / 4); err != nil {
+		c.stopped = true
+		return err
+	}
+	return nil
+}
+
+// end settles the steps not yet charged. They are charged on the error path too — a
+// budget overrun spent its whole budget — and a failure of the charge itself wins,
+// because it says the Run is over.
+func (c *call) end(err error) error {
+	if c.stopped || c.m == nil || c.m.Charge == nil {
+		return err
+	}
+	if n := c.b.Untick(); n > 0 {
+		if cerr := c.m.Charge(n); cerr != nil {
+			return cerr
+		}
+	}
+	return err
+}
+
+func (c *call) maxBytes() int {
+	if c.m == nil {
+		return 0
+	}
+	return c.m.MaxBytes
+}
+
+// ---------------------------------------------------------------------------
 // Matching. The *Err forms are primary: a backtracking budget overrun is a script
 // error, not a hang and not a silent non-match. The shorter forms are the SPEC §11.2
 // signatures and swallow that error as "no match"; the interpreter should prefer the
-// *Err forms so `Options.RegexSteps` is observable.
+// *Err forms of a Metered so `Options.RegexSteps` is observable and the work is paid.
 // ---------------------------------------------------------------------------
 
 // MatchErr reports whether the pattern matches anywhere in s.
-func (r *Regexp) MatchErr(s string) (bool, error) {
-	if r.re != nil {
-		return r.re.MatchString(s), nil
+func (r *Regexp) MatchErr(s string) (bool, error) { return r.With(nil).MatchErr(s) }
+
+// MatchErr reports whether the pattern matches anywhere in s.
+func (x Metered) MatchErr(s string) (bool, error) {
+	c := x.begin()
+	if x.r.re != nil {
+		if err := c.scan(s); err != nil {
+			return false, err
+		}
+		return x.r.re.MatchString(s), nil
 	}
-	gs, err := r.back.FindFrom([]rune(s), 0, r.steps)
-	return gs != nil, err
+	gs, err := x.r.back.FindFromBudget([]rune(s), 0, &c.b)
+	return gs != nil && err == nil, c.end(err)
 }
 
 // Match is MatchErr without the error (SPEC §11.2).
@@ -169,15 +314,24 @@ func (r *Regexp) Match(s string) bool { ok, _ := r.MatchErr(s); return ok }
 
 // FindIndexErr returns the rune bounds of the leftmost match.
 func (r *Regexp) FindIndexErr(s string) (start, end int, ok bool, err error) {
-	if r.re != nil {
-		loc := r.re.FindStringIndex(s)
+	return r.With(nil).FindIndexErr(s)
+}
+
+// FindIndexErr returns the rune bounds of the leftmost match.
+func (x Metered) FindIndexErr(s string) (start, end int, ok bool, err error) {
+	c := x.begin()
+	if x.r.re != nil {
+		if err := c.scan(s); err != nil {
+			return 0, 0, false, err
+		}
+		loc := x.r.re.FindStringIndex(s)
 		if loc == nil {
 			return 0, 0, false, nil
 		}
 		return utf8.RuneCountInString(s[:loc[0]]), utf8.RuneCountInString(s[:loc[1]]), true, nil
 	}
-	gs, err := r.back.FindFrom([]rune(s), 0, r.steps)
-	if err != nil || gs == nil {
+	gs, err := x.r.back.FindFromBudget([]rune(s), 0, &c.b)
+	if err = c.end(err); err != nil || gs == nil {
 		return 0, 0, false, err
 	}
 	return gs[0].Start, gs[0].End, true, nil
@@ -193,7 +347,12 @@ func (r *Regexp) FindIndex(s string) (start, end int, ok bool) {
 // FindSubmatchErr returns the groups of the leftmost match; element 0 is the whole
 // match, as `R.match(S)` requires (§8.4).
 func (r *Regexp) FindSubmatchErr(s string) ([]Group, bool, error) {
-	all, err := r.findAll(s, 1)
+	return r.With(nil).FindSubmatchErr(s)
+}
+
+// FindSubmatchErr returns the groups of the leftmost match.
+func (x Metered) FindSubmatchErr(s string) ([]Group, bool, error) {
+	all, err := x.FindAllErr(s, 1)
 	if err != nil || len(all) == 0 {
 		return nil, false, err
 	}
@@ -208,20 +367,33 @@ func (r *Regexp) FindSubmatch(s string) ([]Group, bool) {
 
 // FindAllErr returns every non-overlapping match; limit < 0 means all.
 func (r *Regexp) FindAllErr(s string, limit int) ([][]Group, error) {
-	return r.findAll(s, limit)
+	return r.With(nil).FindAllErr(s, limit)
+}
+
+// FindAllErr returns every non-overlapping match; limit < 0 means all. Every match is
+// paid from one budget: a pattern that costs O(n) steps per match runs out of it on a
+// long subject instead of costing O(n²) for the price of one.
+func (x Metered) FindAllErr(s string, limit int) ([][]Group, error) {
+	c := x.begin()
+	out, err := c.findAll(s, limit)
+	return out, c.end(err)
 }
 
 // FindAll is FindAllErr without the error.
 func (r *Regexp) FindAll(s string, limit int) [][]Group {
-	all, _ := r.findAll(s, limit)
+	all, _ := r.FindAllErr(s, limit)
 	return all
 }
 
-func (r *Regexp) findAll(s string, limit int) ([][]Group, error) {
+func (c *call) findAll(s string, limit int) ([][]Group, error) {
+	r := c.r
 	if limit == 0 {
 		return nil, nil
 	}
 	if r.re != nil {
+		if err := c.scan(s); err != nil {
+			return nil, err
+		}
 		locs := r.re.FindAllStringSubmatchIndex(s, limit)
 		if locs == nil {
 			return nil, nil
@@ -252,7 +424,7 @@ func (r *Regexp) findAll(s string, limit int) ([][]Group, error) {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		gs, err := r.back.FindFrom(rs, pos, r.steps)
+		gs, err := r.back.FindFromBudget(rs, pos, &c.b)
 		if err != nil {
 			return out, err
 		}
@@ -287,27 +459,20 @@ func (r *Regexp) findAll(s string, limit int) ([][]Group, error) {
 // ReplaceErr substitutes repl for the first match (all == false) or every match.
 // repl understands `\0`/`\&` (whole match), `\1`..`\9`, `\k<name>` and `\\`.
 func (r *Regexp) ReplaceErr(s, repl string, all bool) (string, error) {
-	limit := 1
-	if all {
-		limit = -1
-	}
-	ms, err := r.findAll(s, limit)
-	if err != nil {
-		return s, err
-	}
-	if len(ms) == 0 {
-		return s, nil
-	}
-	rs := []rune(s)
-	var sb strings.Builder
-	prev := 0
-	for _, g := range ms {
-		sb.WriteString(string(rs[prev:g[0].Start]))
-		sb.WriteString(Expand(repl, g))
-		prev = g[0].End
-	}
-	sb.WriteString(string(rs[prev:]))
-	return sb.String(), nil
+	return r.With(nil).ReplaceErr(s, repl, all)
+}
+
+// ReplaceErr substitutes repl for the first match or every match, failing with
+// ErrTooLarge as soon as the result would pass Meter.MaxBytes.
+func (x Metered) ReplaceErr(s, repl string, all bool) (string, error) {
+	c := x.begin()
+	out, err := c.replace(s, all, func(sb *strings.Builder, g []Group, max int) error {
+		if !ExpandInto(sb, repl, g, max) {
+			return ErrTooLarge
+		}
+		return nil
+	})
+	return out, c.end(err)
 }
 
 // Replace is the SPEC §11.2 signature.
@@ -325,30 +490,61 @@ func (r *Regexp) ReplaceAll(s, repl string) string {
 // ReplaceFunc is the block form of gsub/sub: f receives the groups of each match and
 // returns its replacement verbatim (no `\1` expansion).
 func (r *Regexp) ReplaceFunc(s string, all bool, f func([]Group) (string, error)) (string, error) {
+	return r.With(nil).ReplaceFunc(s, all, f)
+}
+
+// ReplaceFunc is the block form of gsub/sub, bounded by Meter.MaxBytes.
+func (x Metered) ReplaceFunc(s string, all bool, f func([]Group) (string, error)) (string, error) {
+	c := x.begin()
+	out, err := c.replace(s, all, func(sb *strings.Builder, g []Group, max int) error {
+		rep, err := f(g)
+		if err != nil {
+			return err
+		}
+		if max > 0 && sb.Len()+len(rep) > max {
+			return ErrTooLarge
+		}
+		sb.WriteString(rep)
+		return nil
+	})
+	return out, c.end(err)
+}
+
+// replace finds the matches and builds the result, with write rendering each match's
+// replacement into the builder. The text between matches is checked against the cap
+// as it is copied, so no string past it is ever built.
+func (c *call) replace(s string, all bool, write func(*strings.Builder, []Group, int) error) (string, error) {
 	limit := 1
 	if all {
 		limit = -1
 	}
-	ms, err := r.findAll(s, limit)
+	ms, err := c.findAll(s, limit)
 	if err != nil {
 		return s, err
 	}
 	if len(ms) == 0 {
 		return s, nil
 	}
+	max := c.maxBytes()
 	rs := []rune(s)
 	var sb strings.Builder
 	prev := 0
 	for _, g := range ms {
-		rep, err := f(g)
-		if err != nil {
+		gap := string(rs[prev:g[0].Start])
+		if max > 0 && sb.Len()+len(gap) > max {
+			return "", ErrTooLarge
+		}
+		sb.WriteString(gap)
+		if err := write(&sb, g, max); err != nil {
 			return "", err
 		}
-		sb.WriteString(string(rs[prev:g[0].Start]))
-		sb.WriteString(rep)
 		prev = g[0].End
 	}
-	sb.WriteString(string(rs[prev:]))
+	tail := string(rs[prev:])
+	if max > 0 && sb.Len()+len(tail) > max {
+		return "", ErrTooLarge
+	}
+	sb.WriteString(tail)
 	return sb.String(), nil
 }
 
@@ -357,6 +553,11 @@ func (r *Regexp) ReplaceFunc(s string, all bool, f func([]Group) (string, error)
 // result, and trailing empty fields are kept — Ruby's `split` drops them, and str.go
 // applies that rule so the policy lives in exactly one place.
 func (r *Regexp) SplitErr(s string, limit int) ([]string, error) {
+	return r.With(nil).SplitErr(s, limit)
+}
+
+// SplitErr splits s around every match, all of them paid from one budget.
+func (x Metered) SplitErr(s string, limit int) ([]string, error) {
 	if limit == 0 {
 		return nil, nil
 	}
@@ -364,8 +565,9 @@ func (r *Regexp) SplitErr(s string, limit int) ([]string, error) {
 	if limit > 0 {
 		max = limit - 1
 	}
-	ms, err := r.findAll(s, max)
-	if err != nil {
+	c := x.begin()
+	ms, err := c.findAll(s, max)
+	if err = c.end(err); err != nil {
 		return nil, err
 	}
 	rs := []rune(s)
@@ -392,30 +594,56 @@ func (r *Regexp) Split(s string, limit int) []string {
 
 // Expand renders a replacement template against a match's groups.
 func Expand(repl string, g []Group) string {
+	var sb strings.Builder
+	ExpandInto(&sb, repl, g, 0)
+	return sb.String()
+}
+
+// expandInto renders repl against g into sb, and reports false — having stopped — as
+// soon as sb would pass max bytes (max <= 0 is unbounded). A template of a thousand
+// `\0` against a long match is a long string, and it is refused before it is built.
+func ExpandInto(sb *strings.Builder, repl string, g []Group, max int) bool {
+	put := func(s string) bool {
+		if max > 0 && sb.Len()+len(s) > max {
+			return false
+		}
+		sb.WriteString(s)
+		return true
+	}
+	putRune := func(r rune) bool {
+		if max > 0 && sb.Len()+utf8.RuneLen(r) > max {
+			return false
+		}
+		sb.WriteRune(r)
+		return true
+	}
 	if !strings.ContainsRune(repl, '\\') {
-		return repl
+		return put(repl)
 	}
 	rs := []rune(repl)
-	var sb strings.Builder
 	for i := 0; i < len(rs); i++ {
 		if rs[i] != '\\' || i+1 >= len(rs) {
-			sb.WriteRune(rs[i])
+			if !putRune(rs[i]) {
+				return false
+			}
 			continue
 		}
 		n := rs[i+1]
 		switch {
 		case n == '\\':
-			sb.WriteRune('\\')
+			if !put("\\") {
+				return false
+			}
 			i++
 		case n == '&' || n == '0':
-			if len(g) > 0 && g[0].Ok {
-				sb.WriteString(g[0].Text)
+			if len(g) > 0 && g[0].Ok && !put(g[0].Text) {
+				return false
 			}
 			i++
 		case n >= '1' && n <= '9':
 			idx := int(n - '0')
-			if idx < len(g) && g[idx].Ok {
-				sb.WriteString(g[idx].Text)
+			if idx < len(g) && g[idx].Ok && !put(g[idx].Text) {
+				return false
 			}
 			i++
 		case n == 'k' && i+2 < len(rs) && rs[i+2] == '<':
@@ -427,22 +655,28 @@ func Expand(repl string, g []Group) string {
 				}
 			}
 			if end < 0 {
-				sb.WriteRune(rs[i])
+				if !putRune(rs[i]) {
+					return false
+				}
 				continue
 			}
 			name := string(rs[i+3 : end])
 			for _, gr := range g {
 				if gr.Name == name && gr.Ok {
-					sb.WriteString(gr.Text)
+					if !put(gr.Text) {
+						return false
+					}
 					break
 				}
 			}
 			i = end
 		default:
-			sb.WriteRune(rs[i])
+			if !putRune(rs[i]) {
+				return false
+			}
 		}
 	}
-	return sb.String()
+	return true
 }
 
 // ---------------------------------------------------------------------------

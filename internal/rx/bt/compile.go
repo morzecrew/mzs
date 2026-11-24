@@ -39,13 +39,17 @@ type prog struct {
 	min, max int
 }
 
-// maxProgSize bounds the expansion of `{n,m}`, which the compiler unrolls.
+// maxProgSize bounds the expansion of `{n,m}`, which the compiler unrolls. It bounds
+// every program of a pattern together, not each one: a lookaround is a program of its
+// own, and `(?=a{9999})` written four hundred times would otherwise unroll four million
+// instructions out of a few kilobytes of pattern.
 const maxProgSize = 100_000
 
 type compiler struct {
 	progs    []prog
 	markBase int
 	nmark    int
+	done     int // instructions in the programs already finished
 }
 
 // newMark reserves the register that holds the position the current loop iteration
@@ -66,11 +70,12 @@ func (c *compiler) compileProg(n node, min, max int) (int, error) {
 	}
 	code = append(code, inst{op: opMatch})
 	c.progs[idx].code = code
+	c.done += len(code)
 	return idx, nil
 }
 
 func (c *compiler) node(code []inst, n node) ([]inst, error) {
-	if len(code) > maxProgSize {
+	if c.done+len(code) > maxProgSize {
 		return nil, fmt.Errorf("regular expression is too large")
 	}
 	var err error
@@ -181,7 +186,7 @@ func (c *compiler) repeat(code []inst, t *nRepeat) ([]inst, error) {
 		if code, err = c.node(code, t.sub); err != nil {
 			return nil, err
 		}
-		if len(code) > maxProgSize {
+		if c.done+len(code) > maxProgSize {
 			return nil, fmt.Errorf("regular expression is too large")
 		}
 	}
