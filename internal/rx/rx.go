@@ -235,7 +235,7 @@ type call struct {
 func (x Metered) begin() *call {
 	c := &call{r: x.r, m: x.m}
 	c.b.Limit = x.r.steps
-	if x.m != nil && x.m.Charge != nil {
+	if x.r.back != nil && x.m != nil && x.m.Charge != nil {
 		c.b.Every = x.m.Every
 		if c.b.Every <= 0 {
 			c.b.Every = DefaultEvery
@@ -253,11 +253,15 @@ func (x Metered) begin() *call {
 
 // scan charges an RE2 search over s before it runs: RE2 cannot be interrupted, but its
 // work is linear in the subject, so it can be paid for up front.
-func (c *call) scan(s string) error {
-	if c.m == nil || c.m.Charge == nil || len(s) < 4 {
+func (x Metered) scan(s string) error {
+	if x.m == nil || x.m.Charge == nil || len(s) < 4 {
 		return nil
 	}
-	if err := c.m.Charge(len(s) / 4); err != nil {
+	return x.m.Charge(len(s) / 4)
+}
+
+func (c *call) scan(s string) error {
+	if err := (Metered{r: c.r, m: c.m}).scan(s); err != nil {
 		c.stopped = true
 		return err
 	}
@@ -298,13 +302,13 @@ func (r *Regexp) MatchErr(s string) (bool, error) { return r.With(nil).MatchErr(
 
 // MatchErr reports whether the pattern matches anywhere in s.
 func (x Metered) MatchErr(s string) (bool, error) {
-	c := x.begin()
 	if x.r.re != nil {
-		if err := c.scan(s); err != nil {
+		if err := x.scan(s); err != nil {
 			return false, err
 		}
 		return x.r.re.MatchString(s), nil
 	}
+	c := x.begin()
 	gs, err := x.r.back.FindFromBudget([]rune(s), 0, &c.b)
 	return gs != nil && err == nil, c.end(err)
 }
@@ -319,9 +323,8 @@ func (r *Regexp) FindIndexErr(s string) (start, end int, ok bool, err error) {
 
 // FindIndexErr returns the rune bounds of the leftmost match.
 func (x Metered) FindIndexErr(s string) (start, end int, ok bool, err error) {
-	c := x.begin()
 	if x.r.re != nil {
-		if err := c.scan(s); err != nil {
+		if err := x.scan(s); err != nil {
 			return 0, 0, false, err
 		}
 		loc := x.r.re.FindStringIndex(s)
@@ -330,6 +333,7 @@ func (x Metered) FindIndexErr(s string) (start, end int, ok bool, err error) {
 		}
 		return utf8.RuneCountInString(s[:loc[0]]), utf8.RuneCountInString(s[:loc[1]]), true, nil
 	}
+	c := x.begin()
 	gs, err := x.r.back.FindFromBudget([]rune(s), 0, &c.b)
 	if err = c.end(err); err != nil || gs == nil {
 		return 0, 0, false, err

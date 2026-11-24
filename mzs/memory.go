@@ -503,11 +503,21 @@ func (w *memWalker) visit(v Value) {
 		}
 	case KRegex:
 		if r, ok := v.p.(*rx.Regexp); ok && w.first(unsafe.Pointer(r)) {
-			w.total += int64(len(r.String())) * regexPerRun
+			w.total += regexWeight(r)
 		}
 	default:
 		w.total += scalarBox
 	}
+}
+
+// regexWeight is what a regex value weighs (§14.2): 64 bytes per byte of pattern, or
+// what it compiled to when that is more.
+func regexWeight(r *rx.Regexp) int64 {
+	w := int64(len(r.String())) * regexPerRun
+	if s := int64(r.Size()); s > w {
+		w = s
+	}
+	return w
 }
 
 // byteSize renders a byte count the way the diagnostic states the budget: exact for a

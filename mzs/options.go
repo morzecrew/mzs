@@ -15,6 +15,7 @@ const (
 	DefaultMaxCollection  = 1_000_000
 	DefaultMaxStringBytes = 8 << 20
 	DefaultRegexSteps     = 200_000
+	DefaultMaxRegexBytes  = 4 << 10
 	DefaultRegexCacheSize = 256
 	DefaultProgramCache   = 512
 	DefaultMaxTasks       = 64
@@ -141,9 +142,21 @@ type Options struct {
 	// never by asking the Go runtime, so the same program fails at the same point on
 	// every run. 0 uses DefaultMaxMemory; a negative value disables the budget.
 	MaxMemory int64
-	// RegexSteps is the backtracking budget per match attempt.
+	// RegexSteps is the backtracking budget of one regex call (§11.2): a match, or a
+	// replace, split, matches or count with every match it makes. Running out of it is
+	// a catchable `regex` error. The steps a call takes are also charged to StepBudget,
+	// one interpreter step per sixteen, and the Run's deadline and context are checked
+	// while it searches, so no call outlives Timeout whatever this is set to.
 	RegexSteps int
-	// RegexCacheSize bounds the runtime regex compile cache, shared per *Interp.
+	// MaxRegexBytes bounds the pattern a Run may compile while it runs — with regex(),
+	// or through Ctx.Regex and Ctx.RegexOf (§11.4). A longer one is a catchable `regex`
+	// error, refused before any of it is compiled. Literals in the source are not
+	// covered: they compiled with the program and cost what the source costs. 0 uses
+	// DefaultMaxRegexBytes (4 KiB).
+	MaxRegexBytes int
+	// RegexCacheSize bounds the runtime regex compile cache, shared per *Interp. The
+	// cache is bounded in bytes too, by an estimate of each compiled pattern, so the
+	// patterns one Run compiles cannot keep more than a few megabytes alive after it.
 	RegexCacheSize int
 	// ProgramCache bounds the compiled-source cache used by Eval. 0 is the zero value
 	// and therefore means "the default" (DefaultProgramCache), like every other bound
@@ -247,6 +260,7 @@ func DefaultOptions() Options {
 		MaxStringBytes: DefaultMaxStringBytes,
 		MaxMemory:      DefaultMaxMemory,
 		RegexSteps:     DefaultRegexSteps,
+		MaxRegexBytes:  DefaultMaxRegexBytes,
 		RegexCacheSize: DefaultRegexCacheSize,
 		ProgramCache:   DefaultProgramCache,
 	}
@@ -282,6 +296,9 @@ func (o Options) normalize() Options {
 	}
 	if o.RegexSteps <= 0 {
 		o.RegexSteps = DefaultRegexSteps
+	}
+	if o.MaxRegexBytes <= 0 {
+		o.MaxRegexBytes = DefaultMaxRegexBytes
 	}
 	if o.RegexCacheSize <= 0 {
 		o.RegexCacheSize = DefaultRegexCacheSize
